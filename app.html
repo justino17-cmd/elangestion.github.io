@@ -206,6 +206,48 @@
   .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(120px); background:var(--acc); color:#fff; font-weight:600; font-size:14px; padding:13px 22px; border-radius:12px; z-index:100; transition:transform .3s; box-shadow:0 10px 30px rgba(0,0,0,0.4); }
   .toast.show { transform:translateX(-50%) translateY(0); }
 
+  /* ── LOGIN ── */
+  .login { position:fixed; inset:0; z-index:200; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .login-box { width:100%; max-width:380px; text-align:center; }
+  .login-logo { width:64px;height:64px; margin:0 auto 20px; background:rgba(34,177,76,0.15); border:1px solid rgba(34,177,76,0.3); border-radius:16px; display:flex;align-items:center;justify-content:center; font-size:30px; }
+  .login-box h2 { font-family:'Space Mono',monospace; font-size:20px; letter-spacing:1px; margin-bottom:6px; }
+  .login-box p { color:var(--t3); font-size:13px; margin-bottom:26px; }
+  .login-users { display:flex; flex-direction:column; gap:10px; margin-bottom:8px; }
+  .login-user { display:flex; align-items:center; gap:12px; background:var(--bg1); border:1px solid var(--brd); border-radius:12px; padding:13px 16px; cursor:pointer; transition:.15s; text-align:left; }
+  .login-user:hover { border-color:rgba(34,177,76,0.4); }
+  .login-user .nom { font-weight:600; font-size:15px; }
+  .login-user .role { font-size:12px; color:var(--t3); }
+  .pinpad { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; max-width:260px; margin:0 auto; }
+  .pin-key { background:var(--bg1); border:1px solid var(--brd); color:var(--t1); font-size:22px; font-family:'Space Mono',monospace; padding:18px 0; border-radius:14px; cursor:pointer; transition:.1s; }
+  .pin-key:hover { background:var(--bg2); border-color:rgba(34,177,76,0.4); }
+  .pin-key:active { transform:scale(.95); }
+  .pin-dots { display:flex; gap:14px; justify-content:center; margin:22px 0; }
+  .pin-dot { width:14px;height:14px;border-radius:50%; border:2px solid var(--t3); transition:.15s; }
+  .pin-dot.on { background:var(--acc); border-color:var(--acc); }
+  .pin-err { animation:shake .4s; }
+  @keyframes shake { 0%,100%{transform:none} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
+  .link-btn { background:none; border:none; color:var(--t3); font-size:13px; cursor:pointer; margin-top:18px; text-decoration:underline; }
+  .link-btn:hover { color:var(--acc); }
+
+  /* ── NOTIFICATIONS ── */
+  .bell { position:relative; background:var(--bg2); border:1px solid var(--brd); color:var(--t2); width:42px;height:42px;border-radius:11px; font-size:18px; cursor:pointer; transition:.15s; }
+  .bell:hover { color:var(--t1); border-color:rgba(34,177,76,0.4); }
+  .bell-count { position:absolute; top:-6px; right:-6px; background:var(--red); color:#fff; font-size:11px; font-weight:700; min-width:19px; height:19px; border-radius:100px; display:flex;align-items:center;justify-content:center; padding:0 5px; }
+  .notif-panel { position:absolute; top:64px; right:0; width:340px; max-width:90vw; background:var(--bg1); border:1px solid var(--brd); border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:30; overflow:hidden; }
+  .notif-head { padding:16px 18px; border-bottom:1px solid var(--brd); font-weight:600; font-size:14px; }
+  .notif-list { max-height:380px; overflow-y:auto; }
+  .notif-it { display:flex; gap:12px; padding:14px 18px; border-bottom:1px solid var(--brd); cursor:pointer; transition:.1s; }
+  .notif-it:hover { background:var(--bg2); }
+  .notif-it .ni-ico { font-size:18px; }
+  .notif-it .ni-txt { font-size:13px; color:var(--t2); line-height:1.4; }
+  .notif-it .ni-txt b { color:var(--t1); }
+
+  /* ── SCANNER ── */
+  .scan-view { background:#000; border-radius:14px; overflow:hidden; aspect-ratio:4/3; position:relative; margin-bottom:16px; display:flex;align-items:center;justify-content:center; }
+  .scan-view video { width:100%; height:100%; object-fit:cover; }
+  .scan-frame { position:absolute; inset:18% 15%; border:3px solid var(--acc); border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,0.35); }
+  .scan-result { background:var(--bg); border:1px solid rgba(34,177,76,0.4); border-radius:12px; padding:16px; margin-bottom:16px; }
+
   @media (max-width:780px){
     .sidebar { position:fixed; left:0; top:0; z-index:40; transform:translateX(-100%); transition:transform .25s; }
     .sidebar.open { transform:none; }
@@ -216,7 +258,13 @@
 </style>
 </head>
 <body>
-<div class="app">
+
+<!-- ── ÉCRAN DE CONNEXION ── -->
+<div class="login" id="login" style="display:none">
+  <div class="login-box" id="login-box"></div>
+</div>
+
+<div class="app" id="app-root" style="display:none">
 
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar" id="sidebar">
@@ -240,8 +288,13 @@
       <div class="nav-item" data-view="enveloppes"><span class="ico">📮</span> Enveloppes <span class="badge" id="nav-env">0</span></div>
       <div class="nav-label">Outils</div>
       <div class="nav-item" data-view="rapports"><span class="ico">📄</span> Rapports</div>
+      <div class="nav-item" data-view="utilisateurs" data-admin="1"><span class="ico">👥</span> Utilisateurs <span class="badge" id="nav-usr">0</span></div>
+      <div class="nav-item" data-view="parametres"><span class="ico">⚙️</span> Paramètres</div>
     </nav>
-    <div class="sidebar-foot">v1.0 — Données locales</div>
+    <div class="sidebar-foot">
+      <div id="session-info" style="margin-bottom:10px"></div>
+      <button class="btn ghost sm" style="width:100%;justify-content:center" onclick="logout()">🔒 Déconnexion</button>
+    </div>
   </aside>
 
   <!-- ── MAIN ── -->
@@ -253,6 +306,10 @@
         <div class="sub" id="page-sub">Vue d'ensemble de votre activité</div>
       </div>
       <div class="topbar-actions" id="topbar-actions"></div>
+      <div style="position:relative">
+        <button class="bell" onclick="toggleNotif(event)">🔔<span class="bell-count" id="bell-count" style="display:none">0</span></button>
+        <div id="notif-panel"></div>
+      </div>
     </div>
     <div class="content" id="content"></div>
   </div>
@@ -300,6 +357,7 @@ function load() {
       // Migration : garantir la présence des nouveaux modules ELAN GESTION
       d.boxes = d.boxes || [];
       d.enveloppes = d.enveloppes || [];
+      d.users = d.users || [{ id: uid(), nom: 'Administrateur', role: 'admin', pinHash: '', actif: true }];
       return d;
     }
   } catch (e) {}
@@ -315,6 +373,9 @@ function seed() {
   const today = new Date();
   const d = (offset) => { const x = new Date(today); x.setDate(x.getDate()+offset); return x.toISOString().slice(0,10); };
   return {
+    users: [
+      { id: uid(), nom: 'Administrateur', role: 'admin', pinHash: '', actif: true },
+    ],
     techniciens: [
       { id: t1, nom: 'Marc Dubois', tel: '06 12 34 56 78', email: 'marc@elan.fr', metier: 'Plombier' },
       { id: t2, nom: 'Sophie Martin', tel: '06 98 76 54 32', email: 'sophie@elan.fr', metier: 'Électricienne' },
@@ -361,6 +422,7 @@ function go(view) {
   current = view;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
   views[view]();
+  updateBell();
 }
 
 function setHeader(title, sub, actionsHtml = '') {
@@ -399,6 +461,7 @@ function refreshBadges() {
   $('nav-tec').textContent = db.techniciens.length;
   $('nav-box').textContent = (db.boxes||[]).length;
   $('nav-env').textContent = (db.enveloppes||[]).length;
+  $('nav-usr').textContent = (db.users||[]).length;
 }
 
 function statusBadge(s) { const o = STATUS[s] || STATUS.planifiee; return `<span class="st ${o.cls}">${o.label}</span>`; }
@@ -406,9 +469,20 @@ function prioBadge(p) { const o = PRIO[p] || PRIO.normale; return `<span class="
 
 /* ═══════ MODAL ═══════ */
 function openModal(html) { $('modal').innerHTML = html; $('overlay').classList.add('open'); }
-function closeModal() { $('overlay').classList.remove('open'); }
+function closeModal() {
+  $('overlay').classList.remove('open');
+  if (typeof scanTimer !== 'undefined' && scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+  if (typeof scanStream !== 'undefined' && scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+}
 $('overlay').addEventListener('click', e => { if (e.target === $('overlay')) closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); return; }
+  if ($('login').style.display !== 'none' && loginSel) {
+    if (/^\d$/.test(e.key)) pinPress(e.key);
+    else if (e.key === 'Backspace') pinDel();
+    else if (e.key === 'Enter') pinSubmit();
+  }
+});
 
 /* ═══════════════════════════════════════════════
    VUE : TABLEAU DE BORD
@@ -797,7 +871,7 @@ views.boxes = function () {
   const cats = ['all', ...new Set(boxes.map(b => b.categorie).filter(Boolean))];
   const lowStock = boxes.filter(b => b.qte <= b.seuil).length;
   setHeader('Boxes / Stocks', `${boxes.length} référence(s)${lowStock ? ` · ${lowStock} sous le seuil` : ''}`,
-    `<button class="btn" onclick="formBox()">＋ Nouvelle box</button>`);
+    `<button class="btn ghost" onclick="openScanner()">📷 Scanner</button> <button class="btn" onclick="formBox()">＋ Nouvelle box</button>`);
 
   let list = boxes;
   if (boxCat !== 'all') list = list.filter(b => b.categorie === boxCat);
@@ -973,9 +1047,303 @@ function emptyState(ico, txt, btnLabel, btnFn) {
   return `<div class="empty"><div class="e-ico">${ico}</div><p>${txt}</p>${btnLabel?`<button class="btn" onclick="${btnFn}">${btnLabel}</button>`:''}</div>`;
 }
 
+/* ═══════════════════════════════════════════════
+   AUTHENTIFICATION — code PIN haché en SHA-256
+   ═══════════════════════════════════════════════ */
+let currentUser = null;
+let loginSel = null, pinBuf = '';
+
+async function sha256(str) {
+  try {
+    if (window.crypto && crypto.subtle) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {}
+  // Repli pour contexte non sécurisé (ouverture en file://) — non cryptographique
+  let h = 0; for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return 'fb' + (h >>> 0).toString(16);
+}
+
+async function boot() {
+  // Garantir un code PIN par défaut (1234) pour les comptes sans PIN
+  let changed = false;
+  for (const u of db.users) { if (!u.pinHash) { u.pinHash = await sha256('1234'); changed = true; } }
+  if (changed) save();
+  refreshBadges();
+  const sid = localStorage.getItem('elan_session');
+  const u = db.users.find(x => x.id === sid && x.actif);
+  if (u) enterApp(u); else renderLogin();
+}
+
+function enterApp(u) {
+  currentUser = u;
+  $('login').style.display = 'none';
+  $('app-root').style.display = 'flex';
+  applyRole();
+  $('session-info').innerHTML = `<div style="font-weight:600;color:var(--t2)">${esc(u.nom)}</div><div style="font-size:11px">${u.role === 'admin' ? 'Administrateur' : 'Technicien'}</div>`;
+  go('dashboard');
+}
+
+function applyRole() {
+  document.querySelectorAll('[data-admin]').forEach(el => el.style.display = (currentUser && currentUser.role === 'admin') ? 'flex' : 'none');
+}
+
+function renderLogin() {
+  $('app-root').style.display = 'none';
+  $('login').style.display = 'flex';
+  loginSel = null; pinBuf = '';
+  const actives = db.users.filter(u => u.actif);
+  $('login-box').innerHTML = `
+    <div class="login-logo">🛠️</div>
+    <h2>ELAN GESTION</h2>
+    <p>Sélectionnez votre compte</p>
+    <div class="login-users">
+      ${actives.map(u => `<div class="login-user" onclick="selectUser('${u.id}')">
+        <span class="avatar">${initials(u.nom)}</span>
+        <div><div class="nom">${esc(u.nom)}</div><div class="role">${u.role === 'admin' ? 'Administrateur' : 'Technicien'}</div></div>
+      </div>`).join('')}
+    </div>`;
+}
+
+function selectUser(id) { loginSel = db.users.find(u => u.id === id); pinBuf = ''; renderPinpad(); }
+
+function renderPinpad() {
+  $('login-box').innerHTML = `
+    <div class="login-logo">🔐</div>
+    <h2>${esc(loginSel.nom)}</h2>
+    <p>Saisissez votre code PIN</p>
+    <div class="pin-dots" id="pin-dots"></div>
+    <div class="pinpad">
+      ${[1,2,3,4,5,6,7,8,9].map(n => `<button class="pin-key" onclick="pinPress('${n}')">${n}</button>`).join('')}
+      <button class="pin-key" onclick="pinDel()">⌫</button>
+      <button class="pin-key" onclick="pinPress('0')">0</button>
+      <button class="pin-key" onclick="pinSubmit()" style="color:var(--acc)">✓</button>
+    </div>
+    <button class="link-btn" onclick="renderLogin()">← Changer de compte</button>`;
+  updateDots();
+}
+function updateDots() {
+  const el = $('pin-dots'); if (!el) return;
+  el.innerHTML = Array.from({ length: Math.max(4, pinBuf.length) }).map((_, i) => `<div class="pin-dot ${i < pinBuf.length ? 'on' : ''}"></div>`).join('');
+}
+function pinPress(d) { if (pinBuf.length < 8) { pinBuf += d; updateDots(); } }
+function pinDel() { pinBuf = pinBuf.slice(0, -1); updateDots(); }
+async function pinSubmit() {
+  if (pinBuf.length < 4) { toast('Code à 4 chiffres minimum'); return; }
+  const h = await sha256(pinBuf);
+  if (h === loginSel.pinHash) {
+    localStorage.setItem('elan_session', loginSel.id);
+    enterApp(loginSel);
+  } else {
+    const box = $('login-box'); box.classList.add('pin-err'); setTimeout(() => box.classList.remove('pin-err'), 400);
+    pinBuf = ''; updateDots(); toast('Code PIN incorrect');
+  }
+}
+function logout() { localStorage.removeItem('elan_session'); currentUser = null; closeNotif(); renderLogin(); }
+
+/* ═══════════════════════════════════════════════
+   NOTIFICATIONS / ALERTES
+   ═══════════════════════════════════════════════ */
+function computeNotifs() {
+  const out = []; const today = todayISO();
+  (db.boxes || []).filter(b => b.qte <= b.seuil).forEach(b =>
+    out.push({ ico: '📦', txt: `Stock bas : <b>${esc(b.nom)}</b> (${b.qte}/${b.seuil})`, view: 'boxes' }));
+  (db.enveloppes || []).filter(e => e.statut === 'attente').forEach(e =>
+    out.push({ ico: '📮', txt: `Enveloppe en attente : <b>${esc(e.num)}</b> — ${(e.montant||0).toLocaleString('fr-FR')} €`, view: 'enveloppes' }));
+  db.interventions.filter(i => i.date === today && i.statut !== 'terminee' && i.statut !== 'annulee').forEach(i =>
+    out.push({ ico: '🧰', txt: `Aujourd'hui : <b>${esc(i.titre)}</b> à ${i.heure}`, view: 'planning' }));
+  return out;
+}
+function updateBell() {
+  if (!currentUser) return;
+  const n = computeNotifs().length, c = $('bell-count');
+  c.style.display = n ? 'flex' : 'none'; c.textContent = n;
+}
+let notifOpen = false;
+function toggleNotif(e) { e.stopPropagation(); notifOpen ? closeNotif() : openNotif(); }
+function openNotif() {
+  const list = computeNotifs(); notifOpen = true;
+  $('notif-panel').innerHTML = `<div class="notif-panel" onclick="event.stopPropagation()">
+    <div class="notif-head">🔔 Notifications (${list.length})</div>
+    <div class="notif-list">${list.length ? list.map(n =>
+      `<div class="notif-it" onclick="go('${n.view}');closeNotif()"><span class="ni-ico">${n.ico}</span><span class="ni-txt">${n.txt}</span></div>`).join('')
+      : `<div class="empty" style="padding:34px"><div class="e-ico">✅</div><p>Aucune alerte en cours</p></div>`}</div></div>`;
+}
+function closeNotif() { notifOpen = false; $('notif-panel').innerHTML = ''; }
+document.addEventListener('click', () => { if (notifOpen) closeNotif(); });
+
+/* ═══════════════════════════════════════════════
+   VUE : UTILISATEURS  (multi-utilisateurs, max 120)
+   ═══════════════════════════════════════════════ */
+views.utilisateurs = function () {
+  if (!currentUser || currentUser.role !== 'admin') {
+    setHeader('Accès restreint', 'Réservé aux administrateurs');
+    $('content').innerHTML = emptyState('🔒', 'Seuls les administrateurs peuvent gérer les utilisateurs.', '', '');
+    return;
+  }
+  setHeader('Utilisateurs', `${db.users.length} / 120 compte(s)`,
+    db.users.length < 120 ? `<button class="btn" onclick="formUser()">＋ Nouvel utilisateur</button>` : '');
+  $('content').innerHTML = `<div class="card"><table class="tbl">
+    <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Statut</th><th></th></tr></thead>
+    <tbody>${db.users.map(u => `<tr>
+      <td><div class="ppl"><span class="avatar">${initials(u.nom)}</span> <span class="strong">${esc(u.nom)}</span>${u.id === currentUser.id ? ' <span style="color:var(--t3);font-size:12px">(vous)</span>' : ''}</div></td>
+      <td>${u.role === 'admin' ? 'Administrateur' : 'Technicien'}</td>
+      <td>${u.actif ? '<span class="st st-terminee">Actif</span>' : '<span class="st st-annulee">Désactivé</span>'}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn ghost sm" onclick="resetPin('${u.id}')">🔑 PIN</button>
+        <button class="btn ghost sm" onclick="formUser('${u.id}')">✎</button>
+        ${u.id === currentUser.id ? '' : `<button class="btn danger sm" onclick="delUser('${u.id}')">🗑</button>`}
+      </td></tr>`).join('')}</tbody></table></div>`;
+};
+function formUser(id) {
+  const u = id ? db.users.find(x => x.id === id) : {};
+  openModal(`
+    <div class="modal-head"><h3>${id ? 'Modifier' : 'Nouvel'} utilisateur</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <form onsubmit="saveUser(event,'${id || ''}')">
+      <div class="field"><label>Nom complet *</label><input name="nom" required value="${esc(u.nom)}"></div>
+      <div class="field"><label>Rôle</label><select name="role">
+        <option value="technicien" ${u.role === 'technicien' ? 'selected' : ''}>Technicien</option>
+        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Administrateur</option>
+      </select></div>
+      ${id ? `<div class="field"><label>Statut</label><select name="actif">
+          <option value="true" ${u.actif ? 'selected' : ''}>Actif</option>
+          <option value="false" ${!u.actif ? 'selected' : ''}>Désactivé</option></select></div>`
+        : `<div class="field"><label>Code PIN (4 à 8 chiffres) *</label><input name="pin" required pattern="\\d{4,8}" inputmode="numeric" placeholder="Ex : 1234"></div>`}
+      <div class="modal-foot">
+        <button type="button" class="btn ghost" onclick="closeModal()">Annuler</button>
+        <button type="submit" class="btn">${id ? 'Enregistrer' : 'Créer'}</button>
+      </div>
+    </form>`);
+}
+async function saveUser(e, id) {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target).entries());
+  if (id) {
+    const idx = db.users.findIndex(x => x.id === id);
+    db.users[idx] = { ...db.users[idx], nom: data.nom, role: data.role, actif: data.actif === 'true' };
+    if (currentUser.id === id) { currentUser = db.users[idx]; applyRole(); }
+    toast('Utilisateur mis à jour');
+  } else {
+    if (db.users.length >= 120) { toast('Limite de 120 utilisateurs atteinte'); return; }
+    db.users.push({ id: uid(), nom: data.nom, role: data.role, actif: true, pinHash: await sha256(data.pin) });
+    toast('Utilisateur créé');
+  }
+  save(); closeModal(); views.utilisateurs();
+}
+async function resetPin(id) {
+  const pin = prompt('Nouveau code PIN (4 à 8 chiffres) :');
+  if (!pin) return;
+  if (!/^\d{4,8}$/.test(pin)) { toast('PIN invalide (4 à 8 chiffres)'); return; }
+  const u = db.users.find(x => x.id === id); u.pinHash = await sha256(pin);
+  save(); toast('Code PIN réinitialisé');
+}
+function delUser(id) {
+  if (id === currentUser.id) { toast('Impossible de supprimer votre compte'); return; }
+  if (!confirm('Supprimer cet utilisateur ?')) return;
+  db.users = db.users.filter(x => x.id !== id);
+  save(); toast('Utilisateur supprimé'); views.utilisateurs();
+}
+
+/* ═══════════════════════════════════════════════
+   VUE : PARAMÈTRES — sauvegarde / synchronisation
+   ═══════════════════════════════════════════════ */
+views.parametres = function () {
+  setHeader('Paramètres', 'Sauvegarde, synchronisation et données');
+  $('content').innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>☁️ Sauvegarde & synchronisation</h3></div>
+      <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:18px">Exportez vos données pour les sauvegarder ou les transférer sur un autre appareil. Tout est stocké localement dans ce navigateur (fonctionne hors connexion).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" onclick="exportData()">⬇️ Exporter (.json)</button>
+        <button class="btn ghost" onclick="document.getElementById('import-file').click()">⬆️ Importer une sauvegarde</button>
+        <input type="file" id="import-file" accept="application/json" style="display:none" onchange="importData(event)">
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>🔐 Sécurité</h3></div>
+      <p style="color:var(--t2);font-size:14px;line-height:1.6">L'accès est protégé par code PIN. Les codes sont hachés en <b style="color:var(--t1)">SHA-256</b> et ne sont jamais stockés en clair. Code par défaut de l'administrateur : <b style="color:var(--t1)">1234</b> (pensez à le modifier).</p>
+    </div>
+    <div class="card" style="border-color:rgba(239,68,68,0.3)">
+      <div class="card-head"><h3>⚠️ Zone de danger</h3></div>
+      <p style="color:var(--t2);font-size:14px;margin-bottom:16px">Réinitialise toutes les données (interventions, clients, stocks, utilisateurs…) et restaure la démonstration.</p>
+      <button class="btn danger" onclick="resetData()">🗑 Réinitialiser l'application</button>
+    </div>`;
+};
+function exportData() {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'elan-gestion-' + todayISO() + '.json'; a.click();
+  URL.revokeObjectURL(a.href); toast('Données exportées');
+}
+function importData(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      db = { ...db, ...d };
+      db.boxes = db.boxes || []; db.enveloppes = db.enveloppes || []; db.users = db.users || [];
+      save(); toast('Données importées'); go('dashboard');
+    } catch (err) { toast('Fichier invalide'); }
+  };
+  r.readAsText(file);
+}
+function resetData() {
+  if (!confirm('Réinitialiser TOUTES les données ? Action irréversible.')) return;
+  localStorage.removeItem(STORE_KEY); localStorage.removeItem('elan_session');
+  location.reload();
+}
+
+/* ═══════════════════════════════════════════════
+   SCANNER D'ÉTIQUETTES  (caméra + saisie manuelle)
+   ═══════════════════════════════════════════════ */
+let scanStream = null, scanTimer = null;
+function openScanner() {
+  const hasBD = ('BarcodeDetector' in window);
+  openModal(`
+    <div class="modal-head"><h3>📷 Scanner une étiquette</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    ${hasBD ? `<div class="scan-view"><video id="scan-video" playsinline muted></video><div class="scan-frame"></div></div>
+      <p style="color:var(--t3);font-size:13px;text-align:center;margin-bottom:14px">Placez le code-barres / QR dans le cadre…</p>` : ''}
+    <div class="field"><label>${hasBD ? 'Ou saisissez la référence' : 'Référence de la box'}</label>
+      <input id="scan-ref" list="ref-list" placeholder="Ex : PLB-001" oninput="scanLookup(this.value)" autofocus>
+      <datalist id="ref-list">${(db.boxes || []).map(b => `<option value="${esc(b.ref)}">${esc(b.nom)}</option>`).join('')}</datalist>
+    </div>
+    <div id="scan-match"></div>`);
+  if (hasBD) startCamera();
+}
+async function startCamera() {
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const v = $('scan-video'); if (!v) return; v.srcObject = scanStream; await v.play();
+    const detector = new BarcodeDetector();
+    scanTimer = setInterval(async () => {
+      try { const codes = await detector.detect(v); if (codes.length) { const val = codes[0].rawValue; const inp = $('scan-ref'); if (inp) inp.value = val; scanLookup(val); } } catch (e) {}
+    }, 600);
+  } catch (e) { /* caméra indisponible/refusée : saisie manuelle */ }
+}
+function scanLookup(ref) {
+  const b = (db.boxes || []).find(x => (x.ref || '').toLowerCase() === (ref || '').toLowerCase());
+  const el = $('scan-match'); if (!el) return;
+  if (!b) { el.innerHTML = ref ? `<p style="color:var(--t3);font-size:13px">Aucune box pour « ${esc(ref)} »</p>` : ''; return; }
+  el.innerHTML = `<div class="scan-result">
+    <div style="font-weight:600;margin-bottom:4px">${esc(b.nom)}</div>
+    <div style="color:var(--t3);font-size:13px;margin-bottom:14px">${esc(b.ref)} · Stock actuel</div>
+    <div style="display:flex;gap:12px;align-items:center;justify-content:center">
+      <button class="btn ghost" onclick="scanAdjust('${b.id}',-1)">−</button>
+      <span id="scan-qte" style="font-family:'Space Mono',monospace;font-size:26px;font-weight:700;min-width:50px;text-align:center">${b.qte}</span>
+      <button class="btn ghost" onclick="scanAdjust('${b.id}',1)">＋</button>
+    </div></div>`;
+}
+function scanAdjust(id, delta) {
+  const b = db.boxes.find(x => x.id === id); if (!b) return;
+  b.qte = Math.max(0, b.qte + delta); save();
+  const q = $('scan-qte'); if (q) q.textContent = b.qte;
+  toast('Stock mis à jour');
+}
+
 /* ═══════ INIT ═══════ */
-refreshBadges();
-go('dashboard');
+boot();
 </script>
 </body>
 </html>
