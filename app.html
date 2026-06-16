@@ -378,7 +378,7 @@ function load(){
   return seed();
 }
 function migrate(d){
-  const cols = ['users','techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal'];
+  const cols = ['users','techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages'];
   cols.forEach(c => { d[c] = d[c] || []; });
   if(!d.users.length) d.users = [{id:uid(),prenom:'ELAN',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];
   d.users.forEach(u=>{ if(!u.login) u.login=(u.prenom||u.nom||'user').toLowerCase().replace(/\s+/g,''); });
@@ -392,6 +392,7 @@ function defaultPerms(){
   return { technicien:{ dashboard:true, planning:true, interventions:true, clients:true, rapports:true,
     produits:true, boxes:true, stock:true, mouvements:true, enveloppes:false, demandes:true,
     commandes:true, vehicules:true, carte:true, conso:false, historique:true,
+    pointage:true, devis:false, factures:false, contrats:false,
     techniciens:false } };
 }
 
@@ -458,6 +459,23 @@ function seed(){
       {id:uid(),ts:Date.now()-3600000,userId:adminId,userNom:'ELAN Admin',action:'Connexion',detail:'Ouverture de session',type:'auth'},
       {id:uid(),ts:Date.now()-1800000,userId:t1,userNom:'Marc Dubois',action:'Sortie de stock',detail:'PLB-001 ×5',type:'stock'},
     ],
+    devis:[
+      {id:uid(),num:'DEV-2026-001',clientId:c1,date:d(-3),statut:'accepte',tva:20,notes:'Remplacement chauffe-eau collectif',lignes:[{designation:'Chauffe-eau 200L',qte:1,pu:680},{designation:'Main d\'œuvre (h)',qte:4,pu:55}]},
+      {id:uid(),num:'DEV-2026-002',clientId:c2,date:d(-1),statut:'envoye',tva:20,notes:'Mise aux normes tableau',lignes:[{designation:'Tableau électrique',qte:1,pu:320},{designation:'Disjoncteurs 16A',qte:6,pu:13},{designation:'Main d\'œuvre (h)',qte:6,pu:55}]},
+    ],
+    factures:[
+      {id:uid(),num:'FAC-2026-001',clientId:c1,devisId:'',date:d(-1),statut:'payee',tva:20,notes:'Dépannage prise électrique',lignes:[{designation:'Disjoncteur',qte:1,pu:18},{designation:'Main d\'œuvre (h)',qte:1,pu:55}]},
+      {id:uid(),num:'FAC-2026-002',clientId:c3,devisId:'',date:d(0),statut:'envoyee',tva:20,notes:'Entretien chaudière annuel',lignes:[{designation:'Forfait entretien chaudière',qte:1,pu:120}]},
+    ],
+    contrats:[
+      {id:uid(),num:'CTR-2026-001',clientId:c3,titre:'Maintenance chaudière annuelle',frequence:'annuel',dateDebut:d(-30),dateFin:d(335),montant:120,statut:'actif',notes:'Entretien réglementaire'},
+      {id:uid(),num:'CTR-2026-002',clientId:c1,titre:'Contrat plomberie résidence',frequence:'trimestriel',dateDebut:d(-60),dateFin:d(300),montant:450,statut:'actif',notes:'Vérification trimestrielle'},
+    ],
+    pointages:[
+      {id:uid(),techId:t1,date:d(0),debut:'08:30',fin:'12:00',pause:0,note:'Intervention Tilleuls'},
+      {id:uid(),techId:t1,date:d(-1),debut:'09:00',fin:'17:30',pause:60,note:'Chantier + déplacements'},
+      {id:uid(),techId:t2,date:d(0),debut:'08:00',fin:'16:00',pause:45,note:'Boulogne'},
+    ],
     permissions: defaultPerms(),
   };
 }
@@ -486,7 +504,8 @@ $('overlay').addEventListener('click', e=>{ if(e.target===$('overlay')) closeMod
 const NAV = [
   {g:'Pilotage', items:[
     {k:'dashboard',ic:'📊',l:'Tableau de bord'},
-    {k:'conso',ic:'📈',l:'Dashboard conso',admin:true},
+    {k:'statistiques',ic:'📈',l:'Statistiques',admin:true},
+    {k:'conso',ic:'📉',l:'Dashboard conso',admin:true},
     {k:'carte',ic:'🗺️',l:'Carte'},
     {k:'historique',ic:'🕘',l:'Historique'},
     {k:'audit',ic:'🛡️',l:'Audit',admin:true},
@@ -496,6 +515,12 @@ const NAV = [
     {k:'interventions',ic:'🧰',l:'Interventions',b:'int'},
     {k:'clients',ic:'🏢',l:'Clients',b:'cli'},
     {k:'rapports',ic:'📄',l:'Rapports'},
+    {k:'pointage',ic:'⏱️',l:'Pointage'},
+  ]},
+  {g:'Commercial', items:[
+    {k:'devis',ic:'💰',l:'Devis',b:'dev'},
+    {k:'factures',ic:'🧾',l:'Factures',b:'fac'},
+    {k:'contrats',ic:'📑',l:'Contrats',b:'ctr'},
   ]},
   {g:'Stock & produits', items:[
     {k:'produits',ic:'📦',l:'Produits',b:'prd'},
@@ -538,7 +563,7 @@ function renderNav(){
   refreshBadges();
 }
 function refreshBadges(){
-  const map={int:db.interventions,cli:db.clients,tec:db.techniciens,prd:db.produits,box:db.boxes,env:db.enveloppes,veh:db.vehicules,usr:db.users};
+  const map={int:db.interventions,cli:db.clients,tec:db.techniciens,prd:db.produits,box:db.boxes,env:db.enveloppes,veh:db.vehicules,usr:db.users,dev:db.devis,fac:db.factures,ctr:db.contrats};
   document.querySelectorAll('[data-badge]').forEach(el=>{ const c=map[el.dataset.badge]; if(c) el.textContent=c.length; });
 }
 
@@ -656,6 +681,8 @@ function detailIntervention(id){ const i=db.interventions.find(x=>x.id===id); if
       <div style="grid-column:1/-1"><div class="dt-lbl">Adresse</div><div class="dt-val">${esc(i.adresse)||'—'}</div></div></div>
     ${i.desc?`<div class="detail-desc">${esc(i.desc)}</div>`:''}
     ${i.compteRendu?`<div class="detail-desc" style="border-color:rgba(74,222,128,.3)"><b style="color:var(--acc)">📄 Compte-rendu :</b><br>${esc(i.compteRendu)}</div>`:''}
+    ${(i.photos&&i.photos.length)?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">📷 Photos</div><div style="display:flex;gap:8px;flex-wrap:wrap">${i.photos.map(p=>`<img src="${p}" onclick="window.open(this.src)" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--brd);cursor:pointer">`).join('')}</div></div>`:''}
+    ${i.signature?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">✍️ Signature client</div><img src="${i.signature}" style="background:#fff;border-radius:8px;max-width:240px;border:1px solid var(--brd)"></div>`:''}
     <div class="modal-foot"><button class="btn danger" onclick="delItem('interventions','${i.id}')">🗑</button>
       <button class="btn ghost" onclick="closeModal();formIntervention('${i.id}')">✎ Modifier</button>
       <button class="btn" onclick="closeModal();formRapport('${i.id}')">📄 Rapport</button></div>`);
@@ -692,17 +719,44 @@ views.rapports=function(){
     ${pend.length? pend.map(i=>`<div class="pl-row" onclick="detailIntervention('${i.id}')"><div class="pl-info"><div class="pl-title">${esc(i.titre)}</div><div class="pl-meta">${fmtShort(i.date)} · ${esc(clientName(i.clientId))}</div></div>${badge(STATUT_INT,i.statut)}</div>`).join('') : emptyState('🎉','Tout est à jour !','','')}
   </div>`;
 };
+let rapPhotos=[];
 function formRapport(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return;
+  rapPhotos = (i.photos||[]).slice();
   openModal(`<div class="modal-head"><h3>📄 Compte-rendu</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="detail-grid" style="margin-bottom:16px"><div><div class="dt-lbl">Intervention</div><div class="dt-val">${esc(i.titre)}</div></div>
       <div><div class="dt-lbl">Client</div><div class="dt-val">${esc(clientName(i.clientId))}</div></div></div>
     <form onsubmit="saveRapport(event,'${id}')">
-      <div class="field"><label>Compte-rendu</label><textarea name="compteRendu" style="min-height:140px">${esc(i.compteRendu)}</textarea></div>
+      <div class="field"><label>Compte-rendu</label><textarea name="compteRendu" style="min-height:120px">${esc(i.compteRendu)}</textarea></div>
+      <div class="field"><label>📷 Photos</label>
+        <div id="rap-photos" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"></div>
+        <input type="file" id="rap-file" accept="image/*" multiple style="display:none" onchange="addPhotos(event)">
+        <button type="button" class="btn ghost sm" onclick="document.getElementById('rap-file').click()">＋ Ajouter des photos</button></div>
+      <div class="field"><label>✍️ Signature client</label>
+        <canvas id="sig-pad" width="480" height="150" style="width:100%;height:150px;background:var(--deep);border:1px solid var(--brd);border-radius:10px;touch-action:none"></canvas>
+        <button type="button" class="btn ghost sm" style="margin-top:6px" onclick="clearSig()">Effacer la signature</button></div>
       <div class="field"><label>Statut</label><select name="statut">${Object.entries(STATUT_INT).map(([k,v])=>`<option value="${k}" ${i.statut===k?'selected':''}>${v.l}</option>`).join('')}</select></div>
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Fermer</button><button type="submit" class="btn">💾 Enregistrer</button></div></form>`);
+  renderRapPhotos(); initSigPad(i.signature);
 }
+function renderRapPhotos(){ const el=$('rap-photos'); if(!el) return;
+  el.innerHTML = rapPhotos.map((p,idx)=>`<div style="position:relative"><img src="${p}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--brd)"><button type="button" onclick="rapPhotos.splice(${idx},1);renderRapPhotos()" style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:11px">✕</button></div>`).join('');
+}
+function addPhotos(e){ const files=[...e.target.files]; files.forEach(f=>{ const r=new FileReader(); r.onload=()=>{ rapPhotos.push(r.result); renderRapPhotos(); }; r.readAsDataURL(f); }); }
+let sigCtx=null, sigDraw=false;
+function initSigPad(existing){ const cv=$('sig-pad'); if(!cv) return; sigCtx=cv.getContext('2d'); sigCtx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--acc')||'#4ADE80'; sigCtx.lineWidth=2.4; sigCtx.lineCap='round';
+  if(existing){ const img=new Image(); img.onload=()=>sigCtx.drawImage(img,0,0,cv.width,cv.height); img.src=existing; cv.dataset.has='1'; }
+  const pos=e=>{ const r=cv.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return {x:(t.clientX-r.left)*(cv.width/r.width), y:(t.clientY-r.top)*(cv.height/r.height)}; };
+  const down=e=>{ sigDraw=true; const p=pos(e); sigCtx.beginPath(); sigCtx.moveTo(p.x,p.y); e.preventDefault(); };
+  const move=e=>{ if(!sigDraw)return; const p=pos(e); sigCtx.lineTo(p.x,p.y); sigCtx.stroke(); cv.dataset.has='1'; e.preventDefault(); };
+  const up=()=>{ sigDraw=false; };
+  cv.onmousedown=down; cv.onmousemove=move; window.addEventListener('mouseup',up);
+  cv.ontouchstart=down; cv.ontouchmove=move; cv.ontouchend=up;
+}
+function clearSig(){ const cv=$('sig-pad'); if(cv&&sigCtx){ sigCtx.clearRect(0,0,cv.width,cv.height); cv.dataset.has=''; } }
 function saveRapport(e,id){ e.preventDefault(); const data=Object.fromEntries(new FormData(e.target)); const ix=db.interventions.findIndex(x=>x.id===id);
-  db.interventions[ix]={...db.interventions[ix],...data}; logEvent('Rapport rédigé',db.interventions[ix].titre,'crud'); save(); closeModal(); toast('Rapport enregistré'); go(current); }
+  const cv=$('sig-pad'); const sig = (cv&&cv.dataset.has) ? cv.toDataURL('image/png') : (db.interventions[ix].signature||'');
+  db.interventions[ix]={...db.interventions[ix],...data,photos:rapPhotos.slice(),signature:sig};
+  logEvent('Rapport rédigé',db.interventions[ix].titre+(sig?' (signé)':''),'crud'); save(); closeModal(); toast('Rapport enregistré'); go(current); }
 
 /* ═══════════════ PRODUITS ═══════════════ */
 let prdCat='all';
@@ -1118,6 +1172,186 @@ function scanLookup(ref){ const r=(ref||'').toLowerCase(); const item=db.produit
 function scanAdjust(coll,id,dl){ const it=db[coll].find(x=>x.id===id); it.qte=Math.max(0,it.qte+dl);
   if(coll==='produits') db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:id,type:dl>0?'entree':'sortie',qte:1,motif:'Scan',vehiculeId:''});
   save(); const q=$('scan-qte'); if(q)q.textContent=it.qte; toast('Stock mis à jour'); }
+
+/* ═══════════════ COMMERCIAL : DEVIS & FACTURES (façon Organilog) ═══════════════ */
+const DEVIS_ST={brouillon:{l:'Brouillon',c:'st-grey'},envoye:{l:'Envoyé',c:'st-blue'},accepte:{l:'Accepté',c:'st-green'},refuse:{l:'Refusé',c:'st-red'}};
+const FACT_ST={brouillon:{l:'Brouillon',c:'st-grey'},envoyee:{l:'Envoyée',c:'st-blue'},payee:{l:'Payée',c:'st-green'},retard:{l:'En retard',c:'st-red'}};
+const DOC={ devis:{coll:'devis',titre:'Devis',un:'devis',prefix:'DEV',st:DEVIS_ST}, factures:{coll:'factures',titre:'Facture',un:'facture',prefix:'FAC',st:FACT_ST} };
+const ligHT=ls=>(ls||[]).reduce((s,l)=>s+((+l.qte||0)*(+l.pu||0)),0);
+function docTot(d){ const ht=ligHT(d.lignes), tva=ht*(d.tva||0)/100; return {ht,tva,ttc:ht+tva}; }
+function docNum(kind){ return DOC[kind].prefix+'-'+new Date().getFullYear()+'-'+String(db[DOC[kind].coll].length+1).padStart(3,'0'); }
+
+let formLignes=[];
+function renderLignes(){ const el=$('lignes-box'); if(!el) return;
+  el.innerHTML = formLignes.map((l,i)=>`<div style="display:flex;gap:7px;margin-bottom:7px;align-items:center">
+    <input style="flex:2" placeholder="Désignation" value="${esc(l.designation)}" oninput="formLignes[${i}].designation=this.value">
+    <input style="width:58px" type="number" min="0" step="0.5" value="${l.qte}" title="Qté" oninput="formLignes[${i}].qte=parseFloat(this.value)||0;ligTot()">
+    <input style="width:80px" type="number" min="0" step="0.01" value="${l.pu}" title="P.U. €" oninput="formLignes[${i}].pu=parseFloat(this.value)||0;ligTot()">
+    <button type="button" class="btn danger sm" onclick="formLignes.splice(${i},1);renderLignes()">✕</button></div>`).join('')
+    + `<button type="button" class="btn ghost sm" onclick="formLignes.push({designation:'',qte:1,pu:0});renderLignes()">＋ Ligne</button>`;
+  ligTot();
+}
+function ligTot(){ const t=$('lig-tot'); if(!t) return; const tva=parseFloat(($('f-tva')||{}).value)||0; const ht=ligHT(formLignes);
+  t.innerHTML=`Total HT : <b>${eur(ht)}</b> &nbsp;·&nbsp; TVA ${tva}% &nbsp;·&nbsp; <b style="color:var(--acc)">TTC : ${eur(ht*(1+tva/100))}</b>`; }
+
+function docListView(kind){
+  const cfg=DOC[kind], list=[...db[cfg.coll]].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const total=list.reduce((s,d)=>s+docTot(d).ttc,0);
+  setHeader(cfg.titre+'s', `${list.length} ${cfg.un}(s) · ${eur(total)} TTC`, `<button class="btn" onclick="formDoc('${kind}')">＋ ${cfg.titre}</button>`);
+  const rows=list.map(d=>{ const t=docTot(d);
+    return `<tr><td class="strong mono">${esc(d.num)}</td><td>${esc(clientName(d.clientId))}</td><td>${fmtShort(d.date)}</td><td class="strong">${eur(t.ttc)}</td><td>${badge(cfg.st,d.statut)}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="btn ghost sm" onclick="printDoc('${kind}','${d.id}')">🖨️</button>
+      ${kind==='devis'&&d.statut==='accepte'?`<button class="btn sm" onclick="devisToFacture('${d.id}')" title="Convertir en facture">→🧾</button> `:''}
+      <button class="btn ghost sm" onclick="formDoc('${kind}','${d.id}')">✎</button>
+      <button class="btn danger sm" onclick="delItem('${cfg.coll}','${d.id}')">🗑</button></td></tr>`;}).join('');
+  $('content').innerHTML=list.length? tableCard(['N°','Client','Date','TTC','Statut',''],rows):`<div class="card">${emptyState(kind==='devis'?'💰':'🧾','Aucun '+cfg.un+'.','Créer','formDoc(\''+kind+'\')')}</div>`;
+}
+views.devis=()=>docListView('devis');
+views.factures=()=>docListView('factures');
+
+function formDoc(kind,id){
+  const cfg=DOC[kind], d=id?db[cfg.coll].find(x=>x.id===id):{};
+  formLignes = id ? JSON.parse(JSON.stringify(d.lignes||[])) : [{designation:'',qte:1,pu:0}];
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} ${cfg.un}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <form onsubmit="saveDoc(event,'${kind}','${id||''}')">
+      <div class="field-row"><div class="field"><label>N° *</label><input name="num" required value="${esc(d.num)||docNum(kind)}"></div>
+        <div class="field"><label>Date</label><input type="date" name="date" value="${d.date||todayISO()}"></div></div>
+      <div class="field"><label>Client *</label><select name="clientId" required><option value="">—</option>${db.clients.map(c=>`<option value="${c.id}" ${c.id===d.clientId?'selected':''}>${esc(c.nom)}</option>`).join('')}</select></div>
+      <div class="field"><label>Lignes</label><div id="lignes-box"></div></div>
+      <div id="lig-tot" style="text-align:right;font-size:14px;color:var(--t2);margin:6px 0 14px"></div>
+      <div class="field-row"><div class="field"><label>TVA (%)</label><input id="f-tva" type="number" name="tva" value="${d.tva??20}" oninput="ligTot()"></div>
+        <div class="field"><label>Statut</label><select name="statut">${Object.entries(cfg.st).map(([k,v])=>`<option value="${k}" ${d.statut===k?'selected':''}>${v.l}</option>`).join('')}</select></div></div>
+      <div class="field"><label>Notes</label><input name="notes" value="${esc(d.notes)}"></div>
+      <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
+  renderLignes();
+}
+function saveDoc(e,kind,id){ e.preventDefault(); const cfg=DOC[kind], f=Object.fromEntries(new FormData(e.target));
+  const doc={num:f.num,clientId:f.clientId,date:f.date,tva:parseFloat(f.tva)||0,statut:f.statut,notes:f.notes,lignes:formLignes.filter(l=>l.designation||l.pu)};
+  if(id){ const ix=db[cfg.coll].findIndex(x=>x.id===id); db[cfg.coll][ix]={...db[cfg.coll][ix],...doc}; toast(cfg.titre+' mis à jour'); }
+  else{ db[cfg.coll].push({id:uid(),devisId:'',...doc}); logEvent(cfg.titre+' créé',f.num+' — '+eur(docTot(doc).ttc),'finance'); toast(cfg.titre+' créé'); }
+  save(); closeModal(); docListView(kind);
+}
+function devisToFacture(id){ const d=db.devis.find(x=>x.id===id); const num=docNum('factures');
+  db.factures.push({id:uid(),num,clientId:d.clientId,devisId:id,date:todayISO(),statut:'brouillon',tva:d.tva,notes:d.notes,lignes:JSON.parse(JSON.stringify(d.lignes))});
+  logEvent('Facture créée depuis devis',num,'finance'); save(); toast('Facture créée depuis le devis'); go('factures'); }
+
+function printDoc(kind,id){
+  const cfg=DOC[kind], d=db[cfg.coll].find(x=>x.id===id), c=db.clients.find(x=>x.id===d.clientId)||{}, t=docTot(d);
+  const rows=(d.lignes||[]).map(l=>`<tr><td>${esc(l.designation)}</td><td style="text-align:center">${l.qte}</td><td style="text-align:right">${eur(l.pu)}</td><td style="text-align:right">${eur((+l.qte||0)*(+l.pu||0))}</td></tr>`).join('');
+  const w=window.open('','_blank'); if(!w){ toast('Autorisez les pop-ups pour imprimer/PDF'); return; }
+  w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${cfg.titre} ${esc(d.num)}</title>
+    <style>*{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}body{margin:0;padding:40px;color:#1A1F28}
+    .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #16803C;padding-bottom:16px;margin-bottom:24px}
+    .logo{font-size:22px;font-weight:800;color:#16803C;letter-spacing:1px}.logo small{display:block;font-size:11px;color:#666;font-weight:400;letter-spacing:0}
+    h1{font-size:20px;margin:0}.muted{color:#666;font-size:13px}
+    .box{background:#F7F9FC;border:1px solid #E3E8F0;border-radius:8px;padding:14px;margin-bottom:18px}
+    table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#16803C;color:#fff;padding:9px;text-align:left;font-size:13px}
+    td{padding:9px;border-bottom:1px solid #E3E8F0;font-size:13px}
+    .tot{margin-top:16px;margin-left:auto;width:260px}.tot div{display:flex;justify-content:space-between;padding:6px 0}.tot .ttc{font-size:17px;font-weight:800;color:#16803C;border-top:2px solid #16803C;margin-top:6px;padding-top:10px}
+    .ft{margin-top:40px;font-size:11px;color:#999;text-align:center}@media print{body{padding:20px}}</style></head>
+    <body><div class="hd"><div class="logo">ELAN GESTION<small>Gestion d'interventions</small></div>
+      <div style="text-align:right"><h1>${cfg.titre.toUpperCase()}</h1><div class="muted">N° ${esc(d.num)}<br>${new Date((d.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')}</div></div></div>
+      <div class="box"><b>Client</b><br>${esc(c.nom||'—')}<br><span class="muted">${esc(c.adresse||'')}${c.tel?' · '+esc(c.tel):''}</span></div>
+      <table><thead><tr><th>Désignation</th><th style="text-align:center">Qté</th><th style="text-align:right">P.U. HT</th><th style="text-align:right">Total HT</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="tot"><div><span>Total HT</span><b>${eur(t.ht)}</b></div><div><span>TVA ${d.tva||0}%</span><b>${eur(t.tva)}</b></div><div class="ttc"><span>TOTAL TTC</span><span>${eur(t.ttc)}</span></div></div>
+      ${d.notes?`<div class="box" style="margin-top:24px"><b>Notes</b><br><span class="muted">${esc(d.notes)}</span></div>`:''}
+      <div class="ft">ELAN GESTION — Document généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+    </body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350);
+}
+
+/* ═══════════════ CONTRATS DE MAINTENANCE ═══════════════ */
+const CTR_ST={actif:{l:'Actif',c:'st-green'},suspendu:{l:'Suspendu',c:'st-org'},expire:{l:'Expiré',c:'st-red'}};
+const FREQ={mensuel:'Mensuel',trimestriel:'Trimestriel',semestriel:'Semestriel',annuel:'Annuel'};
+views.contrats=function(){
+  const list=[...db.contrats].sort((a,b)=>(b.dateDebut||'').localeCompare(a.dateDebut||''));
+  setHeader('Contrats','Contrats de maintenance & récurrents',`<button class="btn" onclick="formContrat()">＋ Contrat</button>`);
+  const rows=list.map(ct=>`<tr><td class="strong mono">${esc(ct.num)}</td><td class="strong">${esc(ct.titre)}</td><td>${esc(clientName(ct.clientId))}</td><td>${FREQ[ct.frequence]||'—'}</td><td>${eur(ct.montant)}</td><td>${fmtShort(ct.dateDebut)} → ${fmtShort(ct.dateFin)}</td><td>${badge(CTR_ST,ct.statut)}</td>
+    <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="formContrat('${ct.id}')">✎</button> <button class="btn danger sm" onclick="delItem('contrats','${ct.id}')">🗑</button></td></tr>`).join('');
+  $('content').innerHTML=list.length? tableCard(['N°','Intitulé','Client','Fréquence','Montant','Période','Statut',''],rows):`<div class="card">${emptyState('📑','Aucun contrat.','Créer','formContrat()')}</div>`;
+};
+function formContrat(id){ const ct=id?db.contrats.find(x=>x.id===id):{};
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} contrat</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <form onsubmit="saveContrat(event,'${id||''}')">
+      <div class="field-row"><div class="field"><label>N° *</label><input name="num" required value="${esc(ct.num)||('CTR-'+new Date().getFullYear()+'-'+String(db.contrats.length+1).padStart(3,'0'))}"></div>
+        <div class="field"><label>Montant (€)</label><input type="number" step="0.01" name="montant" value="${ct.montant??0}"></div></div>
+      <div class="field"><label>Intitulé *</label><input name="titre" required value="${esc(ct.titre)}"></div>
+      <div class="field"><label>Client *</label><select name="clientId" required><option value="">—</option>${db.clients.map(c=>`<option value="${c.id}" ${c.id===ct.clientId?'selected':''}>${esc(c.nom)}</option>`).join('')}</select></div>
+      <div class="field-row"><div class="field"><label>Fréquence</label><select name="frequence">${Object.entries(FREQ).map(([k,v])=>`<option value="${k}" ${ct.frequence===k?'selected':''}>${v}</option>`).join('')}</select></div>
+        <div class="field"><label>Statut</label><select name="statut">${Object.entries(CTR_ST).map(([k,v])=>`<option value="${k}" ${ct.statut===k?'selected':''}>${v.l}</option>`).join('')}</select></div></div>
+      <div class="field-row"><div class="field"><label>Début</label><input type="date" name="dateDebut" value="${ct.dateDebut||todayISO()}"></div>
+        <div class="field"><label>Fin</label><input type="date" name="dateFin" value="${ct.dateFin||''}"></div></div>
+      <div class="field"><label>Notes</label><input name="notes" value="${esc(ct.notes)}"></div>
+      <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
+}
+function saveContrat(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target)); d.montant=parseFloat(d.montant)||0;
+  if(id){ const ix=db.contrats.findIndex(x=>x.id===id); db.contrats[ix]={...db.contrats[ix],...d}; toast('Contrat mis à jour'); }
+  else{ db.contrats.push({id:uid(),...d}); logEvent('Contrat créé',d.num,'finance'); toast('Contrat créé'); }
+  save(); closeModal(); views.contrats();
+}
+
+/* ═══════════════ POINTAGE (temps de travail) ═══════════════ */
+function minutes(deb,fin){ if(!deb||!fin) return 0; const [h1,m1]=deb.split(':').map(Number),[h2,m2]=fin.split(':').map(Number); return Math.max(0,(h2*60+m2)-(h1*60+m1)); }
+function dureeStr(min){ const h=Math.floor(min/60),m=min%60; return `${h}h${String(m).padStart(2,'0')}`; }
+views.pointage=function(){
+  setHeader('Pointage','Feuilles de temps des techniciens',`<button class="btn" onclick="formPointage()">＋ Pointage</button>`);
+  let list=[...db.pointages].sort((a,b)=>(b.date+b.debut).localeCompare(a.date+a.debut));
+  if(currentUser.role!=='admin' && currentUser.role!=='dr') list=list.filter(p=>p.techId===currentUser.id);
+  const totMin=list.reduce((s,p)=>s+Math.max(0,minutes(p.debut,p.fin)-(p.pause||0)),0);
+  const rows=list.map(p=>{ const net=Math.max(0,minutes(p.debut,p.fin)-(p.pause||0));
+    return `<tr><td>${fmtShort(p.date)}</td><td class="strong">${esc(techName(p.techId))}</td><td>${p.debut} → ${p.fin}</td><td>${p.pause||0} min</td><td class="strong">${dureeStr(net)}</td><td>${esc(p.note)||'—'}</td>
+    <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="formPointage('${p.id}')">✎</button> <button class="btn danger sm" onclick="delItem('pointages','${p.id}')">🗑</button></td></tr>`;}).join('');
+  $('content').innerHTML=`<div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+      <div class="kpi"><div class="kpi-ico" style="background:rgba(96,165,250,.14)">⏱️</div><div class="kpi-val">${dureeStr(totMin)}</div><div class="kpi-lbl">Temps total pointé</div></div>
+      <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">🗒️</div><div class="kpi-val">${list.length}</div><div class="kpi-lbl">Pointages</div></div></div>
+    ${list.length? tableCard(['Date','Technicien','Horaires','Pause','Net','Note',''],rows):`<div class="card">${emptyState('⏱️','Aucun pointage.','Pointer','formPointage()')}</div>`}`;
+};
+function formPointage(id){ const p=id?db.pointages.find(x=>x.id===id):{};
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} pointage</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <form onsubmit="savePointage(event,'${id||''}')">
+      <div class="field"><label>Technicien *</label><select name="techId" required><option value="">—</option>${db.techniciens.map(t=>`<option value="${t.id}" ${t.id===p.techId||(!id&&t.id===currentUser.id)?'selected':''}>${esc(t.nom)}</option>`).join('')}</select></div>
+      <div class="field"><label>Date</label><input type="date" name="date" value="${p.date||todayISO()}"></div>
+      <div class="field-row"><div class="field"><label>Début *</label><input type="time" name="debut" required value="${p.debut||'08:00'}"></div>
+        <div class="field"><label>Fin *</label><input type="time" name="fin" required value="${p.fin||'17:00'}"></div></div>
+      <div class="field"><label>Pause (min)</label><input type="number" name="pause" min="0" value="${p.pause||0}"></div>
+      <div class="field"><label>Note</label><input name="note" value="${esc(p.note)}"></div>
+      <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Pointer'}</button></div></form>`);
+}
+function savePointage(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target)); d.pause=parseInt(d.pause)||0;
+  if(id){ const ix=db.pointages.findIndex(x=>x.id===id); db.pointages[ix]={...db.pointages[ix],...d}; toast('Pointage mis à jour'); }
+  else{ db.pointages.push({id:uid(),...d}); logEvent('Pointage',`${techName(d.techId)} ${d.debut}-${d.fin}`,'general'); toast('Pointage enregistré'); }
+  save(); closeModal(); views.pointage();
+}
+
+/* ═══════════════ STATISTIQUES (pilotage d'activité) ═══════════════ */
+views.statistiques=function(){
+  setHeader('Statistiques',"Pilotage de l'activité");
+  const caPaye=db.factures.filter(f=>f.statut==='payee').reduce((s,f)=>s+docTot(f).ttc,0);
+  const caAtt=db.factures.filter(f=>f.statut==='envoyee'||f.statut==='retard').reduce((s,f)=>s+docTot(f).ttc,0);
+  const devisTtc=db.devis.reduce((s,d)=>s+docTot(d).ttc,0);
+  const tauxAccept=db.devis.length? Math.round(db.devis.filter(d=>d.statut==='accepte').length/db.devis.length*100):0;
+  // interventions par statut
+  const parSt={}; db.interventions.forEach(i=>parSt[i.statut]=(parSt[i.statut]||0)+1);
+  const maxI=Math.max(1,...Object.values(parSt));
+  // CA par client (factures)
+  const parClient={}; db.factures.forEach(f=>{ parClient[f.clientId]=(parClient[f.clientId]||0)+docTot(f).ttc; });
+  const topC=Object.entries(parClient).map(([id,v])=>({nom:clientName(id),v})).sort((a,b)=>b.v-a.v).slice(0,6);
+  const maxC=Math.max(1,...topC.map(c=>c.v));
+  $('content').innerHTML=`<div class="kpis">
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">💶</div><div class="kpi-val">${eur(caPaye)}</div><div class="kpi-lbl">CA encaissé</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(251,146,60,.14)">⏳</div><div class="kpi-val">${eur(caAtt)}</div><div class="kpi-lbl">En attente de paiement</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(96,165,250,.14)">💰</div><div class="kpi-val">${eur(devisTtc)}</div><div class="kpi-lbl">Devis émis</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(167,139,250,.14)">✅</div><div class="kpi-val">${tauxAccept}%</div><div class="kpi-lbl">Taux d'acceptation devis</div></div></div>
+    <div class="grid2">
+      <div class="card"><div class="card-head"><h3>🧰 Interventions par statut</h3></div>
+        ${Object.keys(parSt).length? Object.entries(parSt).map(([k,v])=>`<div class="bar-row"><div class="bar-lbl">${STATUT_INT[k]?STATUT_INT[k].l:k}</div><div class="bar-track"><div class="bar-fill" style="width:${v/maxI*100}%"></div></div><div class="bar-val">${v}</div></div>`).join(''):emptyState('🧰','Aucune intervention','','')}
+      </div>
+      <div class="card"><div class="card-head"><h3>🏢 Top clients (CA facturé)</h3></div>
+        ${topC.length? topC.map(c=>`<div class="bar-row"><div class="bar-lbl">${esc(c.nom)}</div><div class="bar-track"><div class="bar-fill" style="width:${c.v/maxC*100}%"></div></div><div class="bar-val">${eur(c.v)}</div></div>`).join(''):emptyState('🏢','Aucune facture','','')}
+      </div>
+    </div>`;
+};
 
 /* ═══════════════ NOTIFICATIONS ═══════════════ */
 function computeNotifs(){ const out=[]; const today=todayISO();
