@@ -668,11 +668,11 @@ views.planning=function(){
       <div style="font-family:'Space Mono',monospace;font-weight:700;font-size:16px;text-transform:capitalize">${monthName}</div>
       <button class="btn ghost sm" onclick="planRef=new Date(${y},${m+1},1);views.planning()">›</button></div>
     <div class="cal">${wd.map(d=>`<div class="cal-h">${d}</div>`).join('')}${cells}</div></div>
-    <div class="card"><div class="card-head"><h3 style="text-transform:capitalize">📌 ${fmtDate(planSel)}</h3><button class="btn ghost sm" onclick="formIntervention()">＋ Intervention</button></div>
+    <div class="card"><div class="card-head"><h3 style="text-transform:capitalize">📌 ${fmtDate(planSel)}</h3><button class="btn ghost sm" onclick="formIntervention('','${planSel}')">＋ Intervention</button></div>
     ${dayInts.length? dayInts.map(i=>`<div class="pl-row" onclick="detailIntervention('${i.id}')"><div class="pl-time">${i.heure}</div>
         <div class="pl-info"><div class="pl-title">${esc(i.titre)} <span class="${PRIO[i.prio].c}">${PRIO[i.prio].l}</span></div>
         <div class="pl-meta">${esc(clientName(i.clientId))} · 👷 ${esc(techName(i.techId))} · ⏱️ ${i.duree} min</div></div>
-        ${badge(STATUT_INT,i.statut)}</div>`).join('') : emptyState('📅','Aucune intervention ce jour.','Planifier','formIntervention()')}
+        ${badge(STATUT_INT,i.statut)}</div>`).join('') : emptyState('📅','Aucune intervention ce jour.','Planifier','formIntervention(\'\',\''+planSel+'\')')}
     </div>`;
 };
 
@@ -690,7 +690,7 @@ views.interventions=function(){
   $('content').innerHTML=`<div class="filters">${Object.keys(labels).map(k=>`<div class="chip ${intFilter===k?'active':''}" onclick="intFilter='${k}';views.interventions()">${labels[k]}</div>`).join('')}</div>
     ${list.length? tableCard(['Intervention','Client','Date','Technicien','Priorité','Statut'],rows) : `<div class="card">${emptyState('🧰','Aucune intervention.','Nouvelle','formIntervention()')}</div>`}`;
 };
-function formIntervention(id){
+function formIntervention(id,presetDate){
   const i=id?db.interventions.find(x=>x.id===id):{};
   const opt=(arr,sel)=>arr.map(o=>`<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.nom)}</option>`).join('');
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouvelle'} intervention</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
@@ -698,7 +698,7 @@ function formIntervention(id){
       <div class="field"><label>Titre *</label><input name="titre" required value="${esc(i.titre)}"></div>
       <div class="field-row"><div class="field"><label>Client *</label><select name="clientId" required><option value="">—</option>${opt(db.clients,i.clientId)}</select></div>
         <div class="field"><label>Technicien</label><select name="techId"><option value="">— Non assigné —</option>${opt(db.techniciens,i.techId)}</select></div></div>
-      <div class="field-row"><div class="field"><label>Date *</label><input type="date" name="date" required value="${i.date||todayISO()}"></div>
+      <div class="field-row"><div class="field"><label>Date *</label><input type="date" name="date" required value="${i.date||presetDate||todayISO()}"></div>
         <div class="field"><label>Heure *</label><input type="time" name="heure" required value="${i.heure||'09:00'}"></div></div>
       <div class="field-row"><div class="field"><label>Durée (min)</label><input type="number" name="duree" value="${i.duree||60}"></div>
         <div class="field"><label>Priorité</label><select name="prio">${Object.entries(PRIO).map(([k,v])=>`<option value="${k}" ${i.prio===k?'selected':''}>${v.l}</option>`).join('')}</select></div></div>
@@ -1058,8 +1058,9 @@ views.demandes=function(){
   setHeader('Mes demandes','Demandes de réapprovisionnement',`<button class="btn" onclick="formDemande()">＋ Demande</button>`);
   let list=[...db.demandes].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   if(currentUser.role!=='admin' && currentUser.role!=='dr') list=list.filter(d=>d.userId===currentUser.id);
-  const rows=list.map(d=>`<tr><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(produit(d.produitId).nom||'—')}</td><td>×${d.qte}</td><td>${esc(userName(d.userId))}</td><td>${fmtShort(d.date)}</td><td>${badge(DR,d.statut)}</td></tr>`).join('');
-  $('content').innerHTML=list.length? tableCard(['N°','Produit','Qté','Demandeur','Date','Statut'],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
+  const rows=list.map(d=>`<tr><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(produit(d.produitId).nom||'—')}</td><td>×${d.qte}</td><td>${esc(userName(d.userId))}</td><td>${fmtShort(d.date)}</td><td>${badge(DR,d.statut)}</td>
+    <td style="text-align:right">${(d.statut==='attente'||currentUser.role==='admin')?`<button class="btn danger sm" onclick="delItem('demandes','${d.id}')">🗑</button>`:'—'}</td></tr>`).join('');
+  $('content').innerHTML=list.length? tableCard(['N°','Produit','Qté','Demandeur','Date','Statut',''],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
 };
 function formDemande(){
   openModal(`<div class="modal-head"><h3>✈️ Nouvelle demande</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
