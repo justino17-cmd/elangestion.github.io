@@ -195,6 +195,10 @@
   .map-canvas{position:relative;height:440px;border-radius:16px;overflow:hidden;border:1px solid var(--brd);background:linear-gradient(135deg,#10141b,#181f2b);background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:40px 40px;}
   /* Isole la carte Leaflet : ses z-index internes restent confinés et n'écrasent plus le menu/la barre */
   #map{isolation:isolate;position:relative;z-index:0;}
+  /* Carte plein écran */
+  .content-map{padding:0 !important;}
+  .content-map .map-card{margin:0;border-radius:0;border:0;}
+  .leaflet-popup-content a{display:inline-block;}
   .marker{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;}
   .marker .pin{width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.4);}
   .marker .pin span{transform:rotate(45deg);font-size:15px;}
@@ -382,7 +386,7 @@
    Données locales (localStorage). Auth PIN SHA-256.
    ═══════════════════════════════════════════════════════════ */
 const STORE_KEY = 'elan_gestion_v2';
-const APP_VERSION = '10';
+const APP_VERSION = '11';
 async function forceUpdate(){
   try{ if('caches' in window){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){}
   try{ if('serviceWorker' in navigator){ const rs=await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r=>r.unregister())); } }catch(e){}
@@ -616,6 +620,7 @@ function go(view){
   document.getElementById('sidebar').classList.remove('open');
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===view));
   $('topbar-actions').innerHTML='';
+  $('content').classList.toggle('content-map', view==='carte');
   views[view]();
   updateBell();
 }
@@ -1210,28 +1215,35 @@ async function geocodeClients(){ const todo=db.clients.filter(c=>c.adresse && c.
 function setMapLayer(l){ _mapLayer=l; if(current==='carte') views.carte(); }
 views.carte=function(){
   const nLoc=db.clients.filter(c=>c.lat!=null).length, nMiss=db.clients.filter(c=>c.adresse&&c.lat==null).length;
-  setHeader('Carte','Clients et interventions sur Google Maps',
+  setHeader('Carte',`Google Maps · ${nLoc} client(s)${nMiss?` · ⚠️ ${nMiss} à géolocaliser`:''}`,
     `${nMiss?`<button class="btn ghost" onclick="geocodeClients()">📍 Géolocaliser (${nMiss})</button> `:''}<button class="btn ghost sm" onclick="setMapLayer('${_mapLayer==='m'?'s':'m'}')">${_mapLayer==='m'?'🛰️ Satellite':'🗺️ Plan'}</button>`);
-  $('content').innerHTML=`<div class="card" style="padding:0;overflow:hidden;border-radius:16px"><div id="map" style="height:520px;background:var(--bg2)"></div></div>
-    <div style="display:flex;gap:18px;margin-top:10px;font-size:13px;color:var(--t2)"><span>📍 ${nLoc} client(s) localisé(s)</span>${nMiss?`<span style="color:var(--org)">⚠️ ${nMiss} à géolocaliser</span>`:''}</div>
-    <div id="map-fb"></div>`;
-  loadLeaflet().then(()=>initMap()).catch(()=>{ $('map-fb').innerHTML=`<div class="card">${emptyState('🗺️','Carte indisponible — connexion Internet requise pour charger Google Maps.','','')}</div>`; });
+  $('content').innerHTML=`<div class="card map-card" style="padding:0;overflow:hidden"><div id="map" style="height:70vh;background:var(--bg2)"></div></div><div id="map-fb"></div>`;
+  loadLeaflet().then(()=>initMap()).catch(()=>{ $('content').classList.remove('content-map'); $('map-fb').innerHTML=`<div class="card">${emptyState('🗺️','Carte indisponible — connexion Internet requise pour charger Google Maps.','','')}</div>`; });
 };
+function fitMapHeight(){ const el=$('map'); if(!el) return; const top=el.getBoundingClientRect().top; el.style.height=Math.max(360,(window.innerHeight-top))+'px'; }
+function gpsLinks(c){ const d=c.lat+','+c.lng;
+  return `<div style="margin-top:8px;font-size:11px;color:#666">Itinéraire :</div><div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
+    <a href="https://www.google.com/maps/dir/?api=1&destination=${d}" target="_blank" rel="noopener" style="padding:6px 10px;border-radius:7px;background:#1a73e8;color:#fff;text-decoration:none;font-size:12px;font-weight:600">🗺️ Google</a>
+    <a href="https://waze.com/ul?ll=${d}&navigate=yes" target="_blank" rel="noopener" style="padding:6px 10px;border-radius:7px;background:#05c8f7;color:#06283d;text-decoration:none;font-size:12px;font-weight:600">🚗 Waze</a>
+    <a href="https://maps.apple.com/?daddr=${d}" target="_blank" rel="noopener" style="padding:6px 10px;border-radius:7px;background:#333;color:#fff;text-decoration:none;font-size:12px;font-weight:600">🍎 Plans</a>
+  </div>`; }
 function initMap(){
   const el=$('map'); if(!el||!window.L) return;
   if(_map){ try{_map.remove();}catch(e){} _map=null; }
+  fitMapHeight();
   _map=L.map(el,{zoomControl:true}).setView([46.6,2.4],5);
   const url = _mapLayer==='s' ? 'https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}' : 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
   L.tileLayer(url,{subdomains:['mt0','mt1','mt2','mt3'],maxZoom:20,attribution:'© Google'}).addTo(_map);
   const pts=[];
   db.clients.filter(c=>c.lat!=null).forEach(c=>{
     const m=L.marker([c.lat,c.lng]).addTo(_map);
-    m.bindPopup(`<b>${esc(c.nom)}</b><br>${esc(c.adresse||'')}<br>${c.tel?esc(c.tel)+'<br>':''}<a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(c.adresse||(c.lat+','+c.lng))}" target="_blank" rel="noopener">🧭 Itinéraire Google Maps</a>`);
+    m.bindPopup(`<b>${esc(c.nom)}</b><br><span style="color:#666">${esc(c.adresse||'')}</span>${c.tel?'<br>'+esc(c.tel):''}${gpsLinks(c)}`);
     pts.push([c.lat,c.lng]);
   });
   if(pts.length) _map.fitBounds(pts,{padding:[50,50],maxZoom:14});
-  setTimeout(()=>{ try{_map.invalidateSize();}catch(e){} },150);
+  setTimeout(()=>{ try{ fitMapHeight(); _map.invalidateSize(); }catch(e){} },180);
 }
+window.addEventListener('resize',()=>{ if(current==='carte'&&_map){ fitMapHeight(); _map.invalidateSize(); } });
 
 /* ═══════════════ DASHBOARD CONSO ═══════════════ */
 views.conso=function(){
