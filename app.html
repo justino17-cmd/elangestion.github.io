@@ -337,6 +337,7 @@
     <div class="sidebar-foot">
       <button class="btn ghost sm" style="width:100%;justify-content:center;margin-bottom:8px" onclick="go('parametres')">🔄 Synchroniser</button>
       <button class="btn danger sm" style="width:100%;justify-content:center" onclick="logout()">⏻ Déconnexion</button>
+      <div style="text-align:center;font-size:11px;color:var(--t3);margin-top:8px">ELAN GESTION · v<span id="app-ver"></span></div>
     </div>
   </aside>
 
@@ -368,6 +369,12 @@
    Données locales (localStorage). Auth PIN SHA-256.
    ═══════════════════════════════════════════════════════════ */
 const STORE_KEY = 'elan_gestion_v2';
+const APP_VERSION = '8';
+async function forceUpdate(){
+  try{ if('caches' in window){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){}
+  try{ if('serviceWorker' in navigator){ const rs=await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r=>r.unregister())); } }catch(e){}
+  location.reload(true);
+}
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
@@ -1357,7 +1364,9 @@ views.parametres=function(){
     <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:16px">Exportez vos données pour les sauvegarder ou les transférer sur un autre appareil. Tout est stocké localement (fonctionne hors connexion).</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="exportData()">⬇️ Exporter (.json)</button>
     <button class="btn ghost" onclick="document.getElementById('imp').click()">⬆️ Importer</button>
-    <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)"></div></div>
+    <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)"></div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--brd)"><p style="color:var(--t2);font-size:14px;margin-bottom:10px">Version installée : <b>v${APP_VERSION}</b>. Si l'app semble figée sur une ancienne version :</p>
+    <button class="btn" onclick="forceUpdate()">🔄 Forcer la mise à jour (vider le cache)</button></div></div>
     ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>🧩 Champs personnalisés (rapports)</h3><button class="btn sm" onclick="formChamp()">＋ Champ</button></div>
       <p style="color:var(--t3);font-size:13px;margin-bottom:10px">Ajoutez des champs sur-mesure aux rapports d'intervention (texte, nombre, oui/non, liste, ou tableau).</p>
       ${(db.champsPerso||[]).length? (db.champsPerso||[]).map(f=>`<div class="perm-row"><div class="pn">${esc(f.label)} <span class="tag">${CHAMP_TYPES[f.type]||f.type}</span>${f.options?` <span style="color:var(--t3);font-size:12px">(${f.options.map(esc).join(', ')})</span>`:''}${f.colonnes?` <span style="color:var(--t3);font-size:12px">[${f.colonnes.map(esc).join(', ')}]</span>`:''}</div><button class="btn danger sm" onclick="delItem('champsPerso','${f.id}')">🗑</button></div>`).join('') : '<div style="color:var(--t3);font-size:13px">Aucun champ personnalisé.</div>'}
@@ -1623,6 +1632,7 @@ async function boot(){ let ch=false; for(const u of db.users){ if(!u.pinHash){ u
   defaultPinHash=await sha256('1234');
   const u=db.users.find(x=>x.id===getSession()&&x.actif); if(u) enterApp(u); else renderLogin(); }
 function enterApp(u){ currentUser=u; $('login').style.display='none'; $('app-root').style.display='flex';
+  const av=$('app-ver'); if(av) av.textContent=APP_VERSION;
   const fn=fullName(u); $('brand-ini').textContent=initials(fn); $('brand-hi').textContent='Bonjour '+(u.prenom||fn.split(' ')[0]||'')+','; $('brand-role').textContent=ROLE[u.role]||'Technicien';
   asstMsgs=[]; asstOpen=false; renderAsst();
   renderNav(); logEvent('Connexion',`${fn} (@${u.login}) — ${ROLE[u.role]||''}`,'auth'); save(); go('dashboard'); }
