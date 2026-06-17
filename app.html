@@ -692,11 +692,35 @@ function detailIntervention(id){ const i=db.interventions.find(x=>x.id===id); if
 views.clients=function(){
   setHeader('Clients',`${db.clients.length} client(s)`,`<button class="btn" onclick="formClient()">＋ Client</button>`);
   const rows=db.clients.map(c=>{ const n=db.interventions.filter(i=>i.clientId===c.id).length;
-    return `<tr><td><div class="ppl"><span class="avatar">${initials(c.nom)}</span> <span class="strong">${esc(c.nom)}</span></div></td>
+    return `<tr class="row-clk" onclick="ficheClient('${c.id}')"><td><div class="ppl"><span class="avatar">${initials(c.nom)}</span> <span class="strong">${esc(c.nom)}</span></div></td>
     <td>${esc(c.contact)||'—'}</td><td>${esc(c.tel)||'—'}</td><td>${esc(c.adresse)||'—'}</td><td>${n}</td>
-    <td style="text-align:right"><button class="btn ghost sm" onclick="formClient('${c.id}')">✎</button> <button class="btn danger sm" onclick="delItem('clients','${c.id}')">🗑</button></td></tr>`;}).join('');
+    <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()"><button class="btn ghost sm" onclick="formClient('${c.id}')">✎</button> <button class="btn danger sm" onclick="delItem('clients','${c.id}')">🗑</button></td></tr>`;}).join('');
   $('content').innerHTML=db.clients.length? tableCard(['Client','Contact','Téléphone','Adresse','Interv.',''],rows):`<div class="card">${emptyState('🏢','Aucun client.','Ajouter','formClient()')}</div>`;
-};
+}
+function ficheClient(id){ const c=db.clients.find(x=>x.id===id); if(!c) return;
+  const ints=db.interventions.filter(i=>i.clientId===id).sort((a,b)=>(b.date+b.heure).localeCompare(a.date+a.heure));
+  const devis=db.devis.filter(d=>d.clientId===id), facts=db.factures.filter(f=>f.clientId===id);
+  const ctrs=db.contrats.filter(x=>x.clientId===id && x.statut==='actif'), envs=db.enveloppes.filter(e=>e.clientId===id);
+  const caFact=facts.filter(f=>f.statut==='payee').reduce((s,f)=>s+docTot(f).ttc,0);
+  const k=(ic,bg,val,lbl)=>`<div class="kpi" style="padding:14px"><div class="kpi-ico" style="width:34px;height:34px;font-size:16px;margin-bottom:8px;background:${bg}">${ic}</div><div class="kpi-val" style="font-size:22px">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
+  const sec=(t,arr,fn)=>`<div class="dt-lbl" style="margin:16px 0 8px">${t}</div>${arr.length?arr.slice(0,4).map(fn).join(''):'<div style="color:var(--t3);font-size:13px;padding:4px 0">Aucun</div>'}`;
+  openModal(`<div class="modal-head"><h3>🏢 ${esc(c.nom)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="detail-grid" style="margin-bottom:8px">
+      <div><div class="dt-lbl">Contact</div><div class="dt-val">${esc(c.contact)||'—'}</div></div>
+      <div><div class="dt-lbl">Téléphone</div><div class="dt-val">${esc(c.tel)||'—'}</div></div>
+      <div><div class="dt-lbl">Email</div><div class="dt-val">${esc(c.email)||'—'}</div></div>
+      <div><div class="dt-lbl">Adresse</div><div class="dt-val">${esc(c.adresse)||'—'}</div></div></div>
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin:14px 0">
+      ${k('🧰','rgba(96,165,250,.14)',ints.length,'Interventions')}
+      ${k('💶','rgba(74,222,128,.16)',eur(caFact),'CA encaissé')}
+      ${k('💰','rgba(167,139,250,.14)',devis.length,'Devis')}
+      ${k('📑','rgba(251,146,60,.14)',ctrs.length,'Contrats actifs')}</div>
+    ${sec('🧰 Dernières interventions',ints,i=>`<div class="pl-row" onclick="closeModal();detailIntervention('${i.id}')"><div class="pl-info"><div class="pl-title">${esc(i.titre)}</div><div class="pl-meta">${fmtShort(i.date)} · ${esc(techName(i.techId))}</div></div>${badge(STATUT_INT,i.statut)}</div>`)}
+    ${sec('🧾 Factures',facts,f=>`<div class="pl-row" onclick="closeModal();go('factures')"><div class="pl-info"><div class="pl-title">${esc(f.num)} · ${eur(docTot(f).ttc)}</div><div class="pl-meta">${fmtShort(f.date)}</div></div>${badge(FACT_ST,f.statut)}</div>`)}
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal();formClient('${c.id}')">✎ Modifier</button>
+      <button class="btn" onclick="closeModal();formIntervention()">＋ Intervention</button>
+      <button class="btn" onclick="closeModal();formDoc('devis')">＋ Devis</button></div>`);
+}
 function formClient(id){ const c=id?db.clients.find(x=>x.id===id):{};
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} client</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveSimple(event,'clients','${id||''}',['x','y'])">
@@ -974,10 +998,23 @@ views.commandes=function(){
 const VEH={service:{l:'En service',c:'st-green'},maintenance:{l:'Maintenance',c:'st-org'},hs:{l:'Hors service',c:'st-red'}};
 views.vehicules=function(){
   setHeader('Véhicules','Flotte',`<button class="btn" onclick="formVehicule()">＋ Véhicule</button>`);
-  const rows=db.vehicules.map(v=>`<tr><td class="strong mono">${esc(v.immat)}</td><td>${esc(v.marque)} ${esc(v.modele)}</td><td>${esc(techName(v.techId))}</td><td>${(v.km||0).toLocaleString('fr-FR')} km</td><td>${badge(VEH,v.statut)}</td>
-    <td style="text-align:right"><button class="btn ghost sm" onclick="formVehicule('${v.id}')">✎</button> <button class="btn danger sm" onclick="delItem('vehicules','${v.id}')">🗑</button></td></tr>`).join('');
+  const rows=db.vehicules.map(v=>`<tr class="row-clk" onclick="ficheVehicule('${v.id}')"><td class="strong mono">${esc(v.immat)}</td><td>${esc(v.marque)} ${esc(v.modele)}</td><td>${esc(techName(v.techId))}</td><td>${(v.km||0).toLocaleString('fr-FR')} km</td><td>${badge(VEH,v.statut)}</td>
+    <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()"><button class="btn ghost sm" onclick="formVehicule('${v.id}')">✎</button> <button class="btn danger sm" onclick="delItem('vehicules','${v.id}')">🗑</button></td></tr>`).join('');
   $('content').innerHTML=db.vehicules.length? tableCard(['Immat.','Modèle','Affecté à','Kilométrage','Statut',''],rows):`<div class="card">${emptyState('🚐','Aucun véhicule.','Ajouter','formVehicule()')}</div>`;
-};
+}
+function ficheVehicule(id){ const v=db.vehicules.find(x=>x.id===id); if(!v) return;
+  const mvts=db.mouvements.filter(m=>m.vehiculeId===id).sort((a,b)=>b.ts-a.ts);
+  openModal(`<div class="modal-head"><h3>🚐 ${esc(v.immat)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div style="margin-bottom:14px">${badge(VEH,v.statut)}</div>
+    <div class="detail-grid">
+      <div><div class="dt-lbl">Modèle</div><div class="dt-val">${esc(v.marque)} ${esc(v.modele)}</div></div>
+      <div><div class="dt-lbl">Affecté à</div><div class="dt-val">${esc(techName(v.techId))}</div></div>
+      <div><div class="dt-lbl">Kilométrage</div><div class="dt-val">${(v.km||0).toLocaleString('fr-FR')} km</div></div>
+      <div><div class="dt-lbl">Mouvements stock liés</div><div class="dt-val">${mvts.length}</div></div></div>
+    <div class="dt-lbl" style="margin:16px 0 8px">🔁 Derniers mouvements de stock</div>
+    ${mvts.length? mvts.slice(0,6).map(m=>{const p=produit(m.produitId);return `<div class="pl-row"><div class="pl-info"><div class="pl-title">${esc(p.nom||'—')}</div><div class="pl-meta">${fmtTs(m.ts)} · ${esc(m.motif)||''}</div></div><span class="strong">${m.type==='entree'?'+':'−'}${m.qte}</span></div>`;}).join('') : '<div style="color:var(--t3);font-size:13px">Aucun mouvement</div>'}
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal();formVehicule('${v.id}')">✎ Modifier</button><button class="btn" onclick="closeModal();go('carte')">🗺️ Voir sur la carte</button></div>`);
+}
 function formVehicule(id){ const v=id?db.vehicules.find(x=>x.id===id):{};
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} véhicule</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveVehicule(event,'${id||''}')">
@@ -1042,10 +1079,31 @@ views.audit=function(){ journalView('Audit','Journal de traçabilité (lecture s
 views.techniciens=function(){
   setHeader('Techniciens',`${db.techniciens.length} membre(s)`,`<button class="btn" onclick="formTech()">＋ Technicien</button>`);
   const rows=db.techniciens.map(t=>{ const n=db.interventions.filter(i=>i.techId===t.id).length;
-    return `<tr><td><div class="ppl"><span class="avatar">${initials(t.nom)}</span> <span class="strong">${esc(t.nom)}</span></div></td><td>${esc(t.metier)||'—'}</td><td>${esc(t.tel)||'—'}</td><td>${esc(t.email)||'—'}</td><td>${n}</td>
-    <td style="text-align:right"><button class="btn ghost sm" onclick="formTech('${t.id}')">✎</button> <button class="btn danger sm" onclick="delItem('techniciens','${t.id}')">🗑</button></td></tr>`;}).join('');
+    return `<tr class="row-clk" onclick="ficheTech('${t.id}')"><td><div class="ppl"><span class="avatar">${initials(t.nom)}</span> <span class="strong">${esc(t.nom)}</span></div></td><td>${esc(t.metier)||'—'}</td><td>${esc(t.tel)||'—'}</td><td>${esc(t.email)||'—'}</td><td>${n}</td>
+    <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()"><button class="btn ghost sm" onclick="formTech('${t.id}')">✎</button> <button class="btn danger sm" onclick="delItem('techniciens','${t.id}')">🗑</button></td></tr>`;}).join('');
   $('content').innerHTML=db.techniciens.length? tableCard(['Technicien','Métier','Téléphone','Email','Interv.',''],rows):`<div class="card">${emptyState('👷','Aucun technicien.','Ajouter','formTech()')}</div>`;
-};
+}
+function ficheTech(id){ const t=db.techniciens.find(x=>x.id===id); if(!t) return;
+  const ints=db.interventions.filter(i=>i.techId===id).sort((a,b)=>(b.date+b.heure).localeCompare(a.date+a.heure));
+  const pts=db.pointages.filter(p=>p.techId===id);
+  const totMin=pts.reduce((s,p)=>s+Math.max(0,minutes(p.debut,p.fin)-(p.pause||0)),0);
+  const veh=db.vehicules.find(v=>v.techId===id);
+  const enCours=ints.filter(i=>i.statut==='encours'||i.statut==='planifiee').length;
+  const k=(ic,bg,val,lbl)=>`<div class="kpi" style="padding:14px"><div class="kpi-ico" style="width:34px;height:34px;font-size:16px;margin-bottom:8px;background:${bg}">${ic}</div><div class="kpi-val" style="font-size:22px">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
+  openModal(`<div class="modal-head"><h3>👷 ${esc(t.nom)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="detail-grid" style="margin-bottom:6px">
+      <div><div class="dt-lbl">Métier</div><div class="dt-val">${esc(t.metier)||'—'}</div></div>
+      <div><div class="dt-lbl">Téléphone</div><div class="dt-val">${esc(t.tel)||'—'}</div></div>
+      <div><div class="dt-lbl">Email</div><div class="dt-val">${esc(t.email)||'—'}</div></div>
+      <div><div class="dt-lbl">Véhicule</div><div class="dt-val">${veh?esc(veh.immat):'—'}</div></div></div>
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:14px 0">
+      ${k('🧰','rgba(96,165,250,.14)',ints.length,'Interventions')}
+      ${k('📅','rgba(251,146,60,.14)',enCours,'En cours/à venir')}
+      ${k('⏱️','rgba(74,222,128,.16)',dureeStr(totMin),'Temps pointé')}</div>
+    <div class="dt-lbl" style="margin:8px 0">🧰 Dernières interventions</div>
+    ${ints.length? ints.slice(0,5).map(i=>`<div class="pl-row" onclick="closeModal();detailIntervention('${i.id}')"><div class="pl-info"><div class="pl-title">${esc(i.titre)}</div><div class="pl-meta">${fmtShort(i.date)} · ${esc(clientName(i.clientId))}</div></div>${badge(STATUT_INT,i.statut)}</div>`).join('') : '<div style="color:var(--t3);font-size:13px">Aucune intervention</div>'}
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal();formTech('${t.id}')">✎ Modifier</button><button class="btn" onclick="closeModal();go('pointage')">⏱️ Pointage</button></div>`);
+}
 function formTech(id){ const t=id?db.techniciens.find(x=>x.id===id):{};
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} technicien</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveSimple(event,'techniciens','${id||''}',[])">
