@@ -733,7 +733,7 @@ function renderIntDetail(id){
         <select id="ip-prod" style="flex:1;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)"><option value="">— Produit —</option>${db.produits.map(p=>`<option value="${p.id}">${esc(p.ref)} — ${esc(p.nom)} (stock ${p.qte})</option>`).join('')}</select>
         <input id="ip-qte" type="number" min="1" value="1" style="width:64px;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)">
         <button class="btn" onclick="intAddProduit('${id}')">＋</button></div>
-      <div style="font-size:12px;color:var(--t3);margin-top:8px">Les produits ajoutés sont déduits du stock automatiquement.</div>`;
+      <div style="font-size:12px;color:var(--t3);margin-top:8px">Liste des produits utilisés sur l'intervention — sans impact sur le stock.</div>`;
   } else if(intTab==='equipement'){
     body=`${i.equipements.length? i.equipements.map((e,ix)=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${esc(e.nom)}</div><div class="pl-meta">${esc(e.reference)||'—'}${e.note?' · '+esc(e.note):''}</div></div><button class="btn danger sm" onclick="intDelEquip('${id}',${ix})">✕</button></div>`).join('')
       : '<div style="color:var(--t3);font-size:13px;padding:6px 0">Aucun équipement.</div>'}
@@ -755,12 +755,8 @@ function renderIntDetail(id){
       <button class="btn ghost" onclick="closeModal();formIntervention('${i.id}')">✎ Modifier</button></div>`);
 }
 function intAddProduit(id){ const i=db.interventions.find(x=>x.id===id); const pid=$('ip-prod').value, q=parseInt($('ip-qte').value)||1; if(!pid){toast('Choisis un produit');return;}
-  const p=produit(pid); p.qte=Math.max(0,(p.qte||0)-q);
-  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:'sortie',qte:q,motif:'Intervention : '+i.titre,vehiculeId:''});
-  i.produitsUtilises.push({produitId:pid,qte:q}); logEvent('Produit utilisé',`${p.ref} ×${q} (${i.titre})`,'stock'); save(); renderIntDetail(id); }
-function intDelProduit(id,ix){ const i=db.interventions.find(x=>x.id===id); const l=i.produitsUtilises[ix]; if(!l)return;
-  const p=produit(l.produitId); if(p.id){ p.qte=(p.qte||0)+l.qte; db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'entree',qte:l.qte,motif:'Retrait intervention : '+i.titre,vehiculeId:''}); }
-  i.produitsUtilises.splice(ix,1); save(); renderIntDetail(id); }
+  i.produitsUtilises.push({produitId:pid,qte:q}); save(); renderIntDetail(id); }
+function intDelProduit(id,ix){ const i=db.interventions.find(x=>x.id===id); i.produitsUtilises.splice(ix,1); save(); renderIntDetail(id); }
 function intAddEquip(id){ const i=db.interventions.find(x=>x.id===id); const nom=$('ie-nom').value.trim(); if(!nom){toast('Nom requis');return;}
   i.equipements.push({nom,reference:$('ie-ref').value.trim(),note:''}); save(); renderIntDetail(id); }
 function intDelEquip(id,ix){ const i=db.interventions.find(x=>x.id===id); i.equipements.splice(ix,1); save(); renderIntDetail(id); }
