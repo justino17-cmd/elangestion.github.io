@@ -162,6 +162,19 @@
   .pl-title{font-size:15px;font-weight:600;margin-bottom:3px;}
   .pl-meta{font-size:13px;color:var(--t3);}
   .planning-date{font-family:'Space Mono',monospace;font-size:13px;letter-spacing:1px;color:var(--acc);text-transform:uppercase;margin:22px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--brd);}
+  /* Calendrier (planning style Organilog) */
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .cal-h{text-align:center;font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;padding:4px 0;font-weight:600;}
+  .cal-d{min-height:62px;border:1px solid var(--brd);border-radius:10px;padding:6px;cursor:pointer;display:flex;flex-direction:column;gap:4px;transition:.12s;background:var(--bg);}
+  .cal-d:hover{border-color:color-mix(in srgb,var(--acc) 45%,transparent);}
+  .cal-d.out{opacity:.32;}
+  .cal-d.today{border-color:var(--acc);}
+  .cal-d.sel{background:color-mix(in srgb,var(--acc) 14%,transparent);border-color:var(--acc);}
+  .cal-d .num{font-size:13px;font-weight:600;}
+  .cal-dots{display:flex;gap:3px;flex-wrap:wrap;}
+  .cal-dot{width:6px;height:6px;border-radius:50%;}
+  .cal-cnt{margin-top:auto;font-size:10px;color:var(--t3);font-weight:600;}
+  @media(max-width:560px){ .cal{gap:3px;} .cal-d{min-height:48px;padding:4px;border-radius:8px;} .cal-d .num{font-size:12px;} .cal-cnt{display:none;} }
 
   .avatar{width:30px;height:30px;border-radius:50%;background:rgba(74,222,128,.2);border:1px solid rgba(74,222,128,.3);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--acc);flex-shrink:0;}
   .ppl{display:flex;align-items:center;gap:9px;}
@@ -620,18 +633,39 @@ views.dashboard=function(){
     </div>`:''}`;
 };
 
-/* ═══════════════ PLANNING ═══════════════ */
+/* ═══════════════ PLANNING — calendrier mensuel (style Organilog) ═══════════════ */
+let planRef=new Date(); planRef.setDate(1);
+let planSel=todayISO();
+const ISO=dt=>dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+const ST_COLOR={planifiee:'var(--blue)',encours:'var(--org)',terminee:'var(--acc)',annulee:'var(--red)'};
 views.planning=function(){
-  setHeader('Planning','Interventions classées par jour',`<button class="btn" onclick="formIntervention()">＋ Intervention</button>`);
-  const ints=[...db.interventions].sort((a,b)=>(a.date+a.heure).localeCompare(b.date+b.heure));
-  if(!ints.length){ $('content').innerHTML=emptyState('🗓️','Aucune intervention planifiée.','Créer','formIntervention()'); return; }
-  const groups={}; ints.forEach(i=>(groups[i.date]=groups[i.date]||[]).push(i));
-  $('content').innerHTML=Object.keys(groups).sort().map(date=>`
-    <div class="planning-date">${fmtDate(date)} ${date===todayISO()?'· Aujourd\'hui':''}</div>
-    ${groups[date].map(i=>`<div class="pl-row" onclick="detailIntervention('${i.id}')"><div class="pl-time">${i.heure}</div>
-      <div class="pl-info"><div class="pl-title">${esc(i.titre)} <span class="${PRIO[i.prio].c}">${PRIO[i.prio].l}</span></div>
-      <div class="pl-meta">${esc(clientName(i.clientId))} · 👷 ${esc(techName(i.techId))} · ⏱️ ${i.duree} min</div></div>
-      ${badge(STATUT_INT,i.statut)}</div>`).join('')}`).join('');
+  setHeader('Planning','Calendrier des interventions',
+    `<button class="btn ghost" onclick="planRef=new Date();planRef.setDate(1);planSel=todayISO();views.planning()">Aujourd'hui</button> <button class="btn" onclick="formIntervention()">＋ Intervention</button>`);
+  const y=planRef.getFullYear(), m=planRef.getMonth();
+  const monthName=planRef.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+  const start=(new Date(y,m,1).getDay()+6)%7, daysIn=new Date(y,m+1,0).getDate();
+  const wd=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  let cells='';
+  for(let i=0;i<42;i++){
+    const dt=new Date(y,m,1-start+i), iso=ISO(dt), out=dt.getMonth()!==m;
+    const its=db.interventions.filter(x=>x.date===iso);
+    const dots=its.slice(0,4).map(x=>`<span class="cal-dot" style="background:${ST_COLOR[x.statut]||'var(--t3)'}"></span>`).join('');
+    cells+=`<div class="cal-d ${out?'out':''} ${iso===todayISO()?'today':''} ${iso===planSel?'sel':''}" onclick="planSel='${iso}';views.planning()">
+      <div class="num">${dt.getDate()}</div><div class="cal-dots">${dots}</div>${its.length?`<div class="cal-cnt">${its.length}</div>`:''}</div>`;
+  }
+  const dayInts=db.interventions.filter(i=>i.date===planSel).sort((a,b)=>a.heure.localeCompare(b.heure));
+  $('content').innerHTML=`<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <button class="btn ghost sm" onclick="planRef=new Date(${y},${m-1},1);views.planning()">‹</button>
+      <div style="font-family:'Space Mono',monospace;font-weight:700;font-size:16px;text-transform:capitalize">${monthName}</div>
+      <button class="btn ghost sm" onclick="planRef=new Date(${y},${m+1},1);views.planning()">›</button></div>
+    <div class="cal">${wd.map(d=>`<div class="cal-h">${d}</div>`).join('')}${cells}</div></div>
+    <div class="card"><div class="card-head"><h3 style="text-transform:capitalize">📌 ${fmtDate(planSel)}</h3><button class="btn ghost sm" onclick="formIntervention()">＋ Intervention</button></div>
+    ${dayInts.length? dayInts.map(i=>`<div class="pl-row" onclick="detailIntervention('${i.id}')"><div class="pl-time">${i.heure}</div>
+        <div class="pl-info"><div class="pl-title">${esc(i.titre)} <span class="${PRIO[i.prio].c}">${PRIO[i.prio].l}</span></div>
+        <div class="pl-meta">${esc(clientName(i.clientId))} · 👷 ${esc(techName(i.techId))} · ⏱️ ${i.duree} min</div></div>
+        ${badge(STATUT_INT,i.statut)}</div>`).join('') : emptyState('📅','Aucune intervention ce jour.','Planifier','formIntervention()')}
+    </div>`;
 };
 
 /* ═══════════════ INTERVENTIONS ═══════════════ */
