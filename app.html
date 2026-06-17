@@ -389,7 +389,7 @@
    Données locales (localStorage). Auth PIN SHA-256.
    ═══════════════════════════════════════════════════════════ */
 const STORE_KEY = 'elan_gestion_v2';
-const APP_VERSION = '12';
+const APP_VERSION = '13';
 async function forceUpdate(){
   try{ if('caches' in window){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){}
   try{ if('serviceWorker' in navigator){ const rs=await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r=>r.unregister())); } }catch(e){}
@@ -475,8 +475,8 @@ function seed(){
       {id:p5,ref:'CHF-002',nom:'Vannes thermostatiques',categorie:'Chauffage',unite:'pièce',prix:18.5,qte:15,seuil:8},
     ],
     boxes:[
-      {id:uid(),ref:'BOX-PLB',nom:'Kit Plomberie standard',categorie:'Plomberie',qte:6,seuil:3,emplacement:'Atelier A'},
-      {id:uid(),ref:'BOX-ELC',nom:'Kit Électricité standard',categorie:'Électricité',qte:2,seuil:3,emplacement:'Atelier B'},
+      {id:uid(),numero:'BX-001',reference:'RAT-A12',nom:'Cuisine — Restaurant Le Gourmet',categorie:'TP14 — Rodenticide',adresse:'8 rue de la Paix',codePostal:'75002',ville:'Paris',etage:'RDC',dateInstallation:d(-40),techIds:[t1],actif:true,notes:"Poste d'appâtage sécurisé, contrôle mensuel.",codesAcces:[{type:'Code entrée',valeur:'A1234'},{type:'Clé',valeur:'Trousseau 3'}],produits:[{nom:'Bloc raticide',qte:4}]},
+      {id:uid(),numero:'BX-002',reference:'INS-B07',nom:'Réserve — Boulangerie Au Bon Pain',categorie:'TP18 — Insecticide',adresse:'5 av. de la Gare',codePostal:'92100',ville:'Boulogne',etage:'Sous-sol',dateInstallation:d(-12),techIds:[t2],actif:true,notes:'',codesAcces:[{type:'Code box',valeur:'0000'}],produits:[{nom:'Gel cafards',qte:2}]},
     ],
     enveloppes:[
       {id:uid(),num:'ENV-2026-001',clientId:c1,montant:320,mode:'Chèque',date:d(-1),statut:'encaisse',note:'Dépannage prise'},
@@ -488,12 +488,12 @@ function seed(){
       {id:uid(),ts:Date.now()-3600000,produitId:p2,type:'sortie',qte:12,motif:'Chantier Boulogne',vehiculeId:v2},
     ],
     vehicules:[
-      {id:v1,immat:'AB-123-CD',marque:'Renault',modele:'Trafic',techId:t1,km:84200,statut:'service',x:34,y:48},
-      {id:v2,immat:'EF-456-GH',marque:'Citroën',modele:'Jumpy',techId:t2,km:51230,statut:'service',x:58,y:30},
+      {id:v1,plaque:'AB-123-CD',marque:'Renault',modele:'Trafic',annee:2021,kilometrage:84200,statut:'service',numeroCarteGrise:'2021AB12345',date1ereMiseCirc:'2021-03-15',titulaire:'ELAN GESTION',compagnieAssurance:'AXA',numContratAssurance:'AX-778812',typeGarantie:'Tous risques',dateEcheanceAssurance:d(45),conducteurPrenom:'Marc',conducteurNom:'Dubois',conducteurTelephone:'06 12 34 56 78',conducteurTechnicienId:t1},
+      {id:v2,plaque:'EF-456-GH',marque:'Citroën',modele:'Jumpy',annee:2019,kilometrage:51230,statut:'service',numeroCarteGrise:'2019EF45678',date1ereMiseCirc:'2019-09-02',titulaire:'ELAN GESTION',compagnieAssurance:'MAAF',numContratAssurance:'MA-334210',typeGarantie:'Tiers étendu',dateEcheanceAssurance:d(12),conducteurPrenom:'Sophie',conducteurNom:'Martin',conducteurTelephone:'06 98 76 54 32',conducteurTechnicienId:t2},
     ],
     demandes:[
-      {id:uid(),num:'DR-001',date:d(0),userId:t1,produitId:p4,qte:5,statut:'attente',motif:'Stock bas câble'},
-      {id:uid(),num:'DR-002',date:d(-1),userId:t2,produitId:p2,qte:30,statut:'validee',motif:'Réappro raccords'},
+      {id:uid(),num:'DC-2026-001',date:d(0),boxId:'',boxNumero:'BX-001',boxNom:'Cuisine — Restaurant Le Gourmet',lignes:[{produitId:p4,quantite:5}],chefId:t1,chefNom:'Marc Dubois',statut:'enAttente',notes:'Stock bas câble',drNom:null,motifRefus:null},
+      {id:uid(),num:'DC-2026-002',date:d(-1),boxId:'',boxNumero:'BX-002',boxNom:'Réserve — Boulangerie Au Bon Pain',lignes:[{produitId:p2,quantite:30}],chefId:t2,chefNom:'Sophie Martin',statut:'valide',dateValidation:d(-1),drNom:'ELAN Admin',notes:'Réappro raccords',motifRefus:null},
     ],
     bons:[
       {id:uid(),num:'BC-2026-001',date:d(-2),fournisseur:'Rexel',produitId:p3,qte:50,prix:11.5,statut:'recue'},
@@ -639,7 +639,7 @@ views.dashboard=function(){
   const auj=db.interventions.filter(i=>i.date===today);
   const enCours=db.interventions.filter(i=>i.statut==='encours');
   const stockBas=db.produits.filter(p=>p.qte<=p.seuil);
-  const demAtt=db.demandes.filter(d=>d.statut==='attente');
+  const demAtt=db.demandes.filter(d=>d.statut==='enAttente');
   setHeader('Tableau de bord', currentUser.role==='admin'?"Vue d'ensemble de l'activité":'Votre activité',
     `<button class="btn" onclick="formIntervention()">＋ Intervention</button>`);
   $('content').innerHTML=`
@@ -665,7 +665,7 @@ views.dashboard=function(){
       </div>
     </div>
     ${currentUser.role==='admin'? `<div class="card"><div class="card-head"><h3>✈️ Demandes en attente de validation</h3><button class="btn ghost sm" onclick="go('validations')">Valider</button></div>
-      ${demAtt.length? demAtt.map(d=>`<div class="pl-row" onclick="go('validations')"><div class="pl-info"><div class="pl-title">${esc(produit(d.produitId).nom||'—')} ×${d.qte}</div><div class="pl-meta">${esc(d.num)} · ${esc(userName(d.userId))} · ${esc(d.motif)}</div></div><span class="st st-org">En attente</span></div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
+      ${demAtt.length? demAtt.map(d=>`<div class="pl-row" onclick="go('validations')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||'Demande')} · ${(d.lignes||[]).length} produit(s)</div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))}</div></div><span class="st st-org">En attente</span></div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
     </div>`:''}`;
 };
 
@@ -1026,23 +1026,83 @@ function saveMouvement(e){ e.preventDefault(); const d=Object.fromEntries(new Fo
 }
 
 /* ═══════════════ BOXES ═══════════════ */
+const BOX_CATS=['TP18 — Insecticide','TP14 — Rodenticide','Piégeage','Matériel','Désinfection','Autre'];
+const CODE_TYPES=['Code entrée','Code box','Clé'];
+function boxCatTag(c){ return c?`<span class="${c==='TP14 — Rodenticide'?'tag hot':'tag'}">${esc(c)}</span>`:'—'; }
+const boxTechs=b=>(b.techIds||[]).map(techName).filter(n=>n&&n!=='Non assigné');
+let boxCat2='all';
 views.boxes=function(){
-  setHeader('Boxes',`${db.boxes.length} box`,`<button class="btn ghost" onclick="openScanner()">📷 Scanner</button> <button class="btn" onclick="formBox()">＋ Box</button>`);
-  const rows=db.boxes.map(b=>{ const low=b.qte<=b.seuil;
-    return `<tr><td class="strong mono">${esc(b.ref)}</td><td class="strong">${esc(b.nom)}</td><td>${esc(b.categorie)||'—'}</td><td>${esc(b.emplacement)||'—'}</td>
-    <td><span class="mono" style="font-weight:700;color:${low?'#fbbf24':'var(--t1)'}">${b.qte}</span> / ${b.seuil} ${low?'<span class="tag hot">Bas</span>':''}</td>
-    <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="adjustBox('${b.id}',-1)">−</button> <button class="btn ghost sm" onclick="adjustBox('${b.id}',1)">＋</button> <button class="btn ghost sm" onclick="formBox('${b.id}')">✎</button> <button class="btn danger sm" onclick="delItem('boxes','${b.id}')">🗑</button></td></tr>`;}).join('');
-  $('content').innerHTML=db.boxes.length? tableCard(['Réf','Box','Catégorie','Emplacement','Stock',''],rows):`<div class="card">${emptyState('🧱','Aucune box.','Ajouter','formBox()')}</div>`;
+  setHeader('Boxes',`${db.boxes.length} dispositif(s) installé(s)`,`<button class="btn" onclick="formBox()">＋ Box</button>`);
+  const cats=['all',...BOX_CATS];
+  let list=[...db.boxes]; if(boxCat2!=='all') list=list.filter(b=>b.categorie===boxCat2);
+  const rows=list.map(b=>`<tr class="row-clk" onclick="ficheBox('${b.id}')">
+    <td class="strong mono">${esc(b.numero||b.ref||'—')}</td><td class="strong">${esc(b.nom)||'—'}</td><td>${boxCatTag(b.categorie)}</td>
+    <td>${esc(b.ville)||esc(b.adresse)||'—'}</td><td>${boxTechs(b).length?esc(boxTechs(b).join(', ')):'—'}</td>
+    <td>${b.actif===false?'<span class="st st-red">Inactif</span>':'<span class="st st-green">Actif</span>'}</td>
+    <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()"><button class="btn ghost sm" onclick="formBox('${b.id}')">✎</button> <button class="btn danger sm" onclick="delItem('boxes','${b.id}')">🗑</button></td></tr>`).join('');
+  $('content').innerHTML=`<div class="filters">${cats.map(c=>`<div class="chip ${boxCat2===c?'active':''}" onclick="boxCat2='${c}';views.boxes()">${c==='all'?'Toutes':esc(c)}</div>`).join('')}</div>
+    ${list.length? tableCard(['N°','Nom','Catégorie','Ville','Techniciens','Statut',''],rows):`<div class="card">${emptyState('🧱','Aucun dispositif installé.','Ajouter','formBox()')}</div>`}`;
 };
-function adjustBox(id,dl){ const b=db.boxes.find(x=>x.id===id); b.qte=Math.max(0,b.qte+dl); save(); views.boxes(); }
+function ficheBox(id){ const b=db.boxes.find(x=>x.id===id); if(!b)return;
+  const adr=[b.adresse,b.codePostal,b.ville].filter(Boolean).join(' ');
+  openModal(`<div class="modal-head"><h3>🧱 ${esc(b.nom)||esc(b.numero)||'Box'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">${boxCatTag(b.categorie)} ${b.actif===false?'<span class="st st-red">Inactif</span>':'<span class="st st-green">Actif</span>'}</div>
+    <div class="detail-grid">
+      <div><div class="dt-lbl">N°</div><div class="dt-val mono">${esc(b.numero||b.ref||'—')}</div></div>
+      <div><div class="dt-lbl">Référence</div><div class="dt-val">${esc(b.reference)||'—'}</div></div>
+      <div><div class="dt-lbl">Étage</div><div class="dt-val">${esc(b.etage)||'—'}</div></div>
+      <div><div class="dt-lbl">Installé le</div><div class="dt-val">${b.dateInstallation?fmtShort(b.dateInstallation):'—'}</div></div>
+      <div style="grid-column:1/-1"><div class="dt-lbl">Adresse</div><div class="dt-val">${esc(adr)||'—'}</div></div>
+      <div style="grid-column:1/-1"><div class="dt-lbl">Techniciens</div><div class="dt-val">${boxTechs(b).length?esc(boxTechs(b).join(', ')):'—'}</div></div></div>
+    ${(b.codesAcces&&b.codesAcces.length)?`<div class="dt-lbl" style="margin:14px 0 8px">🔑 Codes d'accès</div>${b.codesAcces.map(c=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title mono">${esc(c.valeur)}</div><div class="pl-meta">${esc(c.type)}</div></div></div>`).join('')}`:''}
+    ${(b.produits&&b.produits.length)?`<div class="dt-lbl" style="margin:14px 0 8px">📦 Produits installés</div>${b.produits.map(p=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${esc(p.nom)}</div></div><span class="strong">×${p.qte||1}</span></div>`).join('')}`:''}
+    ${b.notes?`<div class="detail-desc">${esc(b.notes)}</div>`:''}
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal();formBox('${b.id}')">✎ Modifier</button>${adr?`<button class="btn" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(${JSON.stringify(adr)}))">🧭 Itinéraire</button>`:''}</div>`);
+}
+let boxCodes=[], boxProds=[];
 function formBox(id){ const b=id?db.boxes.find(x=>x.id===id):{};
+  boxCodes = id&&b.codesAcces ? JSON.parse(JSON.stringify(b.codesAcces)) : [];
+  boxProds = id&&b.produits ? JSON.parse(JSON.stringify(b.produits)) : [];
+  const techOpts=db.techniciens.map(t=>`<option value="${t.id}" ${(b.techIds||[]).includes(t.id)?'selected':''}>${esc(t.nom)}</option>`).join('');
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouvelle'} box</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <form onsubmit="saveSimple(event,'boxes','${id||''}',['qte','seuil'])">
-      <div class="field-row"><div class="field"><label>Référence *</label><input name="ref" required value="${esc(b.ref)}"></div><div class="field"><label>Catégorie</label><input name="categorie" value="${esc(b.categorie)}"></div></div>
-      <div class="field"><label>Désignation *</label><input name="nom" required value="${esc(b.nom)}"></div>
-      <div class="field"><label>Emplacement</label><input name="emplacement" value="${esc(b.emplacement)}"></div>
-      <div class="field-row"><div class="field"><label>Quantité</label><input type="number" name="qte" value="${b.qte??0}"></div><div class="field"><label>Seuil</label><input type="number" name="seuil" value="${b.seuil??3}"></div></div>
+    <form onsubmit="saveBox(event,'${id||''}')">
+      <div class="field-row"><div class="field"><label>N° *</label><input name="numero" required value="${esc(b.numero||b.ref)}"></div>
+        <div class="field"><label>Référence</label><input name="reference" value="${esc(b.reference)}"></div></div>
+      <div class="field"><label>Nom *</label><input name="nom" required value="${esc(b.nom)}"></div>
+      <div class="field"><label>Catégorie</label><select name="categorie">${BOX_CATS.map(c=>`<option ${b.categorie===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="field"><label>Adresse</label><input name="adresse" value="${esc(b.adresse)}"></div>
+      <div class="field-row"><div class="field"><label>Code postal</label><input name="codePostal" value="${esc(b.codePostal)}"></div>
+        <div class="field"><label>Ville</label><input name="ville" value="${esc(b.ville)}"></div></div>
+      <div class="field-row"><div class="field"><label>Étage</label><input name="etage" value="${esc(b.etage)}"></div>
+        <div class="field"><label>Date d'installation</label><input type="date" name="dateInstallation" value="${b.dateInstallation?String(b.dateInstallation).slice(0,10):todayISO()}"></div></div>
+      <div class="field"><label>Techniciens (sélection multiple)</label><select name="techIds" multiple size="3" style="height:auto">${techOpts}</select></div>
+      <div class="field"><label>🔑 Codes d'accès</label><div id="box-codes"></div></div>
+      <div class="field"><label>📦 Produits installés</label><div id="box-prods"></div></div>
+      <div class="field"><label>Statut</label><select name="actif"><option value="true" ${b.actif!==false?'selected':''}>Actif</option><option value="false" ${b.actif===false?'selected':''}>Inactif</option></select></div>
+      <div class="field"><label>Notes</label><textarea name="notes">${esc(b.notes)}</textarea></div>
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
+  renderBoxCodes(); renderBoxProds();
+}
+function renderBoxCodes(){ const el=$('box-codes'); if(!el)return;
+  el.innerHTML=boxCodes.map((c,i)=>`<div style="display:flex;gap:7px;margin-bottom:7px">
+    <select style="flex:1;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:9px;color:var(--t1)" onchange="boxCodes[${i}].type=this.value">${CODE_TYPES.map(t=>`<option ${c.type===t?'selected':''}>${t}</option>`).join('')}</select>
+    <input style="flex:1" placeholder="Valeur" value="${esc(c.valeur)}" oninput="boxCodes[${i}].valeur=this.value">
+    <button type="button" class="btn danger sm" onclick="boxCodes.splice(${i},1);renderBoxCodes()">✕</button></div>`).join('')
+    +`<button type="button" class="btn ghost sm" onclick="boxCodes.push({type:'Code entrée',valeur:''});renderBoxCodes()">＋ Code</button>`;
+}
+function renderBoxProds(){ const el=$('box-prods'); if(!el)return;
+  el.innerHTML=boxProds.map((p,i)=>`<div style="display:flex;gap:7px;margin-bottom:7px">
+    <input style="flex:2" placeholder="Produit" value="${esc(p.nom)}" oninput="boxProds[${i}].nom=this.value">
+    <input style="width:64px" type="number" min="1" value="${p.qte||1}" oninput="boxProds[${i}].qte=parseInt(this.value)||1">
+    <button type="button" class="btn danger sm" onclick="boxProds.splice(${i},1);renderBoxProds()">✕</button></div>`).join('')
+    +`<button type="button" class="btn ghost sm" onclick="boxProds.push({nom:'',qte:1});renderBoxProds()">＋ Produit</button>`;
+}
+function saveBox(e,id){ e.preventDefault(); const f=e.target; const data=Object.fromEntries(new FormData(f));
+  const techIds=[...f.querySelector('select[name=techIds]').selectedOptions].map(o=>o.value);
+  const obj={numero:data.numero,reference:data.reference,nom:data.nom,categorie:data.categorie,adresse:data.adresse,codePostal:data.codePostal,ville:data.ville,etage:data.etage,dateInstallation:data.dateInstallation,techIds,actif:data.actif==='true',notes:data.notes,codesAcces:boxCodes.filter(c=>c.valeur),produits:boxProds.filter(p=>p.nom)};
+  if(id){ const ix=db.boxes.findIndex(x=>x.id===id); db.boxes[ix]={...db.boxes[ix],...obj}; toast('Box mise à jour'); }
+  else{ db.boxes.push({id:uid(),...obj}); logEvent('Box créée',obj.numero,'crud'); toast('Box créée'); }
+  save(); closeModal(); views.boxes();
 }
 
 /* ═══════════════ ENVELOPPES ═══════════════ */
@@ -1080,49 +1140,79 @@ function saveEnv(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormD
   save(); closeModal(); views.enveloppes();
 }
 
-/* ═══════════════ MES DEMANDES ═══════════════ */
-const DR={attente:{l:'En attente',c:'st-org'},validee:{l:'Validée',c:'st-green'},refusee:{l:'Refusée',c:'st-red'}};
+/* ═══════════════ MES DEMANDES (demande de commande Chef → DR, liée à une Box) ═══════════════ */
+const STATV={ enAttente:{l:'En attente',c:'st-org'}, valide:{l:'Validé',c:'st-green'}, refuse:{l:'Refusé',c:'st-red'}, modifie:{l:'Modifié',c:'st-blue'}, enCours:{l:'En cours',c:'st-blue'}, envoyee:{l:'Envoyée',c:'st-blue'}, recue:{l:'Reçue',c:'st-green'} };
+const demTotal=d=>(d.lignes||[]).reduce((s,l)=>s+(l.quantite||0),0);
+const boxLabel=id=>{ const b=db.boxes.find(x=>x.id===id); return b?((b.numero||b.ref||'')+' · '+(b.nom||'')):'—'; };
+function demProduitNom(l){ if(l.produitId){ const p=produit(l.produitId); return p.nom||l.nom||'—'; } return l.nom||'—'; }
 views.demandes=function(){
-  setHeader('Mes demandes','Demandes de réapprovisionnement',`<button class="btn" onclick="formDemande()">＋ Demande</button>`);
+  setHeader('Mes demandes','Demandes de commande au Directeur Régional',`<button class="btn" onclick="formDemande()">＋ Demande</button>`);
   let list=[...db.demandes].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  if(currentUser.role!=='admin' && currentUser.role!=='dr') list=list.filter(d=>d.userId===currentUser.id);
-  const rows=list.map(d=>`<tr><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(produit(d.produitId).nom||'—')}</td><td>×${d.qte}</td><td>${esc(userName(d.userId))}</td><td>${fmtShort(d.date)}</td><td>${badge(DR,d.statut)}</td>
-    <td style="text-align:right">${(d.statut==='attente'||currentUser.role==='admin')?`<button class="btn danger sm" onclick="delItem('demandes','${d.id}')">🗑</button>`:'—'}</td></tr>`).join('');
-  $('content').innerHTML=list.length? tableCard(['N°','Produit','Qté','Demandeur','Date','Statut',''],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
+  if(currentUser.role!=='admin' && currentUser.role!=='dr') list=list.filter(d=>d.chefId===currentUser.id);
+  const rows=list.map(d=>`<tr class="row-clk" onclick="ficheDemande('${d.id}')"><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(d.boxNom||boxLabel(d.boxId))}</td><td>${(d.lignes||[]).length} produit(s) · ${demTotal(d)} u.</td><td>${esc(d.chefNom||userName(d.chefId))}</td><td>${fmtShort(d.date)}</td><td>${badge(STATV,d.statut)}</td>
+    <td style="text-align:right" onclick="event.stopPropagation()">${(d.statut==='enAttente'||currentUser.role==='admin')?`<button class="btn danger sm" onclick="delItem('demandes','${d.id}')">🗑</button>`:'—'}</td></tr>`).join('');
+  $('content').innerHTML=list.length? tableCard(['N°','Box','Produits','Demandeur','Date','Statut',''],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
 };
+function ficheDemande(id){ const d=db.demandes.find(x=>x.id===id); if(!d)return;
+  openModal(`<div class="modal-head"><h3>✈️ ${esc(d.num)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div style="margin-bottom:14px">${badge(STATV,d.statut)}</div>
+    <div class="detail-grid">
+      <div style="grid-column:1/-1"><div class="dt-lbl">Box concernée</div><div class="dt-val">${esc(d.boxNom||boxLabel(d.boxId))}</div></div>
+      <div><div class="dt-lbl">Demandeur</div><div class="dt-val">${esc(d.chefNom||userName(d.chefId))}</div></div>
+      <div><div class="dt-lbl">Date</div><div class="dt-val">${fmtShort(d.date)}</div></div>
+      ${d.drNom?`<div><div class="dt-lbl">Traité par (DR)</div><div class="dt-val">${esc(d.drNom)}</div></div>`:''}
+      ${d.motifRefus?`<div style="grid-column:1/-1"><div class="dt-lbl">Motif de refus</div><div class="dt-val" style="color:var(--red)">${esc(d.motifRefus)}</div></div>`:''}</div>
+    <div class="dt-lbl" style="margin:14px 0 8px">📦 Produits demandés</div>
+    ${(d.lignes||[]).map(l=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${esc(demProduitNom(l))}</div></div><span class="strong">×${l.quantite}</span></div>`).join('')||'<div style="color:var(--t3);font-size:13px">Aucun produit</div>'}
+    ${d.notes?`<div class="detail-desc">${esc(d.notes)}</div>`:''}
+    <div class="modal-foot">${(currentUser.role==='admin'||currentUser.role==='dr')&&d.statut==='enAttente'?`<button class="btn danger" onclick="closeModal();validerDemande('${d.id}','refuse')">Refuser</button><button class="btn" onclick="closeModal();validerDemande('${d.id}','valide')">Valider</button>`:`<button class="btn ghost" onclick="closeModal()">Fermer</button>`}</div>`);
+}
+let demLignes=[];
 function formDemande(){
+  demLignes=[{produitId:'',quantite:1}];
   openModal(`<div class="modal-head"><h3>✈️ Nouvelle demande</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveDemande(event)">
-      <div class="field"><label>Produit *</label><select name="produitId" required><option value="">—</option>${db.produits.map(p=>`<option value="${p.id}">${esc(p.ref)} — ${esc(p.nom)}</option>`).join('')}</select></div>
-      <div class="field"><label>Quantité *</label><input type="number" name="qte" min="1" value="1" required></div>
-      <div class="field"><label>Motif</label><input name="motif" placeholder="Stock bas, chantier..."></div>
-      <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">Envoyer</button></div></form>`);
+      <div class="field"><label>Box concernée *</label><select name="boxId" required><option value="">—</option>${db.boxes.map(b=>`<option value="${b.id}">${esc(b.numero||b.ref)} — ${esc(b.nom)}</option>`).join('')}</select></div>
+      <div class="field"><label>Produits demandés</label><div id="dem-lignes"></div></div>
+      <div class="field"><label>Notes</label><input name="notes" placeholder="Précision pour le DR..."></div>
+      <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">Envoyer au DR</button></div></form>`);
+  renderDemLignes();
 }
-function saveDemande(e){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target)); d.qte=parseInt(d.qte)||1;
-  const num='DR-'+String(db.demandes.length+1).padStart(3,'0');
-  db.demandes.push({id:uid(),num,date:todayISO(),userId:currentUser.id,produitId:d.produitId,qte:d.qte,statut:'attente',motif:d.motif});
-  logEvent('Demande créée',`${num} — ${produit(d.produitId).ref} ×${d.qte}`,'demande'); save(); closeModal(); toast('Demande envoyée'); go(current);
+function renderDemLignes(){ const el=$('dem-lignes'); if(!el)return;
+  el.innerHTML=demLignes.map((l,i)=>`<div style="display:flex;gap:7px;margin-bottom:7px">
+    <select style="flex:2;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)" onchange="demLignes[${i}].produitId=this.value"><option value="">— Produit —</option>${db.produits.map(p=>`<option value="${p.id}" ${l.produitId===p.id?'selected':''}>${esc(p.ref)} — ${esc(p.nom)}</option>`).join('')}</select>
+    <input style="width:62px" type="number" min="1" value="${l.quantite}" oninput="demLignes[${i}].quantite=parseInt(this.value)||1">
+    <button type="button" class="btn danger sm" onclick="demLignes.splice(${i},1);renderDemLignes()">✕</button></div>`).join('')
+    +`<button type="button" class="btn ghost sm" onclick="demLignes.push({produitId:'',quantite:1});renderDemLignes()">＋ Produit</button>`;
+}
+function saveDemande(e){ e.preventDefault(); const f=Object.fromEntries(new FormData(e.target));
+  const lignes=demLignes.filter(l=>l.produitId); if(!lignes.length){ toast('Ajoute au moins un produit'); return; }
+  const b=db.boxes.find(x=>x.id===f.boxId)||{};
+  const num='DC-'+new Date().getFullYear()+'-'+String(db.demandes.length+1).padStart(3,'0');
+  db.demandes.push({id:uid(),num,date:todayISO(),boxId:f.boxId,boxNumero:b.numero||b.ref||'',boxNom:b.nom||'',lignes,chefId:currentUser.id,chefNom:fullName(currentUser),statut:'enAttente',notes:f.notes,drNom:null,motifRefus:null});
+  logEvent('Demande créée',`${num} — ${b.nom||''} (${lignes.length} produit(s))`,'demande'); save(); closeModal(); toast('Demande envoyée au DR'); go(current);
 }
 
 /* ═══════════════ VALIDATIONS DR ═══════════════ */
 views.validations=function(){
-  setHeader('Validations DR','Validation des demandes de réapprovisionnement');
-  const att=db.demandes.filter(d=>d.statut==='attente');
-  const autres=db.demandes.filter(d=>d.statut!=='attente');
+  setHeader('Validations DR','File de validation des demandes de commande');
+  const att=db.demandes.filter(d=>d.statut==='enAttente');
+  const autres=db.demandes.filter(d=>d.statut!=='enAttente').sort((a,b)=>(b.dateValidation||b.date||'').localeCompare(a.dateValidation||a.date||''));
+  const row=d=>`<div class="pl-row" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))} <span class="tag">${(d.lignes||[]).length} produit(s)</span></div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${demTotal(d)} unité(s)</div></div>`;
   $('content').innerHTML=`<div class="card"><div class="card-head"><h3>⏳ À traiter (${att.length})</h3></div>
-    ${att.length? att.map(d=>`<div class="pl-row"><div class="pl-info"><div class="pl-title">${esc(produit(d.produitId).nom||'—')} ×${d.qte}</div><div class="pl-meta">${esc(d.num)} · ${esc(userName(d.userId))} · ${esc(d.motif)||'—'}</div></div>
-      <button class="btn danger sm" onclick="validerDemande('${d.id}','refusee')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','validee')">Valider</button></div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
+    ${att.length? att.map(d=>row(d)+`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="validerDemande('${d.id}','refuse')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','valide')">Valider</button></div></div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
   </div>${autres.length?`<div class="card"><div class="card-head"><h3>Historique</h3></div>
-    ${autres.map(d=>`<div class="pl-row"><div class="pl-info"><div class="pl-title">${esc(produit(d.produitId).nom||'—')} ×${d.qte}</div><div class="pl-meta">${esc(d.num)} · ${esc(userName(d.userId))}</div></div>${badge(DR,d.statut)}</div>`).join('')}</div>`:''}`;
+    ${autres.map(d=>row(d)+`${badge(STATV,d.statut)}</div>`).join('')}</div>`:''}`;
 };
-function validerDemande(id,statut){ const d=db.demandes.find(x=>x.id===id); d.statut=statut;
-  logEvent(statut==='validee'?'Demande validée':'Demande refusée',`${d.num} — ${produit(d.produitId).ref}`,'demande');
-  if(statut==='validee'){ // créer un bon de commande en brouillon
-    const p=produit(d.produitId);
-    db.bons.push({id:uid(),num:'BC-'+new Date().getFullYear()+'-'+String(db.bons.length+1).padStart(3,'0'),date:todayISO(),fournisseur:'',produitId:d.produitId,qte:d.qte,prix:p.prix,statut:'brouillon'});
-    toast('Validée — bon de commande créé');
-  } else toast('Demande refusée');
-  save(); views.validations();
+function validerDemande(id,statut){ const d=db.demandes.find(x=>x.id===id); if(!d)return;
+  if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return; d.motifRefus=motif; }
+  d.statut=statut; d.dateValidation=todayISO(); d.drNom=fullName(currentUser);
+  if(statut==='valide'){
+    const num='BC-'+new Date().getFullYear()+'-'+String(db.bons.length+1).padStart(3,'0');
+    (d.lignes||[]).forEach(l=>{ const p=produit(l.produitId); db.bons.push({id:uid(),num:num+'-'+(p.ref||''),date:todayISO(),fournisseur:'',produitId:l.produitId,qte:l.quantite,prix:p.prix||0,statut:'brouillon'}); });
+    logEvent('Demande validée',`${d.num} → bon(s) de commande`,'demande'); toast('Validée — bon(s) de commande créé(s)');
+  } else { logEvent('Demande refusée',`${d.num}`,'demande'); toast('Demande refusée'); }
+  save(); if(current==='validations') views.validations(); else go(current);
 }
 
 /* ═══════════════ BONS DE COMMANDE ═══════════════ */
@@ -1165,40 +1255,72 @@ views.commandes=function(){
     return `<div class="pl-row" onclick="${currentUser.role==='admin'?`bonRecu('${b.id}')`:''}"><div class="pl-info"><div class="pl-title">${esc(p.nom||'—')} ×${b.qte}</div><div class="pl-meta">${esc(b.num)} · ${esc(b.fournisseur)||'fournisseur ?'} · ${eur(b.qte*b.prix)}</div></div><span class="st st-blue">Envoyée</span></div>`;}).join('') : emptyState('📥','Aucune commande en cours.','','');
 };
 
-/* ═══════════════ VÉHICULES ═══════════════ */
+/* ═══════════════ VÉHICULES (fiche complète : carte grise, assurance, conducteur — modèle ELAN) ═══════════════ */
 const VEH={service:{l:'En service',c:'st-green'},maintenance:{l:'Maintenance',c:'st-org'},hs:{l:'Hors service',c:'st-red'}};
+const vPlaque=v=>v.plaque||v.immat||'—';
+const vKm=v=>(v.kilometrage!=null?v.kilometrage:(v.km||0));
+const vConducteur=v=>[v.conducteurPrenom,v.conducteurNom].filter(Boolean).join(' ') || (v.conducteurTechnicienId?techName(v.conducteurTechnicienId):(v.techId?techName(v.techId):''));
+function assurEtat(v){ if(!v.dateEcheanceAssurance) return '<span class="st st-grey">—</span>'; const days=Math.ceil((new Date(v.dateEcheanceAssurance)-new Date())/86400000);
+  if(days<0) return '<span class="st st-red">Expirée</span>'; if(days<=30) return `<span class="st st-org">${days} j</span>`; return '<span class="st st-green">À jour</span>'; }
 views.vehicules=function(){
-  setHeader('Véhicules','Flotte',`<button class="btn" onclick="formVehicule()">＋ Véhicule</button>`);
-  const rows=db.vehicules.map(v=>`<tr class="row-clk" onclick="ficheVehicule('${v.id}')"><td class="strong mono">${esc(v.immat)}</td><td>${esc(v.marque)} ${esc(v.modele)}</td><td>${esc(techName(v.techId))}</td><td>${(v.km||0).toLocaleString('fr-FR')} km</td><td>${badge(VEH,v.statut)}</td>
+  setHeader('Véhicules','Flotte — fiches véhicules',`<button class="btn" onclick="formVehicule()">＋ Véhicule</button>`);
+  const rows=db.vehicules.map(v=>`<tr class="row-clk" onclick="ficheVehicule('${v.id}')"><td class="strong mono">${esc(vPlaque(v))}</td><td>${esc(v.marque)} ${esc(v.modele)}</td><td>${esc(vConducteur(v))||'—'}</td><td>${(vKm(v)).toLocaleString('fr-FR')} km</td><td>${assurEtat(v)}</td><td>${badge(VEH,v.statut||'service')}</td>
     <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()"><button class="btn ghost sm" onclick="formVehicule('${v.id}')">✎</button> <button class="btn danger sm" onclick="delItem('vehicules','${v.id}')">🗑</button></td></tr>`).join('');
-  $('content').innerHTML=db.vehicules.length? tableCard(['Immat.','Modèle','Affecté à','Kilométrage','Statut',''],rows):`<div class="card">${emptyState('🚐','Aucun véhicule.','Ajouter','formVehicule()')}</div>`;
+  $('content').innerHTML=db.vehicules.length? tableCard(['Plaque','Modèle','Conducteur','Km','Assurance','Statut',''],rows):`<div class="card">${emptyState('🚐','Aucun véhicule.','Ajouter','formVehicule()')}</div>`;
 }
 function ficheVehicule(id){ const v=db.vehicules.find(x=>x.id===id); if(!v) return;
-  const mvts=db.mouvements.filter(m=>m.vehiculeId===id).sort((a,b)=>b.ts-a.ts);
-  openModal(`<div class="modal-head"><h3>🚐 ${esc(v.immat)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div style="margin-bottom:14px">${badge(VEH,v.statut)}</div>
-    <div class="detail-grid">
-      <div><div class="dt-lbl">Modèle</div><div class="dt-val">${esc(v.marque)} ${esc(v.modele)}</div></div>
-      <div><div class="dt-lbl">Affecté à</div><div class="dt-val">${esc(techName(v.techId))}</div></div>
-      <div><div class="dt-lbl">Kilométrage</div><div class="dt-val">${(v.km||0).toLocaleString('fr-FR')} km</div></div>
-      <div><div class="dt-lbl">Mouvements stock liés</div><div class="dt-val">${mvts.length}</div></div></div>
-    <div class="dt-lbl" style="margin:16px 0 8px">🔁 Derniers mouvements de stock</div>
-    ${mvts.length? mvts.slice(0,6).map(m=>{const p=produit(m.produitId);return `<div class="pl-row"><div class="pl-info"><div class="pl-title">${esc(p.nom||'—')}</div><div class="pl-meta">${fmtTs(m.ts)} · ${esc(m.motif)||''}</div></div><span class="strong">${m.type==='entree'?'+':'−'}${m.qte}</span></div>`;}).join('') : '<div style="color:var(--t3);font-size:13px">Aucun mouvement</div>'}
-    <div class="modal-foot"><button class="btn ghost" onclick="closeModal();formVehicule('${v.id}')">✎ Modifier</button><button class="btn" onclick="closeModal();go('carte')">🗺️ Voir sur la carte</button></div>`);
+  const sec=t=>`<div class="dt-lbl" style="margin:16px 0 8px;color:var(--acc)">${t}</div>`;
+  openModal(`<div class="modal-head"><h3>🚐 ${esc(vPlaque(v))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:6px">${badge(VEH,v.statut||'service')} ${assurEtat(v)} <span class="tag">${esc(v.marque)} ${esc(v.modele)}</span></div>
+    ${sec('🚗 Identification')}<div class="detail-grid">
+      <div><div class="dt-lbl">Plaque</div><div class="dt-val mono">${esc(vPlaque(v))}</div></div>
+      <div><div class="dt-lbl">Marque / Modèle</div><div class="dt-val">${esc(v.marque)} ${esc(v.modele)}</div></div>
+      <div><div class="dt-lbl">Année</div><div class="dt-val">${v.annee||'—'}</div></div>
+      <div><div class="dt-lbl">Kilométrage</div><div class="dt-val">${(vKm(v)).toLocaleString('fr-FR')} km</div></div></div>
+    ${sec('📄 Carte grise')}<div class="detail-grid">
+      <div><div class="dt-lbl">N° carte grise</div><div class="dt-val">${esc(v.numeroCarteGrise)||'—'}</div></div>
+      <div><div class="dt-lbl">1re mise en circulation</div><div class="dt-val">${v.date1ereMiseCirc?fmtShort(v.date1ereMiseCirc):'—'}</div></div>
+      <div style="grid-column:1/-1"><div class="dt-lbl">Titulaire</div><div class="dt-val">${esc(v.titulaire)||'—'}</div></div></div>
+    ${sec('🛡️ Assurance')}<div class="detail-grid">
+      <div><div class="dt-lbl">Compagnie</div><div class="dt-val">${esc(v.compagnieAssurance)||'—'}</div></div>
+      <div><div class="dt-lbl">N° contrat</div><div class="dt-val">${esc(v.numContratAssurance)||'—'}</div></div>
+      <div><div class="dt-lbl">Garantie</div><div class="dt-val">${esc(v.typeGarantie)||'—'}</div></div>
+      <div><div class="dt-lbl">Échéance</div><div class="dt-val">${v.dateEcheanceAssurance?fmtShort(v.dateEcheanceAssurance):'—'} ${assurEtat(v)}</div></div></div>
+    ${sec('👤 Conducteur habituel')}<div class="detail-grid">
+      <div><div class="dt-lbl">Nom</div><div class="dt-val">${esc(vConducteur(v))||'—'}</div></div>
+      <div><div class="dt-lbl">Téléphone</div><div class="dt-val">${esc(v.conducteurTelephone)||'—'}</div></div></div>
+    <div class="modal-foot"><button class="btn danger" onclick="delItem('vehicules','${v.id}')">🗑</button><button class="btn ghost" onclick="closeModal();formVehicule('${v.id}')">✎ Modifier</button></div>`);
 }
 function formVehicule(id){ const v=id?db.vehicules.find(x=>x.id===id):{};
+  const sec=t=>`<div class="dt-lbl" style="margin:14px 0 8px;color:var(--acc)">${t}</div>`;
+  const techOpt=sel=>`<option value="">—</option>`+db.techniciens.map(t=>`<option value="${t.id}" ${t.id===sel?'selected':''}>${esc(t.nom)}</option>`).join('');
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} véhicule</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveVehicule(event,'${id||''}')">
-      <div class="field"><label>Immatriculation *</label><input name="immat" required value="${esc(v.immat)}"></div>
+      ${sec('🚗 Identification')}
+      <div class="field"><label>Plaque d'immatriculation *</label><input name="plaque" required value="${esc(vPlaque(v)==='—'?'':vPlaque(v))}"></div>
       <div class="field-row"><div class="field"><label>Marque</label><input name="marque" value="${esc(v.marque)}"></div><div class="field"><label>Modèle</label><input name="modele" value="${esc(v.modele)}"></div></div>
-      <div class="field"><label>Affecté à</label><select name="techId"><option value="">—</option>${db.techniciens.map(t=>`<option value="${t.id}" ${t.id===v.techId?'selected':''}>${esc(t.nom)}</option>`).join('')}</select></div>
-      <div class="field-row"><div class="field"><label>Kilométrage</label><input type="number" name="km" value="${v.km||0}"></div>
-        <div class="field"><label>Statut</label><select name="statut">${Object.entries(VEH).map(([k,o])=>`<option value="${k}" ${v.statut===k?'selected':''}>${o.l}</option>`).join('')}</select></div></div>
+      <div class="field-row"><div class="field"><label>Année</label><input type="number" name="annee" value="${v.annee||new Date().getFullYear()}"></div>
+        <div class="field"><label>Kilométrage</label><input type="number" name="kilometrage" value="${vKm(v)}"></div></div>
+      <div class="field"><label>Statut</label><select name="statut">${Object.entries(VEH).map(([k,o])=>`<option value="${k}" ${(v.statut||'service')===k?'selected':''}>${o.l}</option>`).join('')}</select></div>
+      ${sec('📄 Carte grise')}
+      <div class="field-row"><div class="field"><label>N° carte grise</label><input name="numeroCarteGrise" value="${esc(v.numeroCarteGrise)}"></div>
+        <div class="field"><label>1re mise en circulation</label><input type="date" name="date1ereMiseCirc" value="${v.date1ereMiseCirc?String(v.date1ereMiseCirc).slice(0,10):''}"></div></div>
+      <div class="field"><label>Titulaire</label><input name="titulaire" value="${esc(v.titulaire)||'ELAN GESTION'}"></div>
+      ${sec('🛡️ Assurance')}
+      <div class="field-row"><div class="field"><label>Compagnie</label><input name="compagnieAssurance" value="${esc(v.compagnieAssurance)}"></div>
+        <div class="field"><label>N° contrat</label><input name="numContratAssurance" value="${esc(v.numContratAssurance)}"></div></div>
+      <div class="field-row"><div class="field"><label>Type de garantie</label><input name="typeGarantie" value="${esc(v.typeGarantie)||'Tous risques'}"></div>
+        <div class="field"><label>Échéance</label><input type="date" name="dateEcheanceAssurance" value="${v.dateEcheanceAssurance?String(v.dateEcheanceAssurance).slice(0,10):''}"></div></div>
+      ${sec('👤 Conducteur habituel')}
+      <div class="field-row"><div class="field"><label>Prénom</label><input name="conducteurPrenom" value="${esc(v.conducteurPrenom)}"></div>
+        <div class="field"><label>Nom</label><input name="conducteurNom" value="${esc(v.conducteurNom)}"></div></div>
+      <div class="field-row"><div class="field"><label>Téléphone</label><input name="conducteurTelephone" value="${esc(v.conducteurTelephone)}"></div>
+        <div class="field"><label>Technicien lié</label><select name="conducteurTechnicienId">${techOpt(v.conducteurTechnicienId||v.techId)}</select></div></div>
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
 }
-function saveVehicule(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target)); d.km=parseInt(d.km)||0;
-  if(id){ const ix=db.vehicules.findIndex(x=>x.id===id); db.vehicules[ix]={...db.vehicules[ix],...d}; toast('Mis à jour'); }
-  else{ d.x=10+Math.random()*80; d.y=10+Math.random()*80; db.vehicules.push({id:uid(),...d}); logEvent('Véhicule ajouté',d.immat,'crud'); toast('Ajouté'); }
+function saveVehicule(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target)); d.annee=parseInt(d.annee)||null; d.kilometrage=parseInt(d.kilometrage)||0;
+  if(id){ const ix=db.vehicules.findIndex(x=>x.id===id); db.vehicules[ix]={...db.vehicules[ix],...d}; toast('Véhicule mis à jour'); }
+  else{ db.vehicules.push({id:uid(),...d}); logEvent('Véhicule ajouté',d.plaque,'crud'); toast('Véhicule ajouté'); }
   save(); closeModal(); views.vehicules();
 }
 
@@ -1420,25 +1542,24 @@ function delItem(coll,id){ if(!confirm('Supprimer cet élément ?'))return; db[c
 /* ═══════════════ SCANNER ═══════════════ */
 let scanStream=null, scanTimer=null;
 function openScanner(){ const hasBD='BarcodeDetector' in window;
-  const refs=[...db.produits,...db.boxes];
   openModal(`<div class="modal-head"><h3>📷 Scanner</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     ${hasBD?`<div class="scan-view"><video id="scan-video" playsinline muted></video><div class="scan-frame"></div></div><p style="color:var(--t3);font-size:13px;text-align:center;margin-bottom:14px">Placez le code dans le cadre…</p>`:''}
-    <div class="field"><label>${hasBD?'Ou saisissez la référence':'Référence'}</label><input id="scan-ref" list="rl" placeholder="Ex : PLB-001" oninput="scanLookup(this.value)" autofocus>
-    <datalist id="rl">${refs.map(r=>`<option value="${esc(r.ref)}">${esc(r.nom)}</option>`).join('')}</datalist></div>
+    <div class="field"><label>${hasBD?'Ou saisissez la référence':'Référence produit'}</label><input id="scan-ref" list="rl" placeholder="Ex : PLB-001" oninput="scanLookup(this.value)" autofocus>
+    <datalist id="rl">${db.produits.map(r=>`<option value="${esc(r.ref)}">${esc(r.nom)}</option>`).join('')}</datalist></div>
     <div id="scan-match"></div>`);
   if(hasBD) startCamera();
 }
 async function startCamera(){ try{ scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}); const v=$('scan-video'); if(!v)return; v.srcObject=scanStream; await v.play();
   const det=new BarcodeDetector(); scanTimer=setInterval(async()=>{ try{ const c=await det.detect(v); if(c.length){ const val=c[0].rawValue; const i=$('scan-ref'); if(i)i.value=val; scanLookup(val); } }catch(e){} },600);
   }catch(e){} }
-function scanLookup(ref){ const r=(ref||'').toLowerCase(); const item=db.produits.find(p=>(p.ref||'').toLowerCase()===r)||db.boxes.find(b=>(b.ref||'').toLowerCase()===r);
-  const coll=db.produits.includes(item)?'produits':'boxes'; const el=$('scan-match'); if(!el)return;
-  if(!item){ el.innerHTML=ref?`<p style="color:var(--t3);font-size:13px">Aucun article pour « ${esc(ref)} »</p>`:''; return; }
+function scanLookup(ref){ const r=(ref||'').toLowerCase(); const item=db.produits.find(p=>(p.ref||'').toLowerCase()===r);
+  const el=$('scan-match'); if(!el)return;
+  if(!item){ el.innerHTML=ref?`<p style="color:var(--t3);font-size:13px">Aucun produit pour « ${esc(ref)} »</p>`:''; return; }
   el.innerHTML=`<div class="scan-result"><div style="font-weight:600;margin-bottom:4px">${esc(item.nom)}</div>
     <div style="color:var(--t3);font-size:13px;margin-bottom:14px">${esc(item.ref)} · Stock actuel</div>
-    <div style="display:flex;gap:12px;align-items:center;justify-content:center"><button class="btn ghost" onclick="scanAdjust('${coll}','${item.id}',-1)">−</button>
+    <div style="display:flex;gap:12px;align-items:center;justify-content:center"><button class="btn ghost" onclick="scanAdjust('produits','${item.id}',-1)">−</button>
     <span id="scan-qte" class="mono" style="font-size:26px;font-weight:700;min-width:50px;text-align:center">${item.qte}</span>
-    <button class="btn ghost" onclick="scanAdjust('${coll}','${item.id}',1)">＋</button></div></div>`;
+    <button class="btn ghost" onclick="scanAdjust('produits','${item.id}',1)">＋</button></div></div>`;
 }
 function scanAdjust(coll,id,dl){ const it=db[coll].find(x=>x.id===id); it.qte=Math.max(0,it.qte+dl);
   if(coll==='produits') db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:id,type:dl>0?'entree':'sortie',qte:1,motif:'Scan',vehiculeId:''});
@@ -1636,7 +1757,7 @@ views.statistiques=function(){
 function computeNotifs(){ const out=[]; const today=todayISO();
   db.produits.filter(p=>p.qte<=p.seuil).forEach(p=>out.push({ic:'📦',txt:`Stock bas : <b>${esc(p.nom)}</b> (${p.qte}/${p.seuil})`,v:'stock'}));
   if(currentUser && (currentUser.role==='admin'||currentUser.role==='dr')){
-    db.demandes.filter(d=>d.statut==='attente').forEach(d=>out.push({ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>`,v:'validations'}));
+    db.demandes.filter(d=>d.statut==='enAttente').forEach(d=>out.push({ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>`,v:'validations'}));
     db.enveloppes.filter(e=>e.statut==='attente').forEach(e=>out.push({ic:'📮',txt:`Enveloppe en attente : <b>${esc(e.num)}</b>`,v:'enveloppes'}));
   }
   db.interventions.filter(i=>i.date===today&&i.statut!=='terminee'&&i.statut!=='annulee').forEach(i=>out.push({ic:'🧰',txt:`Aujourd'hui : <b>${esc(i.titre)}</b> à ${i.heure}`,v:'planning'}));
@@ -1712,7 +1833,7 @@ function asstDiagnostic(){
   const out=[];
   const bas=db.produits.filter(p=>p.qte<=p.seuil);
   out.push((bas.length?'⚠️':'✅')+` Stock : ${bas.length? bas.length+' produit(s) sous le seuil':'tout est OK'}`);
-  if(currentUser.role==='admin'||currentUser.role==='dr'){ const da=db.demandes.filter(d=>d.statut==='attente').length; out.push((da?'⚠️':'✅')+` Demandes à valider : ${da}`); }
+  if(currentUser.role==='admin'||currentUser.role==='dr'){ const da=db.demandes.filter(d=>d.statut==='enAttente').length; out.push((da?'⚠️':'✅')+` Demandes à valider : ${da}`); }
   let kb=0; try{ kb=Math.round((localStorage.getItem(STORE_KEY)||'').length/1024);}catch(e){}
   out.push(`💾 Données locales : ~${kb} Ko sauvegardés`);
   out.push(navigator.onLine?'🌐 Réseau : en ligne':'📴 Hors connexion (l\'app fonctionne quand même)');
