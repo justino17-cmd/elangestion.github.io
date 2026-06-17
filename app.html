@@ -430,9 +430,9 @@ function seed(){
       {id:t3,nom:'Karim Benali',tel:'06 11 22 33 44',email:'karim@elan.fr',metier:'Chauffagiste'},
     ],
     clients:[
-      {id:c1,nom:'Résidence Les Tilleuls',contact:'M. Leroy',tel:'01 23 45 67 89',email:'contact@tilleuls.fr',adresse:'12 rue des Fleurs, 75011 Paris',x:28,y:35},
-      {id:c2,nom:'Boulangerie Au Bon Pain',contact:'Mme Petit',tel:'01 98 76 54 32',email:'aubonpain@mail.fr',adresse:'5 av. de la Gare, 92100 Boulogne',x:62,y:58},
-      {id:c3,nom:'Cabinet Médical Saint-Roch',contact:'Dr. Garnier',tel:'01 45 67 89 10',email:'cabinet@stroch.fr',adresse:'28 bd Voltaire, 75011 Paris',x:46,y:24},
+      {id:c1,nom:'Résidence Les Tilleuls',contact:'M. Leroy',tel:'01 23 45 67 89',email:'contact@tilleuls.fr',adresse:'12 rue des Fleurs, 75011 Paris',lat:48.8578,lng:2.3782},
+      {id:c2,nom:'Boulangerie Au Bon Pain',contact:'Mme Petit',tel:'01 98 76 54 32',email:'aubonpain@mail.fr',adresse:'5 av. de la Gare, 92100 Boulogne',lat:48.8353,lng:2.2410},
+      {id:c3,nom:'Cabinet Médical Saint-Roch',contact:'Dr. Garnier',tel:'01 45 67 89 10',email:'cabinet@stroch.fr',adresse:'28 bd Voltaire, 75011 Paris',lat:48.8585,lng:2.3795},
     ],
     interventions:[
       {id:uid(),titre:'Fuite chauffe-eau',clientId:c1,techId:t1,date:d(0),heure:'09:00',duree:90,statut:'encours',prio:'haute',adresse:'12 rue des Fleurs, 75011 Paris',desc:'Fuite au chauffe-eau collectif, sous-sol B.',compteRendu:''},
@@ -1175,14 +1175,43 @@ function saveVehicule(e,id){ e.preventDefault(); const d=Object.fromEntries(new 
 }
 
 /* ═══════════════ CARTE ═══════════════ */
+let _map=null, _mapLayer='m';
+function loadLeaflet(){ return new Promise((res,rej)=>{
+  if(window.L) return res();
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+  const js=document.createElement('script'); js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; js.onload=()=>res(); js.onerror=()=>rej(new Error('leaflet')); document.head.appendChild(js);
+}); }
+async function geocode(q){ try{ const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q)); const j=await r.json(); if(j&&j[0]) return {lat:+j[0].lat,lng:+j[0].lon}; }catch(e){} return null; }
+async function geocodeClients(){ const todo=db.clients.filter(c=>c.adresse && c.lat==null); if(!todo.length){ toast('Toutes les adresses sont déjà localisées'); return; }
+  toast('Localisation en cours…'); let n=0;
+  for(const c of todo){ const g=await geocode(c.adresse); if(g){ c.lat=g.lat; c.lng=g.lng; n++; save(); } await new Promise(r=>setTimeout(r,1100)); }
+  toast(n+' adresse(s) localisée(s)'); if(current==='carte') views.carte();
+}
+function setMapLayer(l){ _mapLayer=l; if(current==='carte') views.carte(); }
 views.carte=function(){
-  setHeader('Carte','Véhicules et clients — cliquez sur un repère');
-  const mk=(arr,cls,ic,lblFn,fn)=>arr.filter(o=>o.x!=null).map(o=>`<div class="marker ${cls}" style="left:${o.x}%;top:${o.y}%" onclick="${fn}('${o.id}')"><div class="pin"><span>${ic}</span></div><div class="lbl">${esc(lblFn(o))}</div></div>`).join('');
-  $('content').innerHTML=`<div class="card"><div style="display:flex;gap:18px;margin-bottom:14px;font-size:13px;color:var(--t2)">
-      <span><span style="color:var(--org)">●</span> Véhicules (${db.vehicules.length})</span><span><span style="color:var(--acc)">●</span> Clients (${db.clients.length})</span></div>
-    <div class="map-canvas">${mk(db.vehicules,'veh','🚐',v=>v.immat,'ficheVehicule')}${mk(db.clients,'cli','📍',c=>c.nom,'ficheClient')}</div>
-    <p style="color:var(--t3);font-size:12px;margin-top:12px">Cliquez un repère pour ouvrir sa fiche. Positions indicatives (démo).</p></div>`;
+  const nLoc=db.clients.filter(c=>c.lat!=null).length, nMiss=db.clients.filter(c=>c.adresse&&c.lat==null).length;
+  setHeader('Carte','Clients et interventions sur Google Maps',
+    `${nMiss?`<button class="btn ghost" onclick="geocodeClients()">📍 Géolocaliser (${nMiss})</button> `:''}<button class="btn ghost sm" onclick="setMapLayer('${_mapLayer==='m'?'s':'m'}')">${_mapLayer==='m'?'🛰️ Satellite':'🗺️ Plan'}</button>`);
+  $('content').innerHTML=`<div class="card" style="padding:0;overflow:hidden;border-radius:16px"><div id="map" style="height:520px;background:var(--bg2)"></div></div>
+    <div style="display:flex;gap:18px;margin-top:10px;font-size:13px;color:var(--t2)"><span>📍 ${nLoc} client(s) localisé(s)</span>${nMiss?`<span style="color:var(--org)">⚠️ ${nMiss} à géolocaliser</span>`:''}</div>
+    <div id="map-fb"></div>`;
+  loadLeaflet().then(()=>initMap()).catch(()=>{ $('map-fb').innerHTML=`<div class="card">${emptyState('🗺️','Carte indisponible — connexion Internet requise pour charger Google Maps.','','')}</div>`; });
 };
+function initMap(){
+  const el=$('map'); if(!el||!window.L) return;
+  if(_map){ try{_map.remove();}catch(e){} _map=null; }
+  _map=L.map(el,{zoomControl:true}).setView([46.6,2.4],5);
+  const url = _mapLayer==='s' ? 'https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}' : 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+  L.tileLayer(url,{subdomains:['mt0','mt1','mt2','mt3'],maxZoom:20,attribution:'© Google'}).addTo(_map);
+  const pts=[];
+  db.clients.filter(c=>c.lat!=null).forEach(c=>{
+    const m=L.marker([c.lat,c.lng]).addTo(_map);
+    m.bindPopup(`<b>${esc(c.nom)}</b><br>${esc(c.adresse||'')}<br>${c.tel?esc(c.tel)+'<br>':''}<a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(c.adresse||(c.lat+','+c.lng))}" target="_blank" rel="noopener">🧭 Itinéraire Google Maps</a>`);
+    pts.push([c.lat,c.lng]);
+  });
+  if(pts.length) _map.fitBounds(pts,{padding:[50,50],maxZoom:14});
+  setTimeout(()=>{ try{_map.invalidateSize();}catch(e){} },150);
+}
 
 /* ═══════════════ DASHBOARD CONSO ═══════════════ */
 views.conso=function(){
