@@ -395,7 +395,7 @@ function load(){
   return seed();
 }
 function migrate(d){
-  const cols = ['users','techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages'];
+  const cols = ['users','techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages','champsPerso'];
   cols.forEach(c => { d[c] = d[c] || []; });
   if(!d.users.length) d.users = [{id:uid(),prenom:'ELAN',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];
   d.users.forEach(u=>{ if(!u.login) u.login=(u.prenom||u.nom||'user').toLowerCase().replace(/\s+/g,''); });
@@ -492,6 +492,10 @@ function seed(){
       {id:uid(),techId:t1,date:d(0),debut:'08:30',fin:'12:00',pause:0,note:'Intervention Tilleuls'},
       {id:uid(),techId:t1,date:d(-1),debut:'09:00',fin:'17:30',pause:60,note:'Chantier + déplacements'},
       {id:uid(),techId:t2,date:d(0),debut:'08:00',fin:'16:00',pause:45,note:'Boulogne'},
+    ],
+    champsPerso:[
+      {id:uid(),label:'Conformité',type:'liste',options:['Conforme','Non conforme','À revoir']},
+      {id:uid(),label:'Pièces contrôlées',type:'tableau',colonnes:['Pièce','État','Observation']},
     ],
     permissions: defaultPerms(),
   };
@@ -742,10 +746,14 @@ function renderIntDetail(id){
         <input id="ie-ref" placeholder="Référence / n° série" style="flex:1;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)">
         <button class="btn" onclick="intAddEquip('${id}')">＋</button></div>`;
   } else if(intTab==='rapport'){
+    const champsV=(db.champsPerso||[]).filter(f=>i.champs&&i.champs[f.id]!=null&&(!Array.isArray(i.champs[f.id])||i.champs[f.id].length)).map(f=>{ const v=i.champs[f.id];
+      if(f.type==='tableau'&&Array.isArray(v)) return `<div style="margin-top:12px"><div class="dt-lbl" style="margin-bottom:6px">🧩 ${esc(f.label)}</div><div class="tbl-wrap"><table class="tbl"><thead><tr>${(f.colonnes||[]).map(co=>`<th>${esc(co)}</th>`).join('')}</tr></thead><tbody>${v.map(r=>`<tr>${(f.colonnes||[]).map((co,ci)=>`<td>${esc(r[ci]||'')}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+      return `<div style="margin-top:8px"><span class="dt-lbl">🧩 ${esc(f.label)} :</span> <b>${esc(v)}</b></div>`; }).join('');
     body=`${i.compteRendu?`<div class="detail-desc" style="border-color:rgba(74,222,128,.3)"><b style="color:var(--acc)">📄 Compte-rendu :</b><br>${esc(i.compteRendu)}</div>`:'<div style="color:var(--t3);font-size:13px">Aucun compte-rendu.</div>'}
+      ${champsV}
       ${(i.photos&&i.photos.length)?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">📷 Photos</div><div style="display:flex;gap:8px;flex-wrap:wrap">${i.photos.map(p=>`<img src="${p}" onclick="window.open(this.src)" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--brd);cursor:pointer">`).join('')}</div></div>`:''}
       ${i.signature?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">✍️ Signature client</div><img src="${i.signature}" style="background:#fff;border-radius:8px;max-width:240px;border:1px solid var(--brd)"></div>`:''}
-      <div style="margin-top:14px"><button class="btn ghost" onclick="closeModal();formRapport('${id}')">✎ Rédiger / modifier le rapport</button></div>`;
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" onclick="closeModal();formRapport('${id}')">✎ Rédiger / modifier</button><button class="btn ghost" onclick="printRapport('${id}')">🖨️ Export PDF</button></div>`;
   }
   openModal(`<div class="modal-head"><h3>${esc(i.titre)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div style="display:flex;gap:8px;margin-bottom:14px">${badge(STATUT_INT,i.statut)} <span class="${PRIO[i.prio].c}">${PRIO[i.prio].l}</span></div>
@@ -819,11 +827,14 @@ views.rapports=function(){
 let rapPhotos=[];
 function formRapport(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return;
   rapPhotos = (i.photos||[]).slice();
+  rapChamps = JSON.parse(JSON.stringify(i.champs||{}));
+  (db.champsPerso||[]).forEach(f=>{ if(f.type==='tableau' && !Array.isArray(rapChamps[f.id])) rapChamps[f.id]=[]; });
   openModal(`<div class="modal-head"><h3>📄 Compte-rendu</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="detail-grid" style="margin-bottom:16px"><div><div class="dt-lbl">Intervention</div><div class="dt-val">${esc(i.titre)}</div></div>
       <div><div class="dt-lbl">Client</div><div class="dt-val">${esc(clientName(i.clientId))}</div></div></div>
     <form onsubmit="saveRapport(event,'${id}')">
       <div class="field"><label>Compte-rendu</label><textarea name="compteRendu" style="min-height:120px">${esc(i.compteRendu)}</textarea></div>
+      <div id="rap-champs"></div>
       <div class="field"><label>📷 Photos</label>
         <div id="rap-photos" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"></div>
         <input type="file" id="rap-file" accept="image/*" multiple style="display:none" onchange="addPhotos(event)">
@@ -833,8 +844,35 @@ function formRapport(id){ const i=db.interventions.find(x=>x.id===id); if(!i)ret
         <button type="button" class="btn ghost sm" style="margin-top:6px" onclick="clearSig()">Effacer la signature</button></div>
       <div class="field"><label>Statut</label><select name="statut">${Object.entries(STATUT_INT).map(([k,v])=>`<option value="${k}" ${i.statut===k?'selected':''}>${v.l}</option>`).join('')}</select></div>
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Fermer</button><button type="submit" class="btn">💾 Enregistrer</button></div></form>`);
-  renderRapPhotos(); initSigPad(i.signature);
+  renderRapPhotos(); initSigPad(i.signature); renderChamps();
 }
+/* ── Champs personnalisés (rapports) ── */
+const CHAMP_TYPES={texte:'Texte',nombre:'Nombre',oui_non:'Oui/Non',liste:'Liste',tableau:'Tableau'};
+let rapChamps={};
+function champInput(f){ const v=rapChamps[f.id];
+  if(f.type==='nombre') return `<input type="number" value="${v!=null?esc(v):''}" oninput="rapChamps['${f.id}']=this.value">`;
+  if(f.type==='oui_non') return `<select onchange="rapChamps['${f.id}']=this.value"><option value="">—</option><option ${v==='Oui'?'selected':''}>Oui</option><option ${v==='Non'?'selected':''}>Non</option></select>`;
+  if(f.type==='liste') return `<select onchange="rapChamps['${f.id}']=this.value"><option value="">—</option>${(f.options||[]).map(o=>`<option ${v===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+  if(f.type==='tableau'){ const cols=f.colonnes||[], rows=Array.isArray(v)?v:[];
+    return `<div style="overflow-x:auto"><table class="tbl" style="width:100%"><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}<th></th></tr></thead><tbody>
+      ${rows.map((r,ri)=>`<tr>${cols.map((c,ci)=>`<td style="padding:4px;border:0"><input value="${esc(r[ci]||'')}" oninput="rapChamps['${f.id}'][${ri}][${ci}]=this.value" style="padding:7px"></td>`).join('')}<td style="border:0"><button type="button" class="btn danger sm" onclick="rapChamps['${f.id}'].splice(${ri},1);renderChamps()">✕</button></td></tr>`).join('')}
+      </tbody></table></div><button type="button" class="btn ghost sm" onclick="rapTableAddRow('${f.id}',${cols.length})">＋ Ligne</button>`;
+  }
+  return `<input value="${v!=null?esc(v):''}" oninput="rapChamps['${f.id}']=this.value">`;
+}
+function rapTableAddRow(fid,nc){ if(!Array.isArray(rapChamps[fid])) rapChamps[fid]=[]; rapChamps[fid].push(new Array(nc).fill('')); renderChamps(); }
+function renderChamps(){ const el=$('rap-champs'); if(!el) return; const list=db.champsPerso||[];
+  el.innerHTML = list.map(f=>`<div class="field"><label>🧩 ${esc(f.label)}</label>${champInput(f)}</div>`).join(''); }
+function formChamp(){ openModal(`<div class="modal-head"><h3>🧩 Nouveau champ personnalisé</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <form onsubmit="saveChamp(event)">
+      <div class="field"><label>Libellé *</label><input name="label" required placeholder="Ex : Température relevée"></div>
+      <div class="field"><label>Type</label><select name="type">${Object.entries(CHAMP_TYPES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Options / Colonnes</label><input name="opts" placeholder="Séparées par des virgules (pour Liste ou Tableau)"></div>
+      <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">Créer</button></div></form>`); }
+function saveChamp(e){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target)); const f={id:uid(),label:d.label,type:d.type};
+  const parts=(d.opts||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(d.type==='liste') f.options=parts; if(d.type==='tableau') f.colonnes=parts.length?parts:['Colonne 1','Colonne 2'];
+  db.champsPerso.push(f); logEvent('Champ personnalisé créé',d.label,'crud'); save(); closeModal(); views.parametres(); }
 function renderRapPhotos(){ const el=$('rap-photos'); if(!el) return;
   el.innerHTML = rapPhotos.map((p,idx)=>`<div style="position:relative"><img src="${p}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--brd)"><button type="button" onclick="rapPhotos.splice(${idx},1);renderRapPhotos()" style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:11px">✕</button></div>`).join('');
 }
@@ -852,8 +890,39 @@ function initSigPad(existing){ const cv=$('sig-pad'); if(!cv) return; sigCtx=cv.
 function clearSig(){ const cv=$('sig-pad'); if(cv&&sigCtx){ sigCtx.clearRect(0,0,cv.width,cv.height); cv.dataset.has=''; } }
 function saveRapport(e,id){ e.preventDefault(); const data=Object.fromEntries(new FormData(e.target)); const ix=db.interventions.findIndex(x=>x.id===id);
   const cv=$('sig-pad'); const sig = (cv&&cv.dataset.has) ? cv.toDataURL('image/png') : (db.interventions[ix].signature||'');
-  db.interventions[ix]={...db.interventions[ix],...data,photos:rapPhotos.slice(),signature:sig};
+  db.interventions[ix]={...db.interventions[ix],...data,photos:rapPhotos.slice(),signature:sig,champs:JSON.parse(JSON.stringify(rapChamps))};
   logEvent('Rapport rédigé',db.interventions[ix].titre+(sig?' (signé)':''),'crud'); save(); closeModal(); toast('Rapport enregistré'); go(current); }
+
+/* ── Export PDF d'un rapport d'intervention ── */
+function printRapport(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return; const c=db.clients.find(x=>x.id===i.clientId)||{};
+  const prod=(i.produitsUtilises||[]).map(l=>{const p=produit(l.produitId);return `<tr><td>${esc(p.nom||'')}</td><td>${esc(p.ref||'')}</td><td style="text-align:right">${l.qte}</td></tr>`;}).join('');
+  const equip=(i.equipements||[]).map(e=>`<tr><td>${esc(e.nom)}</td><td>${esc(e.reference)||''}</td></tr>`).join('');
+  const champs=(db.champsPerso||[]).filter(f=>i.champs&&i.champs[f.id]!=null&&(!Array.isArray(i.champs[f.id])||i.champs[f.id].length)).map(f=>{ const v=i.champs[f.id];
+    if(f.type==='tableau'&&Array.isArray(v)) return `<div class="box"><b>${esc(f.label)}</b><table style="margin-top:6px"><thead><tr>${(f.colonnes||[]).map(co=>`<th>${esc(co)}</th>`).join('')}</tr></thead><tbody>${v.map(r=>`<tr>${(f.colonnes||[]).map((co,ci)=>`<td>${esc(r[ci]||'')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    return `<p style="margin:4px 0"><b>${esc(f.label)} :</b> ${esc(v)}</p>`; }).join('');
+  const photos=(i.photos||[]).map(p=>`<img src="${p}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;margin:4px">`).join('');
+  const w=window.open('','_blank'); if(!w){ toast('Autorisez les pop-ups pour le PDF'); return; }
+  w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Rapport ${esc(i.titre)}</title>
+    <style>*{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}body{margin:0;padding:40px;color:#1A1F28}
+    .hd{display:flex;justify-content:space-between;border-bottom:3px solid #16803C;padding-bottom:14px;margin-bottom:20px}
+    .logo{font-size:22px;font-weight:800;color:#16803C;letter-spacing:1px}.logo small{display:block;font-size:11px;color:#666;font-weight:400}
+    h1{font-size:18px;margin:0}.muted{color:#666;font-size:13px}.box{background:#F7F9FC;border:1px solid #E3E8F0;border-radius:8px;padding:12px;margin:10px 0;font-size:13px}
+    table{width:100%;border-collapse:collapse}th{background:#16803C;color:#fff;padding:7px;text-align:left;font-size:12px}td{padding:7px;border-bottom:1px solid #E3E8F0;font-size:12px}
+    .ft{margin-top:30px;font-size:11px;color:#999;text-align:center}@media print{body{padding:18px}}</style></head>
+    <body><div class="hd"><div class="logo">ELAN GESTION<small>Gestion d'interventions</small></div>
+      <div style="text-align:right"><h1>RAPPORT D'INTERVENTION</h1><div class="muted">${new Date((i.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')} · ${i.heure||''}</div></div></div>
+      <div class="box"><b>${esc(i.titre)}</b><br><span class="muted">Client : ${esc(c.nom||'—')} · Technicien : ${esc(techName(i.techId))} · Durée : ${i.duree||0} min<br>${esc(i.adresse||'')}</span></div>
+      ${i.desc?`<p><b>Description :</b> ${esc(i.desc)}</p>`:''}
+      ${i.compteRendu?`<div class="box"><b>Compte-rendu</b><br>${esc(i.compteRendu).replace(/\n/g,'<br>')}</div>`:''}
+      ${champs}
+      ${prod?`<h3 style="font-size:14px;margin-top:18px">Produits utilisés</h3><table><thead><tr><th>Désignation</th><th>Réf.</th><th style="text-align:right">Qté</th></tr></thead><tbody>${prod}</tbody></table>`:''}
+      ${equip?`<h3 style="font-size:14px;margin-top:18px">Équipements</h3><table><thead><tr><th>Équipement</th><th>Référence</th></tr></thead><tbody>${equip}</tbody></table>`:''}
+      ${photos?`<h3 style="font-size:14px;margin-top:18px">Photos</h3><div>${photos}</div>`:''}
+      ${i.signature?`<div style="margin-top:24px"><b>Signature client</b><br><img src="${i.signature}" style="border:1px solid #E3E8F0;border-radius:6px;max-width:240px;margin-top:6px"></div>`:''}
+      <div class="ft">ELAN GESTION — Rapport généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+    </body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} },350);
+}
 
 /* ═══════════════ PRODUITS ═══════════════ */
 let prdCat='all';
@@ -1259,6 +1328,10 @@ views.parametres=function(){
     <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="exportData()">⬇️ Exporter (.json)</button>
     <button class="btn ghost" onclick="document.getElementById('imp').click()">⬆️ Importer</button>
     <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)"></div></div>
+    ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>🧩 Champs personnalisés (rapports)</h3><button class="btn sm" onclick="formChamp()">＋ Champ</button></div>
+      <p style="color:var(--t3);font-size:13px;margin-bottom:10px">Ajoutez des champs sur-mesure aux rapports d'intervention (texte, nombre, oui/non, liste, ou tableau).</p>
+      ${(db.champsPerso||[]).length? (db.champsPerso||[]).map(f=>`<div class="perm-row"><div class="pn">${esc(f.label)} <span class="tag">${CHAMP_TYPES[f.type]||f.type}</span>${f.options?` <span style="color:var(--t3);font-size:12px">(${f.options.map(esc).join(', ')})</span>`:''}${f.colonnes?` <span style="color:var(--t3);font-size:12px">[${f.colonnes.map(esc).join(', ')}]</span>`:''}</div><button class="btn danger sm" onclick="delItem('champsPerso','${f.id}')">🗑</button></div>`).join('') : '<div style="color:var(--t3);font-size:13px">Aucun champ personnalisé.</div>'}
+    </div>`:''}
     <div class="card"><div class="card-head"><h3>🔐 Sécurité</h3></div>
     <p style="color:var(--t2);font-size:14px;line-height:1.6">Accès par code PIN haché en <b style="color:var(--t1)">SHA-256</b>. Codes par défaut : <b style="color:var(--t1)">1234</b> (à modifier).</p></div>
     <div class="card" style="border-color:rgba(239,68,68,.3)"><div class="card-head"><h3>⚠️ Zone de danger</h3></div>
@@ -1399,9 +1472,17 @@ views.contrats=function(){
   const list=[...db.contrats].sort((a,b)=>(b.dateDebut||'').localeCompare(a.dateDebut||''));
   setHeader('Contrats','Contrats de maintenance & récurrents',`<button class="btn" onclick="formContrat()">＋ Contrat</button>`);
   const rows=list.map(ct=>`<tr><td class="strong mono">${esc(ct.num)}</td><td class="strong">${esc(ct.titre)}</td><td>${esc(clientName(ct.clientId))}</td><td>${FREQ[ct.frequence]||'—'}</td><td>${eur(ct.montant)}</td><td>${fmtShort(ct.dateDebut)} → ${fmtShort(ct.dateFin)}</td><td>${badge(CTR_ST,ct.statut)}</td>
-    <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="formContrat('${ct.id}')">✎</button> <button class="btn danger sm" onclick="delItem('contrats','${ct.id}')">🗑</button></td></tr>`).join('');
-  $('content').innerHTML=list.length? tableCard(['N°','Intitulé','Client','Fréquence','Montant','Période','Statut',''],rows):`<div class="card">${emptyState('📑','Aucun contrat.','Créer','formContrat()')}</div>`;
+    <td style="text-align:right;white-space:nowrap"><button class="btn sm" title="Générer la prochaine intervention" onclick="genererInterventionContrat('${ct.id}')">🔁</button> <button class="btn ghost sm" onclick="formContrat('${ct.id}')">✎</button> <button class="btn danger sm" onclick="delItem('contrats','${ct.id}')">🗑</button></td></tr>`).join('');
+  $('content').innerHTML=`<div class="card" style="background:color-mix(in srgb,var(--acc) 7%,transparent);border-color:color-mix(in srgb,var(--acc) 30%,transparent)"><div style="font-size:13px;color:var(--t2)">🔁 Le bouton <b>Générer</b> crée automatiquement la prochaine intervention planifiée selon la fréquence du contrat.</div></div>
+    ${list.length? tableCard(['N°','Intitulé','Client','Fréquence','Montant','Période','Statut',''],rows):`<div class="card">${emptyState('📑','Aucun contrat.','Créer','formContrat()')}</div>`}`;
 };
+function freqDays(f){ return {mensuel:30,trimestriel:91,semestriel:182,annuel:365}[f]||30; }
+function genererInterventionContrat(id){ const ct=db.contrats.find(x=>x.id===id); if(!ct)return;
+  const base=ct.derniereGeneration||ct.dateDebut||todayISO();
+  const nx=new Date(base+'T00:00:00'); nx.setDate(nx.getDate()+freqDays(ct.frequence));
+  const iso=ISO(nx), cli=db.clients.find(c=>c.id===ct.clientId)||{};
+  db.interventions.push({id:uid(),titre:ct.titre,clientId:ct.clientId,techId:'',date:iso,heure:'09:00',duree:60,statut:'planifiee',prio:'normale',adresse:cli.adresse||'',desc:'Intervention récurrente — contrat '+ct.num,compteRendu:'',contratId:id,produitsUtilises:[],equipements:[]});
+  ct.derniereGeneration=iso; logEvent('Intervention générée (contrat)',`${ct.num} → ${iso}`,'crud'); save(); toast('Intervention planifiée le '+fmtShort(iso)); views.contrats(); }
 function formContrat(id){ const ct=id?db.contrats.find(x=>x.id===id):{};
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} contrat</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveContrat(event,'${id||''}')">
