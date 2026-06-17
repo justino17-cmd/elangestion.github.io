@@ -153,6 +153,10 @@
   .dt-lbl{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:5px;}
   .dt-val{font-size:15px;color:var(--t1);}
   .detail-desc{background:var(--bg);border:1px solid var(--brd);border-radius:12px;padding:15px;margin-top:16px;font-size:14px;color:var(--t2);line-height:1.6;}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--brd);margin-bottom:16px;overflow-x:auto;}
+  .tab{padding:9px 14px;font-size:13px;font-weight:600;color:var(--t3);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+  .tab:hover{color:var(--t2);}
+  .tab.active{color:var(--acc);border-bottom-color:var(--acc);}
 
   /* PLANNING/LIST ROWS */
   .pl-row{display:flex;align-items:center;gap:15px;background:var(--bg1);border:1px solid var(--brd);border-radius:12px;padding:13px 16px;margin-bottom:9px;cursor:pointer;transition:.15s;}
@@ -704,23 +708,62 @@ function saveIntervention(e,id){ e.preventDefault(); const data=Object.fromEntri
   else{ db.interventions.push({id:uid(),compteRendu:'',...data}); logEvent('Nouvelle intervention',data.titre,'crud'); toast('Créée'); }
   save(); closeModal(); go(current);
 }
-function detailIntervention(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return;
-  openModal(`<div class="modal-head"><h3>${esc(i.titre)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div style="display:flex;gap:8px;margin-bottom:18px">${badge(STATUT_INT,i.statut)} <span class="${PRIO[i.prio].c}">${PRIO[i.prio].l}</span></div>
-    <div class="detail-grid">
+let intTab='general';
+function detailIntervention(id){ intTab='general'; renderIntDetail(id); }
+function renderIntDetail(id){
+  const i=db.interventions.find(x=>x.id===id); if(!i)return;
+  i.produitsUtilises=i.produitsUtilises||[]; i.equipements=i.equipements||[];
+  const tabs=[['general','Général'],['produits','Produits'],['equipement','Équipement'],['rapport','Rapport']];
+  let body='';
+  if(intTab==='general'){
+    body=`<div class="detail-grid">
       <div><div class="dt-lbl">Client</div><div class="dt-val">${esc(clientName(i.clientId))}</div></div>
       <div><div class="dt-lbl">Technicien</div><div class="dt-val">${esc(techName(i.techId))}</div></div>
       <div><div class="dt-lbl">Date</div><div class="dt-val">${fmtShort(i.date)} à ${i.heure}</div></div>
       <div><div class="dt-lbl">Durée</div><div class="dt-val">${i.duree} min</div></div>
       <div style="grid-column:1/-1"><div class="dt-lbl">Adresse</div><div class="dt-val">${esc(i.adresse)||'—'}</div></div></div>
-    ${i.desc?`<div class="detail-desc">${esc(i.desc)}</div>`:''}
-    ${i.compteRendu?`<div class="detail-desc" style="border-color:rgba(74,222,128,.3)"><b style="color:var(--acc)">📄 Compte-rendu :</b><br>${esc(i.compteRendu)}</div>`:''}
-    ${(i.photos&&i.photos.length)?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">📷 Photos</div><div style="display:flex;gap:8px;flex-wrap:wrap">${i.photos.map(p=>`<img src="${p}" onclick="window.open(this.src)" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--brd);cursor:pointer">`).join('')}</div></div>`:''}
-    ${i.signature?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">✍️ Signature client</div><img src="${i.signature}" style="background:#fff;border-radius:8px;max-width:240px;border:1px solid var(--brd)"></div>`:''}
+      ${i.desc?`<div class="detail-desc">${esc(i.desc)}</div>`:''}`;
+  } else if(intTab==='produits'){
+    const cout=i.produitsUtilises.reduce((s,l)=>s+(l.qte*(produit(l.produitId).prix||0)),0);
+    body=`${i.produitsUtilises.length? i.produitsUtilises.map((l,ix)=>{const p=produit(l.produitId);
+        return `<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${esc(p.nom||'—')} <span class="mono" style="color:var(--t3)">${esc(p.ref||'')}</span></div><div class="pl-meta">${l.qte} × ${eur(p.prix||0)} = ${eur(l.qte*(p.prix||0))}</div></div><button class="btn danger sm" onclick="intDelProduit('${id}',${ix})">✕</button></div>`;}).join('')
+      : '<div style="color:var(--t3);font-size:13px;padding:6px 0">Aucun produit utilisé.</div>'}
+      <div style="text-align:right;font-size:14px;margin:8px 0 14px">Coût matériel : <b style="color:var(--acc)">${eur(cout)}</b></div>
+      <div style="display:flex;gap:7px;align-items:center">
+        <select id="ip-prod" style="flex:1;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)"><option value="">— Produit —</option>${db.produits.map(p=>`<option value="${p.id}">${esc(p.ref)} — ${esc(p.nom)} (stock ${p.qte})</option>`).join('')}</select>
+        <input id="ip-qte" type="number" min="1" value="1" style="width:64px;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)">
+        <button class="btn" onclick="intAddProduit('${id}')">＋</button></div>
+      <div style="font-size:12px;color:var(--t3);margin-top:8px">Les produits ajoutés sont déduits du stock automatiquement.</div>`;
+  } else if(intTab==='equipement'){
+    body=`${i.equipements.length? i.equipements.map((e,ix)=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${esc(e.nom)}</div><div class="pl-meta">${esc(e.reference)||'—'}${e.note?' · '+esc(e.note):''}</div></div><button class="btn danger sm" onclick="intDelEquip('${id}',${ix})">✕</button></div>`).join('')
+      : '<div style="color:var(--t3);font-size:13px;padding:6px 0">Aucun équipement.</div>'}
+      <div style="display:flex;gap:7px;align-items:center;margin-top:10px">
+        <input id="ie-nom" placeholder="Équipement (ex: Chaudière)" style="flex:1;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)">
+        <input id="ie-ref" placeholder="Référence / n° série" style="flex:1;background:var(--deep);border:1px solid var(--brd);border-radius:10px;padding:10px;color:var(--t1)">
+        <button class="btn" onclick="intAddEquip('${id}')">＋</button></div>`;
+  } else if(intTab==='rapport'){
+    body=`${i.compteRendu?`<div class="detail-desc" style="border-color:rgba(74,222,128,.3)"><b style="color:var(--acc)">📄 Compte-rendu :</b><br>${esc(i.compteRendu)}</div>`:'<div style="color:var(--t3);font-size:13px">Aucun compte-rendu.</div>'}
+      ${(i.photos&&i.photos.length)?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">📷 Photos</div><div style="display:flex;gap:8px;flex-wrap:wrap">${i.photos.map(p=>`<img src="${p}" onclick="window.open(this.src)" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--brd);cursor:pointer">`).join('')}</div></div>`:''}
+      ${i.signature?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:8px">✍️ Signature client</div><img src="${i.signature}" style="background:#fff;border-radius:8px;max-width:240px;border:1px solid var(--brd)"></div>`:''}
+      <div style="margin-top:14px"><button class="btn ghost" onclick="closeModal();formRapport('${id}')">✎ Rédiger / modifier le rapport</button></div>`;
+  }
+  openModal(`<div class="modal-head"><h3>${esc(i.titre)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">${badge(STATUT_INT,i.statut)} <span class="${PRIO[i.prio].c}">${PRIO[i.prio].l}</span></div>
+    <div class="tabs">${tabs.map(([k,l])=>`<div class="tab ${intTab===k?'active':''}" onclick="intTab='${k}';renderIntDetail('${id}')">${l}${k==='produits'&&i.produitsUtilises.length?` (${i.produitsUtilises.length})`:''}${k==='equipement'&&i.equipements.length?` (${i.equipements.length})`:''}</div>`).join('')}</div>
+    ${body}
     <div class="modal-foot"><button class="btn danger" onclick="delItem('interventions','${i.id}')">🗑</button>
-      <button class="btn ghost" onclick="closeModal();formIntervention('${i.id}')">✎ Modifier</button>
-      <button class="btn" onclick="closeModal();formRapport('${i.id}')">📄 Rapport</button></div>`);
+      <button class="btn ghost" onclick="closeModal();formIntervention('${i.id}')">✎ Modifier</button></div>`);
 }
+function intAddProduit(id){ const i=db.interventions.find(x=>x.id===id); const pid=$('ip-prod').value, q=parseInt($('ip-qte').value)||1; if(!pid){toast('Choisis un produit');return;}
+  const p=produit(pid); p.qte=Math.max(0,(p.qte||0)-q);
+  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:'sortie',qte:q,motif:'Intervention : '+i.titre,vehiculeId:''});
+  i.produitsUtilises.push({produitId:pid,qte:q}); logEvent('Produit utilisé',`${p.ref} ×${q} (${i.titre})`,'stock'); save(); renderIntDetail(id); }
+function intDelProduit(id,ix){ const i=db.interventions.find(x=>x.id===id); const l=i.produitsUtilises[ix]; if(!l)return;
+  const p=produit(l.produitId); if(p.id){ p.qte=(p.qte||0)+l.qte; db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'entree',qte:l.qte,motif:'Retrait intervention : '+i.titre,vehiculeId:''}); }
+  i.produitsUtilises.splice(ix,1); save(); renderIntDetail(id); }
+function intAddEquip(id){ const i=db.interventions.find(x=>x.id===id); const nom=$('ie-nom').value.trim(); if(!nom){toast('Nom requis');return;}
+  i.equipements.push({nom,reference:$('ie-ref').value.trim(),note:''}); save(); renderIntDetail(id); }
+function intDelEquip(id,ix){ const i=db.interventions.find(x=>x.id===id); i.equipements.splice(ix,1); save(); renderIntDetail(id); }
 
 /* ═══════════════ CLIENTS ═══════════════ */
 views.clients=function(){
