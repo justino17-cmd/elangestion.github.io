@@ -66,7 +66,8 @@
   /* MAIN */
   .main{flex:1;min-width:0;display:flex;flex-direction:column;}
   .topbar{display:flex;align-items:center;gap:16px;padding:18px 30px;border-bottom:1px solid var(--brd);background:var(--toolbar);backdrop-filter:blur(8px);position:sticky;top:0;z-index:5;}
-  .topbar h1{font-family:'Space Mono',monospace;font-size:20px;font-weight:700;letter-spacing:-.5px;}
+  .topbar-title{min-width:0;}
+  .topbar h1{font-family:'Space Mono',monospace;font-size:20px;font-weight:700;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .topbar .sub{font-size:13px;color:var(--t3);margin-top:2px;}
   .topbar-actions{margin-left:auto;display:flex;gap:10px;align-items:center;}
   .content{padding:26px 30px 48px;flex:1;}
@@ -144,8 +145,8 @@
   .field textarea{resize:vertical;min-height:80px;}
   .field-row{display:grid;grid-template-columns:1fr 1fr;gap:13px;}
   @media(max-width:520px){.field-row{grid-template-columns:1fr;}}
-  .modal-foot{display:flex;gap:10px;margin-top:22px;}
-  .modal-foot .btn{flex:1;justify-content:center;}
+  .modal-foot{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;}
+  .modal-foot .btn{flex:1 1 auto;min-width:110px;justify-content:center;}
 
   /* DETAIL */
   .detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
@@ -292,9 +293,19 @@
   @media(max-width:780px){
     .sidebar{position:fixed;left:0;top:0;z-index:40;transform:translateX(-100%);transition:transform .25s;}
     .sidebar.open{transform:none;}
-    .menu-btn{display:flex;align-items:center;justify-content:center;}
+    .menu-btn{display:flex;align-items:center;justify-content:center;order:0;}
     .content,.topbar{padding-left:16px;padding-right:16px;}
     .bar-lbl{width:96px;}
+    /* Barre du haut responsive : titre + icônes sur la 1re ligne, boutons d'action sur la 2e */
+    .topbar{flex-wrap:wrap;gap:10px;padding-top:12px;padding-bottom:12px;}
+    .topbar .sub{display:none;}
+    .topbar h1{font-size:18px;}
+    .topbar-title{order:1;flex:1;}
+    #theme-btn{order:2;}
+    .topbar-bell{order:3;}
+    .topbar-actions{order:4;flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;}
+    .topbar-actions:empty{display:none;}
+    .topbar .bell{width:38px;height:38px;font-size:16px;}
   }
   /* ── Tablettes (iPad) : barre latérale plus compacte ── */
   @media(min-width:781px) and (max-width:1100px){
@@ -344,13 +355,13 @@
   <div class="main">
     <div class="topbar">
       <button class="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
-      <div>
+      <div class="topbar-title">
         <h1 id="page-title">Tableau de bord</h1>
         <div class="sub" id="page-sub"></div>
       </div>
       <div class="topbar-actions" id="topbar-actions"></div>
       <button class="bell" id="theme-btn" onclick="toggleTheme()" title="Mode jour / sombre">🌙</button>
-      <div style="position:relative">
+      <div class="topbar-bell">
         <button class="bell" onclick="toggleNotif(event)">🔔<span class="bell-count" id="bell-count" style="display:none">0</span></button>
         <div id="notif-panel"></div>
       </div>
@@ -369,7 +380,7 @@
    Données locales (localStorage). Auth PIN SHA-256.
    ═══════════════════════════════════════════════════════════ */
 const STORE_KEY = 'elan_gestion_v2';
-const APP_VERSION = '8';
+const APP_VERSION = '9';
 async function forceUpdate(){
   try{ if('caches' in window){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){}
   try{ if('serviceWorker' in navigator){ const rs=await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r=>r.unregister())); } }catch(e){}
@@ -798,7 +809,7 @@ function ficheClient(id){ const c=db.clients.find(x=>x.id===id); if(!c) return;
       <div><div class="dt-lbl">Téléphone</div><div class="dt-val">${esc(c.tel)||'—'}</div></div>
       <div><div class="dt-lbl">Email</div><div class="dt-val">${esc(c.email)||'—'}</div></div>
       <div><div class="dt-lbl">Adresse</div><div class="dt-val">${esc(c.adresse)||'—'}</div></div></div>
-    <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin:14px 0">
+    <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(108px,1fr));margin:14px 0">
       ${k('🧰','rgba(96,165,250,.14)',ints.length,'Interventions')}
       ${k('💶','rgba(74,222,128,.16)',eur(caFact),'CA encaissé')}
       ${k('💰','rgba(167,139,250,.14)',devis.length,'Devis')}
@@ -1275,7 +1286,7 @@ function ficheTech(id){ const t=db.techniciens.find(x=>x.id===id); if(!t) return
       <div><div class="dt-lbl">Téléphone</div><div class="dt-val">${esc(t.tel)||'—'}</div></div>
       <div><div class="dt-lbl">Email</div><div class="dt-val">${esc(t.email)||'—'}</div></div>
       <div><div class="dt-lbl">Véhicule</div><div class="dt-val">${veh?esc(veh.immat):'—'}</div></div></div>
-    <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:14px 0">
+    <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(108px,1fr));margin:14px 0">
       ${k('🧰','rgba(96,165,250,.14)',ints.length,'Interventions')}
       ${k('📅','rgba(251,146,60,.14)',enCours,'En cours/à venir')}
       ${k('⏱️','rgba(74,222,128,.16)',dureeStr(totMin),'Temps pointé')}</div>
