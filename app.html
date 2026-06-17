@@ -1175,12 +1175,12 @@ function saveVehicule(e,id){ e.preventDefault(); const d=Object.fromEntries(new 
 
 /* ═══════════════ CARTE ═══════════════ */
 views.carte=function(){
-  setHeader('Carte','Véhicules et clients');
-  const mk=(arr,cls,ic,lblFn)=>arr.filter(o=>o.x!=null).map(o=>`<div class="marker ${cls}" style="left:${o.x}%;top:${o.y}%"><div class="pin"><span>${ic}</span></div><div class="lbl">${esc(lblFn(o))}</div></div>`).join('');
+  setHeader('Carte','Véhicules et clients — cliquez sur un repère');
+  const mk=(arr,cls,ic,lblFn,fn)=>arr.filter(o=>o.x!=null).map(o=>`<div class="marker ${cls}" style="left:${o.x}%;top:${o.y}%" onclick="${fn}('${o.id}')"><div class="pin"><span>${ic}</span></div><div class="lbl">${esc(lblFn(o))}</div></div>`).join('');
   $('content').innerHTML=`<div class="card"><div style="display:flex;gap:18px;margin-bottom:14px;font-size:13px;color:var(--t2)">
       <span><span style="color:var(--org)">●</span> Véhicules (${db.vehicules.length})</span><span><span style="color:var(--acc)">●</span> Clients (${db.clients.length})</span></div>
-    <div class="map-canvas">${mk(db.vehicules,'veh','🚐',v=>v.immat)}${mk(db.clients,'cli','📍',c=>c.nom)}</div>
-    <p style="color:var(--t3);font-size:12px;margin-top:12px">Vue schématique des positions. Les positions sont indicatives (démonstration).</p></div>`;
+    <div class="map-canvas">${mk(db.vehicules,'veh','🚐',v=>v.immat,'ficheVehicule')}${mk(db.clients,'cli','📍',c=>c.nom,'ficheClient')}</div>
+    <p style="color:var(--t3);font-size:12px;margin-top:12px">Cliquez un repère pour ouvrir sa fiche. Positions indicatives (démo).</p></div>`;
 };
 
 /* ═══════════════ DASHBOARD CONSO ═══════════════ */
@@ -1729,7 +1729,19 @@ applyTheme();
 boot();
 
 /* PWA : service worker pour le mode hors-ligne (HTTPS / GitHub Pages) */
-if('serviceWorker' in navigator){ window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{})); }
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      // Vérifie les mises à jour à chaque ouverture
+      reg.update && reg.update();
+      reg.addEventListener('updatefound',()=>{ const nw=reg.installing; if(!nw) return;
+        nw.addEventListener('statechange',()=>{ if(nw.state==='installed' && navigator.serviceWorker.controller){ toast && toast('Mise à jour disponible…'); }});
+      });
+    }).catch(()=>{});
+  });
+  let _reloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(_reloaded) return; _reloaded=true; location.reload(); });
+}
 </script>
 </body>
 </html>
