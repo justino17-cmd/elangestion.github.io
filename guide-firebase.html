@@ -78,11 +78,20 @@
     <pre id="rules">rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
-    match /{all=**} { allow read, write: if true; }
+    // ELAN GESTION : un seul document d'équipe, chiffré.
+    match /elan_teams/{team} {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasOnly(
+                        ['enc','iv','salt','ts','writer','at','by'])
+                   && request.resource.data.enc is string
+                   && request.resource.data.enc.size() < 5000000;
+    }
+    // Tout le reste est interdit.
+    match /{document=**} { allow read, write: if false; }
   }
 }</pre>
     <button class="copybtn" onclick="cp('rules',this)">📋 Copier les règles</button>
-    <div class="warn">⚠️ Ces règles sont ouvertes (simple pour démarrer). On les sécurisera après si tu veux.</div>
+    <div class="ok">🔐 <b>Sécurité.</b> Les données sont <b>chiffrées (AES-256)</b> dans l'app avant d'être envoyées : le cloud ne contient que du texte illisible. Ces règles limitent en plus l'écriture au seul document d'équipe chiffré (pas d'autre accès possible).</div>
   </div>
 
   <!-- ÉTAPE 4 -->
