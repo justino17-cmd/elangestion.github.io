@@ -96,7 +96,10 @@
   const $=id=>document.getElementById(id);
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const root=$('root');
-  let ME=null, USER=null, COMP=null, _unsub=null, _files={}, IS_OWNER=false;
+  let ME=null, USER=null, COMP=null, _unsub=null, _files={}, IS_OWNER=false, _lastCreds=null;
+  function credsText(){ if(!_lastCreds) return ''; return `Vos accès OP MESSAGES — ${_lastCreds.company}\nIdentifiant : ${_lastCreds.ident}\nMot de passe : ${_lastCreds.pass}\n\nConnexion : https://teamop.fr/messages.html`; }
+  async function shareCreds(){ const t=credsText(); if(!t) return; if(navigator.share){ try{ await navigator.share({title:'Accès OP MESSAGES',text:t}); }catch(e){} } else { copyCreds(); } }
+  function copyCreds(btn){ const t=credsText(); if(!t) return; if(navigator.clipboard){ navigator.clipboard.writeText(t).then(()=>{ if(btn){ const o=btn.textContent; btn.textContent='✅ Copié'; setTimeout(()=>btn.textContent=o,1600); } }); } else { alert(t); } }
   function openFile(id){ const f=_files[id]; if(!f) return; const pdf=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name||'');
     if(pdf){ $('viewer-name').textContent=f.name||'Document'; $('viewer-frame').src=f.data; $('viewer').classList.add('open'); }
     else { const a=document.createElement('a'); a.href=f.data; a.download=f.name||'fichier'; document.body.appendChild(a); a.click(); a.remove(); } }
@@ -314,11 +317,12 @@
       await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,companyId:COMP.id,companyName:COMP.name});
       await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(cred.user.uid).set({uid:cred.user.uid,name,ts:firebase.firestore.FieldValue.serverTimestamp()});
       await sec.auth().signOut(); await sec.delete(); sec=null;
+      _lastCreds={ident,pass,company:COMP.name};
       openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div>
-        <p class="muted" style="margin:10px 0">Donnez ces accès à l'employé :</p>
+        <p class="muted" style="margin:10px 0">Accès à donner à l'employé :</p>
         <div style="background:var(--card2);border:1px solid var(--brd2);border-radius:12px;padding:14px;font-size:14px;line-height:1.7">Identifiant : <b>${esc(ident)}</b><br>Mot de passe : <b>${esc(pass)}</b></div>
-        <p class="muted" style="margin-top:10px">Il se connecte sur OP MESSAGES avec ça → il arrive directement dans <b>${esc(COMP.name)}</b>.</p>
-        <button class="btn block" style="margin-top:14px" onclick="openMembers()">← Retour aux membres</button>`);
+        <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" style="flex:1" onclick="shareCreds()">📤 Partager</button><button class="btn ghost" style="flex:1" onclick="copyCreds(this)">📋 Copier</button></div>
+        <button class="btn ghost block" style="margin-top:10px" onclick="openMembers()">← Retour aux membres</button>`);
     }catch(e){ errBox(e.message||'Erreur'); if(btn)btn.disabled=false; try{ if(sec) await sec.delete(); }catch(_){} }
   }
   function openSheet(html){ $('sheet-c').innerHTML=html+'<p class="center" style="margin-top:14px"><a class="link" onclick="closeSheet()">Fermer</a></p>'; $('sheet').classList.add('open'); }
