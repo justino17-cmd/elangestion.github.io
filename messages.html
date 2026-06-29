@@ -287,21 +287,39 @@
   }
   function addMemberForm(){
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Ajouter un membre</h3>
-      <p class="muted" style="margin-bottom:14px">Créez le compte d'un employé. Mettez un <b>e-mail</b> OU un simple <b>identifiant</b> (ex. <i>jdupont</i>). Il <b>choisira son mot de passe</b> à sa première connexion et rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
+      <p class="muted" style="margin-bottom:14px">Créez directement le compte d'un employé : <b>prénom, identifiant et mot de passe</b>. Donnez-lui ces accès — il se connecte avec, sans rien créer.</p>
       <div id="amerr"></div>
-      <div class="field"><label>Nom</label><input id="am-name" placeholder="Prénom Nom"></div>
-      <div class="field"><label>E-mail ou identifiant</label><input id="am-email" placeholder="employe@entreprise.fr ou jdupont" autocapitalize="off"></div>
-      <button class="btn block" onclick="addMember()">Créer le compte</button>`);
+      <div class="field"><label>Prénom</label><input id="am-prenom" placeholder="Marie"></div>
+      <div class="field"><label>Nom</label><input id="am-nom" placeholder="Dupont"></div>
+      <div class="field"><label>Identifiant</label><input id="am-login" placeholder="ex : mdupont" autocapitalize="off"></div>
+      <div class="field"><label>Mot de passe (min. 6 caractères)</label><input id="am-pass" placeholder="••••••"></div>
+      <button class="btn block" id="am-btn" onclick="addMember()">Créer le compte</button>`);
   }
   async function addMember(){
-    const name=($('am-name').value||'').trim(), raw=($('am-email').value||'').trim(); const email=loginEmail(raw);
-    if(!name||(email.replace('@opmsg.local','').length<3)){ $('amerr').innerHTML='<div class="err">Indiquez un nom et un e-mail (ou identifiant d\'au moins 3 caractères).</div>'; return; }
-    const ident = email.endsWith('@opmsg.local') ? email.replace('@opmsg.local','') : email;
+    const errBox=m=>{ const el=$('amerr'); if(el) el.innerHTML='<div class="err">'+esc(m)+'</div>'; };
+    const name=(($('am-prenom').value||'').trim()+' '+($('am-nom').value||'').trim()).trim();
+    const ident=($('am-login').value||'').trim().toLowerCase().replace(/[^a-z0-9._@-]/g,'');
+    const pass=($('am-pass').value||'');
+    if(!name||ident.length<3){ errBox('Indiquez un prénom et un identifiant (au moins 3 caractères).'); return; }
+    if(pass.length<6){ errBox('Mot de passe : 6 caractères minimum.'); return; }
+    const email=loginEmail(ident);
+    const btn=$('am-btn'); if(btn) btn.disabled=true;
+    let sec=null;
     try{
-      await fs.collection('op_invites').doc(email).set({email,name,companyId:COMP.id,companyName:COMP.name});
-      openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div><p class="muted">Dites-lui d'aller sur <b>teamop.fr → OP MESSAGES</b>, onglet <b>« Créer un compte »</b>, d'entrer <b>${esc(ident)}</b> + un mot de passe de son choix. Il rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
+      sec=firebase.initializeApp(FB_CONFIG,'sec'+Date.now());   // app secondaire : ne déconnecte pas l'admin
+      let cred;
+      try{ cred=await sec.auth().createUserWithEmailAndPassword(email,pass); }
+      catch(e){ if((e.code||'')==='auth/email-already-in-use') errBox('Cet identifiant existe déjà — choisissez-en un autre.'); else errBox(e.message||'Erreur'); if(btn)btn.disabled=false; await sec.delete(); return; }
+      const sfs=sec.firestore();
+      await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,companyId:COMP.id,companyName:COMP.name});
+      await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(cred.user.uid).set({uid:cred.user.uid,name,ts:firebase.firestore.FieldValue.serverTimestamp()});
+      await sec.auth().signOut(); await sec.delete(); sec=null;
+      openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div>
+        <p class="muted" style="margin:10px 0">Donnez ces accès à l'employé :</p>
+        <div style="background:var(--card2);border:1px solid var(--brd2);border-radius:12px;padding:14px;font-size:14px;line-height:1.7">Identifiant : <b>${esc(ident)}</b><br>Mot de passe : <b>${esc(pass)}</b></div>
+        <p class="muted" style="margin-top:10px">Il se connecte sur OP MESSAGES avec ça → il arrive directement dans <b>${esc(COMP.name)}</b>.</p>
         <button class="btn block" style="margin-top:14px" onclick="openMembers()">← Retour aux membres</button>`);
-    }catch(e){ $('amerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
+    }catch(e){ errBox(e.message||'Erreur'); if(btn)btn.disabled=false; try{ if(sec) await sec.delete(); }catch(_){} }
   }
   function openSheet(html){ $('sheet-c').innerHTML=html+'<p class="center" style="margin-top:14px"><a class="link" onclick="closeSheet()">Fermer</a></p>'; $('sheet').classList.add('open'); }
   function closeSheet(){ $('sheet').classList.remove('open'); }
