@@ -54,6 +54,8 @@
   .m .who{font-size:11.5px;font-weight:700;color:var(--op-l);margin-bottom:2px}
   .m.me .who{color:#06121f;opacity:.7}
   .m img{max-width:100%;border-radius:10px;margin-top:6px;display:block;cursor:pointer}
+  .m .filechip{display:flex;align-items:center;gap:8px;margin-top:6px;padding:9px 12px;background:rgba(255,255,255,.1);border:1px solid var(--brd2);border-radius:10px;color:inherit;text-decoration:none;font-size:13.5px;word-break:break-all}
+  .m.me .filechip{background:rgba(0,0,0,.12);border-color:rgba(0,0,0,.15)}
   .m .t{font-size:10px;opacity:.6;margin-top:3px;text-align:right}
   .composer{display:flex;align-items:center;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:rgba(13,20,38,.92);border-top:1px solid var(--brd)}
   .composer .ic{width:42px;height:42px;border-radius:12px;border:1px solid var(--brd2);background:transparent;color:var(--t2);font-size:20px;cursor:pointer;flex-shrink:0}
@@ -64,6 +66,10 @@
   .sheet-c{background:var(--bg1);border:1px solid var(--brd);border-radius:22px 22px 0 0;width:100%;max-width:520px;margin:0 auto;padding:22px 18px calc(22px + env(safe-area-inset-bottom));max-height:80dvh;overflow:auto}
   .mrow{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--brd)}
   .mrow .ma{width:38px;height:38px;border-radius:11px;background:var(--card);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--op-l)}
+  .viewer{position:fixed;inset:0;z-index:60;background:#0a0e16;display:none;flex-direction:column}
+  .viewer.open{display:flex}
+  .viewer-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;border-bottom:1px solid var(--brd)}
+  .viewer iframe{flex:1;border:none;width:100%;background:#fff}
 </style>
 </head>
 <body>
@@ -71,8 +77,13 @@
   <div class="center-page"><div class="panel center"><p class="muted">Chargement…</p></div></div>
 </div>
 
-<input type="file" id="imgpick" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="imgpick" accept="image/*" style="display:none">
+<input type="file" id="filepick" style="display:none">
 <div class="sheet" id="sheet"><div class="sheet-c" id="sheet-c"></div></div>
+<div class="viewer" id="viewer">
+  <div class="viewer-bar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button onclick="closeViewer()" style="background:transparent;border:1px solid var(--brd2);color:var(--t1);border-radius:9px;padding:7px 13px;font-size:13px;cursor:pointer">✕ Fermer</button></div>
+  <iframe id="viewer-frame" title="Document"></iframe>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -85,7 +96,11 @@
   const $=id=>document.getElementById(id);
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const root=$('root');
-  let ME=null, USER=null, COMP=null, _unsub=null;
+  let ME=null, USER=null, COMP=null, _unsub=null, _files={};
+  function openFile(id){ const f=_files[id]; if(!f) return; const pdf=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name||'');
+    if(pdf){ $('viewer-name').textContent=f.name||'Document'; $('viewer-frame').src=f.data; $('viewer').classList.add('open'); }
+    else { const a=document.createElement('a'); a.href=f.data; a.download=f.name||'fichier'; document.body.appendChild(a); a.click(); a.remove(); } }
+  function closeViewer(){ $('viewer').classList.remove('open'); $('viewer-frame').src='about:blank'; }
 
   function siretValid(s){ return /^\d{14}$/.test((s||'').replace(/\s/g,'')); }
   function code6(){ const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let r=''; const a=crypto.getRandomValues(new Uint8Array(6)); a.forEach(b=>r+=c[b%c.length]); return r; }
@@ -192,7 +207,8 @@
       </div>
       <div class="stream" id="stream"><p class="muted center" style="margin:auto">Chargement des messages…</p></div>
       <div class="composer">
-        <button class="ic" onclick="$('imgpick').click()" title="Photo">📷</button>
+        <button class="ic" onclick="$('imgpick').click()" title="Photo / galerie">🖼️</button>
+        <button class="ic" onclick="$('filepick').click()" title="Fichier">📎</button>
         <input id="msg" placeholder="Message…" onkeydown="if(event.key==='Enter')sendMsg()">
         <button class="send" onclick="sendMsg()">➤</button>
       </div>`;
@@ -206,7 +222,11 @@
       qs.forEach(doc=>{ const m=doc.data(); const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date();
         const day=fmtDay(d); if(day!==lastDay){ html+=`<div class="day">${esc(day)}</div>`; lastDay=day; }
         const mine=m.uid===ME.uid; const time=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-        html+=`<div class="m ${mine?'me':'them'}">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${m.text?esc(m.text):''}${m.img?`<img src="${m.img}" onclick="window.open(this.src)">`:''}<div class="t">${time}</div></div>`;
+        let body=m.text?esc(m.text):'';
+        if(m.img) body+=`<img src="${m.img}" onclick="window.open(this.src)">`;
+        if(m.file){ _files[doc.id]=m.file; const pdf=/pdf/i.test(m.file.type)||/\.pdf$/i.test(m.file.name||'');
+          body+=`<div class="filechip" onclick="openFile('${doc.id}')">${pdf?'📄':'📎'} ${esc(m.file.name)}${pdf?' <span style="opacity:.6">· voir</span>':' <span style="opacity:.6">· ouvrir</span>'}</div>`; }
+        html+=`<div class="m ${mine?'me':'them'}">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}<div class="t">${time}</div></div>`;
       });
       s.innerHTML=html||'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>';
       s.scrollTop=s.scrollHeight;
@@ -224,8 +244,15 @@
       try{ await fs.collection('op_companies').doc(COMP.id).collection('messages').add({uid:ME.uid,name:USER.name||ME.email,img:data,ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(err){ alert('Erreur photo : '+(err.message||err)); }
     }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; });
 
-  function openMenu(){ const code=''; openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">${esc(COMP.name)}</h3>
+  $('filepick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f) return;
+    if(f.size>800000){ alert('Fichier trop volumineux (max 800 Ko pour l\'instant). Le partage de gros fichiers arrivera bientôt.'); e.target.value=''; return; }
+    const r=new FileReader();
+    r.onload=async()=>{ try{ await fs.collection('op_companies').doc(COMP.id).collection('messages').add({uid:ME.uid,name:USER.name||ME.email,file:{name:f.name,type:f.type||'',data:r.result},ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(err){ alert('Erreur fichier : '+(err.message||err)); } };
+    r.readAsDataURL(f); e.target.value=''; });
+
+  function openMenu(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">${esc(COMP.name)}</h3>
     <button class="btn block" style="margin-bottom:10px" onclick="showInvite()">📨 Inviter un collègue (code)</button>
+    <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
     <button class="btn ghost block" onclick="auth.signOut();closeSheet()">Déconnexion</button>`); }
   async function showInvite(){
     const doc=await fs.collection('op_companies').doc(COMP.id).get(); const code=doc.data().code;
