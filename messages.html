@@ -103,6 +103,8 @@
   function closeViewer(){ $('viewer').classList.remove('open'); $('viewer-frame').src='about:blank'; }
 
   function siretValid(s){ return /^\d{14}$/.test((s||'').replace(/\s/g,'')); }
+  // Accepte un e-mail OU un simple identifiant (converti en e-mail interne)
+  function loginEmail(v){ v=(v||'').trim().toLowerCase(); if(!v) return ''; return v.includes('@') ? v : v.replace(/[^a-z0-9._-]/g,'')+'@opmsg.local'; }
   function code6(){ const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let r=''; const a=crypto.getRandomValues(new Uint8Array(6)); a.forEach(b=>r+=c[b%c.length]); return r; }
 
   auth.onAuthStateChanged(async user=>{
@@ -132,7 +134,7 @@
       <div class="tabs"><div class="tab active" id="t-l" onclick="aTab('l')">Se connecter</div><div class="tab" id="t-s" onclick="aTab('s')">Créer un compte</div></div>
       <div id="aerr"></div>
       <div id="sf" class="hide"><div class="field"><label>Votre nom</label><input id="a-name" placeholder="Prénom Nom"></div></div>
-      <div class="field"><label>E-mail</label><input id="a-email" type="email" placeholder="vous@entreprise.fr"></div>
+      <div class="field"><label>E-mail ou identifiant</label><input id="a-email" placeholder="vous@entreprise.fr ou jdupont" autocapitalize="off"></div>
       <div class="field"><label>Mot de passe</label><input id="a-pass" type="password" placeholder="••••••••"></div>
       <button class="btn block" id="a-sub" onclick="aSubmit()">Se connecter</button>
       <p class="center" style="margin-top:14px"><a class="link" href="index.html">← Retour à TeamOP</a></p>
@@ -141,8 +143,8 @@
   let aMode='l';
   function aTab(m){ aMode=m; $('t-l').classList.toggle('active',m==='l'); $('t-s').classList.toggle('active',m==='s'); $('sf').classList.toggle('hide',m!=='s'); $('a-sub').textContent=m==='s'?'Créer mon compte':'Se connecter'; $('aerr').innerHTML=''; }
   async function aSubmit(){
-    const email=($('a-email').value||'').trim(), pass=$('a-pass').value||'';
-    if(!email||!pass){ $('aerr').innerHTML='<div class="err">E-mail et mot de passe requis.</div>'; return; }
+    const email=loginEmail($('a-email').value), pass=$('a-pass').value||'';
+    if(!email||!pass){ $('aerr').innerHTML='<div class="err">Identifiant (ou e-mail) et mot de passe requis.</div>'; return; }
     $('a-sub').disabled=true;
     try{
       if(aMode==='s'){ if(pass.length<6) throw {message:'Mot de passe : 6 caractères minimum.'};
@@ -285,18 +287,19 @@
   }
   function addMemberForm(){
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Ajouter un membre</h3>
-      <p class="muted" style="margin-bottom:14px">Créez le compte d'un employé. Il se connectera avec cet e-mail et <b>choisira son mot de passe</b> à sa première connexion — il rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
+      <p class="muted" style="margin-bottom:14px">Créez le compte d'un employé. Mettez un <b>e-mail</b> OU un simple <b>identifiant</b> (ex. <i>jdupont</i>). Il <b>choisira son mot de passe</b> à sa première connexion et rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
       <div id="amerr"></div>
       <div class="field"><label>Nom</label><input id="am-name" placeholder="Prénom Nom"></div>
-      <div class="field"><label>E-mail professionnel</label><input id="am-email" type="email" placeholder="employe@entreprise.fr"></div>
+      <div class="field"><label>E-mail ou identifiant</label><input id="am-email" placeholder="employe@entreprise.fr ou jdupont" autocapitalize="off"></div>
       <button class="btn block" onclick="addMember()">Créer le compte</button>`);
   }
   async function addMember(){
-    const name=($('am-name').value||'').trim(), email=($('am-email').value||'').trim().toLowerCase();
-    if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $('amerr').innerHTML='<div class="err">Indiquez un nom et un e-mail valide.</div>'; return; }
+    const name=($('am-name').value||'').trim(), raw=($('am-email').value||'').trim(); const email=loginEmail(raw);
+    if(!name||(email.replace('@opmsg.local','').length<3)){ $('amerr').innerHTML='<div class="err">Indiquez un nom et un e-mail (ou identifiant d\'au moins 3 caractères).</div>'; return; }
+    const ident = email.endsWith('@opmsg.local') ? email.replace('@opmsg.local','') : email;
     try{
       await fs.collection('op_invites').doc(email).set({email,name,companyId:COMP.id,companyName:COMP.name});
-      openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div><p class="muted">Dites-lui d'aller sur <b>teamop.fr → OP MESSAGES</b>, onglet <b>« Créer un compte »</b>, avec l'e-mail <b>${esc(email)}</b> et de choisir son mot de passe. Il rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
+      openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div><p class="muted">Dites-lui d'aller sur <b>teamop.fr → OP MESSAGES</b>, onglet <b>« Créer un compte »</b>, d'entrer <b>${esc(ident)}</b> + un mot de passe de son choix. Il rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
         <button class="btn block" style="margin-top:14px" onclick="openMembers()">← Retour aux membres</button>`);
     }catch(e){ $('amerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
