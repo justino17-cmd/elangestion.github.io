@@ -1,5 +1,5 @@
 /* ELAN GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v206';
+const CACHE = 'elan-gestion-v207';
 const ASSETS = [
   './',
   'index.html',
@@ -8,6 +8,8 @@ const ASSETS = [
   'messages.html',
   'app.html',
   'manifest.webmanifest',
+  'manifest-teamop.webmanifest',
+  'manifest-opmsg.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/apple-touch-icon.png'
