@@ -94,8 +94,8 @@
     if(_unsub){_unsub();_unsub=null;}
     if(!user){ ME=null; USER=null; COMP=null; renderAuth(); return; }
     ME=user;
-    const us=await fs.collection('op_users').doc(user.uid).get();
-    USER = us.exists?us.data():null;
+    let us; try{ us=await fs.collection('op_users').doc(user.uid).get(); }catch(e){}
+    USER = (us&&us.exists)?us.data():{uid:user.uid, email:user.email, name:(user.email||'Utilisateur').split('@')[0]};
     if(USER && USER.companyId){ COMP={id:USER.companyId, name:USER.companyName}; renderChat(); }
     else renderSetup();
   });
@@ -163,7 +163,7 @@
       const code=code6();
       await ref.set({name,siret,code,ownerUid:ME.uid,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
       await ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,ts:firebase.firestore.FieldValue.serverTimestamp()});
-      await fs.collection('op_users').doc(ME.uid).set({companyId:ref.id,companyName:name},{merge:true});
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,companyId:ref.id,companyName:name},{merge:true});
       COMP={id:ref.id,name}; USER.companyId=ref.id; USER.companyName=name; renderChat();
     }catch(e){ $('serr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
@@ -175,7 +175,7 @@
       if(qs.empty){ $('serr').innerHTML='<div class="err">Aucune entreprise pour ce code.</div>'; return; }
       const doc=qs.docs[0]; const name=doc.data().name;
       await doc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,ts:firebase.firestore.FieldValue.serverTimestamp()});
-      await fs.collection('op_users').doc(ME.uid).set({companyId:doc.id,companyName:name},{merge:true});
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,companyId:doc.id,companyName:name},{merge:true});
       COMP={id:doc.id,name}; USER.companyId=doc.id; USER.companyName=name; renderChat();
     }catch(e){ $('serr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
