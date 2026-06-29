@@ -96,7 +96,7 @@
   const $=id=>document.getElementById(id);
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const root=$('root');
-  let ME=null, USER=null, COMP=null, _unsub=null, _files={};
+  let ME=null, USER=null, COMP=null, _unsub=null, _files={}, IS_OWNER=false;
   function openFile(id){ const f=_files[id]; if(!f) return; const pdf=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name||'');
     if(pdf){ $('viewer-name').textContent=f.name||'Document'; $('viewer-frame').src=f.data; $('viewer').classList.add('open'); }
     else { const a=document.createElement('a'); a.href=f.data; a.download=f.name||'fichier'; document.body.appendChild(a); a.click(); a.remove(); } }
@@ -111,8 +111,17 @@
     ME=user;
     let us; try{ us=await fs.collection('op_users').doc(user.uid).get(); }catch(e){}
     USER = (us&&us.exists)?us.data():{uid:user.uid, email:user.email, name:(user.email||'Utilisateur').split('@')[0]};
-    if(USER && USER.companyId){ COMP={id:USER.companyId, name:USER.companyName}; renderChat(); }
-    else renderSetup();
+    if(USER && USER.companyId){ COMP={id:USER.companyId, name:USER.companyName}; renderChat(); return; }
+    // L'entreprise a-t-elle créé un compte pour cet e-mail ? (invitation)
+    try{
+      const inv=await fs.collection('op_invites').doc((user.email||'').toLowerCase()).get();
+      if(inv.exists){ const iv=inv.data();
+        await fs.collection('op_companies').doc(iv.companyId).collection('members').doc(user.uid).set({uid:user.uid,name:iv.name||USER.name||user.email,ts:firebase.firestore.FieldValue.serverTimestamp()});
+        await fs.collection('op_users').doc(user.uid).set({uid:user.uid,email:user.email,name:iv.name||USER.name,companyId:iv.companyId,companyName:iv.companyName},{merge:true});
+        COMP={id:iv.companyId, name:iv.companyName}; renderChat(); return;
+      }
+    }catch(e){}
+    renderSetup();
   });
 
   // ---------- AUTH ----------
@@ -213,6 +222,7 @@
         <button class="send" onclick="sendMsg()">➤</button>
       </div>`;
     listen();
+    fs.collection('op_companies').doc(COMP.id).get().then(d=>{ if(d.exists){ IS_OWNER = d.data().ownerUid===ME.uid; COMP.code=d.data().code; } }).catch(()=>{});
   }
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
   function listen(){
@@ -265,9 +275,28 @@
     openSheet('<p class="muted">Chargement…</p>');
     const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
     let html=`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Membres (${qs.size})</h3>`;
-    qs.forEach(d=>{ const m=d.data(); html+=`<div class="mrow"><div class="ma">${esc((m.name||'?').slice(0,1).toUpperCase())}</div><div><div style="font-size:14.5px">${esc(m.name||'')}</div>${m.uid===ME.uid?'<div class="muted">vous</div>':''}</div></div>`; });
-    html+=`<button class="btn block" style="margin-top:16px" onclick="showInvite()">📨 Inviter un collègue</button>`;
+    qs.forEach(d=>{ const m=d.data(); html+=`<div class="mrow"><div class="ma">${esc((m.name||'?').slice(0,1).toUpperCase())}</div><div><div style="font-size:14.5px">${esc(m.name||'')}</div>${m.uid===ME.uid?'<div class="muted">vous'+(IS_OWNER?' · administrateur':'')+'</div>':''}</div></div>`; });
+    if(IS_OWNER){ html+=`<button class="btn block" style="margin-top:16px" onclick="addMemberForm()">➕ Ajouter un membre</button>
+      <button class="btn ghost block" style="margin-top:10px" onclick="showInvite()">📨 Code d'invitation rapide</button>`; }
+    else { html+=`<p class="muted center" style="margin-top:14px">Seul l'administrateur de l'entreprise peut ajouter des membres.</p>`; }
     openSheet(html);
+  }
+  function addMemberForm(){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Ajouter un membre</h3>
+      <p class="muted" style="margin-bottom:14px">Créez le compte d'un employé. Il se connectera avec cet e-mail et <b>choisira son mot de passe</b> à sa première connexion — il rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
+      <div id="amerr"></div>
+      <div class="field"><label>Nom</label><input id="am-name" placeholder="Prénom Nom"></div>
+      <div class="field"><label>E-mail professionnel</label><input id="am-email" type="email" placeholder="employe@entreprise.fr"></div>
+      <button class="btn block" onclick="addMember()">Créer le compte</button>`);
+  }
+  async function addMember(){
+    const name=($('am-name').value||'').trim(), email=($('am-email').value||'').trim().toLowerCase();
+    if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $('amerr').innerHTML='<div class="err">Indiquez un nom et un e-mail valide.</div>'; return; }
+    try{
+      await fs.collection('op_invites').doc(email).set({email,name,companyId:COMP.id,companyName:COMP.name});
+      openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div><p class="muted">Dites-lui d'aller sur <b>teamop.fr → OP MESSAGES</b>, onglet <b>« Créer un compte »</b>, avec l'e-mail <b>${esc(email)}</b> et de choisir son mot de passe. Il rejoindra automatiquement <b>${esc(COMP.name)}</b>.</p>
+        <button class="btn block" style="margin-top:14px" onclick="openMembers()">← Retour aux membres</button>`);
+    }catch(e){ $('amerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
   function openSheet(html){ $('sheet-c').innerHTML=html+'<p class="center" style="margin-top:14px"><a class="link" onclick="closeSheet()">Fermer</a></p>'; $('sheet').classList.add('open'); }
   function closeSheet(){ $('sheet').classList.remove('open'); }
