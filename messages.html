@@ -129,11 +129,11 @@
   function hue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
   function avatarStyle(s){ const h=hue(s); return `background:hsl(${h} 45% 22%);color:hsl(${h} 70% 72%)`; }
   function applyTheme(){ const p=localStorage.getItem('opmsg_theme')||'auto'; let dark; if(p==='auto'){ dark=!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches); } else dark=(p!=='light'); document.body.classList.toggle('theme-light',!dark); try{ const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content',dark?'#0a1020':'#eaeff7'); }catch(e){} }
-  function setTheme(p){ localStorage.setItem('opmsg_theme',p); applyTheme(); openProfile(); }
+  function setTheme(p){ localStorage.setItem('opmsg_theme',p); applyTheme(); if(_curView==='prof') viewProfile(); }
   try{ if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{ if((localStorage.getItem('opmsg_theme')||'auto')==='auto') applyTheme(); }); } }catch(e){}
   applyTheme();
   function soundOn(){ return localStorage.getItem('opmsg_sound')!=='0'; }
-  function toggleSound(){ localStorage.setItem('opmsg_sound', soundOn()?'0':'1'); openProfile(); }
+  function toggleSound(){ localStorage.setItem('opmsg_sound', soundOn()?'0':'1'); if(_curView==='prof') viewProfile(); }
 
   auth.onAuthStateChanged(async user=>{
     if(_unsub){_unsub();_unsub=null;}
@@ -248,17 +248,18 @@
       <div class="nav">
         <button id="nv-disc" class="on" onclick="showView('disc')"><span class="ni">💬</span>Discussions</button>
         <button id="nv-cont" onclick="showView('cont')"><span class="ni">👥</span>Contacts</button>
-        <button id="nv-room" onclick="showView('room')"><span class="ni">🎥</span>Réunions</button>
+        <button id="nv-appel" onclick="showView('appel')"><span class="ni">📞</span>Appels</button>
+        <button id="nv-prof" onclick="showView('prof')"><span class="ni">👤</span>Profil</button>
       </div>`;
   }
   function showView(v){ _curView=v;
-    ['disc','cont','room'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); });
-    if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else viewRoom();
+    ['disc','cont','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); });
+    if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else viewProfile();
   }
 
   // ---- DISCUSSIONS (canaux/groupes) ----
   async function viewDisc(){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2></div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">＋</button>`;
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2><button class="btn ghost sm" onclick="showView('appel')">🎥 Réunions</button></div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">＋</button>`;
     try{
       const ch=fs.collection('op_companies').doc(COMP.id).collection('channels');
       const [gen,grp]=await Promise.all([ ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get() ]);
@@ -304,9 +305,14 @@
   }
   function COMP_owner(){ return COMP.ownerUid; }
 
-  // ---- RÉUNIONS (salles vidéo Jitsi) ----
-  async function viewRoom(){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Réunions</h2></div><p class="muted" style="margin:0 2px 14px">Salles de visioconférence (caméra, micro, partage d'écran).</p><div id="room-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newRoom()" title="Nouvelle salle">＋</button>`;
+  // ---- APPELS & RÉUNIONS (salles vidéo) ----
+  async function viewAppel(){
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2></div>
+      <button class="btn block" style="margin-bottom:16px" onclick="newRoom()">Démarrer une réunion</button>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 10px">Salles de réunion</div>
+      <div id="room-list"><p class="muted center">Chargement…</p></div>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Historique des appels</div>
+      <p class="muted" style="margin:0 2px">Le journal des appels et appels manqués arrivera avec le système d'appel direct. Pour l'instant, créez une salle et partagez-la.</p>`;
     try{
       const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').orderBy('createdAt','desc').get();
       let html=''; qs.forEach(d=>{ const r=d.data(); html+=`<div class="row" onclick="joinRoom('${d.id}','${esc((r.name||'').replace(/'/g,''))}')"><div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">🎥</div><div class="info"><div class="nm">${esc(r.name||'')}</div><div class="ds">Rejoindre la réunion</div></div><div class="chev">›</div></div>`; });
@@ -319,7 +325,7 @@
     <button class="btn block" onclick="createRoom()">Créer la salle</button>`); }
   async function createRoom(){
     const name=($('nr-name').value||'').trim(); if(!name){ $('nrerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,createdAt:FV()}); closeSheet(); showView('room'); }
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,createdAt:FV()}); closeSheet(); showView('appel'); }
     catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
   function loadJitsi(){ return new Promise((res,rej)=>{ if(window.JitsiMeetExternalAPI) return res(); const s=document.createElement('script'); s.src='https://meet.jit.si/external_api.js'; s.onload=res; s.onerror=()=>rej(new Error('jitsi')); document.head.appendChild(s); }); }
@@ -493,36 +499,39 @@
   // ========== MENU / MEMBRES ==========
   function openMenu(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(COMP.name)}</h3>
     <p class="muted" style="margin-bottom:14px">${IS_OWNER?'Vous êtes administrateur.':'Membre'}</p>
-    <button class="btn block" style="margin-bottom:10px" onclick="openProfile()">👤 Mon profil & réglages</button>
+    <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();showView('prof')">Mon profil & réglages</button>
     ${IS_OWNER?'<button class="btn ghost block" style="margin-bottom:10px" onclick="showInvite()">📨 Code d\'invitation rapide</button>':''}
     <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
     <button class="btn ghost block" onclick="logout()">Déconnexion</button>`); }
-  function openProfile(){ const photo=USER.photo, theme=localStorage.getItem('opmsg_theme')||'auto';
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Mon profil</h3>
+  function viewProfile(){ const photo=USER.photo, theme=localStorage.getItem('opmsg_theme')||'auto';
+    $('view').innerHTML=`<div class="view-h"><h2>Profil</h2></div>
+      <div style="max-width:460px;margin:0 auto">
       <div style="text-align:center;margin-bottom:14px">
-        ${photo?`<img src="${photo}" style="width:84px;height:84px;border-radius:24px;object-fit:cover">`:`<div class="ava" style="width:84px;height:84px;border-radius:24px;font-size:32px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}
-        <div><button class="btn ghost sm" style="margin-top:10px" onclick="$('photopick').click()">📷 Changer la photo</button></div>
+        ${photo?`<img src="${photo}" style="width:90px;height:90px;border-radius:26px;object-fit:cover">`:`<div class="ava" style="width:90px;height:90px;border-radius:26px;font-size:34px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}
+        <div style="font-size:17px;font-weight:600;margin-top:10px">${esc(USER.name||'')}</div>
+        <div class="muted">${esc(COMP.name)}${IS_OWNER?' · admin':''}</div>
+        <button class="btn ghost sm" style="margin-top:10px" onclick="$('photopick').click()">Changer la photo</button>
       </div>
       <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
       <button class="btn block" onclick="saveName()">Enregistrer le nom</button>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Thème</div>
-      <div style="display:flex;gap:8px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}')">${t==='auto'?'🌗 Auto':t==='light'?'☀️ Jour':'🌙 Nuit'}</button>`).join('')}</div>
+      <div style="display:flex;gap:8px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}')">${t==='auto'?'Auto':t==='light'?'Jour':'Nuit'}</button>`).join('')}</div>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Réglages</div>
-      <button class="btn ghost block" style="margin-bottom:10px" onclick="toggleSound()">🔊 Son des messages : <b>${soundOn()?'Activé':'Coupé'}</b></button>
-      <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">🔑 Changer le mot de passe</button>
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="toggleSound()">Son des messages : <b>${soundOn()?'Activé':'Coupé'}</b></button>
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Compte</div>
-      <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
+      <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">Retour à TeamOP</a>
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
-      <p class="muted center" style="margin-top:12px;font-size:11px">OP MESSAGES · ${esc(COMP.name)}</p>`); }
+      </div>`; }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return;
-    try{ await fs.collection('op_users').doc(ME.uid).set({name:n},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n},{merge:true}); USER.name=n; closeSheet(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+    try{ await fs.collection('op_users').doc(ME.uid).set({name:n},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n},{merge:true}); USER.name=n; if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
     try{ await auth.currentUser.updatePassword(np); alert('✅ Mot de passe modifié.'); }
     catch(e){ if((e.code||'')==='auth/requires-recent-login') alert('Sécurité : déconnecte-toi, reconnecte-toi, puis réessaie.'); else alert('Erreur : '+(e.message||e)); } }
   $('photopick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader();
     r.onload=()=>{ const img=new Image(); img.onload=async()=>{ let w=img.width,h=img.height; const mx=256; if(w>mx||h>mx){ if(w>h){h=h*mx/w;w=mx;}else{w=w*mx/h;h=mx;} }
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h); const data=cv.toDataURL('image/jpeg',0.8);
-      try{ await fs.collection('op_users').doc(ME.uid).set({photo:data},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({photo:data},{merge:true}); USER.photo=data; openProfile(); }catch(err){ alert('Erreur : '+(err.message||err)); }
+      try{ await fs.collection('op_users').doc(ME.uid).set({photo:data},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({photo:data},{merge:true}); USER.photo=data; if(_curView==='prof') viewProfile(); }catch(err){ alert('Erreur : '+(err.message||err)); }
     }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; });
   async function showInvite(){ const d=await fs.collection('op_companies').doc(COMP.id).get(); const code=d.data().code;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Code d'invitation</h3>
