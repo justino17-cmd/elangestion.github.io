@@ -17,6 +17,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{--bg:#080d18;--bg1:#0d1426;--card:#101a30;--card2:#0c1424;--brd:rgba(255,255,255,.09);--brd2:rgba(255,255,255,.14);--t1:#fff;--t2:rgba(231,238,248,.74);--t3:rgba(231,238,248,.46);--op:#5b8fd6;--op-l:#8fb6e8;--green:#22b14c;--red:#f87171}
+  body.theme-light{--bg:#eaeff7;--bg1:#ffffff;--card:#ffffff;--card2:#eef3fa;--brd:rgba(15,23,40,.1);--brd2:rgba(15,23,40,.17);--t1:#101726;--t2:#3a4660;--t3:#74819a;--op-l:#3f6fb5}
+  body.theme-light::before{background:radial-gradient(ellipse 60% 45% at 12% 0%, rgba(91,143,214,.12), transparent 60%)}
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;height:100dvh;overflow:hidden}
   body::before{content:'';position:fixed;inset:0;z-index:0;background:radial-gradient(ellipse 60% 45% at 12% 0%, rgba(91,143,214,.14), transparent 60%);pointer-events:none}
@@ -101,6 +103,7 @@
 <div class="chat" id="chat"></div>
 <input type="file" id="imgpick" accept="image/*" style="display:none">
 <input type="file" id="filepick" style="display:none">
+<input type="file" id="photopick" accept="image/*" style="display:none">
 <div class="sheet" id="sheet"><div class="sheet-c" id="sheet-c"></div></div>
 <div class="viewer" id="viewer"><div class="vbar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn ghost sm" onclick="closeViewer()">✕ Fermer</button></div><iframe id="viewer-frame" title="Document"></iframe></div>
 <div class="jitsi" id="jitsi"><div class="vbar"><span id="jitsi-name" style="font-size:14px;font-weight:600">Réunion</span><button class="btn ghost sm" onclick="closeJitsi()">✕ Quitter</button></div><div id="jitsi-box"></div></div>
@@ -125,6 +128,12 @@
   function ini(n){ return (n||'?').trim().slice(0,1).toUpperCase(); }
   function hue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
   function avatarStyle(s){ const h=hue(s); return `background:hsl(${h} 45% 22%);color:hsl(${h} 70% 72%)`; }
+  function applyTheme(){ const p=localStorage.getItem('opmsg_theme')||'auto'; let dark; if(p==='auto'){ dark=!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches); } else dark=(p!=='light'); document.body.classList.toggle('theme-light',!dark); try{ const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content',dark?'#0a1020':'#eaeff7'); }catch(e){} }
+  function setTheme(p){ localStorage.setItem('opmsg_theme',p); applyTheme(); openProfile(); }
+  try{ if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{ if((localStorage.getItem('opmsg_theme')||'auto')==='auto') applyTheme(); }); } }catch(e){}
+  applyTheme();
+  function soundOn(){ return localStorage.getItem('opmsg_sound')!=='0'; }
+  function toggleSound(){ localStorage.setItem('opmsg_sound', soundOn()?'0':'1'); openProfile(); }
 
   auth.onAuthStateChanged(async user=>{
     if(_unsub){_unsub();_unsub=null;}
@@ -289,7 +298,7 @@
     try{
       const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
       let html=''; qs.forEach(d=>{ const m=d.data(); const on=isOnline(m)||m.uid===ME.uid;
-        html+=`<div class="row" style="cursor:default"><div style="position:relative;flex-shrink:0"><div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div><span style="position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);background:${on?'#22c55e':'#64748b'}"></span></div><div class="info"><div class="nm">${esc(m.name||'')}</div><div class="ds">${m.uid===ME.uid?'Vous':(on?'En ligne':'Hors ligne')}${m.uid===COMP_owner()?' · admin':''}</div></div></div>`; });
+        html+=`<div class="row" style="cursor:default"><div style="position:relative;flex-shrink:0">${m.photo?`<img class="ava" src="${m.photo}" style="object-fit:cover">`:`<div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`}<span style="position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);background:${on?'#22c55e':'#64748b'}"></span></div><div class="info"><div class="nm">${esc(m.name||'')}</div><div class="ds">${m.uid===ME.uid?'Vous':(on?'En ligne':'Hors ligne')}${m.uid===COMP_owner()?' · admin':''}</div></div></div>`; });
       $('cont-list').innerHTML=html||'<p class="muted center">Aucun contact.</p>';
     }catch(e){ $('cont-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
@@ -385,7 +394,7 @@
   }
   function toggleSearch(){ const b=$('searchbar'); if(!b) return; const show=b.style.display==='none'; b.style.display=show?'block':'none'; if(show){ const i=$('chsearch'); if(i){ i.focus(); } } else { const i=$('chsearch'); if(i) i.value=''; renderStream(); } }
   let _ac=null;
-  function beep(){ try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); const o=_ac.createOscillator(),g=_ac.createGain(); o.connect(g); g.connect(_ac.destination); o.type='sine'; o.frequency.value=660; g.gain.setValueAtTime(.0001,_ac.currentTime); g.gain.exponentialRampToValueAtTime(.12,_ac.currentTime+.02); g.gain.exponentialRampToValueAtTime(.0001,_ac.currentTime+.25); o.start(); o.stop(_ac.currentTime+.26); }catch(e){} }
+  function beep(){ if(!soundOn()) return; try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); const o=_ac.createOscillator(),g=_ac.createGain(); o.connect(g); g.connect(_ac.destination); o.type='sine'; o.frequency.value=660; g.gain.setValueAtTime(.0001,_ac.currentTime); g.gain.exponentialRampToValueAtTime(.12,_ac.currentTime+.02); g.gain.exponentialRampToValueAtTime(.0001,_ac.currentTime+.25); o.start(); o.stop(_ac.currentTime+.26); }catch(e){} }
   async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value='';
     try{ await chMsgs().add({uid:ME.uid,name:USER.name||ME.email,text,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   function msgTap(id){ const it=_curMsgs.find(x=>x.id===id); const m=it&&it.m; const mine=m&&m.uid===ME.uid;
@@ -484,9 +493,37 @@
   // ========== MENU / MEMBRES ==========
   function openMenu(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(COMP.name)}</h3>
     <p class="muted" style="margin-bottom:14px">${IS_OWNER?'Vous êtes administrateur.':'Membre'}</p>
-    ${IS_OWNER?'<button class="btn block" style="margin-bottom:10px" onclick="showInvite()">📨 Code d\'invitation rapide</button>':''}
+    <button class="btn block" style="margin-bottom:10px" onclick="openProfile()">👤 Mon profil & réglages</button>
+    ${IS_OWNER?'<button class="btn ghost block" style="margin-bottom:10px" onclick="showInvite()">📨 Code d\'invitation rapide</button>':''}
     <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
     <button class="btn ghost block" onclick="logout()">Déconnexion</button>`); }
+  function openProfile(){ const photo=USER.photo, theme=localStorage.getItem('opmsg_theme')||'auto';
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Mon profil</h3>
+      <div style="text-align:center;margin-bottom:14px">
+        ${photo?`<img src="${photo}" style="width:84px;height:84px;border-radius:24px;object-fit:cover">`:`<div class="ava" style="width:84px;height:84px;border-radius:24px;font-size:32px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}
+        <div><button class="btn ghost sm" style="margin-top:10px" onclick="$('photopick').click()">📷 Changer la photo</button></div>
+      </div>
+      <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
+      <button class="btn block" onclick="saveName()">Enregistrer le nom</button>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Thème</div>
+      <div style="display:flex;gap:8px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}')">${t==='auto'?'🌗 Auto':t==='light'?'☀️ Jour':'🌙 Nuit'}</button>`).join('')}</div>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Réglages</div>
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="toggleSound()">🔊 Son des messages : <b>${soundOn()?'Activé':'Coupé'}</b></button>
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">🔑 Changer le mot de passe</button>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Compte</div>
+      <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
+      <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
+      <p class="muted center" style="margin-top:12px;font-size:11px">OP MESSAGES · ${esc(COMP.name)}</p>`); }
+  async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return;
+    try{ await fs.collection('op_users').doc(ME.uid).set({name:n},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n},{merge:true}); USER.name=n; closeSheet(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
+    try{ await auth.currentUser.updatePassword(np); alert('✅ Mot de passe modifié.'); }
+    catch(e){ if((e.code||'')==='auth/requires-recent-login') alert('Sécurité : déconnecte-toi, reconnecte-toi, puis réessaie.'); else alert('Erreur : '+(e.message||e)); } }
+  $('photopick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader();
+    r.onload=()=>{ const img=new Image(); img.onload=async()=>{ let w=img.width,h=img.height; const mx=256; if(w>mx||h>mx){ if(w>h){h=h*mx/w;w=mx;}else{w=w*mx/h;h=mx;} }
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h); const data=cv.toDataURL('image/jpeg',0.8);
+      try{ await fs.collection('op_users').doc(ME.uid).set({photo:data},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({photo:data},{merge:true}); USER.photo=data; openProfile(); }catch(err){ alert('Erreur : '+(err.message||err)); }
+    }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; });
   async function showInvite(){ const d=await fs.collection('op_companies').doc(COMP.id).get(); const code=d.data().code;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Code d'invitation</h3>
       <p class="muted" style="margin-bottom:12px">Pour qu'un collègue rejoigne lui-même : il crée un compte puis « Rejoindre (code) ».</p>
