@@ -103,6 +103,10 @@
   .ring-btn{width:66px;height:66px;border-radius:50%;border:none;color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
   .ring-btn.accept{background:#22c55e}
   .ring-btn.decline{background:#ef4444;transform:rotate(135deg)}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(82px + env(safe-area-inset-bottom));z-index:90;background:var(--card);border:1px solid var(--brd2);color:var(--t1);padding:12px 16px;border-radius:12px;font-size:14px;max-width:90%;box-shadow:0 14px 40px rgba(0,0,0,.5);opacity:0;transition:opacity .25s;pointer-events:none;text-align:center}
+  .toast.show{opacity:1}
+  .meet{display:flex;align-items:center;gap:13px;background:linear-gradient(180deg,rgba(34,177,76,.12),rgba(34,177,76,.04));border:1px solid rgba(34,177,76,.3);border-radius:15px;padding:14px;margin-bottom:10px;cursor:pointer}
+  .meet .cd{font-family:'Space Mono',monospace;font-size:13px;color:#5fcf80;font-weight:700}
 </style>
 </head>
 <body>
@@ -116,6 +120,7 @@
 <div class="viewer" id="viewer"><div class="vbar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn ghost sm" onclick="closeViewer()">✕ Fermer</button></div><iframe id="viewer-frame" title="Document"></iframe></div>
 <div class="jitsi" id="jitsi"><div class="vbar"><span id="jitsi-name" style="font-size:14px;font-weight:600">Réunion</span><button class="btn ghost sm" onclick="closeJitsi()">✕ Quitter</button></div><div id="jitsi-box"></div></div>
 <div class="ring" id="ring"></div>
+<div class="toast" id="toast"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -256,7 +261,7 @@
     try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=d.data().ownerUid===ME.uid; COMP.code=d.data().code; } }catch(e){}
     // s'assure qu'un canal "Général" existe
     try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
-    renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener();
+    renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener(); startMeetingWatch();
   }
   let _presTimer=null,_loginTs=0;
   function startPresence(){ const upd=()=>{ try{ fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
@@ -279,6 +284,7 @@
       </div>`;
   }
   function showView(v){ _curView=v;
+    if(_meetTicker){clearInterval(_meetTicker);_meetTicker=null;}
     ['disc','cont','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); });
     if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else viewProfile();
   }
@@ -334,9 +340,14 @@
   // ---- APPELS (style WhatsApp : direct + groupe d'appel) ----
   function tms(t){ return t&&t.toMillis?t.toMillis():0; }
   async function viewAppel(){
+    const up=_myMeetings.filter(m=>m.scheduledAt && m.scheduledAt>Date.now()-3600000).sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    let meetHtml=''; if(up.length){ meetHtml=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:0 2px 8px">Réunions à venir</div>`+
+      up.map(m=>`<div class="meet" onclick="joinRoom('${m.id}','${esc((m.name||'').replace(/'/g,''))}')"><div class="ava" style="width:44px;height:44px;background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div><div class="info" style="flex:1"><div class="nm">${esc(m.name||'')}</div><div class="ds">${esc(fmtWhen(m.scheduledAt))}</div></div><div class="cd" data-t="${m.scheduledAt}">${esc(fmtCountdown(m.scheduledAt-Date.now()))}</div></div>`).join('')+`<div style="height:14px"></div>`; }
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2></div>
+      ${meetHtml}
       <button class="btn block" style="margin-bottom:16px" onclick="newCall()">${ic('phone',18)}Nouvel appel</button>
       <div id="call-list"><p class="muted center">Chargement…</p></div>`;
+    if(_meetTicker)clearInterval(_meetTicker); if(up.length) _meetTicker=setInterval(tickCountdowns,30000);
     try{
       const col=fs.collection('op_companies').doc(COMP.id).collection('calls');
       const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
@@ -414,6 +425,25 @@
   function ringStart(){ ringStop(); beep(); _ringT=setInterval(()=>beep(),1100); }
   function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;} }
 
+  // ---- Réunions planifiées : invitation, compte à rebours, alerte 5 min ----
+  function toast(m){ const t=$('toast'); if(!t) return; t.textContent=m; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),4500); }
+  function fmtWhen(ms){ try{ const d=new Date(ms); return d.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'})+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+  function fmtCountdown(ms){ if(ms<=0) return 'en cours'; const s=Math.floor(ms/1000), d=Math.floor(s/86400), h=Math.floor(s%86400/3600), mn=Math.floor(s%3600/60);
+    if(d>0) return 'dans '+d+' j '+h+' h'; if(h>0) return 'dans '+h+' h '+mn+' min'; if(mn>0) return 'dans '+mn+' min'; return 'dans <1 min'; }
+  function tickCountdowns(){ document.querySelectorAll('.cd[data-t]').forEach(el=>{ el.textContent=fmtCountdown((+el.dataset.t)-Date.now()); }); }
+  let _myMeetings=[],_alerted={},_meetAlertTimer=null,_meetTicker=null;
+  function startMeetingWatch(){
+    fs.collection('op_companies').doc(COMP.id).collection('rooms').where('members','array-contains',ME.uid).onSnapshot(qs=>{
+      _myMeetings=[]; qs.forEach(d=>{ const r=d.data(); if(r.scheduledAt) _myMeetings.push({id:d.id,...r}); });
+      qs.docChanges().forEach(ch=>{ if(ch.type!=='added') return; const r=ch.doc.data(); const ct=r.createdAt&&r.createdAt.toMillis?r.createdAt.toMillis():0;
+        if(r.scheduledAt && r.createdBy!==ME.uid && ct>_loginTs-4000) toast('Réunion planifiée : « '+(r.name||'')+' » — '+fmtWhen(r.scheduledAt)); });
+      if(_curView==='appel') viewAppel();
+    }, err=>{});
+    if(_meetAlertTimer)clearInterval(_meetAlertTimer); _meetAlertTimer=setInterval(checkMeetingAlerts,30000);
+  }
+  function checkMeetingAlerts(){ const now=Date.now(); _myMeetings.forEach(m=>{ const t=m.scheduledAt; if(!t) return; const diff=t-now;
+    if(diff>0 && diff<=5*60000 && !_alerted[m.id]){ _alerted[m.id]=1; beep(); toast('⏰ Réunion « '+(m.name||'')+' » dans 5 minutes'); } }); }
+
   // ---- RÉUNIONS (séparé des appels) : salles visio + partage d'écran ----
   async function openReunions(){
     openSheet('<p class="muted center">Chargement…</p>'); let rooms='';
@@ -424,9 +454,20 @@
       <button class="btn block" style="margin-bottom:14px" onclick="newRoom()">${ic('video',18)}Nouvelle salle</button>
       ${rooms||'<p class="muted">Aucune salle pour l\'instant.</p>'}`);
   }
-  function newRoom(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouvelle salle de réunion</h3><div id="nrerr"></div><div class="field"><label>Nom de la salle</label><input id="nr-name" placeholder="Ex : Réunion hebdo"></div><button class="btn block" onclick="createRoom()">Créer la salle</button>`); }
+  async function newRoom(){ openSheet('<p class="muted center">Chargement…</p>'); let chks='';
+    try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
+      qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouvelle réunion</h3><div id="nrerr"></div>
+      <div class="field"><label>Nom</label><input id="nr-name" placeholder="Ex : Réunion hebdo"></div>
+      <div class="field"><label>Date & heure (laisser vide = maintenant)</label><input id="nr-when" type="datetime-local"></div>
+      <div class="field" style="margin-bottom:6px"><label>Inviter (recevront une alerte)</label></div>
+      <div id="nr-members">${chks||'<p class="muted">Aucun autre membre.</p>'}</div>
+      <button class="btn block" style="margin-top:10px" onclick="createRoom()">Créer la réunion</button>`); }
   async function createRoom(){ const name=($('nr-name').value||'').trim(); if(!name){ $('nrerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,createdAt:FV()}); openReunions(); }catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
+    const whenV=($('nr-when')||{}).value||''; const scheduledAt = whenV ? new Date(whenV).getTime() : null;
+    const sel=[...document.querySelectorAll('#nr-members .chk.sel')].map(x=>x.dataset.uid); const members=Array.from(new Set([ME.uid,...sel]));
+    const data={name,createdBy:ME.uid,members,createdAt:FV()}; if(scheduledAt) data.scheduledAt=scheduledAt;
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add(data); openReunions(); if(scheduledAt) toast('Réunion planifiée — les invités seront prévenus.'); }catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
 
   // ========== CHAT (par canal) ==========
   let _chMsgUnsub=null, _curCh=null;
