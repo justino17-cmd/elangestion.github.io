@@ -116,7 +116,7 @@
   const $=id=>document.getElementById(id);
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const ROOT=$('root');
-  let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc';
+  let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc',_msgCache={};
   const FV=()=>firebase.firestore.FieldValue.serverTimestamp();
   function loginEmail(v){ v=(v||'').trim().toLowerCase(); if(!v) return ''; return v.includes('@')?v:v.replace(/[^a-z0-9._-]/g,'')+'@opmsg.local'; }
   function siretValid(s){ return /^\d{14}$/.test((s||'').replace(/\s/g,'')); }
@@ -327,7 +327,7 @@
       <div class="topbar">
         <button class="bk" onclick="closeChat()">‹</button>
         <div class="ava" style="${name==='Général'?'background:rgba(91,143,214,.2);color:var(--op-l)':avatarStyle(name)}">${name==='Général'?'💬':'#'}</div>
-        <div class="ti"><b>${esc(name)}</b><span>${esc(COMP.name)}</span></div>
+        <div class="ti" onclick="openGroupInfo('${id}')" style="cursor:pointer"><b>${esc(name)}</b><span>Touchez pour les infos ›</span></div>
         <button class="ic" onclick="joinRoom('chat-${id}','Réunion : ${esc(name).replace(/"/g,'')}')" title="Appel">📞</button>
       </div>
       <div class="stream" id="stream"><p class="muted center" style="margin:auto">Chargement…</p></div>
@@ -349,16 +349,53 @@
       qs.forEach(doc=>{ const m=doc.data(); const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date();
         const day=fmtDay(d); if(day!==lastDay){ html+=`<div class="day">${esc(day)}</div>`; lastDay=day; }
         const mine=m.uid===ME.uid, time=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+        _msgCache[doc.id]=m.text||'';
         let body=m.text?esc(m.text):'';
-        if(m.img) body+=`<img src="${m.img}" onclick="window.open(this.src)">`;
-        if(m.file){ _files[doc.id]=m.file; const pdf=/pdf/i.test(m.file.type)||/\.pdf$/i.test(m.file.name||''); body+=`<div class="filechip" onclick="openFile('${doc.id}')">${pdf?'📄':'📎'} ${esc(m.file.name)}</div>`; }
-        html+=`<div class="m ${mine?'me':'them'}">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}<div class="t">${time}</div></div>`;
+        if(m.img) body+=`<img src="${m.img}" onclick="event.stopPropagation();window.open(this.src)">`;
+        if(m.file){ _files[doc.id]=m.file; const pdf=/pdf/i.test(m.file.type)||/\.pdf$/i.test(m.file.name||''); body+=`<div class="filechip" onclick="event.stopPropagation();openFile('${doc.id}')">${pdf?'📄':'📎'} ${esc(m.file.name)}</div>`; }
+        html+=`<div class="m ${mine?'me':'them'}" ${mine?`onclick="msgTap('${doc.id}')" style="cursor:pointer"`:''}>${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}</div></div>`;
       });
       s.innerHTML=html||'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>'; s.scrollTop=s.scrollHeight;
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
   }
   async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value='';
     try{ await chMsgs().add({uid:ME.uid,name:USER.name||ME.email,text,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  function msgTap(id){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Message</h3>
+    <button class="btn ghost block" style="margin-bottom:10px" onclick="editMsg('${id}')">✏️ Modifier</button>
+    <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="delMsg('${id}')">🗑️ Supprimer</button>`); }
+  async function editMsg(id){ closeSheet(); const cur=_msgCache[id]||''; const t=prompt('Modifier le message :',cur); if(t==null) return; const nt=t.trim(); if(!nt) return delMsg(id);
+    try{ await chMsgs().doc(id).update({text:nt,edited:true}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  async function delMsg(id){ closeSheet(); if(!confirm('Supprimer ce message ?')) return; try{ await chMsgs().doc(id).delete(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+
+  // ---- Infos / gestion de groupe ----
+  async function openGroupInfo(id){
+    openSheet('<p class="muted center">Chargement…</p>');
+    let cd; try{ cd=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).get(); }catch(e){ openSheet('<div class="err">'+esc(e.message)+'</div>'); return; }
+    const c=cd.exists?cd.data():{};
+    if(c.type==='general'){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Général</h3><p class="muted">Canal de toute l'entreprise — tous les membres y participent.</p>`); return; }
+    const isMgr = c.createdBy===ME.uid || IS_OWNER;
+    const nameByUid={}; try{ const mqs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); mqs.forEach(d=>nameByUid[d.id]=d.data().name); }catch(e){}
+    const mhtml=(c.members||[]).map(u=>`<div class="mrow"><div class="ma">${ini(nameByUid[u]||'?')}</div><div>${esc(nameByUid[u]||'Membre')}${u===ME.uid?' (vous)':''}</div></div>`).join('');
+    let html=`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">🔒 ${esc(c.name||'Groupe')}</h3>`;
+    if(isMgr) html+=`<button class="btn ghost block" style="margin:10px 0" onclick="renameGroup('${id}','${esc((c.name||'').replace(/'/g,''))}')">✏️ Renommer le groupe</button>`;
+    html+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:12px 2px 6px">Membres (${(c.members||[]).length})</div>${mhtml}`;
+    if(isMgr) html+=`<button class="btn ghost block" style="margin-top:12px" onclick="addToGroup('${id}')">➕ Ajouter des membres</button>`;
+    html+=`<button class="btn block" style="margin-top:14px;background:rgba(248,113,113,.15);color:#fca5a5" onclick="leaveGroup('${id}')">Quitter le groupe</button>`;
+    openSheet(html);
+  }
+  async function renameGroup(id,cur){ const t=prompt('Nouveau nom du groupe :',cur); if(t==null) return; const n=t.trim(); if(!n) return;
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).update({name:n}); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  async function addToGroup(id){
+    openSheet('<p class="muted center">Chargement…</p>');
+    let c={},mem=[]; try{ const cd=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).get(); c=cd.data(); mem=c.members||[]; }catch(e){}
+    let chks=''; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
+      qs.forEach(d=>{ const m=d.data(); if(mem.includes(m.uid)) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Ajouter des membres</h3><div id="atgerr"></div>${chks||'<p class="muted">Tous les membres sont déjà dans le groupe.</p>'}<button class="btn block" style="margin-top:10px" onclick="saveAddToGroup('${id}')">Ajouter</button>`);
+  }
+  async function saveAddToGroup(id){ const sel=[...document.querySelectorAll('.chk.sel')].map(x=>x.dataset.uid); if(!sel.length){ closeSheet(); return; }
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).update({members:firebase.firestore.FieldValue.arrayUnion(...sel)}); closeSheet(); }catch(e){ const el=$('atgerr'); if(el) el.innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
+  async function leaveGroup(id){ if(!confirm('Quitter ce groupe ?')) return;
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).update({members:firebase.firestore.FieldValue.arrayRemove(ME.uid)}); closeSheet(); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   function openAttach(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Joindre</h3>
     <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();$('imgpick').click()">🖼️ Photo (galerie ou appareil)</button>
     <button class="btn ghost block" onclick="closeSheet();$('filepick').click()">📄 Fichier / PDF</button>`); }
