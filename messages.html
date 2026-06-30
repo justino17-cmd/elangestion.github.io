@@ -146,6 +146,7 @@
   function setTheme(p){ localStorage.setItem('opmsg_theme',p); applyTheme(); if(_curView==='prof') viewProfile(); }
   try{ if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{ if((localStorage.getItem('opmsg_theme')||'auto')==='auto') applyTheme(); }); } }catch(e){}
   applyTheme();
+  function isPro(){ return IS_OWNER || (USER&&USER.role==='entreprise'); }
   function soundOn(){ return localStorage.getItem('opmsg_sound')!=='0'; }
   function toggleSound(){ localStorage.setItem('opmsg_sound', soundOn()?'0':'1'); if(_curView==='prof') viewProfile(); }
   const ICON={
@@ -168,8 +169,9 @@
 
   auth.onAuthStateChanged(async user=>{
     if(_unsub){_unsub();_unsub=null;}
-    if(!user){ ME=null;USER=null;COMP=null; renderAuth(); return; }
+    if(!user){ ME=null;USER=null;COMP=null; if(!_provisioning) renderAuth(); return; }
     ME=user;
+    if(_provisioning) return; // doJoin/doCreate gèrent l'entrée dans l'app
     let us; try{ us=await fs.collection('op_users').doc(user.uid).get(); }catch(e){}
     USER=(us&&us.exists)?us.data():{uid:user.uid,email:user.email,name:(user.email||'Utilisateur').split('@')[0]};
     if(USER&&USER.companyId){ COMP={id:USER.companyId,name:USER.companyName}; enterApp(); return; }
@@ -178,31 +180,97 @@
   function logout(){ auth.signOut(); }
 
   // ========== AUTH ==========
+  let _provisioning=false;
+  function aerr(m){ const el=$('aerr'); if(el) el.innerHTML='<div class="err">'+esc(m)+'</div>'; }
   function renderAuth(){
     ROOT.innerHTML=`<div class="center-page"><div class="panel">
       <div class="logo"><img src="icons/opmsg-512.png" style="width:48px;height:48px;border-radius:13px"><b>OP MESSAGES</b></div>
       <p class="sub">La messagerie dédiée aux entreprises</p>
-      <div class="tabs"><div class="tab active" id="t-l" onclick="aTab('l')">Se connecter</div><div class="tab" id="t-s" onclick="aTab('s')">Créer un compte</div></div>
+      <div class="tabs">
+        <div class="tab active" id="t-join" onclick="aTab('join')">Rejoindre</div>
+        <div class="tab" id="t-create" onclick="aTab('create')">Créer entreprise</div>
+        <div class="tab" id="t-login" onclick="aTab('login')">Connexion</div>
+      </div>
       <div id="aerr"></div>
-      <div id="sf" class="hide"><div class="field"><label>Votre nom</label><input id="a-name" placeholder="Prénom Nom"></div></div>
-      <div class="field"><label>E-mail ou identifiant</label><input id="a-email" placeholder="vous@entreprise.fr ou jdupont" autocapitalize="off"></div>
-      <div class="field"><label>Mot de passe</label><input id="a-pass" type="password" placeholder="••••••••"></div>
-      <button class="btn block" id="a-sub" onclick="aSubmit()">Se connecter</button>
+
+      <div id="f-join">
+        <p class="muted" style="margin:-2px 0 12px">Votre entreprise vous a transmis un code ? Rejoignez-la en quelques secondes.</p>
+        <div class="field"><label>Code entreprise</label><input id="j-code" placeholder="Ex : 4FK7P2" style="text-transform:uppercase" autocapitalize="characters"></div>
+        <div class="field"><label>Votre nom</label><input id="j-name" placeholder="Prénom Nom"></div>
+        <div class="field"><label>Identifiant (pour vous reconnecter)</label><input id="j-login" placeholder="ex : mdupont" autocapitalize="off"></div>
+        <div class="field"><label>Mot de passe</label><input id="j-pass" type="password" placeholder="••••••••"></div>
+        <button class="btn block" id="j-sub" onclick="doJoin()">Rejoindre l'entreprise</button>
+      </div>
+
+      <div id="f-create" class="hide">
+        <p class="muted" style="margin:-2px 0 12px">Vous gérez une entreprise ? Créez votre espace — accès à tout, y compris les réunions.</p>
+        <div class="field"><label>Nom de l'entreprise</label><input id="c-name" placeholder="Ex : Dupont SARL"></div>
+        <div class="field"><label>Numéro SIRET (14 chiffres)</label><input id="c-siret" inputmode="numeric" placeholder="123 456 789 00012"></div>
+        <div class="field"><label>Votre nom</label><input id="c-yourname" placeholder="Prénom Nom"></div>
+        <div class="field"><label>E-mail</label><input id="c-email" placeholder="vous@entreprise.fr" autocapitalize="off"></div>
+        <div class="field"><label>Mot de passe</label><input id="c-pass" type="password" placeholder="••••••••"></div>
+        <button class="btn block" id="c-sub" onclick="doCreate()">Créer l'entreprise</button>
+      </div>
+
+      <div id="f-login" class="hide">
+        <div class="field"><label>E-mail ou identifiant</label><input id="a-email" placeholder="vous@entreprise.fr ou jdupont" autocapitalize="off"></div>
+        <div class="field"><label>Mot de passe</label><input id="a-pass" type="password" placeholder="••••••••"></div>
+        <button class="btn block" id="a-sub" onclick="doLogin()">Se connecter</button>
+      </div>
+
       <p class="center" style="margin-top:14px"><a class="link" href="index.html">← Retour à TeamOP</a></p>
     </div></div>`;
   }
-  let aMode='l';
-  function aTab(m){ aMode=m; $('t-l').classList.toggle('active',m==='l'); $('t-s').classList.toggle('active',m==='s'); $('sf').classList.toggle('hide',m!=='s'); $('a-sub').textContent=m==='s'?'Créer mon compte':'Se connecter'; $('aerr').innerHTML=''; }
-  async function aSubmit(){
+  let aMode='join';
+  function aTab(m){ aMode=m; ['join','create','login'].forEach(x=>{ const t=$('t-'+x); if(t) t.classList.toggle('active',x===m); const f=$('f-'+x); if(f) f.classList.toggle('hide',x!==m); }); $('aerr').innerHTML=''; }
+  async function doLogin(){
     const email=loginEmail($('a-email').value), pass=$('a-pass').value||'';
-    if(!email||!pass){ $('aerr').innerHTML='<div class="err">Identifiant (ou e-mail) et mot de passe requis.</div>'; return; }
+    if(!email||!pass){ aerr('Identifiant (ou e-mail) et mot de passe requis.'); return; }
     $('a-sub').disabled=true;
+    try{ await auth.signInWithEmailAndPassword(email,pass); }
+    catch(e){ aerr(aMsg(e)); $('a-sub').disabled=false; }
+  }
+  async function doCreate(){
+    const name=($('c-name').value||'').trim(), siret=($('c-siret').value||'').replace(/\s/g,'');
+    const yourname=($('c-yourname').value||'').trim();
+    const email=loginEmail($('c-email').value), pass=$('c-pass').value||'';
+    if(!name) return aerr("Indiquez le nom de l'entreprise.");
+    if(!siretValid(siret)) return aerr('Le SIRET doit comporter 14 chiffres.');
+    if(!yourname) return aerr('Indiquez votre nom.');
+    if(!email||pass.length<6) return aerr('E-mail valide et mot de passe (6 caractères min.) requis.');
+    $('c-sub').disabled=true; _provisioning=true;
     try{
-      if(aMode==='s'){ if(pass.length<6) throw {message:'Mot de passe : 6 caractères minimum.'};
-        const cred=await auth.createUserWithEmailAndPassword(email,pass);
-        await fs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name:($('a-name').value||'').trim()||email.split('@')[0]});
-      } else await auth.signInWithEmailAndPassword(email,pass);
-    }catch(e){ $('aerr').innerHTML='<div class="err">'+esc(aMsg(e))+'</div>'; $('a-sub').disabled=false; }
+      const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
+      const ref=fs.collection('op_companies').doc(); const code=code6();
+      await ref.set({name,siret,code,ownerUid:ME.uid,createdAt:FV()});
+      await ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:yourname,role:'entreprise',ts:FV()});
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name:yourname,role:'entreprise',companyId:ref.id,companyName:name});
+      USER={uid:ME.uid,email,name:yourname,role:'entreprise',companyId:ref.id,companyName:name};
+      COMP={id:ref.id,name}; _provisioning=false; enterApp();
+    }catch(e){ _provisioning=false; aerr(aMsg(e)); $('c-sub').disabled=false; }
+  }
+  async function doJoin(){
+    const code=($('j-code').value||'').trim().toUpperCase();
+    const name=($('j-name').value||'').trim();
+    const ident=($('j-login').value||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
+    const pass=$('j-pass').value||'';
+    if(code.length<4) return aerr('Entrez le code transmis par votre entreprise.');
+    if(!name) return aerr('Indiquez votre nom.');
+    if(ident.length<3) return aerr('Choisissez un identifiant (3 caractères min.).');
+    if(pass.length<6) return aerr('Mot de passe : 6 caractères minimum.');
+    $('j-sub').disabled=true;
+    let qs; try{ qs=await fs.collection('op_companies').where('code','==',code).limit(1).get(); }
+    catch(e){ aerr(e.message||'Erreur'); $('j-sub').disabled=false; return; }
+    if(qs.empty){ aerr('Aucune entreprise pour ce code. Vérifiez auprès de votre employeur.'); $('j-sub').disabled=false; return; }
+    const cdoc=qs.docs[0]; const cname=cdoc.data().name; const email=loginEmail(ident);
+    _provisioning=true;
+    try{
+      const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
+      await cdoc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name,role:'classique',ts:FV()});
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,role:'classique',companyId:cdoc.id,companyName:cname});
+      USER={uid:ME.uid,email,name,role:'classique',companyId:cdoc.id,companyName:cname};
+      COMP={id:cdoc.id,name:cname}; _provisioning=false; enterApp();
+    }catch(e){ _provisioning=false; if((e.code||'')==='auth/email-already-in-use') aerr('Cet identifiant est déjà pris. Choisissez-en un autre, ou allez sur « Connexion ».'); else aerr(aMsg(e)); $('j-sub').disabled=false; }
   }
   function aMsg(e){ const c=(e&&e.code)||'';
     if(c==='auth/email-already-in-use')return 'Ce compte existe déjà. Connectez-vous.';
@@ -238,8 +306,8 @@
     try{
       const ref=fs.collection('op_companies').doc(); const code=code6();
       await ref.set({name,siret,code,ownerUid:ME.uid,createdAt:FV()});
-      await ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,companyId:ref.id,companyName:name},{merge:true});
+      await ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,role:'entreprise',ts:FV()});
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,role:'entreprise',companyId:ref.id,companyName:name},{merge:true}); USER.role='entreprise';
       COMP={id:ref.id,name}; USER.companyId=ref.id; USER.companyName=name; enterApp();
     }catch(e){ $('serr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
@@ -250,8 +318,8 @@
       const qs=await fs.collection('op_companies').where('code','==',code).limit(1).get();
       if(qs.empty){ $('serr').innerHTML='<div class="err">Aucune entreprise pour ce code.</div>'; return; }
       const doc=qs.docs[0]; const name=doc.data().name;
-      await doc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,companyId:doc.id,companyName:name},{merge:true});
+      await doc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,role:'classique',ts:FV()});
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,role:'classique',companyId:doc.id,companyName:name},{merge:true}); USER.role='classique';
       COMP={id:doc.id,name}; USER.companyId=doc.id; USER.companyName=name; enterApp();
     }catch(e){ $('serr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
@@ -259,6 +327,7 @@
   // ========== APP SHELL ==========
   async function enterApp(){
     try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=d.data().ownerUid===ME.uid; COMP.code=d.data().code; } }catch(e){}
+    if(IS_OWNER && USER) USER.role='entreprise';
     // s'assure qu'un canal "Général" existe
     try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
     renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener(); startMeetingWatch();
@@ -291,7 +360,7 @@
 
   // ---- DISCUSSIONS (canaux/groupes) ----
   async function viewDisc(){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2><button class="btn ghost sm" onclick="openReunions()">${ic('video',16)}Réunions</button></div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ic('plus',26)}</button>`;
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?`<button class="btn ghost sm" onclick="openReunions()">${ic('video',16)}Réunions</button>`:''}</div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ic('plus',26)}</button>`;
     try{
       const ch=fs.collection('op_companies').doc(COMP.id).collection('channels');
       const [gen,grp,mem]=await Promise.all([ ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get(), fs.collection('op_companies').doc(COMP.id).collection('members').get() ]);
@@ -358,7 +427,7 @@
   // ---- APPELS (style WhatsApp : direct + groupe d'appel) ----
   function tms(t){ return t&&t.toMillis?t.toMillis():0; }
   async function viewAppel(){
-    const up=_myMeetings.filter(m=>m.scheduledAt && m.scheduledAt>Date.now()-3600000).sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    const up=isPro()? _myMeetings.filter(m=>m.scheduledAt && m.scheduledAt>Date.now()-3600000).sort((a,b)=>a.scheduledAt-b.scheduledAt) : [];
     let meetHtml=''; if(up.length){ meetHtml=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:0 2px 8px">Réunions à venir</div>`+
       up.map(m=>`<div class="meet" onclick="joinRoom('${m.id}','${esc((m.name||'').replace(/'/g,''))}')"><div class="ava" style="width:44px;height:44px;background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div><div class="info" style="flex:1"><div class="nm">${esc(m.name||'')}</div><div class="ds">${esc(fmtWhen(m.scheduledAt))}</div></div><div class="cd" data-t="${m.scheduledAt}">${esc(fmtCountdown(m.scheduledAt-Date.now()))}</div></div>`).join('')+`<div style="height:14px"></div>`; }
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2></div>
@@ -464,6 +533,7 @@
 
   // ---- RÉUNIONS (séparé des appels) : salles visio + partage d'écran ----
   async function openReunions(){
+    if(!isPro()){ toast('Les réunions sont réservées aux comptes entreprise.'); return; }
     openSheet('<p class="muted center">Chargement…</p>'); let rooms='';
     try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').orderBy('createdAt','desc').get();
       qs.forEach(d=>{ const r=d.data(); rooms+=`<div class="row" onclick="closeSheet();joinRoom('${d.id}','${esc((r.name||'').replace(/'/g,''))}')"><div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div><div class="info"><div class="nm">${esc(r.name||'')}</div><div class="ds">Rejoindre · partage d'écran</div></div><div class="chev">›</div></div>`; }); }catch(e){}
@@ -673,8 +743,12 @@
         ${photo?`<img src="${photo}" style="width:90px;height:90px;border-radius:26px;object-fit:cover">`:`<div class="ava" style="width:90px;height:90px;border-radius:26px;font-size:34px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}
         <div style="font-size:17px;font-weight:600;margin-top:10px">${esc(USER.name||'')}</div>
         <div class="muted">${esc(COMP.name)}${IS_OWNER?' · admin':''}</div>
-        <button class="btn ghost sm" style="margin-top:10px" onclick="$('photopick').click()">Changer la photo</button>
+        <div style="margin-top:8px"><span style="font-size:11px;${isPro()?'background:rgba(34,177,76,.18);color:#5fcf80':'background:rgba(91,143,214,.2);color:var(--op-l)'};padding:4px 11px;border-radius:100px;font-weight:600">${isPro()?'Compte entreprise · accès complet':'Utilisateur · sans réunions'}</span></div>
+        <button class="btn ghost sm" style="margin-top:12px" onclick="$('photopick').click()">Changer la photo</button>
       </div>
+      ${isPro()?`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Code à transmettre aux employés</div>
+      <button class="btn ghost block" style="margin-bottom:6px" onclick="showInvite()">Voir / partager le code d'invitation</button>
+      <p class="muted" style="font-size:12px;margin:0 2px 6px">Vos employés téléchargent l'app, choisissent « Rejoindre » et entrent ce code.</p>`:''}
       <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
       <div class="field"><label>Téléphone</label><input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78"></div>
       <button class="btn block" onclick="saveName()">Enregistrer</button>
@@ -699,7 +773,7 @@
     }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; });
   async function showInvite(){ const d=await fs.collection('op_companies').doc(COMP.id).get(); const code=d.data().code;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Code d'invitation</h3>
-      <p class="muted" style="margin-bottom:12px">Pour qu'un collègue rejoigne lui-même : il crée un compte puis « Rejoindre (code) ».</p>
+      <p class="muted" style="margin-bottom:12px">Donnez ce code à vos employés. Ils ouvrent l'app, choisissent « Rejoindre », entrent ce code et leur nom — aucun compte à créer pour eux.</p>
       <div style="background:var(--card2);border:1px solid var(--brd2);border-radius:12px;padding:16px;text-align:center;font-family:'Space Mono',monospace;font-size:28px;letter-spacing:4px;color:var(--op-l)">${esc(code)}</div>
       <button class="btn block" style="margin-top:14px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(code)}');this.textContent='✅ Copié'">📋 Copier</button>`); }
   function addMemberForm(){
@@ -727,8 +801,8 @@
       catch(e){ if((e.code||'')==='auth/email-already-in-use') errBox('Cet identifiant existe déjà.'); else errBox(e.message||'Erreur'); if(btn)btn.disabled=false; await sec.delete(); return; }
       const sfs=sec.firestore();
       const phone=($('am-phone')&&$('am-phone').value||'').trim();
-      await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,phone,companyId:COMP.id,companyName:COMP.name});
-      await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(cred.user.uid).set({uid:cred.user.uid,name,phone,ts:FV()});
+      await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,phone,role:'classique',companyId:COMP.id,companyName:COMP.name});
+      await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(cred.user.uid).set({uid:cred.user.uid,name,phone,role:'classique',ts:FV()});
       await sec.auth().signOut(); await sec.delete(); sec=null; _lastCreds={ident,pass,company:COMP.name};
       openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div>
         <p class="muted" style="margin:10px 0">Accès à donner à l'employé :</p>
