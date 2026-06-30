@@ -505,26 +505,29 @@
     $('chat').classList.add('open');
     listenCh(id);
   }
-  function closeChat(){ if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} $('chat').classList.remove('open'); _curCh=null; }
+  function closeChat(){ if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
   function chMsgs(){ return fs.collection('op_companies').doc(COMP.id).collection('channels').doc(_curCh.id).collection('messages'); }
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
-  let _curMsgs=[],_lastMsgCount=0;
+  let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={};
+  function markRead(id){ try{ fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
   function listenCh(id){
-    if(_chMsgUnsub)_chMsgUnsub(); _curMsgs=[]; _lastMsgCount=0;
+    if(_chMsgUnsub)_chMsgUnsub(); if(_readsUnsub){_readsUnsub();_readsUnsub=null;} _curMsgs=[]; _lastMsgCount=0; _reads={};
     _chMsgUnsub=fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).collection('messages').orderBy('ts','asc').limitToLast(300).onSnapshot(qs=>{
       _curMsgs=[];
       qs.forEach(doc=>{ const m=doc.data(); const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
-      // notification sonore si nouveau message d'un autre
       if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid) beep(); }
       _lastMsgCount=_curMsgs.length;
-      renderStream();
+      renderStream(); markRead(id);
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
+    _readsUnsub=fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).collection('reads').onSnapshot(qs=>{ _reads={}; qs.forEach(d=>{ _reads[d.id]=d.data().ts||0; }); renderStream(); }, err=>{});
   }
   function renderStream(){
     const s=$('stream'); if(!s) return;
     const q=(($('chsearch')||{}).value||'').trim().toLowerCase();
     const msgs = q? _curMsgs.filter(x=>(x.m.text||'').toLowerCase().includes(q)) : _curMsgs;
     let html='',lastDay='';
+    const vis=msgs.filter(x=>!_hidden.has(x.id)); let lastMineId=null; for(let i=vis.length-1;i>=0;i--){ if(vis[i].m.uid===ME.uid){ lastMineId=vis[i].id; break; } }
+    const isDM=_curCh&&(''+_curCh.id).indexOf('dm_')===0;
     msgs.forEach(({id,m,d})=>{
       if(_hidden.has(id)) return;
       const day=fmtDay(d); if(day!==lastDay){ html+=`<div class="day">${esc(day)}</div>`; lastDay=day; }
@@ -538,6 +541,7 @@
       if(m.file){ body+=`<div class="filechip" onclick="event.stopPropagation();openFile('${id}')">${ic('file',16)} ${esc(m.file.name)}</div>`; }
       let reacts=''; if(m.reactions){ const ps=Object.entries(m.reactions).filter(([e,a])=>a&&a.length).map(([e,a])=>`<span style="background:rgba(127,127,127,.2);border-radius:100px;padding:1px 7px;font-size:12px">${e} ${a.length}</span>`); if(ps.length) reacts=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">${ps.join('')}</div>`; }
       html+=`<div class="m ${mine?'me':'them'}" onclick="msgTap('${id}')" style="cursor:pointer">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${reacts}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}</div></div>`;
+      if(id===lastMineId){ const mt=d.getTime(); const rd=Object.keys(_reads).filter(u=>u!==ME.uid && (_reads[u]||0)>=mt-2000).length; const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé'; html+=`<div style="align-self:flex-end;font-size:10.5px;color:var(--t3);margin:-3px 4px 2px">${rtxt}</div>`; }
     });
     s.innerHTML=html||(q?'<p class="muted center" style="margin:auto">Aucun résultat.</p>':'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>');
     if(!q) s.scrollTop=s.scrollHeight;
