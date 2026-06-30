@@ -245,19 +245,35 @@
   async function viewDisc(){
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2></div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">＋</button>`;
     try{
-      const qs=await fs.collection('op_companies').doc(COMP.id).collection('channels').orderBy('createdAt','asc').get();
-      let html=''; qs.forEach(d=>{ const c=d.data(); const g=c.type==='general';
-        html+=`<div class="row" onclick="openChannel('${d.id}','${esc((c.name||'').replace(/'/g,''))}')"><div class="ava" style="${g?'background:rgba(91,143,214,.2);color:var(--op-l)':avatarStyle(c.name)}">${g?'💬':'#'}</div><div class="info"><div class="nm">${esc(c.name||'')}</div><div class="ds">${g?'Toute l\'entreprise':'Groupe'}</div></div><div class="chev">›</div></div>`; });
+      const ch=fs.collection('op_companies').doc(COMP.id).collection('channels');
+      const [gen,grp]=await Promise.all([ ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get() ]);
+      const map={}; gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data());
+      const list=Object.entries(map).sort((a,b)=>(a[1].type==='general'?-1:1)-(b[1].type==='general'?-1:1));
+      let html=''; list.forEach(([id,c])=>{ const g=c.type==='general'; const n=(c.members||[]).length;
+        html+=`<div class="row" onclick="openChannel('${id}','${esc((c.name||'').replace(/'/g,''))}')"><div class="ava" style="${g?'background:rgba(91,143,214,.2);color:var(--op-l)':avatarStyle(c.name)}">${g?'💬':'🔒'}</div><div class="info"><div class="nm">${esc(c.name||'')}</div><div class="ds">${g?'Toute l\'entreprise':n+' membre'+(n>1?'s':'')}</div></div><div class="chev">›</div></div>`; });
       $('disc-list').innerHTML=html||'<p class="muted center">Aucune discussion.</p>';
     }catch(e){ $('disc-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
-  function newGroup(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau groupe</h3>
-    <div id="ngerr"></div>
-    <div class="field"><label>Nom du groupe</label><input id="ng-name" placeholder="Ex : Équipe terrain"></div>
-    <button class="btn block" onclick="createGroup()">Créer le groupe</button>`); }
+  async function newGroup(){
+    openSheet('<p class="muted center">Chargement…</p>');
+    let chks='';
+    try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
+      qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return;
+        chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div><span class="tk" style="font-size:18px;color:var(--op-l)">+</span></div>`; });
+    }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau groupe</h3>
+      <div id="ngerr"></div>
+      <div class="field"><label>Nom du groupe</label><input id="ng-name" placeholder="Ex : Équipe terrain"></div>
+      <div class="field" style="margin-bottom:6px"><label>Qui fait partie du groupe ?</label></div>
+      <div id="ng-members">${chks||'<p class="muted">Aucun autre membre. Ajoutez des contacts d\'abord.</p>'}</div>
+      <p class="muted" style="margin:4px 0 10px">Vous êtes automatiquement membre. Seuls les membres choisis verront ce groupe.</p>
+      <button class="btn block" onclick="createGroup()">Créer le groupe</button>`);
+  }
   async function createGroup(){
     const name=($('ng-name').value||'').trim(); if(!name){ $('ngerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
-    try{ const r=await fs.collection('op_companies').doc(COMP.id).collection('channels').add({name,type:'group',createdBy:ME.uid,createdAt:FV()}); closeSheet(); openChannel(r.id,name); }
+    const sel=[...document.querySelectorAll('#ng-members .chk.sel')].map(x=>x.dataset.uid);
+    const members=Array.from(new Set([ME.uid,...sel]));
+    try{ const r=await fs.collection('op_companies').doc(COMP.id).collection('channels').add({name,type:'group',members,createdBy:ME.uid,createdAt:FV()}); closeSheet(); openChannel(r.id,name); }
     catch(e){ $('ngerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
 
