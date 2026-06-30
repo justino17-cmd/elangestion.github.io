@@ -341,10 +341,15 @@
     }catch(e){ $('cont-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
   function COMP_owner(){ return COMP.ownerUid; }
-  function contactActions(uid,name){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">${esc(name)}</h3>
-    <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();openDM('${uid}','${esc((name||'').replace(/'/g,''))}')">${ic('chat',18)}Envoyer un message</button>
-    <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${esc((name||'').replace(/'/g,''))}'],'audio')">${ic('phone',18)}Appel audio</button>
-    <button class="btn ghost block" onclick="closeSheet();startCall(['${uid}'],['${esc((name||'').replace(/'/g,''))}'],'video')">${ic('video',18)}Appel vidéo</button>`); }
+  async function contactActions(uid,name){ openSheet('<p class="muted center">Chargement…</p>'); let phone='';
+    try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).get(); if(d.exists) phone=d.data().phone||''; }catch(e){}
+    const nm=esc((name||'').replace(/'/g,''));
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:${phone?'4':'14'}px">${esc(name)}</h3>
+      ${phone?`<p class="muted" style="margin-bottom:14px">${esc(phone)}</p>`:''}
+      <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();openDM('${uid}','${nm}')">${ic('chat',18)}Envoyer un message</button>
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'audio')">${ic('phone',18)}Appel audio (in-app)</button>
+      <button class="btn ghost block" ${phone?'style="margin-bottom:10px"':''} onclick="closeSheet();startCall(['${uid}'],['${nm}'],'video')">${ic('video',18)}Appel vidéo (in-app)</button>
+      ${phone?`<a class="btn ghost block" style="text-decoration:none" href="tel:${esc(phone.replace(/[^0-9+]/g,''))}">${ic('phone',18)}Appeler au téléphone</a>`:''}`); }
   async function openDM(uid,name){ const pair=[ME.uid,uid].sort(); const id='dm_'+pair.join('_');
     const ref=fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id);
     try{ const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
@@ -671,7 +676,8 @@
         <button class="btn ghost sm" style="margin-top:10px" onclick="$('photopick').click()">Changer la photo</button>
       </div>
       <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
-      <button class="btn block" onclick="saveName()">Enregistrer le nom</button>
+      <div class="field"><label>Téléphone</label><input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78"></div>
+      <button class="btn block" onclick="saveName()">Enregistrer</button>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Thème</div>
       <div style="display:flex;gap:8px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}')">${t==='auto'?'Auto':t==='light'?'Jour':'Nuit'}</button>`).join('')}</div>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Réglages</div>
@@ -681,8 +687,8 @@
       <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">Retour à TeamOP</a>
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       </div>`; }
-  async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return;
-    try{ await fs.collection('op_users').doc(ME.uid).set({name:n},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n},{merge:true}); USER.name=n; if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim();
+    try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
     try{ await auth.currentUser.updatePassword(np); alert('✅ Mot de passe modifié.'); }
     catch(e){ if((e.code||'')==='auth/requires-recent-login') alert('Sécurité : déconnecte-toi, reconnecte-toi, puis réessaie.'); else alert('Erreur : '+(e.message||e)); } }
@@ -703,6 +709,7 @@
       <div class="field"><label>Prénom</label><input id="am-prenom" placeholder="Marie"></div>
       <div class="field"><label>Nom</label><input id="am-nom" placeholder="Dupont"></div>
       <div class="field"><label>Identifiant</label><input id="am-login" placeholder="ex : mdupont" autocapitalize="off"></div>
+      <div class="field"><label>Téléphone (facultatif)</label><input id="am-phone" type="tel" placeholder="06 12 34 56 78"></div>
       <div class="field"><label>Mot de passe (min. 6)</label><input id="am-pass" placeholder="••••••"></div>
       <button class="btn block" id="am-btn" onclick="addMember()">Créer le compte</button>`);
   }
@@ -719,8 +726,9 @@
       let cred; try{ cred=await sec.auth().createUserWithEmailAndPassword(email,pass); }
       catch(e){ if((e.code||'')==='auth/email-already-in-use') errBox('Cet identifiant existe déjà.'); else errBox(e.message||'Erreur'); if(btn)btn.disabled=false; await sec.delete(); return; }
       const sfs=sec.firestore();
-      await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,companyId:COMP.id,companyName:COMP.name});
-      await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(cred.user.uid).set({uid:cred.user.uid,name,ts:FV()});
+      const phone=($('am-phone')&&$('am-phone').value||'').trim();
+      await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,phone,companyId:COMP.id,companyName:COMP.name});
+      await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(cred.user.uid).set({uid:cred.user.uid,name,phone,ts:FV()});
       await sec.auth().signOut(); await sec.delete(); sec=null; _lastCreds={ident,pass,company:COMP.name};
       openSheet(`<div class="ok">✅ Compte créé pour <b>${esc(name)}</b>.</div>
         <p class="muted" style="margin:10px 0">Accès à donner à l'employé :</p>
