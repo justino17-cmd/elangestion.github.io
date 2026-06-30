@@ -97,6 +97,12 @@
   .viewer iframe{flex:1;border:none;width:100%;background:#fff}
   #jitsi-box{flex:1}
   #jitsi-box iframe{width:100%;height:100%;border:none}
+  .ring{position:fixed;inset:0;z-index:80;background:rgba(8,13,24,.97);display:none;align-items:center;justify-content:center;padding:24px}
+  .ring.open{display:flex}
+  .ring-av{width:100px;height:100px;border-radius:32px;display:flex;align-items:center;justify-content:center;font-size:42px;margin:0 auto}
+  .ring-btn{width:66px;height:66px;border-radius:50%;border:none;color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .ring-btn.accept{background:#22c55e}
+  .ring-btn.decline{background:#ef4444;transform:rotate(135deg)}
 </style>
 </head>
 <body>
@@ -109,6 +115,7 @@
 <div class="sheet" id="sheet"><div class="sheet-c" id="sheet-c"></div></div>
 <div class="viewer" id="viewer"><div class="vbar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn ghost sm" onclick="closeViewer()">✕ Fermer</button></div><iframe id="viewer-frame" title="Document"></iframe></div>
 <div class="jitsi" id="jitsi"><div class="vbar"><span id="jitsi-name" style="font-size:14px;font-weight:600">Réunion</span><button class="btn ghost sm" onclick="closeJitsi()">✕ Quitter</button></div><div id="jitsi-box"></div></div>
+<div class="ring" id="ring"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -249,9 +256,9 @@
     try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=d.data().ownerUid===ME.uid; COMP.code=d.data().code; } }catch(e){}
     // s'assure qu'un canal "Général" existe
     try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
-    renderShell(); showView('disc'); startPresence();
+    renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener();
   }
-  let _presTimer=null;
+  let _presTimer=null,_loginTs=0;
   function startPresence(){ const upd=()=>{ try{ fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
     upd(); if(_presTimer)clearInterval(_presTimer); _presTimer=setInterval(upd,45000);
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) upd(); }); }
@@ -278,7 +285,7 @@
 
   // ---- DISCUSSIONS (canaux/groupes) ----
   async function viewDisc(){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2><button class="btn ghost sm" onclick="showView('appel')">${ic('video',16)}Réunions</button></div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ic('plus',26)}</button>`;
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2><button class="btn ghost sm" onclick="openReunions()">${ic('video',16)}Réunions</button></div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ic('plus',26)}</button>`;
     try{
       const ch=fs.collection('op_companies').doc(COMP.id).collection('channels');
       const [gen,grp]=await Promise.all([ ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get() ]);
@@ -324,42 +331,102 @@
   }
   function COMP_owner(){ return COMP.ownerUid; }
 
-  // ---- APPELS & RÉUNIONS (salles vidéo) ----
+  // ---- APPELS (style WhatsApp : direct + groupe d'appel) ----
+  function tms(t){ return t&&t.toMillis?t.toMillis():0; }
   async function viewAppel(){
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2></div>
-      <button class="btn block" style="margin-bottom:16px" onclick="newRoom()">${ic('video',18)}Démarrer une réunion</button>
-      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 10px">Salles de réunion</div>
-      <div id="room-list"><p class="muted center">Chargement…</p></div>
-      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Historique des appels</div>
-      <p class="muted" style="margin:0 2px">Le journal des appels et appels manqués arrivera avec le système d'appel direct. Pour l'instant, créez une salle et partagez-la.</p>`;
+      <button class="btn block" style="margin-bottom:16px" onclick="newCall()">${ic('phone',18)}Nouvel appel</button>
+      <div id="call-list"><p class="muted center">Chargement…</p></div>`;
     try{
-      const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').orderBy('createdAt','desc').get();
-      let html=''; qs.forEach(d=>{ const r=d.data(); html+=`<div class="row" onclick="joinRoom('${d.id}','${esc((r.name||'').replace(/'/g,''))}')"><div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic("video",20)}</div><div class="info"><div class="nm">${esc(r.name||'')}</div><div class="ds">Rejoindre la réunion</div></div><div class="chev">›</div></div>`; });
-      $('room-list').innerHTML=html||'<p class="muted center">Aucune salle. Touchez ＋ pour en créer une.</p>';
-    }catch(e){ $('room-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+      const col=fs.collection('op_companies').doc(COMP.id).collection('calls');
+      const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
+      const map={}; a.forEach(d=>map[d.id]={id:d.id,...d.data()}); b.forEach(d=>map[d.id]={id:d.id,...d.data()});
+      const list=Object.values(map).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
+      let html=''; list.forEach(c=>{ const out=c.from===ME.uid; const grp=(c.members||[]).length>1;
+        const who = grp ? ('Groupe ('+((c.memberNames||[]).length)+')') : (out? ((c.memberNames&&c.memberNames[0])||'Contact') : c.fromName);
+        const missed = c.status==='missed'||c.status==='declined'; const d=c.ts&&c.ts.toDate?c.ts.toDate():null;
+        html+=`<div class="row" onclick="recall('${c.id}')"><div class="ava" style="${avatarStyle(who)}">${grp?ic('users',20):ini(who)}</div><div class="info"><div class="nm" style="${missed?'color:#f87171':''}">${esc(who)}</div><div class="ds">${out?'Sortant':'Entrant'}${missed?' · manqué':''} · ${c.type==='audio'?'audio':'vidéo'}${d?' · '+d.toLocaleDateString('fr-FR')+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</div></div>${ic('phone',18)}</div>`; });
+      $('call-list').innerHTML=html||'<p class="muted center">Aucun appel. Touchez « Nouvel appel ».</p>';
+    }catch(e){ $('call-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
-  function newRoom(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouvelle salle de réunion</h3>
-    <div id="nrerr"></div>
-    <div class="field"><label>Nom de la salle</label><input id="nr-name" placeholder="Ex : Réunion hebdo"></div>
-    <button class="btn block" onclick="createRoom()">Créer la salle</button>`); }
-  async function createRoom(){
-    const name=($('nr-name').value||'').trim(); if(!name){ $('nrerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,createdAt:FV()}); closeSheet(); showView('appel'); }
-    catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
+  async function newCall(){
+    openSheet('<p class="muted center">Chargement…</p>'); let chks='';
+    try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
+      qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" data-name="${esc((m.name||'').replace(/"/g,'&quot;'))}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Nouvel appel</h3>
+      <p class="muted" style="margin-bottom:12px">Choisissez une personne (appel direct) ou plusieurs (appel de groupe).</p>
+      <div id="ncerr"></div><div id="nc-members">${chks||'<p class="muted">Aucun contact.</p>'}</div>
+      <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" style="flex:1" onclick="launchCall('audio')">${ic('phone',18)}Audio</button><button class="btn" style="flex:1" onclick="launchCall('video')">${ic('video',18)}Vidéo</button></div>`);
+  }
+  function launchCall(type){ const sel=[...document.querySelectorAll('#nc-members .chk.sel')]; if(!sel.length){ $('ncerr').innerHTML='<div class="err">Choisissez au moins une personne.</div>'; return; }
+    closeSheet(); startCall(sel.map(x=>x.dataset.uid), sel.map(x=>x.dataset.name), type); }
+  async function recall(id){ try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('calls').doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
+    const ids = out ? c.members : [c.from, ...(c.members||[]).filter(u=>u!==ME.uid)];
+    const names = out ? c.memberNames : [c.fromName, ...((c.memberNames||[]))];
+    startCall(ids, names, c.type||'video'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+
+  let _activeCall=null,_callDocUnsub=null,_japi=null;
+  async function startCall(ids, names, type){
+    if(!ids||!ids.length) return;
+    const room='CALL'+ME.uid.slice(0,6)+Date.now();
+    const ref=fs.collection('op_companies').doc(COMP.id).collection('calls').doc();
+    try{ await ref.set({from:ME.uid,fromName:USER.name||ME.email,members:ids,memberNames:names||[],type:type||'video',room,status:'ringing',ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
+    _activeCall={ref,answered:false,oneToOne:ids.length===1};
+    if(_callDocUnsub)_callDocUnsub();
+    _callDocUnsub=ref.onSnapshot(d=>{ if(!d.exists||!_activeCall) return; const st=d.data().status;
+      if(st==='answered'){ _activeCall.answered=true; }
+      else if(st==='declined' && _activeCall.oneToOne){ const nm=(names&&names[0])||'Le contact'; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;} _activeCall=null; closeJitsi(); setTimeout(()=>alert(nm+' a refusé l\'appel.'),250); } });
+    openJitsi(room, 'Appel · '+((names||[]).join(', ')), type==='audio');
   }
   function loadJitsi(){ return new Promise((res,rej)=>{ if(window.JitsiMeetExternalAPI) return res(); const s=document.createElement('script'); s.src='https://meet.jit.si/external_api.js'; s.onload=res; s.onerror=()=>rej(new Error('jitsi')); document.head.appendChild(s); }); }
-  let _japi=null;
-  async function joinRoom(id,name){
-    $('jitsi-name').textContent=name||'Réunion'; $('jitsi').classList.add('open');
+  async function openJitsi(roomName,title,audioOnly){
+    $('jitsi-name').textContent=title||'Appel'; $('jitsi').classList.add('open');
     try{ await loadJitsi(); }catch(e){ $('jitsi-box').innerHTML='<p class="muted center" style="margin:auto;padding:30px">Connexion impossible (Internet requis).</p>'; return; }
-    const room=('OPMSG'+COMP.id+id).replace(/[^a-zA-Z0-9]/g,'');
-    $('jitsi-box').innerHTML='';
+    const room=(roomName).replace(/[^a-zA-Z0-9]/g,''); $('jitsi-box').innerHTML='';
     _japi=new JitsiMeetExternalAPI('meet.jit.si',{roomName:room,parentNode:$('jitsi-box'),userInfo:{displayName:USER.name||'Invité'},
-      configOverwrite:{prejoinPageEnabled:false,startWithVideoMuted:false,disableDeepLinking:true,disableThirdPartyRequests:true,defaultLanguage:'fr'},
+      configOverwrite:{prejoinPageEnabled:false,startWithVideoMuted:!!audioOnly,disableDeepLinking:true,disableThirdPartyRequests:true,defaultLanguage:'fr'},
       interfaceConfigOverwrite:{SHOW_JITSI_WATERMARK:false,SHOW_WATERMARK_FOR_GUESTS:false,SHOW_BRAND_WATERMARK:false,JITSI_WATERMARK_LINK:'',MOBILE_APP_PROMO:false,HIDE_DEEP_LINKING_LOGO:true,SHOW_POWERED_BY:false,APP_NAME:'OP MESSAGES',NATIVE_APP_NAME:'OP MESSAGES',PROVIDER_NAME:'OP MESSAGES',DEFAULT_BACKGROUND:'#0a0e16',DISABLE_JOIN_LEAVE_NOTIFICATIONS:true,TOOLBAR_BUTTONS:['microphone','camera','desktop','tileview','hangup','chat','raisehand','participants-pane','settings']}});
     _japi.addEventListener('readyToClose',closeJitsi);
   }
-  function closeJitsi(){ try{ if(_japi){_japi.dispose();_japi=null;} }catch(e){} $('jitsi-box').innerHTML=''; $('jitsi').classList.remove('open'); }
+  function joinRoom(id,name){ openJitsi('OPMSG'+COMP.id+id, name||'Réunion', false); }
+  function closeJitsi(){ try{ if(_japi){_japi.dispose();_japi=null;} }catch(e){} $('jitsi-box').innerHTML=''; $('jitsi').classList.remove('open');
+    if(_activeCall){ const ref=_activeCall.ref, ans=_activeCall.answered; _activeCall=null; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;}
+      ref.get().then(d=>{ if(!d.exists) return; const st=d.data().status; if(st==='ringing') ref.update({status: ans?'ended':'missed'}); else if(st==='answered') ref.update({status:'ended'}); }).catch(()=>{}); } }
+
+  // ---- Appel entrant (sonnerie tant que l'app est ouverte) ----
+  let _ringRef=null,_ringRefUnsub=null,_ringT=null,_callListenUnsub=null;
+  function startCallListener(){
+    if(_callListenUnsub)_callListenUnsub();
+    _callListenUnsub=fs.collection('op_companies').doc(COMP.id).collection('calls').where('members','array-contains',ME.uid).onSnapshot(qs=>{
+      qs.docChanges().forEach(ch=>{ if(ch.type==='removed') return; const c=ch.doc.data(); const t=c.ts&&c.ts.toMillis?c.ts.toMillis():Date.now();
+        if(c.status==='ringing' && c.from!==ME.uid && t>_loginTs-4000 && !_ringRef && !(_activeCall&&_activeCall.ref.id===ch.doc.id)) showRing(ch.doc.ref,c); });
+    }, err=>{});
+  }
+  function showRing(ref,c){ _ringRef=ref;
+    $('ring').innerHTML=`<div style="text-align:center"><div class="ring-av" style="${avatarStyle(c.fromName)}">${ini(c.fromName)}</div><div style="font-size:20px;font-weight:700;margin-top:14px">${esc(c.fromName)}</div><div class="muted" style="margin-top:2px">Appel ${c.type==='audio'?'audio':'vidéo'} entrant…</div>
+      <div style="display:flex;gap:46px;justify-content:center;margin-top:32px"><div><button class="ring-btn decline" onclick="declineCall()">${ic('phone',26)}</button><div class="muted" style="margin-top:6px;font-size:12px">Refuser</div></div><div><button class="ring-btn accept" onclick="acceptCall('${c.room}','${c.type}')">${ic('phone',26)}</button><div class="muted" style="margin-top:6px;font-size:12px">Répondre</div></div></div></div>`;
+    $('ring').classList.add('open'); ringStart();
+    _ringRefUnsub=ref.onSnapshot(d=>{ if(!d.exists||d.data().status!=='ringing') hideRing(); });
+  }
+  function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); openJitsi(room,'Appel',type==='audio'); }
+  function declineCall(){ if(_ringRef) _ringRef.update({status:'declined'}).catch(()=>{}); hideRing(); }
+  function hideRing(){ ringStop(); $('ring').classList.remove('open'); _ringRef=null; if(_ringRefUnsub){_ringRefUnsub();_ringRefUnsub=null;} }
+  function ringStart(){ ringStop(); beep(); _ringT=setInterval(()=>beep(),1100); }
+  function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;} }
+
+  // ---- RÉUNIONS (séparé des appels) : salles visio + partage d'écran ----
+  async function openReunions(){
+    openSheet('<p class="muted center">Chargement…</p>'); let rooms='';
+    try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').orderBy('createdAt','desc').get();
+      qs.forEach(d=>{ const r=d.data(); rooms+=`<div class="row" onclick="closeSheet();joinRoom('${d.id}','${esc((r.name||'').replace(/'/g,''))}')"><div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div><div class="info"><div class="nm">${esc(r.name||'')}</div><div class="ds">Rejoindre · partage d'écran</div></div><div class="chev">›</div></div>`; }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">Réunions</h3>
+      <p class="muted" style="margin-bottom:12px">Salles de visioconférence avec partage d'écran.</p>
+      <button class="btn block" style="margin-bottom:14px" onclick="newRoom()">${ic('video',18)}Nouvelle salle</button>
+      ${rooms||'<p class="muted">Aucune salle pour l\'instant.</p>'}`);
+  }
+  function newRoom(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouvelle salle de réunion</h3><div id="nrerr"></div><div class="field"><label>Nom de la salle</label><input id="nr-name" placeholder="Ex : Réunion hebdo"></div><button class="btn block" onclick="createRoom()">Créer la salle</button>`); }
+  async function createRoom(){ const name=($('nr-name').value||'').trim(); if(!name){ $('nrerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,createdAt:FV()}); openReunions(); }catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
 
   // ========== CHAT (par canal) ==========
   let _chMsgUnsub=null, _curCh=null;
