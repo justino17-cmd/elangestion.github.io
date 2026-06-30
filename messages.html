@@ -117,6 +117,7 @@
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const ROOT=$('root');
   let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc',_msgCache={};
+  let _hidden=(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('opmsg_hidden')||'[]')); }catch(e){ return new Set(); } })();
   const FV=()=>firebase.firestore.FieldValue.serverTimestamp();
   function loginEmail(v){ v=(v||'').trim().toLowerCase(); if(!v) return ''; return v.includes('@')?v:v.replace(/[^a-z0-9._-]/g,'')+'@opmsg.local'; }
   function siretValid(s){ return /^\d{14}$/.test((s||'').replace(/\s/g,'')); }
@@ -341,6 +342,7 @@
       <div class="stream" id="stream"><p class="muted center" style="margin:auto">Chargement…</p></div>
       <div class="composer">
         <button class="ic" onclick="openAttach()">＋</button>
+        <button class="ic" id="micbtn" onclick="toggleRec()" title="Message vocal">🎤</button>
         <input id="msg" placeholder="Message…" onkeydown="if(event.key==='Enter')sendMsg()">
         <button class="send" onclick="sendMsg()">➤</button>
       </div>`;
@@ -368,12 +370,15 @@
     const msgs = q? _curMsgs.filter(x=>(x.m.text||'').toLowerCase().includes(q)) : _curMsgs;
     let html='',lastDay='';
     msgs.forEach(({id,m,d})=>{
+      if(_hidden.has(id)) return;
       const day=fmtDay(d); if(day!==lastDay){ html+=`<div class="day">${esc(day)}</div>`; lastDay=day; }
       const mine=m.uid===ME.uid, time=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
       let body=m.text?esc(m.text):'';
       if(m.img) body+=`<img src="${m.img}" onclick="event.stopPropagation();window.open(this.src)">`;
+      if(m.audio) body+=`<audio controls src="${m.audio}" style="max-width:215px;display:block;margin-top:6px;height:38px" onclick="event.stopPropagation()"></audio>`;
+      if(m.poll) body+=pollHtml(id,m);
       if(m.file){ const pdf=/pdf/i.test(m.file.type)||/\.pdf$/i.test(m.file.name||''); body+=`<div class="filechip" onclick="event.stopPropagation();openFile('${id}')">${pdf?'📄':'📎'} ${esc(m.file.name)}</div>`; }
-      html+=`<div class="m ${mine?'me':'them'}" ${mine?`onclick="msgTap('${id}')" style="cursor:pointer"`:''}>${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}</div></div>`;
+      html+=`<div class="m ${mine?'me':'them'}" onclick="msgTap('${id}')" style="cursor:pointer">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}</div></div>`;
     });
     s.innerHTML=html||(q?'<p class="muted center" style="margin:auto">Aucun résultat.</p>':'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>');
     if(!q) s.scrollTop=s.scrollHeight;
@@ -383,12 +388,52 @@
   function beep(){ try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); const o=_ac.createOscillator(),g=_ac.createGain(); o.connect(g); g.connect(_ac.destination); o.type='sine'; o.frequency.value=660; g.gain.setValueAtTime(.0001,_ac.currentTime); g.gain.exponentialRampToValueAtTime(.12,_ac.currentTime+.02); g.gain.exponentialRampToValueAtTime(.0001,_ac.currentTime+.25); o.start(); o.stop(_ac.currentTime+.26); }catch(e){} }
   async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value='';
     try{ await chMsgs().add({uid:ME.uid,name:USER.name||ME.email,text,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
-  function msgTap(id){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Message</h3>
-    <button class="btn ghost block" style="margin-bottom:10px" onclick="editMsg('${id}')">✏️ Modifier</button>
-    <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="delMsg('${id}')">🗑️ Supprimer</button>`); }
-  async function editMsg(id){ closeSheet(); const cur=_msgCache[id]||''; const t=prompt('Modifier le message :',cur); if(t==null) return; const nt=t.trim(); if(!nt) return delMsg(id);
+  function msgTap(id){ const it=_curMsgs.find(x=>x.id===id); const m=it&&it.m; const mine=m&&m.uid===ME.uid;
+    let h=`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Message</h3>`;
+    if(mine && m && m.text!=null && !m.img && !m.file && !m.audio && !m.poll) h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="editMsg('${id}')">✏️ Modifier</button>`;
+    h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="hideForMe('${id}')">🙈 Supprimer pour moi</button>`;
+    if(mine) h+=`<button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="delForAll('${id}')">🗑️ Supprimer pour tous</button>`;
+    openSheet(h); }
+  async function editMsg(id){ closeSheet(); const cur=_msgCache[id]||''; const t=prompt('Modifier le message :',cur); if(t==null) return; const nt=t.trim(); if(!nt) return delForAll(id);
     try{ await chMsgs().doc(id).update({text:nt,edited:true}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
-  async function delMsg(id){ closeSheet(); if(!confirm('Supprimer ce message ?')) return; try{ await chMsgs().doc(id).delete(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  function hideForMe(id){ _hidden.add(id); try{ localStorage.setItem('opmsg_hidden',JSON.stringify([..._hidden])); }catch(e){} closeSheet(); renderStream(); }
+  async function delForAll(id){ closeSheet(); if(!confirm('Supprimer pour tout le monde ?')) return; try{ await chMsgs().doc(id).delete(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+
+  // ---- Message vocal ----
+  let _rec=null,_recChunks=[],_recStream=null;
+  async function toggleRec(){ const btn=$('micbtn'); if(!_curCh) return;
+    if(_rec){ _rec.stop(); return; }
+    try{ _recStream=await navigator.mediaDevices.getUserMedia({audio:true}); }catch(e){ alert('Micro non autorisé.'); return; }
+    _recChunks=[]; try{ _rec=new MediaRecorder(_recStream); }catch(e){ alert('Enregistrement non supporté sur ce navigateur.'); _recStream.getTracks().forEach(t=>t.stop()); return; }
+    _rec.ondataavailable=e=>{ if(e.data&&e.data.size) _recChunks.push(e.data); };
+    _rec.onstop=async()=>{ const blob=new Blob(_recChunks,{type:(_rec&&_rec.mimeType)||'audio/webm'}); try{_recStream.getTracks().forEach(t=>t.stop());}catch(e){} _rec=null;
+      if(btn){ btn.textContent='🎤'; btn.style.color=''; }
+      if(blob.size>800000){ alert('Message vocal trop long (max ~50 s).'); return; }
+      const r=new FileReader(); r.onload=async()=>{ try{ await chMsgs().add({uid:ME.uid,name:USER.name||ME.email,audio:r.result,ts:FV()}); }catch(err){ alert('Erreur : '+(err.message||err)); } }; r.readAsDataURL(blob);
+    };
+    _rec.start(); if(btn){ btn.textContent='⏹'; btn.style.color='#f87171'; } }
+
+  // ---- Sondages ----
+  let _pollVotes={};
+  function pollForm(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau sondage</h3><div id="plerr"></div>
+    <div class="field"><label>Question</label><input id="pl-q" placeholder="Ex : On déjeune où ?"></div>
+    <div class="field"><label>Option 1</label><input id="pl-o0"></div>
+    <div class="field"><label>Option 2</label><input id="pl-o1"></div>
+    <div class="field"><label>Option 3 (facultatif)</label><input id="pl-o2"></div>
+    <div class="field"><label>Option 4 (facultatif)</label><input id="pl-o3"></div>
+    <button class="btn block" onclick="createPoll()">Envoyer le sondage</button>`); }
+  async function createPoll(){ const q=($('pl-q').value||'').trim(); const opts=[0,1,2,3].map(i=>($('pl-o'+i).value||'').trim()).filter(Boolean);
+    if(!q||opts.length<2){ $('plerr').innerHTML='<div class="err">Une question et au moins 2 options.</div>'; return; }
+    try{ await chMsgs().add({uid:ME.uid,name:USER.name||ME.email,poll:{q,opts},ts:FV()}); closeSheet(); }catch(e){ $('plerr').innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
+  function pollHtml(id,m){ const p=m.poll||{opts:[]}; const v=_pollVotes[id];
+    if(v===undefined){ loadPollVotes(id); return `<div style="font-weight:600;margin-bottom:6px">📊 ${esc(p.q||'')}</div><div class="muted">Chargement du sondage…</div>`; }
+    const counts=p.opts.map((_,i)=>Object.values(v).filter(x=>x===i).length); const total=Object.keys(v).length; const my=v[ME.uid];
+    let h=`<div style="font-weight:600;margin-bottom:8px">📊 ${esc(p.q||'')}</div>`;
+    p.opts.forEach((o,i)=>{ const c=counts[i], pct=total?Math.round(c*100/total):0, sel=my===i;
+      h+=`<div onclick="event.stopPropagation();vote('${id}',${i})" style="position:relative;border:1px solid ${sel?'var(--op)':'var(--brd2)'};border-radius:10px;padding:9px 12px;margin-bottom:6px;cursor:pointer;overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(91,143,214,.2)"></div><div style="position:relative;display:flex;justify-content:space-between;gap:8px"><span>${sel?'✓ ':''}${esc(o)}</span><span style="opacity:.7">${c}</span></div></div>`; });
+    h+=`<div class="muted" style="font-size:11px">${total} vote${total>1?'s':''}</div>`; return h; }
+  async function loadPollVotes(id){ try{ const qs=await chMsgs().doc(id).collection('votes').get(); const v={}; qs.forEach(d=>v[d.id]=d.data().opt); _pollVotes[id]=v; renderStream(); }catch(e){ _pollVotes[id]={}; } }
+  async function vote(id,i){ try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:i}); _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=i; renderStream(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
 
   // ---- Infos / gestion de groupe ----
   async function openGroupInfo(id){
@@ -421,7 +466,8 @@
     try{ await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).update({members:firebase.firestore.FieldValue.arrayRemove(ME.uid)}); closeSheet(); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   function openAttach(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Joindre</h3>
     <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();$('imgpick').click()">🖼️ Photo (galerie ou appareil)</button>
-    <button class="btn ghost block" onclick="closeSheet();$('filepick').click()">📄 Fichier / PDF</button>`); }
+    <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();$('filepick').click()">📄 Fichier / PDF</button>
+    <button class="btn ghost block" onclick="closeSheet();pollForm()">📊 Créer un sondage</button>`); }
   $('imgpick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f||!_curCh) return; const r=new FileReader();
     r.onload=()=>{ const img=new Image(); img.onload=async()=>{ let w=img.width,h=img.height; const mx=1000; if(w>mx||h>mx){ if(w>h){h=h*mx/w;w=mx;}else{w=w*mx/h;h=mx;} }
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
