@@ -533,7 +533,18 @@
         const unread=unreadOf(id,c);
         const badge = unread? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:11px;background:#22c55e;color:#04110a;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${unread>99?'99+':unread}</span>` : '';
         const nmSafe=esc((nm||'').replace(/'/g,''));
-        return `<div class="row" data-cid="${id}" data-nm="${nmSafe}" onclick="rowOpen('${id}','${nmSafe}')"><div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>`; };
+        const actBtn=(bg,ic2,lbl,fn)=>`<div onclick="${fn}" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:${bg};color:#fff;cursor:pointer;font-size:10.5px;font-weight:700"><span style="font-size:17px">${ic2}</span>${lbl}</div>`;
+        return `<div class="sw-wrap" data-cid="${id}" style="position:relative;border-radius:12px;overflow:hidden;margin-bottom:2px">
+          <div style="position:absolute;top:0;bottom:0;left:0;width:148px;display:flex">
+            ${actBtn('var(--op)','💬',unread?'Lu':'Non lu',`rowMarkRead('${id}',${unread?'true':'false'})`)}
+            ${actBtn('#64748b','📌',isPinned(id)?'Détacher':'Épingler',`rowPin('${id}')`)}
+          </div>
+          <div style="position:absolute;top:0;bottom:0;right:0;width:148px;display:flex">
+            ${actBtn('#64748b','⋯','Options',`rowMenu('${id}','${nmSafe}')`)}
+            ${actBtn('var(--op)','🗄️',isArch(id)?'Désarchiver':'Archiver',`rowArch('${id}')`)}
+          </div>
+          <div class="row sw-row" data-nm="${nmSafe}" onclick="rowOpen('${id}','${nmSafe}')" style="position:relative;background:var(--bg);margin:0"><div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>
+        </div>`; };
       const chips=[['all','Toutes'],['unread','Non lues'+(nbUnread?' '+nbUnread:'')],['fav','Favoris'],['groups','Groupes']]
         .map(([k,l])=>`<button onclick="setDiscFilter('${k}')" style="padding:7px 14px;border-radius:100px;border:1px solid ${_discFilter===k?'var(--op)':'var(--brd2)'};background:${_discFilter===k?'rgba(91,143,214,.22)':'transparent'};color:${_discFilter===k?'var(--op-l)':'var(--t2)'};font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap">${l}</button>`).join('');
       let html=`<div style="display:flex;gap:7px;overflow:auto;padding:0 2px 12px;-webkit-overflow-scrolling:touch">${chips}</div>`;
@@ -544,12 +555,35 @@
     }catch(e){ $('disc-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
   function setDiscFilter(k){ _discFilter=k; viewDisc(); }
-  // Appui long (mobile) ou clic droit (ordinateur) sur une conversation = menu d'options
-  function bindRowPress(){ document.querySelectorAll('#disc-list .row[data-cid]').forEach(el=>{ let t=null;
-    el.addEventListener('touchstart',()=>{ t=setTimeout(()=>{ t=null; _lpUntil=Date.now()+900; if(vibrateOn()&&navigator.vibrate) try{navigator.vibrate(35);}catch(e){} rowMenu(el.dataset.cid,el.dataset.nm); },500); },{passive:true});
-    ['touchend','touchmove','touchcancel'].forEach(ev=>el.addEventListener(ev,()=>{ if(t){clearTimeout(t);t=null;} },{passive:true}));
-    el.addEventListener('contextmenu',e=>{ e.preventDefault(); rowMenu(el.dataset.cid,el.dataset.nm); });
+  // Glissements façon WhatsApp : droite = Lu/Non lu + Épingler · gauche = Options + Archiver
+  // (+ appui long / clic droit = menu complet)
+  function bindRowPress(){ document.querySelectorAll('#disc-list .sw-wrap').forEach(w=>{
+    const row=w.querySelector('.sw-row'); if(!row) return;
+    let sx=0,sy=0,base=0,dragging=false,lp=null;
+    const setTx=(x,anim)=>{ row.style.transition=anim?'transform .18s ease':'none'; row.style.transform=x?('translateX('+x+'px)'):''; w.dataset.tx=x; };
+    row.addEventListener('touchstart',e=>{ sx=e.touches[0].clientX; sy=e.touches[0].clientY; base=+(w.dataset.tx||0); dragging=false;
+      lp=setTimeout(()=>{ lp=null; if(!dragging){ _lpUntil=Date.now()+900; if(vibrateOn()&&navigator.vibrate) try{navigator.vibrate(35);}catch(e){} rowMenu(w.dataset.cid,row.dataset.nm); } },500); },{passive:true});
+    row.addEventListener('touchmove',e=>{ const dx=e.touches[0].clientX-sx, dy=e.touches[0].clientY-sy;
+      if(!dragging && Math.abs(dx)>10 && Math.abs(dx)>Math.abs(dy)){ dragging=true; if(lp){clearTimeout(lp);lp=null;} }
+      if(!dragging && Math.abs(dy)>25 && lp){ clearTimeout(lp); lp=null; }
+      if(dragging) setTx(Math.max(-148,Math.min(148,base+dx)),false); },{passive:true});
+    const end=()=>{ if(lp){clearTimeout(lp);lp=null;}
+      const tx=+(w.dataset.tx||0);
+      if(!dragging){ if(tx){ setTx(0,true); _lpUntil=Date.now()+450; } return; }
+      dragging=false; _lpUntil=Date.now()+450;
+      if(tx>125){ setTx(0,true); swFullRead(w.dataset.cid); }          // glissement complet à droite = lu/non lu
+      else if(tx>60) setTx(148,true);                                   // révèle Non lu / Épingler
+      else if(tx<-125){ setTx(0,true); rowArch(w.dataset.cid); }        // glissement complet à gauche = archiver
+      else if(tx<-60) setTx(-148,true);                                 // révèle Options / Archiver
+      else setTx(0,true); };
+    row.addEventListener('touchend',end,{passive:true});
+    row.addEventListener('touchcancel',end,{passive:true});
+    row.addEventListener('contextmenu',e=>{ e.preventDefault(); rowMenu(w.dataset.cid,row.dataset.nm); });
   }); }
+  async function swFullRead(id){ let unread=_munread.has(ck(id));
+    if(!unread){ try{ const d=await chanCol().doc(id).get(); if(d.exists){ const c=d.data(); unread=(c.lastMsgFrom!==ME.uid)&&(((c.msgCount||0)>getReadCount(id))||(!c.msgCount&&c.lastMsgAt&&c.lastMsgAt>getReadTs(id))); } }catch(e){} }
+    if(vibrateOn()&&navigator.vibrate) try{navigator.vibrate(25);}catch(e){}
+    rowMarkRead(id,unread); }
   function rowOpen(id,nm){ if(Date.now()<_lpUntil) return;
     if(isLocked(id)){ const p=prompt('Discussion verrouillée — code :'); if(p==null) return; if(p!==lockPin()){ toast('Code incorrect.'); return; } }
     _munread.delete(ck(id)); lsSave('opmsg_munread',_munread);
@@ -1210,7 +1244,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='247';
+  const APP_VER='248';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
