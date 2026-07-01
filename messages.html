@@ -434,7 +434,7 @@
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
-    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch();
+    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
   }
   function startSpaceListeners(){
     startPresence(); startCallListener();
@@ -474,7 +474,26 @@
     }catch(e){ acompErr(e.message||'Erreur'); }
   }
   let _presTimer=null,_loginTs=0;
-  function startPresence(){ const upd=()=>{ if(!lastSeenOn()) return; try{ if(MODE==='perso') fs.collection('op_users').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); else fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
+  // ---- Appareils connectés (multi-appareils façon WhatsApp) ----
+  let _devUnsub=null, _devSeen=false;
+  function getDeviceId(){ let id=localStorage.getItem('opmsg_devid'); if(!id){ id='dev_'+code6()+code6(); try{ localStorage.setItem('opmsg_devid',id); }catch(e){} } return id; }
+  function deviceName(){ const ua=navigator.userAgent; let os='Appareil'; if(/iPhone/.test(ua))os='iPhone'; else if(/iPad/.test(ua))os='iPad'; else if(/Android/.test(ua))os='Android'; else if(/Windows/.test(ua))os='Windows'; else if(/Macintosh|Mac OS/.test(ua))os='Mac'; else if(/Linux/.test(ua))os='Linux';
+    let br='Navigateur'; if(/Edg\//.test(ua))br='Edge'; else if(/OPR\/|Opera/.test(ua))br='Opera'; else if(/Chrome\//.test(ua)&&!/Edg/.test(ua))br='Chrome'; else if(/Firefox\//.test(ua))br='Firefox'; else if(/Safari/.test(ua)&&!/Chrome/.test(ua))br='Safari'; return br+' · '+os; }
+  function isMobileDev(name){ return /iPhone|iPad|Android/.test(name||''); }
+  async function registerDevice(){ try{ const id=getDeviceId(); const ref=fs.collection('op_users').doc(ME.uid).collection('devices').doc(id); const d=await ref.get(); const data={id,name:deviceName(),ua:navigator.userAgent.slice(0,180),lastActive:Date.now()}; if(!d.exists) data.createdAt=Date.now(); await ref.set(data,{merge:true}); }catch(e){} }
+  function listenMyDevice(){ if(_devUnsub)_devUnsub(); _devSeen=false; const id=getDeviceId();
+    _devUnsub=fs.collection('op_users').doc(ME.uid).collection('devices').doc(id).onSnapshot(d=>{ if(d.exists){ _devSeen=true; } else if(_devSeen){ if(_devUnsub){_devUnsub();_devUnsub=null;} alert('Cet appareil a été déconnecté à distance.'); auth.signOut(); } }, err=>{}); }
+  async function sheetDevices(){ openSheet('<p class="muted center">Chargement…</p>'); const id=getDeviceId(); let rows='';
+    try{ const qs=await fs.collection('op_users').doc(ME.uid).collection('devices').get(); const arr=[]; qs.forEach(d=>arr.push(d.data())); arr.sort((a,b)=>(b.lastActive||0)-(a.lastActive||0));
+      arr.forEach(v=>{ const cur=v.id===id; const on=v.lastActive&&(Date.now()-v.lastActive<120000); const emo=isMobileDev(v.name)?'📱':'💻';
+        rows+=`<div class="row"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${emo}</div><div class="info"><div class="nm">${esc(v.name||'Appareil')}${cur?' · cet appareil':''}</div><div class="ds">${on?'en ligne':(v.lastActive?'vu '+fmtListTime(v.lastActive):'')}</div></div>${cur?'':`<button class="btn ghost sm" onclick="disconnectDevice('${esc(v.id)}')">Déconnecter</button>`}</div>`; });
+    }catch(e){ rows='<div class="err">'+esc(e.message)+'</div>'; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">Appareils connectés</h3>
+      <p class="muted" style="font-size:12px;margin-bottom:12px">Votre compte peut rester connecté sur plusieurs appareils. Déconnectez ceux que vous ne reconnaissez pas.</p>
+      ${rows}
+      <button class="btn block" style="margin-top:12px;background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnecter cet appareil</button>`); }
+  async function disconnectDevice(devId){ try{ await fs.collection('op_users').doc(ME.uid).collection('devices').doc(devId).delete(); toast('Appareil déconnecté.'); sheetDevices(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  function startPresence(){ const upd=()=>{ try{ fs.collection('op_users').doc(ME.uid).collection('devices').doc(getDeviceId()).set({lastActive:Date.now()},{merge:true}); }catch(e){} if(!lastSeenOn()) return; try{ if(MODE==='perso') fs.collection('op_users').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); else fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
     upd(); if(_presTimer)clearInterval(_presTimer); _presTimer=setInterval(upd,45000);
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) upd(); }); }
   function isOnline(m){ return m && m.lastActive && (Date.now()-m.lastActive < 95000); }
@@ -1076,6 +1095,7 @@
       ${setRow('🔒','Confidentialité','Vu, accusés de lecture, bloqués','sheetPrivacy()')}
       ${setRow('💬','Discussions','Thème, fond d’écran, taille du texte','sheetChats()')}
       ${setRow('🔔','Notifications','Son, vibration, aperçus','sheetNotif()')}
+      ${setRow('💻','Appareils connectés','Gérer vos connexions multi-appareils','sheetDevices()')}
       ${setRow('👤','Compte','Mot de passe, numéro, suppression','sheetAccount()')}
       ${setRow('❓','Aide','Guide, support, à propos','sheetHelp()')}
       ${!HAS_COMPANY?setRow('🏢','Créer une entreprise','Passer en compte pro (SIRET)','showAddCompany()'):''}
@@ -1084,7 +1104,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='240';
+  const APP_VER='241';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
