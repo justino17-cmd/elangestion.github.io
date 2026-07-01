@@ -134,6 +134,7 @@
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const ROOT=$('root');
   let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc',_msgCache={};
+  let _members=[];
   let _hidden=(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('opmsg_hidden')||'[]')); }catch(e){ return new Set(); } })();
   const FV=()=>firebase.firestore.FieldValue.serverTimestamp();
   function loginEmail(v){ v=(v||'').trim().toLowerCase(); if(!v) return ''; return v.includes('@')?v:v.replace(/[^a-z0-9._-]/g,'')+'@opmsg.local'; }
@@ -328,6 +329,7 @@
   async function enterApp(){
     try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=d.data().ownerUid===ME.uid; COMP.code=d.data().code; } }catch(e){}
     if(IS_OWNER && USER) USER.role='entreprise';
+    try{ const mq=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); _members=[]; mq.forEach(d=>{ const m=d.data(); _members.push({uid:m.uid,name:m.name||''}); }); }catch(e){}
     // s'assure qu'un canal "Général" existe
     try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
     renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener(); startMeetingWatch();
@@ -571,10 +573,11 @@
       <div id="searchbar" style="display:none;padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)"><input id="chsearch" placeholder="Rechercher dans la discussion…" oninput="renderStream()" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-size:15px;font-family:inherit"></div>
       <div class="stream" id="stream"><p class="muted center" style="margin:auto">Chargement…</p></div>
       <div id="replybar" style="display:none;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--brd);background:var(--bg1)"></div>
+      <div id="mentionpop" style="display:none;position:absolute;left:8px;right:8px;bottom:64px;max-height:200px;overflow:auto;background:var(--card2);border:1px solid var(--brd2);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:5"></div>
       <div class="composer">
         <button class="ic" onclick="openAttach()">${ic('plus',24)}</button>
         <button class="ic" id="micbtn" onclick="toggleRec()" title="Message vocal">${ic('mic',22)}</button>
-        <input id="msg" placeholder="Message…" onkeydown="if(event.key==='Enter')sendMsg()">
+        <input id="msg" placeholder="Message…  (@ pour mentionner)" oninput="onMsgInput()" onkeydown="if(event.key==='Enter')sendMsg()">
         <button class="send" onclick="sendMsg()">${ic('send',20)}</button>
       </div>`;
     $('chat').classList.add('open');
@@ -590,7 +593,7 @@
     _chMsgUnsub=fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).collection('messages').orderBy('ts','asc').limitToLast(300).onSnapshot(qs=>{
       _curMsgs=[];
       qs.forEach(doc=>{ const m=doc.data(); const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
-      if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid) beep(); }
+      if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid){ beep(); if(last.m.mentions && last.m.mentions.includes(ME.uid)) toast('💬 '+(last.m.name||'Quelqu\'un')+' vous a mentionné'); } }
       _lastMsgCount=_curMsgs.length;
       renderStream(); markRead(id);
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
@@ -609,7 +612,7 @@
       const mine=m.uid===ME.uid, time=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
       let body='';
       if(m.replyTo) body+=`<div style="border-left:3px solid currentColor;padding:3px 8px;margin-bottom:5px;font-size:12.5px;opacity:.85;border-radius:4px;background:rgba(127,127,127,.14)"><b>${esc(m.replyTo.name||'')}</b><br>${esc((m.replyTo.text||'[média]').slice(0,90))}</div>`;
-      body+=m.text?esc(m.text):'';
+      body+=m.text?highlightMentions(esc(m.text),m):'';
       if(m.img) body+=`<img src="${m.img}" onclick="event.stopPropagation();window.open(this.src)">`;
       if(m.audio) body+=`<audio controls src="${m.audio}" style="max-width:215px;display:block;margin-top:6px;height:38px" onclick="event.stopPropagation()"></audio>`;
       if(m.poll) body+=pollHtml(id,m);
@@ -625,9 +628,25 @@
   let _ac=null;
   function beep(){ if(!soundOn()) return; try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); const o=_ac.createOscillator(),g=_ac.createGain(); o.connect(g); g.connect(_ac.destination); o.type='sine'; o.frequency.value=660; g.gain.setValueAtTime(.0001,_ac.currentTime); g.gain.exponentialRampToValueAtTime(.12,_ac.currentTime+.02); g.gain.exponentialRampToValueAtTime(.0001,_ac.currentTime+.25); o.start(); o.stop(_ac.currentTime+.26); }catch(e){} }
   let _replyTo=null;
-  async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value='';
+  // ---- Mentions @ ----
+  function onMsgInput(){ const inp=$('msg'); const pop=$('mentionpop'); if(!inp||!pop) return;
+    const v=inp.value||''; const mt=v.match(/@([\p{L}\p{N}._'’-]{0,24})$/u);
+    if(!mt){ pop.style.display='none'; return; }
+    const q=(mt[1]||'').toLowerCase();
+    const list=_members.filter(m=>m.uid!==ME.uid && (m.name||'').toLowerCase().includes(q)).slice(0,6);
+    if(!list.length){ pop.style.display='none'; return; }
+    pop.innerHTML=list.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--brd)" onclick="pickMention('${esc((m.name||'').replace(/'/g,''))}')"><div class="ava" style="width:30px;height:30px;border-radius:9px;font-size:14px;${avatarStyle(m.name)}">${ini(m.name)}</div><div>${esc(m.name||'')}</div></div>`).join('');
+    pop.style.display='block';
+  }
+  function pickMention(name){ const inp=$('msg'); if(!inp) return; inp.value=(inp.value||'').replace(/@([\p{L}\p{N}._'’-]{0,24})$/u,'@'+name+' '); $('mentionpop').style.display='none'; inp.focus(); }
+  function parseMentions(text){ const out=[]; _members.forEach(m=>{ if(m.uid===ME.uid) return; const n=m.name||''; if(n && text.includes('@'+n)) out.push({uid:m.uid,name:n}); }); return out; }
+  async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value=''; const mp=$('mentionpop'); if(mp) mp.style.display='none';
     const data={uid:ME.uid,name:USER.name||ME.email,text,ts:FV()}; if(_replyTo) data.replyTo=_replyTo;
+    const ment=parseMentions(text); if(ment.length){ data.mentions=ment.map(x=>x.uid); data.mentionNames=ment.map(x=>x.name); }
     try{ await chMsgs().add(data); cancelReply(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  function highlightMentions(escText,m){ let s=escText; const names=(m&&m.mentionNames)||[]; const meMention=m&&m.mentions&&m.mentions.includes(ME.uid);
+    names.forEach(n=>{ const tok='@'+esc(n); const cls=(meMention && n===(USER.name||''))?'':''; s=s.split(tok).join('<span style="background:rgba(91,143,214,.25);color:var(--op-l);border-radius:5px;padding:0 3px;font-weight:600">'+tok+'</span>'); });
+    return s; }
   function previewOf(m){ return m.text||(m.img?'[photo]':m.audio?'[message vocal]':m.file?'[fichier]':m.poll?'[sondage]':''); }
   function setReply(id){ closeSheet(); const it=_curMsgs.find(x=>x.id===id); if(!it) return; _replyTo={name:it.m.name||'',text:previewOf(it.m)};
     const bar=$('replybar'); if(bar){ bar.innerHTML=`<div style="flex:1;border-left:3px solid var(--op);padding-left:8px;font-size:13px;min-width:0"><b>${esc(_replyTo.name)}</b><br><span class="muted" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(_replyTo.text)}</span></div><button class="ic" style="border:1px solid var(--brd2);border-radius:10px;width:36px;height:36px;background:transparent;color:var(--t2)" onclick="cancelReply()">✕</button>`; bar.style.display='flex'; } const i=$('msg'); if(i) i.focus(); }
