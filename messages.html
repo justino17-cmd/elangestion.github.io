@@ -377,51 +377,6 @@
     if(c==='auth/user-not-found')return 'Aucun compte trouvé.';
     return (e&&e.message)||'Erreur.'; }
 
-  // ========== SETUP ENTREPRISE ==========
-  function renderSetup(){
-    ROOT.innerHTML=`<div class="center-page"><div class="panel">
-      <div class="logo"><span style="font-size:34px">🏢</span></div>
-      <p class="sub">Bonjour ${esc((USER&&USER.name)||'')} — rejoignez ou créez votre entreprise</p>
-      <div class="tabs"><div class="tab active" id="s-c" onclick="sTab('c')">Créer mon entreprise</div><div class="tab" id="s-j" onclick="sTab('j')">Rejoindre (code)</div></div>
-      <div id="serr"></div>
-      <div id="screate">
-        <div class="field"><label>Nom de l'entreprise</label><input id="c-name" placeholder="Ex : Dupont SARL"></div>
-        <div class="field"><label>Numéro SIRET (14 chiffres)</label><input id="c-siret" inputmode="numeric" placeholder="123 456 789 00012"></div>
-        <button class="btn block" onclick="createCompany()">Créer l'entreprise</button>
-      </div>
-      <div id="sjoin" class="hide">
-        <div class="field"><label>Code d'invitation</label><input id="j-code" placeholder="Ex : 4FK7P2" style="text-transform:uppercase"></div>
-        <button class="btn block" onclick="joinCompany()">Rejoindre</button>
-      </div>
-      <p class="center" style="margin-top:14px"><a class="link" onclick="logout()">Déconnexion</a></p>
-    </div></div>`;
-  }
-  function sTab(m){ $('s-c').classList.toggle('active',m==='c'); $('s-j').classList.toggle('active',m==='j'); $('screate').classList.toggle('hide',m!=='c'); $('sjoin').classList.toggle('hide',m!=='j'); $('serr').innerHTML=''; }
-  async function createCompany(){
-    const name=($('c-name').value||'').trim(), siret=($('c-siret').value||'').replace(/\s/g,'');
-    if(!name){ $('serr').innerHTML='<div class="err">Indiquez le nom de l\'entreprise.</div>'; return; }
-    if(!siretValid(siret)){ $('serr').innerHTML='<div class="err">Le SIRET doit comporter 14 chiffres.</div>'; return; }
-    try{
-      const ref=fs.collection('op_companies').doc(); const code=code6();
-      await ref.set({name,siret,code,ownerUid:ME.uid,createdAt:FV()});
-      await ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,role:'entreprise',ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,role:'entreprise',companyId:ref.id,companyName:name},{merge:true}); USER.role='entreprise';
-      COMP={id:ref.id,name}; USER.companyId=ref.id; USER.companyName=name; enterApp();
-    }catch(e){ $('serr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
-  }
-  async function joinCompany(){
-    const code=($('j-code').value||'').trim().toUpperCase();
-    if(code.length<4){ $('serr').innerHTML='<div class="err">Entrez le code reçu.</div>'; return; }
-    try{
-      const qs=await fs.collection('op_companies').where('code','==',code).limit(1).get();
-      if(qs.empty){ $('serr').innerHTML='<div class="err">Aucune entreprise pour ce code.</div>'; return; }
-      const doc=qs.docs[0]; const name=doc.data().name;
-      await doc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||ME.email,role:'classique',ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email:ME.email,name:USER.name||ME.email,role:'classique',companyId:doc.id,companyName:name},{merge:true}); USER.role='classique';
-      COMP={id:doc.id,name}; USER.companyId=doc.id; USER.companyName=name; enterApp();
-    }catch(e){ $('serr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
-  }
-
   // ========== APP SHELL ==========
   // Un seul compte : espace Perso (toujours) + éventuellement un espace Pro (entreprise).
   async function enterApp(){
@@ -1104,7 +1059,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='241';
+  const APP_VER='242';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
