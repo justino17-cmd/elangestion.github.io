@@ -135,6 +135,19 @@
   const ROOT=$('root');
   let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc',_msgCache={};
   let _members=[];
+  let MODE='company'; // 'company' (entreprise SIRET) | 'perso' (particulier, façon WhatsApp)
+  // Références Firestore centralisées : le moteur de chat/appels marche pour les 2 modes
+  function chanCol(){ return MODE==='perso' ? fs.collection('op_channels') : fs.collection('op_companies').doc(COMP.id).collection('channels'); }
+  function callsCol(){ return MODE==='perso' ? fs.collection('op_calls') : fs.collection('op_companies').doc(COMP.id).collection('calls'); }
+  function handleOf(v){ return (v||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,''); }
+  // Liste des personnes joignables : membres de l'entreprise, ou mes contacts perso
+  async function listMembers(){
+    if(MODE!=='perso'){ const out=[]; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); qs.forEach(d=>out.push(d.data())); }catch(e){} return out; }
+    const out=[]; try{ const qs=await fs.collection('op_users').doc(ME.uid).collection('contacts').get();
+      const arr=[]; qs.forEach(d=>arr.push(d.data()));
+      await Promise.all(arr.map(async c=>{ let la=0,photo=c.photo; try{ const u=await fs.collection('op_users').doc(c.uid).get(); if(u.exists){ la=u.data().lastActive||0; photo=u.data().photo||photo; } }catch(e){} out.push({uid:c.uid,name:c.name||'',phone:c.phone||'',handle:c.handle||'',photo,lastActive:la}); }));
+    }catch(e){} return out;
+  }
   let _hidden=(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('opmsg_hidden')||'[]')); }catch(e){ return new Set(); } })();
   const FV=()=>firebase.firestore.FieldValue.serverTimestamp();
   function loginEmail(v){ v=(v||'').trim().toLowerCase(); if(!v) return ''; return v.includes('@')?v:v.replace(/[^a-z0-9._-]/g,'')+'@opmsg.local'; }
@@ -175,7 +188,8 @@
     if(_provisioning) return; // doJoin/doCreate gèrent l'entrée dans l'app
     let us; try{ us=await fs.collection('op_users').doc(user.uid).get(); }catch(e){}
     USER=(us&&us.exists)?us.data():{uid:user.uid,email:user.email,name:(user.email||'Utilisateur').split('@')[0]};
-    if(USER&&USER.companyId){ COMP={id:USER.companyId,name:USER.companyName}; enterApp(); return; }
+    if(USER&&USER.companyId){ MODE='company'; COMP={id:USER.companyId,name:USER.companyName}; enterApp(); return; }
+    if(USER&&USER.role==='perso'){ enterPerso(); return; }
     renderSetup();
   });
   function logout(){ auth.signOut(); }
@@ -188,29 +202,40 @@
       <div class="logo"><img src="icons/opmsg-512.png" style="width:48px;height:48px;border-radius:13px"><b>OP MESSAGES</b></div>
       <p class="sub">La messagerie dédiée aux entreprises</p>
       <div class="tabs">
-        <div class="tab active" id="t-join" onclick="aTab('join')">Rejoindre</div>
-        <div class="tab" id="t-create" onclick="aTab('create')">Créer entreprise</div>
+        <div class="tab active" id="t-perso" onclick="aTab('perso')">Perso</div>
+        <div class="tab" id="t-join" onclick="aTab('join')">Entreprise</div>
         <div class="tab" id="t-login" onclick="aTab('login')">Connexion</div>
       </div>
       <div id="aerr"></div>
 
-      <div id="f-join">
-        <p class="muted" style="margin:-2px 0 12px">Votre entreprise vous a transmis un code ? Rejoignez-la en quelques secondes.</p>
-        <div class="field"><label>Code entreprise</label><input id="j-code" placeholder="Ex : 4FK7P2" style="text-transform:uppercase" autocapitalize="characters"></div>
-        <div class="field"><label>Votre nom</label><input id="j-name" placeholder="Prénom Nom"></div>
-        <div class="field"><label>Identifiant (pour vous reconnecter)</label><input id="j-login" placeholder="ex : mdupont" autocapitalize="off"></div>
-        <div class="field"><label>Mot de passe</label><input id="j-pass" type="password" placeholder="••••••••"></div>
-        <button class="btn block" id="j-sub" onclick="doJoin()">Rejoindre l'entreprise</button>
+      <div id="f-perso">
+        <p class="muted" style="margin:-2px 0 12px">Comme WhatsApp : créez votre compte, ajoutez vos contacts et discutez. Sans SIRET.</p>
+        <div class="field"><label>Votre nom</label><input id="p-name" placeholder="Prénom Nom"></div>
+        <div class="field"><label>Identifiant unique (pour qu'on vous trouve)</label><input id="p-handle" placeholder="ex : marie.d" autocapitalize="off"></div>
+        <div class="field"><label>Téléphone (facultatif)</label><input id="p-phone" type="tel" placeholder="06 12 34 56 78"></div>
+        <div class="field"><label>Mot de passe</label><input id="p-pass" type="password" placeholder="••••••••"></div>
+        <button class="btn block" id="p-sub" onclick="doPerso()">Créer mon compte</button>
       </div>
 
-      <div id="f-create" class="hide">
-        <p class="muted" style="margin:-2px 0 12px">Vous gérez une entreprise ? Créez votre espace — accès à tout, y compris les réunions.</p>
-        <div class="field"><label>Nom de l'entreprise</label><input id="c-name" placeholder="Ex : Dupont SARL"></div>
-        <div class="field"><label>Numéro SIRET (14 chiffres)</label><input id="c-siret" inputmode="numeric" placeholder="123 456 789 00012"></div>
-        <div class="field"><label>Votre nom</label><input id="c-yourname" placeholder="Prénom Nom"></div>
-        <div class="field"><label>E-mail</label><input id="c-email" placeholder="vous@entreprise.fr" autocapitalize="off"></div>
-        <div class="field"><label>Mot de passe</label><input id="c-pass" type="password" placeholder="••••••••"></div>
-        <button class="btn block" id="c-sub" onclick="doCreate()">Créer l'entreprise</button>
+      <div id="f-join" class="hide">
+        <div style="display:flex;gap:8px;margin:-2px 0 14px"><button class="btn sm" style="flex:1" id="e-t-join" onclick="eTab('join')">J'ai un code</button><button class="btn ghost sm" style="flex:1" id="e-t-create" onclick="eTab('create')">Créer l'entreprise</button></div>
+        <div id="e-join">
+          <p class="muted" style="margin:-2px 0 12px">Votre entreprise vous a transmis un code ? Rejoignez-la en quelques secondes.</p>
+          <div class="field"><label>Code entreprise</label><input id="j-code" placeholder="Ex : 4FK7P2" style="text-transform:uppercase" autocapitalize="characters"></div>
+          <div class="field"><label>Votre nom</label><input id="j-name" placeholder="Prénom Nom"></div>
+          <div class="field"><label>Identifiant (pour vous reconnecter)</label><input id="j-login" placeholder="ex : mdupont" autocapitalize="off"></div>
+          <div class="field"><label>Mot de passe</label><input id="j-pass" type="password" placeholder="••••••••"></div>
+          <button class="btn block" id="j-sub" onclick="doJoin()">Rejoindre l'entreprise</button>
+        </div>
+        <div id="e-create" class="hide">
+          <p class="muted" style="margin:-2px 0 12px">Vous gérez une entreprise ? Créez votre espace — accès à tout, y compris les réunions.</p>
+          <div class="field"><label>Nom de l'entreprise</label><input id="c-name" placeholder="Ex : Dupont SARL"></div>
+          <div class="field"><label>Numéro SIRET (14 chiffres)</label><input id="c-siret" inputmode="numeric" placeholder="123 456 789 00012"></div>
+          <div class="field"><label>Votre nom</label><input id="c-yourname" placeholder="Prénom Nom"></div>
+          <div class="field"><label>E-mail</label><input id="c-email" placeholder="vous@entreprise.fr" autocapitalize="off"></div>
+          <div class="field"><label>Mot de passe</label><input id="c-pass" type="password" placeholder="••••••••"></div>
+          <button class="btn block" id="c-sub" onclick="doCreate()">Créer l'entreprise</button>
+        </div>
       </div>
 
       <div id="f-login" class="hide">
@@ -222,8 +247,27 @@
       <p class="center" style="margin-top:14px"><a class="link" href="index.html">← Retour à TeamOP</a></p>
     </div></div>`;
   }
-  let aMode='join';
-  function aTab(m){ aMode=m; ['join','create','login'].forEach(x=>{ const t=$('t-'+x); if(t) t.classList.toggle('active',x===m); const f=$('f-'+x); if(f) f.classList.toggle('hide',x!==m); }); $('aerr').innerHTML=''; }
+  let aMode='perso';
+  function aTab(m){ aMode=m; ['perso','join','login'].forEach(x=>{ const t=$('t-'+x); if(t) t.classList.toggle('active',x===m); const f=$('f-'+x); if(f) f.classList.toggle('hide',x!==m); }); $('aerr').innerHTML=''; }
+  function eTab(m){ $('e-join').classList.toggle('hide',m!=='join'); $('e-create').classList.toggle('hide',m!=='create'); const j=$('e-t-join'),c=$('e-t-create'); if(j)j.className='btn sm'+(m==='join'?'':' ghost'); if(c)c.className='btn sm'+(m==='create'?'':' ghost'); $('aerr').innerHTML=''; }
+  async function doPerso(){
+    const name=($('p-name').value||'').trim();
+    const handle=handleOf($('p-handle').value);
+    const phone=($('p-phone').value||'').trim();
+    const pass=$('p-pass').value||'';
+    if(!name) return aerr('Indiquez votre nom.');
+    if(handle.length<3) return aerr('Choisissez un identifiant unique (3 caractères min.).');
+    if(pass.length<6) return aerr('Mot de passe : 6 caractères minimum.');
+    $('p-sub').disabled=true;
+    // vérifie que l'identifiant est libre
+    try{ const ex=await fs.collection('op_users').where('handle','==',handle).limit(1).get(); if(!ex.empty){ aerr('Cet identifiant est déjà pris. Choisissez-en un autre.'); $('p-sub').disabled=false; return; } }catch(e){}
+    const email=handle+'@opmsg.local'; _provisioning=true;
+    try{
+      const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle,phone,role:'perso',lastActive:Date.now()});
+      USER={uid:ME.uid,email,name,handle,phone,role:'perso'}; COMP=null; _provisioning=false; enterPerso();
+    }catch(e){ _provisioning=false; if((e.code||'')==='auth/email-already-in-use') aerr('Cet identifiant est déjà pris.'); else aerr(aMsg(e)); $('p-sub').disabled=false; }
+  }
   async function doLogin(){
     const email=loginEmail($('a-email').value), pass=$('a-pass').value||'';
     if(!email||!pass){ aerr('Identifiant (ou e-mail) et mot de passe requis.'); return; }
@@ -326,7 +370,13 @@
   }
 
   // ========== APP SHELL ==========
+  async function enterPerso(){
+    MODE='perso'; IS_OWNER=false; COMP=null;
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
+    renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener();
+  }
   async function enterApp(){
+    MODE='company';
     try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=d.data().ownerUid===ME.uid; COMP.code=d.data().code; } }catch(e){}
     if(IS_OWNER && USER) USER.role='entreprise';
     try{ const mq=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); _members=[]; mq.forEach(d=>{ const m=d.data(); _members.push({uid:m.uid,name:m.name||''}); }); }catch(e){}
@@ -335,7 +385,7 @@
     renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener(); startMeetingWatch();
   }
   let _presTimer=null,_loginTs=0;
-  function startPresence(){ const upd=()=>{ try{ fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
+  function startPresence(){ const upd=()=>{ try{ if(MODE==='perso') fs.collection('op_users').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); else fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
     upd(); if(_presTimer)clearInterval(_presTimer); _presTimer=setInterval(upd,45000);
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) upd(); }); }
   function isOnline(m){ return m && m.lastActive && (Date.now()-m.lastActive < 95000); }
@@ -343,7 +393,7 @@
     ROOT.innerHTML=`
       <div class="appbar">
         <img src="icons/opmsg-512.png" alt="">
-        <div class="tt"><b id="ab-title">${esc(COMP.name)}</b><span id="ab-sub">${IS_OWNER?'Administrateur':'Membre'}</span></div>
+        <div class="tt"><b id="ab-title">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</b><span id="ab-sub">${MODE==='perso'?'Compte perso':(IS_OWNER?'Administrateur':'Membre')}</span></div>
         <button class="ic" onclick="openMenu()">⋯</button>
       </div>
       <div class="view" id="view"></div>
@@ -364,10 +414,16 @@
   async function viewDisc(){
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?`<button class="btn ghost sm" onclick="openReunions()">${ic('video',16)}Réunions</button>`:''}</div><div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ic('plus',26)}</button>`;
     try{
-      const ch=fs.collection('op_companies').doc(COMP.id).collection('channels');
-      const [gen,grp,mem]=await Promise.all([ ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get(), fs.collection('op_companies').doc(COMP.id).collection('members').get() ]);
-      const nmap={}; mem.forEach(d=>nmap[d.id]=d.data().name||'');
-      const map={}; gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data());
+      const ch=chanCol();
+      const map={}; const nmap={};
+      if(MODE==='perso'){
+        const [grp,mem]=await Promise.all([ ch.where('members','array-contains',ME.uid).get(), listMembers() ]);
+        mem.forEach(m=>nmap[m.uid]=m.name||''); grp.forEach(d=>map[d.id]=d.data());
+      } else {
+        const [gen,grp,mem]=await Promise.all([ ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get(), fs.collection('op_companies').doc(COMP.id).collection('members').get() ]);
+        mem.forEach(d=>nmap[d.id]=d.data().name||'');
+        gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data());
+      }
       const list=Object.entries(map).sort((a,b)=>(a[1].type==='general'?-1:1)-(b[1].type==='general'?-1:1));
       let html=''; list.forEach(([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
         let nm=c.name||'', sub='', avInner=ini(nm), avBg=avatarStyle(nm);
@@ -381,8 +437,8 @@
   async function newGroup(){
     openSheet('<p class="muted center">Chargement…</p>');
     let chks='';
-    try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
-      qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return;
+    try{ const list=await listMembers();
+      list.forEach(m=>{ if(m.uid===ME.uid) return;
         chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div><span class="tk" style="font-size:18px;color:var(--op-l)">+</span></div>`; });
     }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau groupe</h3>
@@ -397,23 +453,26 @@
     const name=($('ng-name').value||'').trim(); if(!name){ $('ngerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
     const sel=[...document.querySelectorAll('#ng-members .chk.sel')].map(x=>x.dataset.uid);
     const members=Array.from(new Set([ME.uid,...sel]));
-    try{ const r=await fs.collection('op_companies').doc(COMP.id).collection('channels').add({name,type:'group',members,createdBy:ME.uid,createdAt:FV()}); closeSheet(); openChannel(r.id,name); }
+    try{ const r=await chanCol().add({name,type:'group',members,createdBy:ME.uid,createdAt:FV()}); closeSheet(); openChannel(r.id,name); }
     catch(e){ $('ngerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
 
   // ---- CONTACTS (membres) ----
   async function viewCont(){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2></div><div id="cont-list"><p class="muted center">Chargement…</p></div>${IS_OWNER?`<button class="fab" onclick="addMemberForm()" title="Ajouter un membre">${ic('plus',26)}</button>`:''}`;
+    const showFab = MODE==='perso' || IS_OWNER;
+    const fabAction = MODE==='perso' ? 'addContactForm()' : 'addMemberForm()';
+    const emptyMsg = MODE==='perso' ? 'Aucun contact. Touchez + pour en ajouter avec leur identifiant.' : 'Aucun contact.';
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2></div><div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ic('plus',26)}</button>`:''}`;
     try{
-      const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
-      let html=''; qs.forEach(d=>{ const m=d.data(); const on=isOnline(m)||m.uid===ME.uid; const self=m.uid===ME.uid;
-        html+=`<div class="row" ${self?'style="cursor:default"':`onclick="contactActions('${m.uid}','${esc((m.name||'').replace(/'/g,''))}')"`}><div style="position:relative;flex-shrink:0">${m.photo?`<img class="ava" src="${m.photo}" style="object-fit:cover">`:`<div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`}<span style="position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);background:${on?'#22c55e':'#64748b'}"></span></div><div class="info"><div class="nm">${esc(m.name||'')}</div><div class="ds">${self?'Vous':(on?'En ligne':'Hors ligne')}${m.uid===COMP_owner()?' · admin':''}</div></div>${self?'':`<div style="color:var(--t3)">${ic('chat',18)}</div>`}</div>`; });
-      $('cont-list').innerHTML=html||'<p class="muted center">Aucun contact.</p>';
+      const list = MODE==='perso' ? await listMembers() : (await (async()=>{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); const a=[]; qs.forEach(d=>a.push(d.data())); return a; })());
+      let html=''; list.forEach(m=>{ const on=isOnline(m)||m.uid===ME.uid; const self=m.uid===ME.uid;
+        html+=`<div class="row" ${self?'style="cursor:default"':`onclick="contactActions('${m.uid}','${esc((m.name||'').replace(/'/g,''))}')"`}><div style="position:relative;flex-shrink:0">${m.photo?`<img class="ava" src="${m.photo}" style="object-fit:cover">`:`<div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`}<span style="position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);background:${on?'#22c55e':'#64748b'}"></span></div><div class="info"><div class="nm">${esc(m.name||'')}</div><div class="ds">${self?'Vous':(on?'En ligne':'Hors ligne')}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>${self?'':`<div style="color:var(--t3)">${ic('chat',18)}</div>`}</div>`; });
+      $('cont-list').innerHTML=html||('<p class="muted center">'+esc(emptyMsg)+'</p>');
     }catch(e){ $('cont-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
-  function COMP_owner(){ return COMP.ownerUid; }
+  function COMP_owner(){ return COMP&&COMP.ownerUid; }
   async function contactActions(uid,name){ openSheet('<p class="muted center">Chargement…</p>'); let phone='';
-    try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).get(); if(d.exists) phone=d.data().phone||''; }catch(e){}
+    try{ if(MODE==='perso'){ const d=await fs.collection('op_users').doc(uid).get(); if(d.exists) phone=d.data().phone||''; } else { const d=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).get(); if(d.exists) phone=d.data().phone||''; } }catch(e){}
     const nm=esc((name||'').replace(/'/g,''));
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:${phone?'4':'14'}px">${esc(name)}</h3>
       ${phone?`<p class="muted" style="margin-bottom:14px">${esc(phone)}</p>`:''}
@@ -422,9 +481,33 @@
       <button class="btn ghost block" ${phone?'style="margin-bottom:10px"':''} onclick="closeSheet();startCall(['${uid}'],['${nm}'],'video')">${ic('video',18)}Appel vidéo (in-app)</button>
       ${phone?`<a class="btn ghost block" style="text-decoration:none" href="tel:${esc(phone.replace(/[^0-9+]/g,''))}">${ic('phone',18)}Appeler au téléphone</a>`:''}`); }
   async function openDM(uid,name){ const pair=[ME.uid,uid].sort(); const id='dm_'+pair.join('_');
-    const ref=fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id);
+    const ref=chanCol().doc(id);
     try{ const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
     openChannel(id,name); }
+  // ---- Ajout de contact (mode perso) : par identifiant ou téléphone ----
+  function addContactForm(){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Ajouter un contact</h3>
+      <p class="muted" style="margin-bottom:14px">Entrez l'identifiant unique de la personne (ou son numéro de téléphone).</p>
+      <div id="acerr"></div>
+      <div class="field"><label>Identifiant ou téléphone</label><input id="ac-q" placeholder="ex : marie.d ou 0612…" autocapitalize="off"></div>
+      <button class="btn block" id="ac-btn" onclick="addContact()">Rechercher et ajouter</button>`);
+  }
+  async function addContact(){
+    const raw=($('ac-q').value||'').trim(); if(!raw){ $('acerr').innerHTML='<div class="err">Entrez un identifiant ou un numéro.</div>'; return; }
+    const btn=$('ac-btn'); if(btn) btn.disabled=true;
+    const isPhone=/^[0-9+ .]{6,}$/.test(raw);
+    try{
+      let snap;
+      if(isPhone) snap=await fs.collection('op_users').where('phone','==',raw).limit(1).get();
+      else snap=await fs.collection('op_users').where('handle','==',handleOf(raw)).limit(1).get();
+      if(snap.empty){ $('acerr').innerHTML='<div class="err">Personne trouvée avec cet identifiant. Vérifiez l\'orthographe.</div>'; if(btn)btn.disabled=false; return; }
+      const u=snap.docs[0].data();
+      if(u.uid===ME.uid){ $('acerr').innerHTML='<div class="err">C\'est vous 🙂</div>'; if(btn)btn.disabled=false; return; }
+      await fs.collection('op_users').doc(ME.uid).collection('contacts').doc(u.uid).set({uid:u.uid,name:u.name||u.handle||'Contact',handle:u.handle||'',phone:u.phone||''});
+      _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name}));
+      closeSheet(); toast('Contact ajouté : '+(u.name||u.handle)); if(_curView==='cont') viewCont();
+    }catch(e){ $('acerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; if(btn)btn.disabled=false; }
+  }
 
   // ---- APPELS (style WhatsApp : direct + groupe d'appel) ----
   function tms(t){ return t&&t.toMillis?t.toMillis():0; }
@@ -438,7 +521,7 @@
       <div id="call-list"><p class="muted center">Chargement…</p></div>`;
     if(_meetTicker)clearInterval(_meetTicker); if(up.length) _meetTicker=setInterval(tickCountdowns,30000);
     try{
-      const col=fs.collection('op_companies').doc(COMP.id).collection('calls');
+      const col=callsCol();
       const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
       const map={}; a.forEach(d=>map[d.id]={id:d.id,...d.data()}); b.forEach(d=>map[d.id]={id:d.id,...d.data()});
       const list=Object.values(map).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
@@ -451,8 +534,8 @@
   }
   async function newCall(){
     openSheet('<p class="muted center">Chargement…</p>'); let chks='';
-    try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
-      qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" data-name="${esc((m.name||'').replace(/"/g,'&quot;'))}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
+    try{ const list=await listMembers();
+      list.forEach(m=>{ if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" data-name="${esc((m.name||'').replace(/"/g,'&quot;'))}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Nouvel appel</h3>
       <p class="muted" style="margin-bottom:12px">Choisissez une personne (appel direct) ou plusieurs (appel de groupe).</p>
       <div id="ncerr"></div><div id="nc-members">${chks||'<p class="muted">Aucun contact.</p>'}</div>
@@ -460,7 +543,7 @@
   }
   function launchCall(type){ const sel=[...document.querySelectorAll('#nc-members .chk.sel')]; if(!sel.length){ $('ncerr').innerHTML='<div class="err">Choisissez au moins une personne.</div>'; return; }
     closeSheet(); startCall(sel.map(x=>x.dataset.uid), sel.map(x=>x.dataset.name), type); }
-  async function recall(id){ try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('calls').doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
+  async function recall(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
     const ids = out ? c.members : [c.from, ...(c.members||[]).filter(u=>u!==ME.uid)];
     const names = out ? c.memberNames : [c.fromName, ...((c.memberNames||[]))];
     startCall(ids, names, c.type||'video'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
@@ -469,7 +552,7 @@
   async function startCall(ids, names, type){
     if(!ids||!ids.length) return;
     const room='CALL'+ME.uid.slice(0,6)+Date.now();
-    const ref=fs.collection('op_companies').doc(COMP.id).collection('calls').doc();
+    const ref=callsCol().doc();
     try{ await ref.set({from:ME.uid,fromName:USER.name||ME.email,members:ids,memberNames:names||[],type:type||'video',room,status:'ringing',ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
     _activeCall={ref,answered:false,oneToOne:ids.length===1};
     if(_callDocUnsub)_callDocUnsub();
@@ -488,7 +571,7 @@
       interfaceConfigOverwrite:{SHOW_JITSI_WATERMARK:false,SHOW_WATERMARK_FOR_GUESTS:false,SHOW_BRAND_WATERMARK:false,JITSI_WATERMARK_LINK:'',MOBILE_APP_PROMO:false,HIDE_DEEP_LINKING_LOGO:true,SHOW_POWERED_BY:false,APP_NAME:'OP MESSAGES',NATIVE_APP_NAME:'OP MESSAGES',PROVIDER_NAME:'OP MESSAGES',DEFAULT_BACKGROUND:'#0a0e16',DISABLE_JOIN_LEAVE_NOTIFICATIONS:true,TOOLBAR_BUTTONS:['microphone','camera','desktop','tileview','hangup','chat','raisehand','participants-pane','settings']}});
     _japi.addEventListener('readyToClose',closeJitsi);
   }
-  function joinRoom(id,name){ openJitsi('OPMSG'+COMP.id+id, name||'Réunion', false); }
+  function joinRoom(id,name){ openJitsi('OPMSG'+((COMP&&COMP.id)||'perso')+id, name||'Réunion', false); }
   function closeJitsi(){ try{ if(_japi){_japi.dispose();_japi=null;} }catch(e){} $('jitsi-box').innerHTML=''; $('jitsi').classList.remove('open');
     if(_activeCall){ const ref=_activeCall.ref, ans=_activeCall.answered; _activeCall=null; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;}
       ref.get().then(d=>{ if(!d.exists) return; const st=d.data().status; if(st==='ringing') ref.update({status: ans?'ended':'missed'}); else if(st==='answered') ref.update({status:'ended'}); }).catch(()=>{}); } }
@@ -497,7 +580,7 @@
   let _ringRef=null,_ringRefUnsub=null,_ringT=null,_callListenUnsub=null;
   function startCallListener(){
     if(_callListenUnsub)_callListenUnsub();
-    _callListenUnsub=fs.collection('op_companies').doc(COMP.id).collection('calls').where('members','array-contains',ME.uid).onSnapshot(qs=>{
+    _callListenUnsub=callsCol().where('members','array-contains',ME.uid).onSnapshot(qs=>{
       qs.docChanges().forEach(ch=>{ if(ch.type==='removed') return; const c=ch.doc.data(); const t=c.ts&&c.ts.toMillis?c.ts.toMillis():Date.now();
         if(c.status==='ringing' && c.from!==ME.uid && t>_loginTs-4000 && !_ringRef && !(_activeCall&&_activeCall.ref.id===ch.doc.id)) showRing(ch.doc.ref,c); });
     }, err=>{});
@@ -584,20 +667,21 @@
     listenCh(id);
   }
   function closeChat(){ if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
-  function chMsgs(){ return fs.collection('op_companies').doc(COMP.id).collection('channels').doc(_curCh.id).collection('messages'); }
+  function chDoc(id){ return chanCol().doc(id); }
+  function chMsgs(){ return chDoc(_curCh.id).collection('messages'); }
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
   let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={};
-  function markRead(id){ try{ fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
+  function markRead(id){ try{ chDoc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
   function listenCh(id){
     if(_chMsgUnsub)_chMsgUnsub(); if(_readsUnsub){_readsUnsub();_readsUnsub=null;} _curMsgs=[]; _lastMsgCount=0; _reads={};
-    _chMsgUnsub=fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).collection('messages').orderBy('ts','asc').limitToLast(300).onSnapshot(qs=>{
+    _chMsgUnsub=chDoc(id).collection('messages').orderBy('ts','asc').limitToLast(300).onSnapshot(qs=>{
       _curMsgs=[];
       qs.forEach(doc=>{ const m=doc.data(); const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
       if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid){ beep(); if(last.m.mentions && last.m.mentions.includes(ME.uid)) toast('💬 '+(last.m.name||'Quelqu\'un')+' vous a mentionné'); } }
       _lastMsgCount=_curMsgs.length;
       renderStream(); markRead(id);
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
-    _readsUnsub=fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).collection('reads').onSnapshot(qs=>{ _reads={}; qs.forEach(d=>{ _reads[d.id]=d.data().ts||0; }); renderStream(); }, err=>{});
+    _readsUnsub=chDoc(id).collection('reads').onSnapshot(qs=>{ _reads={}; qs.forEach(d=>{ _reads[d.id]=d.data().ts||0; }); renderStream(); }, err=>{});
   }
   function renderStream(){
     const s=$('stream'); if(!s) return;
@@ -705,11 +789,11 @@
   // ---- Infos / gestion de groupe ----
   async function openGroupInfo(id){
     openSheet('<p class="muted center">Chargement…</p>');
-    let cd; try{ cd=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).get(); }catch(e){ openSheet('<div class="err">'+esc(e.message)+'</div>'); return; }
+    let cd; try{ cd=await chDoc(id).get(); }catch(e){ openSheet('<div class="err">'+esc(e.message)+'</div>'); return; }
     const c=cd.exists?cd.data():{};
     if(c.type==='general'){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Général</h3><p class="muted">Canal de toute l'entreprise — tous les membres y participent.</p>`); return; }
     const isMgr = c.createdBy===ME.uid || IS_OWNER;
-    const nameByUid={}; try{ const mqs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); mqs.forEach(d=>nameByUid[d.id]=d.data().name); }catch(e){}
+    const nameByUid={}; nameByUid[ME.uid]=USER.name||''; try{ const list=await listMembers(); list.forEach(m=>nameByUid[m.uid]=m.name); }catch(e){}
     const mhtml=(c.members||[]).map(u=>`<div class="mrow"><div class="ma">${ini(nameByUid[u]||'?')}</div><div>${esc(nameByUid[u]||'Membre')}${u===ME.uid?' (vous)':''}</div></div>`).join('');
     let html=`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(c.name||'Groupe')}</h3>`;
     if(isMgr) html+=`<button class="btn ghost block" style="margin:10px 0" onclick="renameGroup('${id}','${esc((c.name||'').replace(/'/g,''))}')">✏️ Renommer le groupe</button>`;
@@ -719,18 +803,18 @@
     openSheet(html);
   }
   async function renameGroup(id,cur){ const t=prompt('Nouveau nom du groupe :',cur); if(t==null) return; const n=t.trim(); if(!n) return;
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).update({name:n}); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+    try{ await chDoc(id).update({name:n}); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function addToGroup(id){
     openSheet('<p class="muted center">Chargement…</p>');
-    let c={},mem=[]; try{ const cd=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).get(); c=cd.data(); mem=c.members||[]; }catch(e){}
-    let chks=''; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
-      qs.forEach(d=>{ const m=d.data(); if(mem.includes(m.uid)) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Ajouter des membres</h3><div id="atgerr"></div>${chks||'<p class="muted">Tous les membres sont déjà dans le groupe.</p>'}<button class="btn block" style="margin-top:10px" onclick="saveAddToGroup('${id}')">Ajouter</button>`);
+    let c={},mem=[]; try{ const cd=await chDoc(id).get(); c=cd.data(); mem=c.members||[]; }catch(e){}
+    let chks=''; try{ const list=await listMembers();
+      list.forEach(m=>{ if(m.uid===ME.uid||mem.includes(m.uid)) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Ajouter des membres</h3><div id="atgerr"></div>${chks||'<p class="muted">Tous vos contacts sont déjà dans le groupe.</p>'}<button class="btn block" style="margin-top:10px" onclick="saveAddToGroup('${id}')">Ajouter</button>`);
   }
   async function saveAddToGroup(id){ const sel=[...document.querySelectorAll('.chk.sel')].map(x=>x.dataset.uid); if(!sel.length){ closeSheet(); return; }
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).update({members:firebase.firestore.FieldValue.arrayUnion(...sel)}); closeSheet(); }catch(e){ const el=$('atgerr'); if(el) el.innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
+    try{ await chDoc(id).update({members:firebase.firestore.FieldValue.arrayUnion(...sel)}); closeSheet(); }catch(e){ const el=$('atgerr'); if(el) el.innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
   async function leaveGroup(id){ if(!confirm('Quitter ce groupe ?')) return;
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('channels').doc(id).update({members:firebase.firestore.FieldValue.arrayRemove(ME.uid)}); closeSheet(); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+    try{ await chDoc(id).update({members:firebase.firestore.FieldValue.arrayRemove(ME.uid)}); closeSheet(); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   function openAttach(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Joindre</h3>
     <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();$('imgpick').click()">${ic('image',18)}Photo (galerie ou appareil)</button>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();$('filepick').click()">${ic('file',18)}Fichier / PDF</button>
@@ -749,8 +833,8 @@
   function closeViewer(){ $('viewer').classList.remove('open'); $('viewer-frame').src='about:blank'; }
 
   // ========== MENU / MEMBRES ==========
-  function openMenu(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(COMP.name)}</h3>
-    <p class="muted" style="margin-bottom:14px">${IS_OWNER?'Vous êtes administrateur.':'Membre'}</p>
+  function openMenu(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</h3>
+    <p class="muted" style="margin-bottom:14px">${MODE==='perso'?'Compte perso · @'+esc(USER.handle||''):(IS_OWNER?'Vous êtes administrateur.':'Membre')}</p>
     <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();showView('prof')">Mon profil & réglages</button>
     ${IS_OWNER?'<button class="btn ghost block" style="margin-bottom:10px" onclick="showInvite()">📨 Code d\'invitation rapide</button>':''}
     <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
@@ -761,8 +845,9 @@
       <div style="text-align:center;margin-bottom:14px">
         ${photo?`<img src="${photo}" style="width:90px;height:90px;border-radius:26px;object-fit:cover">`:`<div class="ava" style="width:90px;height:90px;border-radius:26px;font-size:34px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}
         <div style="font-size:17px;font-weight:600;margin-top:10px">${esc(USER.name||'')}</div>
-        <div class="muted">${esc(COMP.name)}${IS_OWNER?' · admin':''}</div>
-        <div style="margin-top:8px"><span style="font-size:11px;${isPro()?'background:rgba(34,177,76,.18);color:#5fcf80':'background:rgba(91,143,214,.2);color:var(--op-l)'};padding:4px 11px;border-radius:100px;font-weight:600">${isPro()?'Compte entreprise · accès complet':'Utilisateur · sans réunions'}</span></div>
+        <div class="muted">${MODE==='perso'?'@'+esc(USER.handle||''):esc(COMP.name)+(IS_OWNER?' · admin':'')}</div>
+        <div style="margin-top:8px"><span style="font-size:11px;${MODE==='perso'?'background:rgba(148,163,184,.2);color:var(--t2)':(isPro()?'background:rgba(34,177,76,.18);color:#5fcf80':'background:rgba(91,143,214,.2);color:var(--op-l)')};padding:4px 11px;border-radius:100px;font-weight:600">${MODE==='perso'?'Compte perso · sans réunions':(isPro()?'Compte entreprise · accès complet':'Utilisateur · sans réunions')}</span></div>
+        ${MODE==='perso'?`<p class="muted" style="font-size:12px;margin-top:8px">Partagez votre identifiant <b>@${esc(USER.handle||'')}</b> pour qu'on vous ajoute.</p>`:''}
         <button class="btn ghost sm" style="margin-top:12px" onclick="$('photopick').click()">Changer la photo</button>
       </div>
       ${isPro()?`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Code à transmettre aux employés</div>
@@ -781,14 +866,14 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       </div>`; }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim();
-    try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+    try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
     try{ await auth.currentUser.updatePassword(np); alert('✅ Mot de passe modifié.'); }
     catch(e){ if((e.code||'')==='auth/requires-recent-login') alert('Sécurité : déconnecte-toi, reconnecte-toi, puis réessaie.'); else alert('Erreur : '+(e.message||e)); } }
   $('photopick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader();
     r.onload=()=>{ const img=new Image(); img.onload=async()=>{ let w=img.width,h=img.height; const mx=256; if(w>mx||h>mx){ if(w>h){h=h*mx/w;w=mx;}else{w=w*mx/h;h=mx;} }
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h); const data=cv.toDataURL('image/jpeg',0.8);
-      try{ await fs.collection('op_users').doc(ME.uid).set({photo:data},{merge:true}); await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({photo:data},{merge:true}); USER.photo=data; if(_curView==='prof') viewProfile(); }catch(err){ alert('Erreur : '+(err.message||err)); }
+      try{ await fs.collection('op_users').doc(ME.uid).set({photo:data},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({photo:data},{merge:true}); USER.photo=data; if(_curView==='prof') viewProfile(); }catch(err){ alert('Erreur : '+(err.message||err)); }
     }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; });
   async function showInvite(){ const d=await fs.collection('op_companies').doc(COMP.id).get(); const code=d.data().code;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Code d'invitation</h3>
