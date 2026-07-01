@@ -137,6 +137,7 @@
   let _members=[];
   let MODE='perso'; // espace ACTIF : 'perso' | 'company' (basculé par le bouton en haut)
   let HAS_COMPANY=false, _meetWatchUnsub=null; // le compte appartient-il à une entreprise ?
+  let _pendingUnsub=null, _requests=[], _requestsUnsub=null, _reqToasted=false;
   // Références Firestore centralisées : le moteur de chat/appels marche pour les 2 modes
   function chanCol(){ return MODE==='perso' ? fs.collection('op_channels') : fs.collection('op_companies').doc(COMP.id).collection('channels'); }
   function callsCol(){ return MODE==='perso' ? fs.collection('op_calls') : fs.collection('op_companies').doc(COMP.id).collection('calls'); }
@@ -222,7 +223,7 @@
       <div id="f-join" class="hide">
         <div style="display:flex;gap:8px;margin:-2px 0 14px"><button class="btn sm" style="flex:1" id="e-t-join" onclick="eTab('join')">J'ai un code</button><button class="btn ghost sm" style="flex:1" id="e-t-create" onclick="eTab('create')">Créer l'entreprise</button></div>
         <div id="e-join">
-          <p class="muted" style="margin:-2px 0 12px">Votre entreprise vous a transmis un code ? Rejoignez-la en quelques secondes.</p>
+          <p class="muted" style="margin:-2px 0 12px">Votre entreprise vous a transmis un code ? Entrez-le : votre arrivée sera validée par l'entreprise.</p>
           <div class="field"><label>Code entreprise</label><input id="j-code" placeholder="Ex : 4FK7P2" style="text-transform:uppercase" autocapitalize="characters"></div>
           <div class="field"><label>Votre nom</label><input id="j-name" placeholder="Prénom Nom"></div>
           <div class="field"><label>Identifiant (pour vous reconnecter)</label><input id="j-login" placeholder="ex : mdupont" autocapitalize="off"></div>
@@ -314,10 +315,11 @@
     _provisioning=true;
     try{
       const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
-      await cdoc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name,role:'classique',ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle:ident,role:'classique',companyId:cdoc.id,companyName:cname,lastActive:Date.now()});
-      USER={uid:ME.uid,email,name,handle:ident,role:'classique',companyId:cdoc.id,companyName:cname};
-      COMP={id:cdoc.id,name:cname}; HAS_COMPANY=true; MODE='company'; _provisioning=false; enterApp();
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle:ident,role:'perso',lastActive:Date.now()});
+      USER={uid:ME.uid,email,name,handle:ident,role:'perso'};
+      await sendJoinRequest(cdoc.id,cname);
+      COMP=null; HAS_COMPANY=false; MODE='perso'; _provisioning=false; enterApp();
+      setTimeout(()=>toast('Demande envoyée à '+cname+'. En attente de validation.'),500);
     }catch(e){ _provisioning=false; if((e.code||'')==='auth/email-already-in-use') aerr('Cet identifiant est déjà pris. Choisissez-en un autre, ou allez sur « Connexion ».'); else aerr(aMsg(e)); $('j-sub').disabled=false; }
   }
   function aMsg(e){ const c=(e&&e.code)||'';
@@ -384,17 +386,51 @@
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
-    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch();
+    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); startPendingWatch();
   }
   function startSpaceListeners(){
     startPresence(); startCallListener();
     if(_meetWatchUnsub){ _meetWatchUnsub(); _meetWatchUnsub=null; }
     if(MODE==='company'&&HAS_COMPANY) startMeetingWatch(); else { _myMeetings=[]; }
+    if(_requestsUnsub){ _requestsUnsub(); _requestsUnsub=null; }
+    if(MODE==='company'&&IS_OWNER) startRequestWatch(); else _requests=[];
+  }
+  // Côté demandeur : attend la validation de l'entreprise
+  function startPendingWatch(){
+    if(_pendingUnsub){ _pendingUnsub(); _pendingUnsub=null; }
+    if(HAS_COMPANY || !(USER&&USER.pendingCompanyId)) return;
+    const cid=USER.pendingCompanyId, cname=USER.pendingCompanyName||'';
+    _pendingUnsub=fs.collection('op_companies').doc(cid).collection('members').doc(ME.uid).onSnapshot(async d=>{
+      if(!d.exists) return; if(_pendingUnsub){ _pendingUnsub(); _pendingUnsub=null; }
+      try{ await fs.collection('op_users').doc(ME.uid).set({companyId:cid,companyName:cname,pendingCompanyId:firebase.firestore.FieldValue.delete(),pendingCompanyName:firebase.firestore.FieldValue.delete()},{merge:true}); }catch(e){}
+      USER.companyId=cid; USER.companyName=cname; delete USER.pendingCompanyId; delete USER.pendingCompanyName;
+      toast('✅ Vous avez été accepté chez '+cname+' !'); await applyCompany(cid,cname);
+    }, err=>{});
+  }
+  // Côté admin : reçoit et valide les demandes
+  function startRequestWatch(){
+    if(_requestsUnsub){ _requestsUnsub(); _requestsUnsub=null; }
+    _requestsUnsub=fs.collection('op_companies').doc(COMP.id).collection('requests').onSnapshot(qs=>{
+      _requests=[]; qs.forEach(d=>_requests.push({id:d.id,...d.data()}));
+      qs.docChanges().forEach(ch=>{ if(ch.type!=='added') return; const r=ch.doc.data(); const t=r.ts&&r.ts.toMillis?r.ts.toMillis():Date.now(); if(t>_loginTs-4000) toast('📨 '+(r.name||'Quelqu\'un')+' demande à rejoindre l\'entreprise'); });
+      if(_curView==='cont') viewCont();
+    }, err=>{});
+  }
+  async function approveRequest(uid){
+    const r=_requests.find(x=>x.id===uid)||{};
+    try{
+      await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).set({uid,name:r.name||'',phone:r.phone||'',role:'classique',ts:FV()});
+      try{ await fs.collection('op_companies').doc(COMP.id).collection('requests').doc(uid).delete(); }catch(e){}
+      toast((r.name||'Le membre')+' a été accepté.'); if(_curView==='cont') viewCont();
+    }catch(e){ alert('Erreur : '+(e.message||e)); }
+  }
+  async function rejectRequest(uid){ if(!confirm('Refuser cette demande ?')) return;
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('requests').doc(uid).delete(); toast('Demande refusée.'); if(_curView==='cont') viewCont(); }catch(e){ alert('Erreur : '+(e.message||e)); }
   }
   // Bascule Perso <-> Pro (bouton en haut)
   async function switchSpace(sp){
     if(sp===MODE) return;
-    if(sp==='company'&&!HAS_COMPANY){ showAddCompany(); return; }
+    if(sp==='company'&&!HAS_COMPANY){ if(USER&&USER.pendingCompanyId){ toast('Votre demande à '+(USER.pendingCompanyName||'l\'entreprise')+' est en attente de validation.'); } else { showAddCompany(); } return; }
     closeChat(); MODE=sp; _curView='disc';
     IS_OWNER = (MODE==='company') && HAS_COMPANY && COMP && COMP.ownerUid===ME.uid;
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
@@ -414,14 +450,20 @@
   }
   function acompErr(m){ const el=$('acomperr'); if(el) el.innerHTML='<div class="err">'+esc(m)+'</div>'; }
   async function applyCompany(id,name){ USER.companyId=id; USER.companyName=name; COMP={id,name}; HAS_COMPANY=true; MODE='company'; closeSheet(); await enterApp(); }
+  // Demande d'adhésion (soumise à validation de l'entreprise)
+  async function sendJoinRequest(cid,cname){
+    await fs.collection('op_companies').doc(cid).collection('requests').doc(ME.uid).set({uid:ME.uid,name:USER.name||'',phone:USER.phone||'',handle:USER.handle||'',status:'pending',ts:FV()});
+    await fs.collection('op_users').doc(ME.uid).set({pendingCompanyId:cid,pendingCompanyName:cname},{merge:true});
+    USER.pendingCompanyId=cid; USER.pendingCompanyName=cname;
+  }
   async function inAppJoin(){
     const code=($('ic-code').value||'').trim().toUpperCase(); if(code.length<4) return acompErr('Entrez le code de votre entreprise.');
     try{ const qs=await fs.collection('op_companies').where('code','==',code).limit(1).get();
       if(qs.empty) return acompErr('Aucune entreprise pour ce code.');
       const doc=qs.docs[0], name=doc.data().name;
-      await doc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||'',phone:USER.phone||'',role:'classique',ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({companyId:doc.id,companyName:name},{merge:true});
-      await applyCompany(doc.id,name); toast('Espace pro ajouté : '+name);
+      const m=await doc.ref.collection('members').doc(ME.uid).get(); if(m.exists) return acompErr('Vous faites déjà partie de cette entreprise.');
+      await sendJoinRequest(doc.id,name);
+      closeSheet(); toast('Demande envoyée à '+name+'. En attente de validation.'); startPendingWatch(); renderShell(); showView('disc');
     }catch(e){ acompErr(e.message||'Erreur'); }
   }
   async function inAppCreate(){
@@ -450,7 +492,7 @@
       </div>
       <div style="display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)">
         <button onclick="switchSpace('perso')" style="flex:1;padding:9px 6px;border-radius:10px;border:1px solid var(--brd2);font-weight:700;font-size:13px;cursor:pointer;background:${MODE==='perso'?'var(--op)':'transparent'};color:${MODE==='perso'?'#fff':'var(--t2)'}">Perso</button>
-        <button onclick="switchSpace('company')" style="flex:1;padding:9px 6px;border-radius:10px;border:1px solid var(--brd2);font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:${MODE==='company'?'#22b14c':'transparent'};color:${MODE==='company'?'#fff':'var(--t2)'}">${HAS_COMPANY?esc(COMP.name):'Pro ＋'}</button>
+        <button onclick="switchSpace('company')" style="flex:1;padding:9px 6px;border-radius:10px;border:1px solid var(--brd2);font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:${MODE==='company'?'#22b14c':'transparent'};color:${MODE==='company'?'#fff':'var(--t2)'}">${HAS_COMPANY?esc(COMP.name):((USER&&USER.pendingCompanyId)?'Pro · en attente':'Pro ＋')}</button>
       </div>
       <div class="view" id="view"></div>
       <div class="nav">
@@ -518,7 +560,13 @@
     const showFab = MODE==='perso' || IS_OWNER;
     const fabAction = MODE==='perso' ? 'addContactForm()' : 'addPeopleMenu()';
     const emptyMsg = MODE==='perso' ? 'Aucun contact. Touchez + pour en ajouter avec leur identifiant.' : 'Aucun contact.';
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2></div><div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ic('plus',26)}</button>`:''}`;
+    let reqHtml='';
+    if(MODE==='company' && IS_OWNER && _requests.length){
+      reqHtml=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5fcf80;margin:0 2px 8px;font-weight:700">Demandes en attente (${_requests.length})</div>`+
+        _requests.map(r=>`<div class="row" style="background:rgba(34,177,76,.08);border-radius:12px;margin-bottom:6px;padding:8px 10px"><div class="ava" style="${avatarStyle(r.name)}">${ini(r.name)}</div><div class="info"><div class="nm">${esc(r.name||'')}</div><div class="ds">${esc(r.phone||r.handle||'')} · veut rejoindre</div></div><div style="display:flex;gap:6px"><button class="btn sm" style="padding:7px 10px" onclick="approveRequest('${esc(r.id)}')">✓</button><button class="btn ghost sm" style="padding:7px 10px" onclick="rejectRequest('${esc(r.id)}')">✕</button></div></div>`).join('')+
+        `<div style="height:14px"></div>`;
+    }
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2></div>${reqHtml}<div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ic('plus',26)}</button>`:''}`;
     try{
       const list = MODE==='perso' ? await listMembers() : (await (async()=>{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); const a=[]; qs.forEach(d=>a.push(d.data())); return a; })());
       let html=''; list.forEach(m=>{ const on=isOnline(m)||m.uid===ME.uid; const self=m.uid===ME.uid;
@@ -935,7 +983,7 @@
     }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; });
   async function showInvite(){ const d=await fs.collection('op_companies').doc(COMP.id).get(); const code=d.data().code;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Code d'invitation</h3>
-      <p class="muted" style="margin-bottom:12px">Donnez ce code à vos employés. Ils ouvrent l'app, choisissent « Rejoindre », entrent ce code et leur nom — aucun compte à créer pour eux.</p>
+      <p class="muted" style="margin-bottom:12px">Donnez ce code à vos employés. Ils entrent le code, puis <b>vous validez</b> leur arrivée dans l'onglet Contacts. Rien à créer pour eux.</p>
       <div style="background:var(--card2);border:1px solid var(--brd2);border-radius:12px;padding:16px;text-align:center;font-family:'Space Mono',monospace;font-size:28px;letter-spacing:4px;color:var(--op-l)">${esc(code)}</div>
       <button class="btn block" style="margin-top:14px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(code)}');this.textContent='✅ Copié'">📋 Copier</button>`); }
   // ---- Ajouter des gens dans l'entreprise : 3 façons ----
