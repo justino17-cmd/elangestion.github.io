@@ -384,7 +384,7 @@
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
-    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners();
+    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch();
   }
   function startSpaceListeners(){
     startPresence(); startCallListener();
@@ -516,7 +516,7 @@
   // ---- CONTACTS (membres) ----
   async function viewCont(){
     const showFab = MODE==='perso' || IS_OWNER;
-    const fabAction = MODE==='perso' ? 'addContactForm()' : 'addMemberForm()';
+    const fabAction = MODE==='perso' ? 'addContactForm()' : 'addPeopleMenu()';
     const emptyMsg = MODE==='perso' ? 'Aucun contact. Touchez + pour en ajouter avec leur identifiant.' : 'Aucun contact.';
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2></div><div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ic('plus',26)}</button>`:''}`;
     try{
@@ -892,6 +892,7 @@
   // ========== MENU / MEMBRES ==========
   function openMenu(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</h3>
     <p class="muted" style="margin-bottom:14px">${MODE==='perso'?'Compte perso · @'+esc(USER.handle||''):(IS_OWNER?'Vous êtes administrateur.':'Membre')}</p>
+    ${_invites.length?_invites.map(iv=>`<button class="btn block" style="margin-bottom:10px;background:rgba(34,177,76,.16);color:#5fcf80" onclick="closeSheet();openInviteById('${esc(iv.companyId)}')">📨 Invitation : ${esc(iv.companyName||'')} — répondre</button>`).join(''):''}
     <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();showView('prof')">Mon profil & réglages</button>
     ${IS_OWNER?'<button class="btn ghost block" style="margin-bottom:10px" onclick="showInvite()">📨 Code d\'invitation rapide</button>':''}
     <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
@@ -937,6 +938,64 @@
       <p class="muted" style="margin-bottom:12px">Donnez ce code à vos employés. Ils ouvrent l'app, choisissent « Rejoindre », entrent ce code et leur nom — aucun compte à créer pour eux.</p>
       <div style="background:var(--card2);border:1px solid var(--brd2);border-radius:12px;padding:16px;text-align:center;font-family:'Space Mono',monospace;font-size:28px;letter-spacing:4px;color:var(--op-l)">${esc(code)}</div>
       <button class="btn block" style="margin-top:14px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(code)}');this.textContent='✅ Copié'">📋 Copier</button>`); }
+  // ---- Ajouter des gens dans l'entreprise : 3 façons ----
+  function addPeopleMenu(){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Ajouter quelqu'un</h3>
+      <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();inviteForm()">${ic('phone',18)}Inviter par numéro / identifiant</button>
+      <p class="muted" style="font-size:12px;margin:-4px 2px 12px">La personne reçoit une invitation dans l'app et doit l'accepter.</p>
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();showInvite()">${ic('users',18)}Partager le code d'invitation</button>
+      <button class="btn ghost block" onclick="closeSheet();addMemberForm()">${ic('plus',18)}Créer un compte (identifiant + mot de passe)</button>`);
+  }
+  function invErr(m){ const el=$('inverr'); if(el) el.innerHTML='<div class="err">'+esc(m)+'</div>'; }
+  function inviteForm(){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Inviter dans l'entreprise</h3>
+      <p class="muted" style="margin-bottom:14px">Entrez le <b>numéro de téléphone</b> (ou l'identifiant) de la personne. Elle doit déjà avoir un compte OP MESSAGES. Elle recevra une invitation à accepter.</p>
+      <div id="inverr"></div>
+      <div class="field"><label>Téléphone ou identifiant</label><input id="inv-q" placeholder="ex : 06 12 34 56 78 ou marie.d" autocapitalize="off"></div>
+      <button class="btn block" id="inv-btn" onclick="inviteSend()">Envoyer l'invitation</button>`);
+  }
+  async function inviteSend(){
+    const raw=($('inv-q').value||'').trim(); if(!raw) return invErr('Entrez un numéro ou un identifiant.');
+    const btn=$('inv-btn'); if(btn) btn.disabled=true;
+    const isPhone=/^[0-9+ .]{6,}$/.test(raw);
+    try{
+      const snap = isPhone ? await fs.collection('op_users').where('phone','==',raw).limit(1).get() : await fs.collection('op_users').where('handle','==',handleOf(raw)).limit(1).get();
+      if(snap.empty){ invErr("Aucun utilisateur avec ceci. La personne doit d'abord créer un compte (onglet Perso)."); if(btn)btn.disabled=false; return; }
+      const u=snap.docs[0].data();
+      if(u.uid===ME.uid){ invErr('C\'est vous 🙂'); if(btn)btn.disabled=false; return; }
+      const m=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(u.uid).get();
+      if(m.exists){ invErr((u.name||'Cette personne')+' fait déjà partie de l\'entreprise.'); if(btn)btn.disabled=false; return; }
+      await fs.collection('op_users').doc(u.uid).collection('invites').doc(COMP.id).set({companyId:COMP.id,companyName:COMP.name,fromUid:ME.uid,fromName:USER.name||'',ts:FV()});
+      closeSheet(); toast('Invitation envoyée à '+(u.name||u.handle)+'.');
+    }catch(e){ invErr(e.message||'Erreur'); if(btn)btn.disabled=false; }
+  }
+  // ---- Côté invité : réception + acceptation ----
+  let _invites=[],_invitesUnsub=null,_inviteToasted=false;
+  function startInviteWatch(){
+    if(_invitesUnsub)_invitesUnsub();
+    _invitesUnsub=fs.collection('op_users').doc(ME.uid).collection('invites').onSnapshot(qs=>{
+      _invites=[]; qs.forEach(d=>_invites.push({id:d.id,...d.data()}));
+      qs.docChanges().forEach(ch=>{ if(ch.type!=='added') return; const iv=ch.doc.data(); const t=iv.ts&&iv.ts.toMillis?iv.ts.toMillis():Date.now();
+        if(t>_loginTs-4000) openInviteSheet({id:ch.doc.id,...iv}); });
+      if(_invites.length && !_inviteToasted){ _inviteToasted=true; toast('📨 Vous avez '+_invites.length+' invitation'+(_invites.length>1?'s':'')+' (menu ⋯)'); }
+    }, err=>{});
+  }
+  function openInviteById(cid){ const iv=_invites.find(x=>x.companyId===cid); if(iv) openInviteSheet(iv); }
+  function openInviteSheet(iv){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Invitation</h3>
+      <p style="margin-bottom:16px"><b>${esc(iv.fromName||'Une entreprise')}</b> vous invite à rejoindre l'entreprise <b>${esc(iv.companyName||'')}</b>.</p>
+      <button class="btn block" style="margin-bottom:10px" onclick="acceptInvite('${esc(iv.companyId)}','${esc((iv.companyName||'').replace(/'/g,''))}')">Accepter et rejoindre</button>
+      <button class="btn ghost block" onclick="declineInvite('${esc(iv.companyId)}')">Refuser</button>`);
+  }
+  async function acceptInvite(cid,cname){
+    try{
+      await fs.collection('op_companies').doc(cid).collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||'',phone:USER.phone||'',role:'classique',ts:FV()});
+      await fs.collection('op_users').doc(ME.uid).set({companyId:cid,companyName:cname},{merge:true});
+      try{ await fs.collection('op_users').doc(ME.uid).collection('invites').doc(cid).delete(); }catch(e){}
+      await applyCompany(cid,cname); toast('Bienvenue chez '+cname+' !');
+    }catch(e){ alert('Erreur : '+(e.message||e)); }
+  }
+  async function declineInvite(cid){ try{ await fs.collection('op_users').doc(ME.uid).collection('invites').doc(cid).delete(); }catch(e){} closeSheet(); toast('Invitation refusée.'); }
   function addMemberForm(){
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Ajouter un membre</h3>
       <p class="muted" style="margin-bottom:14px">Créez le compte d'un employé : prénom, nom, identifiant et mot de passe. Donnez-lui ces accès — il se connecte avec.</p>
