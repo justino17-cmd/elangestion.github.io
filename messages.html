@@ -194,8 +194,21 @@
   try{ if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{ if((localStorage.getItem('opmsg_theme')||'auto')==='auto') applyTheme(); }); } }catch(e){}
   applyTheme();
   function isPro(){ return MODE==='company' && HAS_COMPANY && (IS_OWNER || (USER&&USER.role==='entreprise')); }
-  function soundOn(){ return localStorage.getItem('opmsg_sound')!=='0'; }
-  function toggleSound(){ localStorage.setItem('opmsg_sound', soundOn()?'0':'1'); if(_curView==='prof') viewProfile(); }
+  // ---- Réglages (façon WhatsApp) : préférences booléennes/valeurs ----
+  function pref(k,d){ const v=localStorage.getItem('opmsg_'+k); return v==null?d:v; }
+  function setPref(k,v){ localStorage.setItem('opmsg_'+k,v); }
+  function prefOn(k,defOn){ return pref(k,defOn?'1':'0')!=='0'; }
+  function togglePref(k,defOn){ setPref(k, prefOn(k,defOn)?'0':'1'); }
+  function soundOn(){ return prefOn('sound',true); }
+  function toggleSound(){ togglePref('sound',true); if(_curView==='prof') viewProfile(); }
+  function readReceiptsOn(){ return prefOn('reads',true); }
+  function lastSeenOn(){ return prefOn('lastseen',true); }
+  function vibrateOn(){ return prefOn('vibrate',true); }
+  function enterSendOn(){ return prefOn('entersend',true); }
+  function notifOn(){ return prefOn('notif',true); }
+  function fontSize(){ return pref('fontsize','m'); }
+  function applyFontSize(){ const map={s:'13.5px',m:'15px',l:'17px',xl:'19px'}; let st=$('fsStyle'); if(!st){ st=document.createElement('style'); st.id='fsStyle'; document.head.appendChild(st); } st.textContent='.m{font-size:'+(map[fontSize()]||'15px')+'}'; }
+  applyFontSize();
   const ICON={
     chat:'<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>',
     users:'<path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1"/><circle cx="9" cy="8" r="3.2"/><path d="M22 19v-1a4 4 0 0 0-3-3.8"/><path d="M15.5 4.3a3.2 3.2 0 0 1 0 6.2"/>',
@@ -461,7 +474,7 @@
     }catch(e){ acompErr(e.message||'Erreur'); }
   }
   let _presTimer=null,_loginTs=0;
-  function startPresence(){ const upd=()=>{ try{ if(MODE==='perso') fs.collection('op_users').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); else fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
+  function startPresence(){ const upd=()=>{ if(!lastSeenOn()) return; try{ if(MODE==='perso') fs.collection('op_users').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); else fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
     upd(); if(_presTimer)clearInterval(_presTimer); _presTimer=setInterval(upd,45000);
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) upd(); }); }
   function isOnline(m){ return m && m.lastActive && (Date.now()-m.lastActive < 95000); }
@@ -777,7 +790,7 @@
         <button class="ic" onclick="openAttach()">${ic('plus',24)}</button>
         <button class="ic" onclick="toggleEmoji()" title="Emoji">${ic('smile',22)}</button>
         <button class="ic" id="micbtn" onclick="toggleRec()" title="Message vocal">${ic('mic',22)}</button>
-        <input id="msg" placeholder="Message…  (@ pour mentionner)" oninput="onMsgInput()" onkeydown="if(event.key==='Enter')sendMsg()">
+        <input id="msg" placeholder="Message…  (@ pour mentionner)" oninput="onMsgInput()" onkeydown="if(event.key==='Enter'&&enterSendOn())sendMsg()">
         <button class="send" onclick="sendMsg()">${ic('send',20)}</button>
       </div>`;
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
@@ -801,7 +814,7 @@
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
   function fmtListTime(ms){ try{ const d=new Date(ms), now=new Date(); if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return 'Hier'; return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}); }catch(e){ return ''; } }
   let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={},_chDocUnsub=null,_starFilter=false,_dmOther=null,_typingTs=0,_showArch=false;
-  function markRead(id){ setReadTs(id); try{ chDoc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
+  function markRead(id){ setReadTs(id); if(!readReceiptsOn()) return; try{ chDoc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
   // ---- Indicateur « en train d'écrire » + « en ligne / vu » ----
   function signalTyping(){ if(!_curCh) return; const now=Date.now(); if(now-_typingTs<2500) return; _typingTs=now;
     try{ chDoc(_curCh.id).set({typing:{[ME.uid]:now}},{merge:true}); }catch(e){} }
@@ -829,7 +842,7 @@
     _chMsgUnsub=chDoc(id).collection('messages').orderBy('ts','asc').limitToLast(300).onSnapshot(qs=>{
       _curMsgs=[];
       qs.forEach(doc=>{ const m=doc.data(); if(m.exp && m.exp<Date.now()){ if(m.uid===ME.uid){ try{ doc.ref.delete(); }catch(e){} } return; } const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
-      if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid){ if(!isMuted(id)) beep(); if(last.m.mentions && last.m.mentions.includes(ME.uid)) toast('💬 '+(last.m.name||'Quelqu\'un')+' vous a mentionné'); } }
+      if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid){ if(!isMuted(id)){ beep(); if(vibrateOn()&&navigator.vibrate) try{ navigator.vibrate(120); }catch(e){} } if(notifOn() && last.m.mentions && last.m.mentions.includes(ME.uid)) toast('💬 '+(last.m.name||'Quelqu\'un')+' vous a mentionné'); } }
       _lastMsgCount=_curMsgs.length;
       renderStream(); markRead(id);
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
@@ -860,7 +873,7 @@
       const starTag=_star.has(id)?'<span style="color:#f5c518;font-size:10px"> ★</span>':'';
       const ephTag=m.exp?'<span style="font-size:10px;opacity:.6" title="Éphémère"> ⏱</span>':'';
       html+=`<div class="m ${mine?'me':'them'}" data-mid="${id}" onclick="msgTap('${id}')" style="cursor:pointer">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${reacts}${m.fwd?'<span style="font-size:9px;opacity:.55">↪ transféré</span>':''}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}${ephTag}${starTag}</div></div>`;
-      if(id===lastMineId){ const mt=d.getTime(); const rd=Object.keys(_reads).filter(u=>u!==ME.uid && (_reads[u]||0)>=mt-2000).length; const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé'; html+=`<div style="align-self:flex-end;font-size:10.5px;color:var(--t3);margin:-3px 4px 2px">${rtxt}</div>`; }
+      if(id===lastMineId && readReceiptsOn()){ const mt=d.getTime(); const rd=Object.keys(_reads).filter(u=>u!==ME.uid && (_reads[u]||0)>=mt-2000).length; const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé'; html+=`<div style="align-self:flex-end;font-size:10.5px;color:var(--t3);margin:-3px 4px 2px">${rtxt}</div>`; }
     });
     s.innerHTML=html||(q?'<p class="muted center" style="margin:auto">Aucun résultat.</p>':'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>');
     if(!q) s.scrollTop=s.scrollHeight;
@@ -1058,18 +1071,60 @@
       <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
       <div class="field"><label>Statut (à propos)</label><input id="pf-status" value="${esc(USER.status||'')}" placeholder="Ex : Disponible 🙂 / En réunion" maxlength="80"></div>
       <div class="field"><label>Téléphone</label><input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78"></div>
-      <button class="btn block" onclick="saveName()">Enregistrer</button>
-      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Thème</div>
-      <div style="display:flex;gap:8px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}')">${t==='auto'?'Auto':t==='light'?'Jour':'Nuit'}</button>`).join('')}</div>
-      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Fond des conversations</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${[['Défaut',''],['Nuit','#0b1220'],['Ardoise','#12161d'],['Forêt','linear-gradient(160deg,#0e1c14,#0a1410)'],['Océan','linear-gradient(160deg,#0c1a26,#0a1119)'],['Prune','linear-gradient(160deg,#1a1020,#12060f)']].map(([lbl,v])=>`<button class="btn ${chatWall()===v?'':'ghost'} sm" onclick="setWall('${v}')">${lbl}</button>`).join('')}</div>
-      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Réglages</div>
-      <button class="btn ghost block" style="margin-bottom:10px" onclick="toggleSound()">Son des messages : <b>${soundOn()?'Activé':'Coupé'}</b></button>
-      <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
-      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Compte</div>
-      <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">Retour à TeamOP</a>
+      <button class="btn block" style="margin-bottom:18px" onclick="saveName()">Enregistrer</button>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Réglages</div>
+      ${setRow('🔒','Confidentialité','Vu, accusés de lecture, bloqués','sheetPrivacy()')}
+      ${setRow('💬','Discussions','Thème, fond d’écran, taille du texte','sheetChats()')}
+      ${setRow('🔔','Notifications','Son, vibration, aperçus','sheetNotif()')}
+      ${setRow('👤','Compte','Mot de passe, numéro, suppression','sheetAccount()')}
+      ${setRow('❓','Aide','Guide, support, à propos','sheetHelp()')}
+      ${!HAS_COMPANY?setRow('🏢','Créer une entreprise','Passer en compte pro (SIRET)','showAddCompany()'):''}
+      <div style="height:14px"></div>
+      <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
+      <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
+  const APP_VER='240';
+  function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
+  // ---- Feuilles de réglages (façon WhatsApp) ----
+  function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
+  function sheetPrivacy(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🔒 Confidentialité</h3>
+    ${toggleLine('Dernière connexion / en ligne',lastSeenOn(),"togglePref('lastseen',true);sheetPrivacy()")}
+    ${toggleLine('Accusés de lecture (Vu)',readReceiptsOn(),"togglePref('reads',true);sheetPrivacy()")}
+    <p class="muted" style="font-size:12px;margin:8px 2px 14px">Si vous désactivez ces options, vous n'envoyez plus l'info correspondante.</p>
+    <button class="btn ghost block" onclick="blockedList()">🚫 Contacts bloqués (${_block.size})</button>`); }
+  async function blockedList(){ openSheet('<p class="muted center">Chargement…</p>'); const arr=[..._block];
+    let rows=''; for(const uid of arr){ let nm=uid; try{ const d=await fs.collection('op_users').doc(uid).get(); if(d.exists) nm=d.data().name||d.data().handle||uid; }catch(e){}
+      rows+=`<div class="row"><div class="ava" style="${avatarStyle(nm)}">${ini(nm)}</div><div class="info"><div class="nm">${esc(nm)}</div></div><button class="btn ghost sm" onclick="unblock('${uid}')">Débloquer</button></div>`; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Contacts bloqués</h3>${rows||'<p class="muted">Aucun contact bloqué.</p>'}`); }
+  function unblock(uid){ _block.delete(uid); lsSave('opmsg_block',_block); blockedList(); toast('Débloqué'); }
+  function sheetChats(){ const theme=localStorage.getItem('opmsg_theme')||'auto'; const fs2=fontSize();
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">💬 Discussions</h3>
+    <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:2px 2px 8px">Thème</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}');sheetChats()">${t==='auto'?'Auto':t==='light'?'Jour':'Nuit'}</button>`).join('')}</div>
+    <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:2px 2px 8px">Taille du texte</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">${[['s','Petit'],['m','Normal'],['l','Grand'],['xl','Très grand']].map(([v,l])=>`<button class="btn ${fs2===v?'':'ghost'} sm" style="flex:1" onclick="setPref('fontsize','${v}');applyFontSize();sheetChats()">${l}</button>`).join('')}</div>
+    <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:2px 2px 8px">Fond des conversations</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">${[['Défaut',''],['Nuit','#0b1220'],['Ardoise','#12161d'],['Forêt','linear-gradient(160deg,#0e1c14,#0a1410)'],['Océan','linear-gradient(160deg,#0c1a26,#0a1119)'],['Prune','linear-gradient(160deg,#1a1020,#12060f)']].map(([lbl,v])=>`<button class="btn ${chatWall()===v?'':'ghost'} sm" onclick="setWall('${v}');sheetChats()">${lbl}</button>`).join('')}</div>
+    ${toggleLine('« Entrée » pour envoyer',enterSendOn(),"togglePref('entersend',true);sheetChats()")}`); }
+  function sheetNotif(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">🔔 Notifications</h3>
+    ${toggleLine('Son des messages',soundOn(),"togglePref('sound',true);sheetNotif()")}
+    ${toggleLine('Vibration',vibrateOn(),"togglePref('vibrate',true);sheetNotif()")}
+    ${toggleLine('Aperçus dans l’app',notifOn(),"togglePref('notif',true);sheetNotif()")}
+    <p class="muted" style="font-size:12px;margin-top:10px">Les notifications quand l'app est fermée arriveront avec la prochaine mise à jour (serveur).</p>`); }
+  function sheetAccount(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">👤 Compte</h3>
+    <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
+    <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();showView('prof')">Changer le numéro / le nom</button>
+    ${MODE==='perso'?`<p class="muted" style="font-size:12px;margin:4px 2px 12px">Identifiant : <b>@${esc(USER.handle||'')}</b></p>`:''}
+    <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="deleteAccount()">🗑️ Supprimer mon compte</button>`); }
+  async function deleteAccount(){ if(!confirm('Supprimer définitivement votre compte OP MESSAGES ? Cette action est irréversible.')) return;
+    try{ await fs.collection('op_users').doc(ME.uid).delete(); }catch(e){}
+    try{ await auth.currentUser.delete(); toast('Compte supprimé.'); }
+    catch(e){ if((e.code||'')==='auth/requires-recent-login') alert('Sécurité : déconnectez-vous, reconnectez-vous, puis réessayez de supprimer.'); else alert('Erreur : '+(e.message||e)); } }
+  function sheetHelp(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">❓ Aide</h3>
+    <a class="btn ghost block" style="margin-bottom:10px;text-decoration:none" href="mailto:support@teamop.fr">✉️ Contacter le support</a>
+    <a class="btn ghost block" style="margin-bottom:10px;text-decoration:none" href="index.html">🏠 Accueil TeamOP</a>
+    <p class="muted center" style="margin-top:12px;font-size:12px">OP MESSAGES · version ${APP_VER}<br>© TeamOP</p>`); }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim(); const status=($('pf-status')&&$('pf-status').value||'').trim();
     try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
