@@ -239,7 +239,8 @@
     smile:'<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>',
     forward:'<path d="M15 17l5-5-5-5"/><path d="M20 12H8a4 4 0 0 0-4 4v2"/>',
     pin:'<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"/>',
-    location:'<path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+    location:'<path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+    zap:'<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>'
   };
   function ic(n,sz){ return `<svg viewBox="0 0 24 24" width="${sz||22}" height="${sz||22}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:block">${ICON[n]||''}</svg>`; }
 
@@ -851,6 +852,7 @@
       <div class="composer">
         <button class="ic" onclick="openAttach()">${ic('plus',24)}</button>
         <button class="ic" onclick="toggleEmoji()" title="Emoji">${ic('smile',22)}</button>
+        <button class="ic" onclick="openQuickReplies()" title="Réponses rapides">${ic('zap',21)}</button>
         <button class="ic" id="micbtn" onclick="toggleRec()" title="Message vocal">${ic('mic',22)}</button>
         <input id="msg" placeholder="Message…  (@ pour mentionner)" oninput="onMsgInput()" onkeydown="if(event.key==='Enter'&&enterSendOn())sendMsg()">
         <button class="send" onclick="sendMsg()">${ic('send',20)}</button>
@@ -1161,7 +1163,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='244';
+  const APP_VER='245';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
@@ -1224,6 +1226,28 @@
     const a=myStatuses(); if(!a.includes(s)){ a.unshift(s); saveMyStatuses(a); }
     setStatus(s); }
   function delCustomStatus(s){ saveMyStatuses(myStatuses().filter(x=>x!==s)); if((USER.status||'')===s) setStatus(''); else if(_curView==='prof') viewProfile(); }
+  // ---- Réponses rapides ⚡ : propositions + réponses personnalisées mémorisées ----
+  const QR_PRESETS=['J\'arrive','Je te rappelle','Bien reçu 👍','OK','Merci !','Je suis en route 🚗','Je te réponds plus tard','On se voit où ?','C\'est fait ✅','Appelle-moi quand tu peux 📞'];
+  function myQR(){ try{ return JSON.parse(localStorage.getItem('opmsg_qr')||'[]'); }catch(e){ return []; } }
+  function saveMyQR(a){ try{ localStorage.setItem('opmsg_qr',JSON.stringify(a.slice(0,15))); }catch(e){} }
+  function openQuickReplies(){
+    const row=(s,custom)=>{ const sq=esc(s.replace(/'/g,'’'));
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <button class="btn ghost" style="flex:1;text-align:left;justify-content:flex-start" onclick="qrPick('${sq}')">${esc(s)}</button>
+        <button class="btn sm" style="padding:9px 12px" title="Envoyer directement" onclick="qrSend('${sq}')">${ic('send',15)}</button>
+        ${custom?`<button class="btn ghost sm" style="padding:9px 11px;color:#fca5a5" onclick="delQR('${sq}')">✕</button>`:''}
+      </div>`; };
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">⚡ Réponses rapides</h3>
+      <p class="muted" style="font-size:12px;margin-bottom:12px">Touchez pour insérer dans le message, ou ${ic('send',11)} pour envoyer directement.</p>
+      ${myQR().map(s=>row(s,true)).join('')}${QR_PRESETS.map(s=>row(s,false)).join('')}
+      <button class="btn ghost block" style="border-style:dashed" onclick="addQR()">＋ Créer une réponse rapide</button>`);
+  }
+  function qrPick(s){ closeSheet(); const i=$('msg'); if(!i) return; i.value=(i.value?i.value+' ':'')+s; i.focus(); }
+  async function qrSend(s){ closeSheet(); if(!_curCh) return;
+    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,text:s,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  function addQR(){ const t=prompt('Nouvelle réponse rapide :'); if(t==null) return; const s=t.trim().slice(0,120); if(!s) return;
+    const a=myQR(); if(!a.includes(s)){ a.unshift(s); saveMyQR(a); } openQuickReplies(); }
+  function delQR(s){ saveMyQR(myQR().filter(x=>x!==s&&x!==s.replace(/’/g,"'"))); openQuickReplies(); }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim(); const status=($('pf-status')&&$('pf-status').value||'').trim();
     try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
