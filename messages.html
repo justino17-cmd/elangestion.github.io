@@ -114,6 +114,7 @@
 
 <div class="chat" id="chat"></div>
 <input type="file" id="imgpick" accept="image/*" style="display:none">
+<input type="file" id="campick" accept="image/*" capture="environment" style="display:none">
 <input type="file" id="filepick" style="display:none">
 <input type="file" id="photopick" accept="image/*" style="display:none">
 <div class="sheet" id="sheet"><div class="sheet-c" id="sheet-c"></div></div>
@@ -240,7 +241,9 @@
     forward:'<path d="M15 17l5-5-5-5"/><path d="M20 12H8a4 4 0 0 0-4 4v2"/>',
     pin:'<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"/>',
     location:'<path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
-    zap:'<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>'
+    zap:'<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+    camera:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+    cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'
   };
   function ic(n,sz){ return `<svg viewBox="0 0 24 24" width="${sz||22}" height="${sz||22}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:block">${ICON[n]||''}</svg>`; }
 
@@ -936,6 +939,7 @@
       if(m.img) body+=`<img src="${m.img}" onclick="event.stopPropagation();window.open(this.src)">`;
       if(m.audio) body+=`<audio controls src="${m.audio}" style="max-width:215px;display:block;margin-top:6px;height:38px" onclick="event.stopPropagation()"></audio>`;
       if(m.poll) body+=pollHtml(id,m);
+      if(m.event) body+=eventHtml(id,m);
       if(m.sticker) body+=`<div style="font-size:54px;line-height:1.05">${esc(m.sticker)}</div>`;
       if(m.file){ body+=`<div class="filechip" onclick="event.stopPropagation();openFile('${id}')">${ic('file',16)} ${esc(m.file.name)}</div>`; }
       let reacts=''; if(m.reactions){ const ps=Object.entries(m.reactions).filter(([e,a])=>a&&a.length).map(([e,a])=>`<span style="background:rgba(127,127,127,.2);border-radius:100px;padding:1px 7px;font-size:12px">${e} ${a.length}</span>`); if(ps.length) reacts=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">${ps.join('')}</div>`; }
@@ -972,7 +976,7 @@
     names.forEach(n=>{ const tok='@'+esc(n); const cls=(meMention && n===(USER.name||''))?'':''; s=s.split(tok).join('<span style="background:rgba(91,143,214,.25);color:var(--op-l);border-radius:5px;padding:0 3px;font-weight:600">'+tok+'</span>'); });
     return s; }
   function fmtDur(s){ s=Math.round(s||0); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
-  function previewOf(m){ if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.poll) return '📊 Sondage'; if(m.sticker) return m.sticker; return ''; }
+  function previewOf(m){ if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.poll) return '📊 Sondage'; if(m.event) return '📅 '+((m.event&&m.event.titre)||'Événement'); if(m.sticker) return m.sticker; return ''; }
   function setReply(id){ closeSheet(); const it=_curMsgs.find(x=>x.id===id); if(!it) return; _replyTo={name:it.m.name||'',text:previewOf(it.m)};
     const bar=$('replybar'); if(bar){ bar.innerHTML=`<div style="flex:1;border-left:3px solid var(--op);padding-left:8px;font-size:13px;min-width:0"><b>${esc(_replyTo.name)}</b><br><span class="muted" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(_replyTo.text)}</span></div><button class="ic" style="border:1px solid var(--brd2);border-radius:10px;width:36px;height:36px;background:transparent;color:var(--t2)" onclick="cancelReply()">✕</button>`; bar.style.display='flex'; } const i=$('msg'); if(i) i.focus(); }
   function cancelReply(){ _replyTo=null; const bar=$('replybar'); if(bar){ bar.style.display='none'; bar.innerHTML=''; } }
@@ -1095,12 +1099,53 @@
     try{ await chDoc(id).update({members:firebase.firestore.FieldValue.arrayUnion(...sel)}); closeSheet(); }catch(e){ const el=$('atgerr'); if(el) el.innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
   async function leaveGroup(id){ if(!confirm('Quitter ce groupe ?')) return;
     try{ await chDoc(id).update({members:firebase.firestore.FieldValue.arrayRemove(ME.uid)}); closeSheet(); closeChat(); showView('disc'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
-  function openAttach(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Joindre</h3>
-    <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();$('imgpick').click()">${ic('image',18)}Photo (galerie ou appareil)</button>
-    <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();$('filepick').click()">${ic('file',18)}Fichier / PDF</button>
-    <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();sendLocation()">${ic('location',18)}Ma position</button>
-    <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();openStickers()">${ic('smile',18)}Sticker</button>
-    <button class="btn ghost block" onclick="closeSheet();pollForm()">${ic('poll',18)}Créer un sondage</button>`); }
+  // Menu « Joindre » en grille (façon WhatsApp)
+  function attTile(label,color,icon,fn){ return `<div onclick="${fn}" style="text-align:center;cursor:pointer">
+      <div style="width:62px;height:62px;border-radius:50%;background:var(--card2);border:1px solid var(--brd);display:flex;align-items:center;justify-content:center;margin:0 auto 7px;color:${color}">${icon}</div>
+      <div style="font-size:12px;color:var(--t2);font-weight:600">${label}</div></div>`; }
+  function openAttach(){ openSheet(`
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 6px;padding:6px 0 2px">
+      ${attTile('Photos','#6ea8f7',ic('image',26),"closeSheet();$('imgpick').click()")}
+      ${attTile('Caméra','#e8ecf4',ic('camera',26),"closeSheet();$('campick').click()")}
+      ${attTile('Localisation','#34c77b',ic('location',26),"closeSheet();sendLocation()")}
+      ${attTile('Contact','#b8c2d4',ic('user',26),"closeSheet();attachContact()")}
+      ${attTile('Document','#5b8fd6',ic('file',26),"closeSheet();$('filepick').click()")}
+      ${attTile('Sondage','#f0b432',ic('poll',26),"closeSheet();pollForm()")}
+      ${attTile('Événement','#ef5350',ic('cal',26),"closeSheet();eventForm()")}
+      ${attTile('Sticker','#f5c518',ic('smile',26),"closeSheet();openStickers()")}
+    </div>`); }
+  // Envoyer une fiche contact dans la conversation courante
+  async function attachContact(){ if(!_curCh) return; openSheet('<p class="muted center">Chargement…</p>');
+    let rows=''; try{ const list=await listMembers();
+      list.forEach(m=>{ if(m.uid===ME.uid) return; rows+=`<div class="row" onclick="sendContactCard('${esc(m.uid)}')"><div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div><div class="info"><div class="nm">${esc(m.name||'')}</div>${m.phone?`<div class="ds">${esc(m.phone)}</div>`:''}</div><div class="chev">›</div></div>`; }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Envoyer un contact</h3>${rows||'<p class="muted">Aucun contact.</p>'}`); }
+  async function sendContactCard(uid){ closeSheet(); let d={}; try{ const s=await fs.collection('op_users').doc(uid).get(); if(s.exists) d=s.data(); }catch(e){}
+    if(!d.name){ const m=_members.find(x=>x.uid===uid); d.name=(m&&m.name)||'Contact'; }
+    const txt='👤 Contact : '+(d.name||'')+(d.handle?'\n@'+d.handle:'')+(d.phone?'\n📞 '+d.phone:'');
+    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,text:txt,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  // Événement (avec réponse Je viens / Je ne viens pas)
+  function eventForm(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">📅 Nouvel événement</h3><div id="everr"></div>
+    <div class="field"><label>Titre</label><input id="ev-titre" placeholder="Ex : Réunion chantier / Anniversaire"></div>
+    <div class="field"><label>Date & heure</label><input id="ev-when" type="datetime-local"></div>
+    <div class="field"><label>Lieu (facultatif)</label><input id="ev-lieu" placeholder="Ex : Dépôt, 12 rue des Fleurs"></div>
+    <button class="btn block" onclick="createEvent()">Envoyer l'événement</button>`); }
+  async function createEvent(){ const titre=($('ev-titre').value||'').trim(); const when=($('ev-when').value||'').trim(); const lieu=($('ev-lieu').value||'').trim();
+    if(!titre||!when){ $('everr').innerHTML='<div class="err">Titre et date requis.</div>'; return; }
+    const at=new Date(when).getTime();
+    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,event:{titre,at,lieu},ts:FV()}); closeSheet(); }catch(e){ $('everr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
+  function eventHtml(id,m){ const ev=m.event||{}; const v=_pollVotes[id];
+    if(v===undefined){ loadPollVotes(id); return `<div style="font-weight:700">📅 ${esc(ev.titre||'')}</div><div class="muted">Chargement…</div>`; }
+    const oui=Object.values(v).filter(x=>x===1).length, non=Object.values(v).filter(x=>x===0).length; const my=v[ME.uid];
+    const d=ev.at?new Date(ev.at):null;
+    return `<div style="border:1px solid var(--brd2);border-radius:12px;padding:10px 12px;margin-top:2px;background:rgba(239,83,80,.08)">
+      <div style="font-weight:700;display:flex;align-items:center;gap:6px">📅 ${esc(ev.titre||'')}</div>
+      ${d?`<div style="font-size:12.5px;margin-top:4px">🕐 ${esc(d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}))} à ${esc(d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))}</div>`:''}
+      ${ev.lieu?`<div style="font-size:12.5px;margin-top:2px">📍 ${esc(ev.lieu)}</div>`:''}
+      <div style="display:flex;gap:6px;margin-top:9px">
+        <span onclick="event.stopPropagation();rsvp('${id}',1)" style="flex:1;text-align:center;padding:7px 4px;border-radius:9px;cursor:pointer;font-size:12px;font-weight:700;border:1px solid ${my===1?'#22c55e':'var(--brd2)'};background:${my===1?'rgba(34,197,94,.18)':'transparent'};color:${my===1?'#5fcf80':'inherit'}">✅ Je viens${oui?' · '+oui:''}</span>
+        <span onclick="event.stopPropagation();rsvp('${id}',0)" style="flex:1;text-align:center;padding:7px 4px;border-radius:9px;cursor:pointer;font-size:12px;font-weight:700;border:1px solid ${my===0?'#f87171':'var(--brd2)'};background:${my===0?'rgba(248,113,113,.15)':'transparent'};color:${my===0?'#fca5a5':'inherit'}">❌ Pas dispo${non?' · '+non:''}</span>
+      </div></div>`; }
+  async function rsvp(id,opt){ try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt}); _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=opt; renderStream(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   const STICKERS='😀😂🥳😍😎🤩🥰😘🤗🤔😴🥱😭😡🤯🤒🤠🤖👍👎👏🙌🙏💪✌️🤝👊❤️🔥⭐️🎉🎂🍀☀️🌈⚡️💯✅❌🚀⏰📍🎯💡🍕☕️🍺🎁🐶🐱'.match(/./gu)||[];
   function openStickers(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Stickers</h3><div style="display:flex;flex-wrap:wrap;gap:6px;font-size:34px;line-height:1.4">${STICKERS.map(s=>`<span style="cursor:pointer" onclick="sendSticker('${s}')">${s}</span>`).join('')}</div>`); }
   async function sendSticker(s){ if(!_curCh) return; closeSheet(); try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,sticker:s,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
@@ -1108,11 +1153,13 @@
     navigator.geolocation.getCurrentPosition(async p=>{ const la=p.coords.latitude.toFixed(5), lo=p.coords.longitude.toFixed(5); const url='https://maps.google.com/?q='+la+','+lo;
       try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,text:'📍 Ma position : '+url,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); }
     }, err=>{ toast('Position refusée ou indisponible.'); }, {enableHighAccuracy:true,timeout:8000}); }
-  $('imgpick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f||!_curCh) return; const r=new FileReader();
+  function handleImgPick(e){ const f=e.target.files[0]; if(!f||!_curCh) return; const r=new FileReader();
     r.onload=()=>{ const img=new Image(); img.onload=async()=>{ let w=img.width,h=img.height; const mx=1000; if(w>mx||h>mx){ if(w>h){h=h*mx/w;w=mx;}else{w=w*mx/h;h=mx;} }
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
       try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,img:cv.toDataURL('image/jpeg',0.7),ts:FV()}); }catch(err){ alert('Erreur photo : '+(err.message||err)); }
-    }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; });
+    }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; }
+  $('imgpick').addEventListener('change',handleImgPick);
+  $('campick').addEventListener('change',handleImgPick);
   $('filepick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f||!_curCh) return;
     if(f.size>800000){ alert('Fichier trop volumineux (max 800 Ko).'); e.target.value=''; return; }
     const r=new FileReader(); r.onload=async()=>{ try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,file:{name:f.name,type:f.type||'',data:r.result},ts:FV()}); }catch(err){ alert('Erreur fichier : '+(err.message||err)); } }; r.readAsDataURL(f); e.target.value=''; });
@@ -1163,7 +1210,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='245';
+  const APP_VER='247';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
