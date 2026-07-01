@@ -173,6 +173,17 @@
   function toggleBlock(uid){ if(_block.has(uid))_block.delete(uid); else _block.add(uid); lsSave('opmsg_block',_block); }
   function isArch(id){ return _arch.has(ck(id)); }
   function toggleArch(id){ const k=ck(id); if(_arch.has(k))_arch.delete(k); else _arch.add(k); lsSave('opmsg_arch',_arch); }
+  // Favoris / verrouillage / non-lu manuel / effacement / suppression locale (façon WhatsApp)
+  let _fav=lsSet('opmsg_fav'), _lockset=lsSet('opmsg_lock'), _munread=lsSet('opmsg_munread');
+  let _discFilter='all', _lpUntil=0;
+  function isFav(id){ return _fav.has(ck(id)); }
+  function toggleFav(id){ const k=ck(id); if(_fav.has(k))_fav.delete(k); else _fav.add(k); lsSave('opmsg_fav',_fav); }
+  function isLocked(id){ return _lockset.has(ck(id)); }
+  function lockPin(){ return localStorage.getItem('opmsg_lockpin')||''; }
+  function clearKey(id){ return 'opmsg_clear_'+MODE+'_'+id; }
+  function getClearedAt(id){ return +(localStorage.getItem(clearKey(id))||0); }
+  function delKey(id){ return 'opmsg_del_'+MODE+'_'+id; }
+  function getDelAt(id){ return +(localStorage.getItem(delKey(id))||0); }
   // Messages éphémères (par conversation) : 0 = off, sinon durée en ms
   function ephKey(id){ return 'opmsg_eph_'+MODE+'_'+id; }
   function getEph(id){ return +(localStorage.getItem(ephKey(id))||0); }
@@ -492,10 +503,18 @@
         gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data());
       }
       let entries=Object.entries(map);
-      // masque les DM des contacts bloqués
-      entries=entries.filter(([id,c])=>{ if(c.type!=='dm') return true; const o=(c.members||[]).find(u=>u!==ME.uid); return !isBlocked(o); });
-      const archived=entries.filter(([id])=>isArch(id));
-      const active=entries.filter(([id])=>!isArch(id));
+      // masque les DM des contacts bloqués + les discussions supprimées (jusqu'à nouvelle activité)
+      entries=entries.filter(([id,c])=>{ if(c.type==='dm'){ const o=(c.members||[]).find(u=>u!==ME.uid); if(isBlocked(o)) return false; }
+        const del=getDelAt(id); if(del && (c.lastMsgAt||0)<=del) return false; return true; });
+      const unreadOf=(id,c)=>{ let u=0; if(c.lastMsgFrom!==ME.uid){ u=Math.max(0,(c.msgCount||0)-getReadCount(id)); if(!c.msgCount && c.lastMsgAt && c.lastMsgAt>getReadTs(id)) u=1; } if(!u&&_munread.has(ck(id))) u=1; return u; };
+      const nbUnread=entries.filter(([id,c])=>unreadOf(id,c)>0).length;
+      // filtres façon WhatsApp
+      let filtered=entries;
+      if(_discFilter==='unread') filtered=entries.filter(([id,c])=>unreadOf(id,c)>0);
+      else if(_discFilter==='fav') filtered=entries.filter(([id])=>isFav(id));
+      else if(_discFilter==='groups') filtered=entries.filter(([id,c])=>c.type==='group'||c.type==='general');
+      const archived=filtered.filter(([id])=>isArch(id));
+      const active=filtered.filter(([id])=>!isArch(id));
       const sortFn=(a,b)=>{ const pa=isPinned(a[0])?1:0, pb=isPinned(b[0])?1:0; if(pa!==pb) return pb-pa; const ta=a[1].lastMsgAt||(a[1].type==='general'?1:0), tb=b[1].lastMsgAt||(b[1].type==='general'?1:0); return (tb||0)-(ta||0); };
       active.sort(sortFn); archived.sort(sortFn);
       const rowHtml=([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
@@ -503,17 +522,85 @@
         if(g){ nm='Général'; avInner=ic('chat',20); avBg='background:rgba(91,143,214,.2);color:var(--op-l)'; }
         else if(dm){ const o=(c.members||[]).find(u=>u!==ME.uid); nm=nmap[o]||'Contact'; avInner=ini(nm); avBg=avatarStyle(nm); }
         let sub;
-        if(c.lastMsg){ const who=c.lastMsgFrom===ME.uid?'Vous : ':((g||!dm)&&c.lastMsgName?esc(c.lastMsgName)+' : ':''); sub=who+esc((c.lastMsg||'').slice(0,42)); }
+        if(isLocked(id)) sub='🔒 Discussion verrouillée';
+        else if(c.lastMsg && (c.lastMsgAt||0)>getClearedAt(id)){ const who=c.lastMsgFrom===ME.uid?'Vous : ':((g||!dm)&&c.lastMsgName?esc(c.lastMsgName)+' : ':''); sub=who+esc((c.lastMsg||'').slice(0,42)); }
         else sub = g?'Toute l\'entreprise':(dm?'Message privé':n+' membre'+(n>1?'s':''));
         const t=c.lastMsgAt?fmtListTime(c.lastMsgAt):'';
-        let unread=0; if(c.lastMsgFrom!==ME.uid){ unread=Math.max(0,(c.msgCount||0)-getReadCount(id)); if(!c.msgCount && c.lastMsgAt && c.lastMsgAt>getReadTs(id)) unread=1; }
+        const unread=unreadOf(id,c);
         const badge = unread? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:11px;background:#22c55e;color:#04110a;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${unread>99?'99+':unread}</span>` : '';
-        return `<div class="row" onclick="openChannel('${id}','${esc((nm||'').replace(/'/g,''))}')"><div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isMuted(id)?' 🔇':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>`; };
-      let html=active.map(rowHtml).join('');
+        const nmSafe=esc((nm||'').replace(/'/g,''));
+        return `<div class="row" data-cid="${id}" data-nm="${nmSafe}" onclick="rowOpen('${id}','${nmSafe}')"><div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>`; };
+      const chips=[['all','Toutes'],['unread','Non lues'+(nbUnread?' '+nbUnread:'')],['fav','Favoris'],['groups','Groupes']]
+        .map(([k,l])=>`<button onclick="setDiscFilter('${k}')" style="padding:7px 14px;border-radius:100px;border:1px solid ${_discFilter===k?'var(--op)':'var(--brd2)'};background:${_discFilter===k?'rgba(91,143,214,.22)':'transparent'};color:${_discFilter===k?'var(--op-l)':'var(--t2)'};font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap">${l}</button>`).join('');
+      let html=`<div style="display:flex;gap:7px;overflow:auto;padding:0 2px 12px;-webkit-overflow-scrolling:touch">${chips}</div>`;
+      html+=active.map(rowHtml).join('')||`<p class="muted center">${_discFilter==='all'?'Aucune discussion.':'Rien dans ce filtre.'}</p>`;
       if(archived.length){ html+=`<div onclick="_showArch=!_showArch;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🗄️ Archivées (${archived.length}) <span style="margin-left:auto;color:var(--t3)">${_showArch?'▲':'▼'}</span></div>`; if(_showArch) html+=archived.map(rowHtml).join(''); }
-      $('disc-list').innerHTML=html||'<p class="muted center">Aucune discussion.</p>';
+      $('disc-list').innerHTML=html;
+      bindRowPress();
     }catch(e){ $('disc-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
+  function setDiscFilter(k){ _discFilter=k; viewDisc(); }
+  // Appui long (mobile) ou clic droit (ordinateur) sur une conversation = menu d'options
+  function bindRowPress(){ document.querySelectorAll('#disc-list .row[data-cid]').forEach(el=>{ let t=null;
+    el.addEventListener('touchstart',()=>{ t=setTimeout(()=>{ t=null; _lpUntil=Date.now()+900; if(vibrateOn()&&navigator.vibrate) try{navigator.vibrate(35);}catch(e){} rowMenu(el.dataset.cid,el.dataset.nm); },500); },{passive:true});
+    ['touchend','touchmove','touchcancel'].forEach(ev=>el.addEventListener(ev,()=>{ if(t){clearTimeout(t);t=null;} },{passive:true}));
+    el.addEventListener('contextmenu',e=>{ e.preventDefault(); rowMenu(el.dataset.cid,el.dataset.nm); });
+  }); }
+  function rowOpen(id,nm){ if(Date.now()<_lpUntil) return;
+    if(isLocked(id)){ const p=prompt('Discussion verrouillée — code :'); if(p==null) return; if(p!==lockPin()){ toast('Code incorrect.'); return; } }
+    _munread.delete(ck(id)); lsSave('opmsg_munread',_munread);
+    openChannel(id,nm);
+  }
+  // ---- Menu d'une conversation (façon WhatsApp) ----
+  async function rowMenu(id,nm){
+    openSheet('<p class="muted center">Chargement…</p>');
+    let c={}; try{ const d=await chanCol().doc(id).get(); if(d.exists) c=d.data(); }catch(e){}
+    const dm=c.type==='dm', grp=c.type==='group', gen=c.type==='general';
+    const otherUid=dm?(c.members||[]).find(u=>u!==ME.uid):null;
+    const unread=(c.lastMsgFrom!==ME.uid && ((c.msgCount||0)>getReadCount(id) || _munread.has(ck(id))));
+    const b=(label,fn,style)=>`<button class="btn ghost block" style="margin-bottom:8px;text-align:left;${style||''}" onclick="${fn}">${label}</button>`;
+    let h=`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${esc(nm||'Discussion')}</h3>`;
+    h+=b(unread?'💬 Marquer comme lu':'💬 Marquer comme non lu',`rowMarkRead('${id}',${unread?'true':'false'})`);
+    h+=b(isPinned(id)?'📌 Détacher':'📌 Épingler',`rowPin('${id}')`);
+    h+=b(isMuted(id)?'🔔 Réactiver le son':'🔕 Mode silencieux',`rowMute('${id}')`);
+    h+=b(isFav(id)?'⭐ Retirer des favoris':'☆ Ajouter aux favoris',`rowFav('${id}')`);
+    h+=b(isLocked(id)?'🔓 Déverrouiller la discussion':'🔒 Verrouiller la discussion',`rowLock('${id}')`);
+    h+=b(isArch(id)?'📤 Désarchiver':'🗄️ Archiver',`rowArch('${id}')`);
+    if(grp||gen) h+=b('ℹ️ Infos du groupe',`closeSheet();openGroupInfo('${id}')`);
+    if(dm&&MODE==='perso'&&otherUid) h+=b(isBlocked(otherUid)?'✅ Débloquer le contact':'🚫 Bloquer le contact',`rowBlock('${otherUid}','${esc((nm||'').replace(/'/g,''))}')`);
+    h+=b('🧹 Effacer la discussion',`rowClear('${id}')`);
+    if(grp) h+=b('🚪 Quitter le groupe',`closeSheet();leaveGroup('${id}')`,'color:#fca5a5');
+    if(!gen) h+=`<button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="rowDelete('${id}')">🗑️ Supprimer la discussion</button>`;
+    openSheet(h);
+  }
+  async function rowMarkRead(id,wasUnread){
+    if(wasUnread){ _munread.delete(ck(id)); lsSave('opmsg_munread',_munread); setReadTs(id);
+      try{ const d=await chanCol().doc(id).get(); if(d.exists) setReadCount(id,d.data().msgCount||0); }catch(e){}
+      toast('Marquée comme lue'); }
+    else { _munread.add(ck(id)); lsSave('opmsg_munread',_munread); toast('Marquée comme non lue'); }
+    closeSheet(); viewDisc(); }
+  function rowPin(id){ togglePin(id); closeSheet(); viewDisc(); }
+  function rowMute(id){ toggleMute(id); closeSheet(); viewDisc(); }
+  function rowFav(id){ toggleFav(id); closeSheet(); viewDisc(); }
+  function rowArch(id){ toggleArch(id); closeSheet(); viewDisc(); toast(isArch(id)?'Archivée':'Désarchivée'); }
+  function rowBlock(uid,nm){ toggleBlock(uid); closeSheet(); viewDisc(); toast(isBlocked(uid)?nm+' bloqué':nm+' débloqué'); }
+  function rowLock(id){
+    if(isLocked(id)){ const p=prompt('Code pour déverrouiller :'); if(p==null) return; if(p!==lockPin()){ toast('Code incorrect.'); return; }
+      _lockset.delete(ck(id)); lsSave('opmsg_lock',_lockset); closeSheet(); viewDisc(); toast('Discussion déverrouillée'); return; }
+    let pin=lockPin();
+    if(!pin){ const p1=prompt('Créez un code de verrouillage (4 à 8 chiffres) :'); if(p1==null) return; if(!/^\d{4,8}$/.test(p1)){ toast('Code : 4 à 8 chiffres.'); return; }
+      localStorage.setItem('opmsg_lockpin',p1); pin=p1; }
+    _lockset.add(ck(id)); lsSave('opmsg_lock',_lockset); closeSheet(); viewDisc(); toast('🔒 Discussion verrouillée');
+  }
+  function rowClear(id){ if(!confirm('Effacer tous les messages de cette discussion (pour vous) ?')) return;
+    try{ localStorage.setItem(clearKey(id),''+Date.now()); }catch(e){}
+    _munread.delete(ck(id)); lsSave('opmsg_munread',_munread); setReadTs(id);
+    chanCol().doc(id).get().then(d=>{ if(d.exists) setReadCount(id,d.data().msgCount||0); }).catch(()=>{});
+    closeSheet(); viewDisc(); toast('Discussion effacée'); }
+  function rowDelete(id){ if(!confirm('Supprimer cette discussion ? (elle disparaît de votre liste ; elle reviendra si quelqu\'un vous récrit)')) return;
+    try{ localStorage.setItem(clearKey(id),''+Date.now()); localStorage.setItem(delKey(id),''+Date.now()); }catch(e){}
+    _pin.delete(ck(id)); lsSave('opmsg_pin',_pin); _fav.delete(ck(id)); lsSave('opmsg_fav',_fav); _munread.delete(ck(id)); lsSave('opmsg_munread',_munread);
+    closeSheet(); viewDisc(); toast('Discussion supprimée'); }
   async function newGroup(){
     openSheet('<p class="muted center">Chargement…</p>');
     let chks='';
@@ -746,6 +833,7 @@
   // ========== CHAT (par canal) ==========
   let _chMsgUnsub=null, _curCh=null;
   function openChannel(id,name){ _curCh={id,name}; _replyTo=null; _starFilter=false;
+    _munread.delete(ck(id)); lsSave('opmsg_munread',_munread);
     $('chat').innerHTML=`
       <div class="topbar">
         <button class="bk" onclick="closeChat()">${ic('back',26)}</button>
@@ -796,10 +884,14 @@
   function listenChDoc(id){ if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;}
     // pour un DM, prépare le statut « en ligne / vu »
     _dmOther=null; if((''+id).indexOf('dm_')===0){ const parts=(''+id).slice(3).split('_'); const o=parts.find(u=>u!==ME.uid); if(o){ fs.collection('op_users').doc(o).get().then(d=>{ if(d.exists){ _dmOther=d.data(); updateChSub(); } }).catch(()=>{}); } }
-    _chDocUnsub=chDoc(id).onSnapshot(d=>{ const data=d.exists?d.data():{}; const typ=data.typing||{}; _chTyping=Object.keys(typ).some(u=>u!==ME.uid && (Date.now()-(typ[u]||0)<6000)); if(_curCh&&_curCh.id===id) setReadCount(id, data.msgCount||0); updateChSub(); }, err=>{});
+    _chDocUnsub=chDoc(id).onSnapshot(d=>{ const data=d.exists?d.data():{}; const typ=data.typing||{};
+      _chTyping=false; _chTypingAudio=false;
+      Object.keys(typ).forEach(u=>{ if(u===ME.uid) return; const v=typ[u]||0; if(Date.now()-Math.abs(v)<6000){ if(v<0)_chTypingAudio=true; else _chTyping=true; } });
+      if(_curCh&&_curCh.id===id) setReadCount(id, data.msgCount||0); updateChSub(); }, err=>{});
   }
-  let _chTyping=false;
+  let _chTyping=false,_chTypingAudio=false;
   function updateChSub(){ const el=$('ch-sub'); if(!el||!_curCh) return;
+    if(_chTypingAudio){ el.textContent='enregistre un message vocal…'; el.style.color='var(--op-l)'; return; }
     if(_chTyping){ el.textContent='en train d\'écrire…'; el.style.color='var(--op-l)'; return; }
     el.style.color='';
     if(_dmOther){ const on=_dmOther.lastActive && (Date.now()-_dmOther.lastActive<95000);
@@ -826,6 +918,7 @@
     const s=$('stream'); if(!s) return;
     const q=(($('chsearch')||{}).value||'').trim().toLowerCase();
     let msgs = q? _curMsgs.filter(x=>(x.m.text||'').toLowerCase().includes(q)) : _curMsgs;
+    const clr=_curCh?getClearedAt(_curCh.id):0; if(clr) msgs=msgs.filter(x=>x.d.getTime()>clr);
     if(_block.size) msgs=msgs.filter(x=>!isBlocked(x.m.uid));
     if(_starFilter) msgs=msgs.filter(x=>_star.has(x.id));
     let html='',lastDay='';
@@ -876,7 +969,8 @@
   function highlightMentions(escText,m){ let s=escText; const names=(m&&m.mentionNames)||[]; const meMention=m&&m.mentions&&m.mentions.includes(ME.uid);
     names.forEach(n=>{ const tok='@'+esc(n); const cls=(meMention && n===(USER.name||''))?'':''; s=s.split(tok).join('<span style="background:rgba(91,143,214,.25);color:var(--op-l);border-radius:5px;padding:0 3px;font-weight:600">'+tok+'</span>'); });
     return s; }
-  function previewOf(m){ return m.text||(m.img?'[photo]':m.audio?'[message vocal]':m.file?'[fichier]':m.poll?'[sondage]':m.sticker?m.sticker:''); }
+  function fmtDur(s){ s=Math.round(s||0); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+  function previewOf(m){ if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.poll) return '📊 Sondage'; if(m.sticker) return m.sticker; return ''; }
   function setReply(id){ closeSheet(); const it=_curMsgs.find(x=>x.id===id); if(!it) return; _replyTo={name:it.m.name||'',text:previewOf(it.m)};
     const bar=$('replybar'); if(bar){ bar.innerHTML=`<div style="flex:1;border-left:3px solid var(--op);padding-left:8px;font-size:13px;min-width:0"><b>${esc(_replyTo.name)}</b><br><span class="muted" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(_replyTo.text)}</span></div><button class="ic" style="border:1px solid var(--brd2);border-radius:10px;width:36px;height:36px;background:transparent;color:var(--t2)" onclick="cancelReply()">✕</button>`; bar.style.display='flex'; } const i=$('msg'); if(i) i.focus(); }
   function cancelReply(){ _replyTo=null; const bar=$('replybar'); if(bar){ bar.style.display='none'; bar.innerHTML=''; } }
@@ -919,18 +1013,22 @@
     try{ await addMsgTo(chId,data); closeSheet(); toast('Transféré à '+name); }catch(e){ alert('Erreur : '+(e.message||e)); } }
 
   // ---- Message vocal ----
-  let _rec=null,_recChunks=[],_recStream=null;
+  let _rec=null,_recChunks=[],_recStream=null,_recStart=0,_recTypingT=null;
+  function signalRecording(){ if(!_curCh) return; try{ chDoc(_curCh.id).set({typing:{[ME.uid]:-Date.now()}},{merge:true}); }catch(e){} }
   async function toggleRec(){ const btn=$('micbtn'); if(!_curCh) return;
     if(_rec){ _rec.stop(); return; }
     try{ _recStream=await navigator.mediaDevices.getUserMedia({audio:true}); }catch(e){ alert('Micro non autorisé.'); return; }
     _recChunks=[]; try{ _rec=new MediaRecorder(_recStream); }catch(e){ alert('Enregistrement non supporté sur ce navigateur.'); _recStream.getTracks().forEach(t=>t.stop()); return; }
     _rec.ondataavailable=e=>{ if(e.data&&e.data.size) _recChunks.push(e.data); };
     _rec.onstop=async()=>{ const blob=new Blob(_recChunks,{type:(_rec&&_rec.mimeType)||'audio/webm'}); try{_recStream.getTracks().forEach(t=>t.stop());}catch(e){} _rec=null;
+      const dur=Math.max(1,Math.round((Date.now()-_recStart)/1000));
+      if(_recTypingT){ clearInterval(_recTypingT); _recTypingT=null; } clearTyping();
       if(btn){ btn.innerHTML=ic('mic',22); btn.style.color=''; }
       if(blob.size>800000){ alert('Message vocal trop long (max ~50 s).'); return; }
-      const r=new FileReader(); r.onload=async()=>{ try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,audio:r.result,ts:FV()}); }catch(err){ alert('Erreur : '+(err.message||err)); } }; r.readAsDataURL(blob);
+      const r=new FileReader(); r.onload=async()=>{ try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,audio:r.result,dur,ts:FV()}); }catch(err){ alert('Erreur : '+(err.message||err)); } }; r.readAsDataURL(blob);
     };
-    _rec.start(); if(btn){ btn.innerHTML='<span style="width:14px;height:14px;background:#f87171;border-radius:3px;display:block"></span>'; } }
+    _rec.start(); _recStart=Date.now(); signalRecording(); if(_recTypingT)clearInterval(_recTypingT); _recTypingT=setInterval(signalRecording,3000);
+    if(btn){ btn.innerHTML='<span style="width:14px;height:14px;background:#f87171;border-radius:3px;display:block"></span>'; } }
 
   // ---- Sondages ----
   let _pollVotes={};
@@ -1059,7 +1157,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='242';
+  const APP_VER='243';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
