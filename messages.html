@@ -64,7 +64,7 @@
   .nav button{flex:1;background:transparent;border:none;border-radius:18px;color:var(--t3);font-family:inherit;font-size:9.5px;font-weight:600;padding:4px 2px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;transition:color .2s;min-width:0;white-space:nowrap;position:relative;z-index:1}
   .nav button.on{color:var(--t1)}
   /* Bulle coulissante sous l'onglet actif (liquid glass iOS) */
-  #nav-blob{position:absolute;top:4px;bottom:4px;border-radius:18px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--brd);z-index:0;pointer-events:none;transition:left .35s cubic-bezier(.3,1.35,.45,1),width .35s cubic-bezier(.3,1.35,.45,1)}
+  #nav-blob{position:absolute;top:4px;bottom:4px;left:0;width:70px;border-radius:18px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--brd);z-index:0;pointer-events:none;transition:transform .38s cubic-bezier(.3,1.35,.45,1);will-change:transform;transform:translateX(5px)}
   .nav button .ni{display:flex;align-items:center;justify-content:center;height:19px;position:relative}
   .nav button .ni svg{width:17px;height:17px}
   .nav button .ni img{width:19px;height:19px;border-radius:50%;object-fit:cover}
@@ -517,13 +517,15 @@
   // Fait glisser la bulle sous l'onglet actif (animation « liquid glass »)
   function moveNavBlob(instant){ const blob=$('nav-blob'); const b=$('nv-'+_curView); if(!blob||!b) return;
     if(instant){ blob.style.transition='none'; }
-    blob.style.left=b.offsetLeft+'px'; blob.style.width=b.offsetWidth+'px';
+    blob.style.width=b.offsetWidth+'px';
+    blob.style.transform='translateX('+b.offsetLeft+'px)';
+    blob.dataset.x=b.offsetLeft;
     if(instant){ void blob.offsetWidth; blob.style.transition=''; } }
   window.addEventListener('resize',()=>moveNavBlob(true));
   window.addEventListener('load',()=>moveNavBlob(true));
   // iOS : recale la bulle si elle a dérivé (polices/safe-area chargées après coup)
-  setInterval(()=>{ const blob=$('nav-blob'); const b=_curView&&$('nv-'+_curView); if(!blob||!b||!blob.style.left) return;
-    if(Math.abs(parseFloat(blob.style.left)-b.offsetLeft)>3 || Math.abs(parseFloat(blob.style.width)-b.offsetWidth)>3) moveNavBlob(true); },1200);
+  setInterval(()=>{ const blob=$('nav-blob'); const b=_curView&&$('nv-'+_curView); if(!blob||!b) return;
+    if(Math.abs((+blob.dataset.x||0)-b.offsetLeft)>3 || Math.abs((parseFloat(blob.style.width)||0)-b.offsetWidth)>3) moveNavBlob(true); },1200);
 
   // ---- DISCUSSIONS (canaux/groupes) ----
   let _discSearch='';
@@ -586,15 +588,21 @@
             ${actBtn('#64748b','⋯','Options',`rowMenu('${id}','${nmSafe}')`)}
             ${actBtn('var(--op)','🗄️',isArch(id)?'Désarchiver':'Archiver',`rowArch('${id}')`)}
           </div>
-          <div class="row sw-row" data-nm="${nmSafe}" onclick="rowOpen('${id}','${nmSafe}')" style="position:relative;background:var(--bg);margin:0"><div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>
+          <div class="row sw-row" data-nm="${nmSafe}" onclick="${_selMode?`selToggle('${id}')`:`rowOpen('${id}','${nmSafe}')`}" style="position:relative;background:var(--bg);margin:0">${_selMode?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${_selSet.has(id)?'var(--op)':'var(--brd2)'};background:${_selSet.has(id)?'var(--op)':'transparent'};color:#fff">${_selSet.has(id)?'✓':''}</div>`:''}<div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>
         </div>`; };
       const chips=[['all','Toutes'],['unread','Non lues'+(nbUnread?' '+nbUnread:'')],['fav','Favoris'],['groups','Groupes']]
         .map(([k,l])=>`<button onclick="setDiscFilter('${k}')" style="padding:7px 14px;border-radius:100px;border:1px solid ${_discFilter===k?'var(--op)':'var(--brd2)'};background:${_discFilter===k?'rgba(91,143,214,.22)':'transparent'};color:${_discFilter===k?'var(--op-l)':'var(--t2)'};font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap">${l}</button>`).join('');
       let html=`<div style="display:flex;gap:7px;overflow:auto;padding:0 2px 12px;-webkit-overflow-scrolling:touch">${chips}</div>`;
       html+=active.map(rowHtml).join('')||`<p class="muted center">${_discFilter==='all'?'Aucune discussion.':'Rien dans ce filtre.'}</p>`;
       if(archived.length){ html+=`<div onclick="_showArch=!_showArch;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🗄️ Archivées (${archived.length}) <span style="margin-left:auto;color:var(--t3)">${_showArch?'▲':'▼'}</span></div>`; if(_showArch) html+=archived.map(rowHtml).join(''); }
+      if(_selMode){ html=`<div style="display:flex;align-items:center;gap:8px;margin:0 2px 12px"><b style="flex:1">${_selSet.size} sélectionnée(s)</b><button class="btn ghost sm" onclick="exitSelMode()">✕ Annuler</button></div>`+html
+        +`<div style="position:fixed;left:16px;right:16px;bottom:calc(62px + env(safe-area-inset-bottom));z-index:15;display:flex;gap:8px;background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:9px;max-width:440px;margin:0 auto;box-shadow:0 10px 26px rgba(0,0,0,.35)">
+          <button class="btn sm" style="flex:1" onclick="selRead()">💬 Lire</button>
+          <button class="btn ghost sm" style="flex:1" onclick="selArch()">🗄️ Archiver</button>
+          <button class="btn ghost sm" style="flex:1;color:#fca5a5" onclick="selDel()">🗑️ Suppr.</button>
+        </div><div style="height:56px"></div>`; }
       $('disc-list').innerHTML=html;
-      bindRowPress();
+      if(!_selMode) bindRowPress();
     }catch(e){ $('disc-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
   function setDiscFilter(k){ _discFilter=k; viewDisc(); }
@@ -801,7 +809,8 @@
       const col=callsCol();
       const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
       const map={}; a.forEach(d=>map[d.id]={id:d.id,...d.data()}); b.forEach(d=>map[d.id]={id:d.id,...d.data()});
-      const list=Object.values(map).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
+      const _cc=+(localStorage.getItem(callClearKey())||0);
+      const list=Object.values(map).filter(c=>tms(c.ts)>_cc).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
       let html=''; list.forEach(c=>{ const out=c.from===ME.uid; const grp=(c.members||[]).length>1;
         const who = grp ? ('Groupe ('+((c.memberNames||[]).length)+')') : (out? ((c.memberNames&&c.memberNames[0])||'Contact') : c.fromName);
         const missed = c.status==='missed'||c.status==='declined'; const d=c.ts&&c.ts.toDate?c.ts.toDate():null;
@@ -1310,12 +1319,45 @@
   function closeViewer(){ $('viewer').classList.remove('open'); $('viewer-frame').src='about:blank'; }
 
   // ========== MENU / MEMBRES ==========
-  function openMenu(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</h3>
+  function openMenu(){
+    // Actions contextuelles selon l'onglet (façon WhatsApp)
+    let ctx='';
+    if(_curView==='disc') ctx=`<button class="btn ghost block" style="margin-bottom:10px;text-align:left" onclick="closeSheet();startSelMode()">☑️ Sélectionner discussions</button>
+      <button class="btn ghost block" style="margin-bottom:10px;text-align:left" onclick="closeSheet();markAllRead()">💬 Tout lire</button>
+      <div style="height:1px;background:var(--brd);margin:4px 0 12px"></div>`;
+    else if(_curView==='cont') ctx=(MODE==='perso'?`<button class="btn ghost block" style="margin-bottom:10px;text-align:left" onclick="closeSheet();addContactForm()">➕ Ajouter un contact</button><div style="height:1px;background:var(--brd);margin:4px 0 12px"></div>`
+      :(IS_OWNER?`<button class="btn ghost block" style="margin-bottom:10px;text-align:left" onclick="closeSheet();addPeopleMenu()">➕ Ajouter quelqu'un</button><div style="height:1px;background:var(--brd);margin:4px 0 12px"></div>`:''));
+    else if(_curView==='appel') ctx=`<button class="btn ghost block" style="margin-bottom:10px;text-align:left" onclick="closeSheet();clearCallHistory()">🧹 Effacer l'historique des appels</button>
+      <div style="height:1px;background:var(--brd);margin:4px 0 12px"></div>`;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</h3>
     <p class="muted" style="margin-bottom:14px">${MODE==='perso'?'Compte perso · @'+esc(USER.handle||''):(IS_OWNER?'Vous êtes administrateur.':'Membre')}</p>
+    ${ctx}
     <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();showView('prof')">Mon profil & réglages</button>
     ${!HAS_COMPANY?'<button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();showAddCompany()">🏢 Créer une entreprise</button>':''}
     <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">🏠 Retour à TeamOP</a>
     <button class="btn ghost block" onclick="logout()">Déconnexion</button>`); }
+  // ---- Tout lire ----
+  async function markAllRead(){ try{ const ch=chanCol(); const snaps=[];
+    if(MODE==='perso'){ const qs=await ch.where('members','array-contains',ME.uid).get(); qs.forEach(d=>snaps.push(d)); }
+    else { const [g,q]=await Promise.all([ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get()]); g.forEach(d=>snaps.push(d)); q.forEach(d=>snaps.push(d)); }
+    snaps.forEach(d=>{ const c=d.data(); setReadTs(d.id); setReadCount(d.id,c.msgCount||0); _munread.delete(ck(d.id)); });
+    lsSave('opmsg_munread',_munread); toast('✅ Tout marqué comme lu'); if(_curView==='disc') viewDisc();
+  }catch(e){ toast('Erreur : '+(e.message||e)); } }
+  // ---- Mode sélection de discussions ----
+  let _selMode=false; const _selSet=new Set();
+  function startSelMode(){ _selMode=true; _selSet.clear(); if(_curView!=='disc') showView('disc'); else viewDisc(); }
+  function exitSelMode(){ _selMode=false; _selSet.clear(); viewDisc(); }
+  function selToggle(id){ if(_selSet.has(id))_selSet.delete(id); else _selSet.add(id); viewDisc(); }
+  async function selRead(){ for(const id of _selSet){ try{ const d=await chanCol().doc(id).get(); if(d.exists) setReadCount(id,d.data().msgCount||0); }catch(e){} setReadTs(id); _munread.delete(ck(id)); }
+    lsSave('opmsg_munread',_munread); toast('Marquées comme lues'); exitSelMode(); }
+  function selArch(){ _selSet.forEach(id=>{ if(!isArch(id)) toggleArch(id); }); toast(_selSet.size+' archivée(s)'); exitSelMode(); }
+  function selDel(){ if(!confirm('Supprimer '+_selSet.size+' discussion(s) de votre liste ?')) return;
+    _selSet.forEach(id=>{ try{ localStorage.setItem(clearKey(id),''+Date.now()); localStorage.setItem(delKey(id),''+Date.now()); }catch(e){} _pin.delete(ck(id)); _fav.delete(ck(id)); _munread.delete(ck(id)); });
+    lsSave('opmsg_pin',_pin); lsSave('opmsg_fav',_fav); lsSave('opmsg_munread',_munread); toast('Supprimées'); exitSelMode(); }
+  // ---- Effacer l'historique des appels (sur cet appareil) ----
+  function callClearKey(){ return 'opmsg_callclear_'+MODE; }
+  function clearCallHistory(){ if(!confirm('Effacer tout l\'historique des appels ?')) return;
+    try{ localStorage.setItem(callClearKey(),''+Date.now()); }catch(e){} toast('Historique effacé'); if(_curView==='appel') viewAppel(); }
   function viewProfile(){ const photo=USER.photo, theme=localStorage.getItem('opmsg_theme')||'auto';
     $('view').innerHTML=`<div class="view-h"><h2>Profil</h2></div>
       <div style="max-width:460px;margin:0 auto">
@@ -1351,7 +1393,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='253';
+  const APP_VER='254';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
