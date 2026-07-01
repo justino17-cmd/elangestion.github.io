@@ -122,6 +122,7 @@
 <div class="wrap" id="root"><div class="center-page"><div class="panel center"><p class="muted">Chargement…</p></div></div></div>
 
 <div class="chat" id="chat"></div>
+<div class="chat" id="page"></div>
 <input type="file" id="imgpick" accept="image/*" style="display:none">
 <input type="file" id="campick" accept="image/*" capture="environment" style="display:none">
 <input type="file" id="filepick" style="display:none">
@@ -768,9 +769,18 @@
     const up=isPro()? _myMeetings.filter(m=>m.scheduledAt && m.scheduledAt>Date.now()-3600000).sort((a,b)=>a.scheduledAt-b.scheduledAt) : [];
     let meetHtml=''; if(up.length){ meetHtml=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:0 2px 8px">Réunions à venir</div>`+
       up.map(m=>`<div class="meet" onclick="joinRoom('${m.id}','${esc((m.name||'').replace(/'/g,''))}')"><div class="ava" style="width:44px;height:44px;background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div><div class="info" style="flex:1"><div class="nm">${esc(m.name||'')}</div><div class="ds">${esc(fmtWhen(m.scheduledAt))}</div></div><div class="cd" data-t="${m.scheduledAt}">${esc(fmtCountdown(m.scheduledAt-Date.now()))}</div></div>`).join('')+`<div style="height:14px"></div>`; }
+    // Actions rapides rondes (façon WhatsApp) : Appeler · Planifier · contacts fréquents
+    const qa=(icn,lbl,fn,color)=>`<div onclick="${fn}" style="text-align:center;cursor:pointer;min-width:62px">
+      <div style="width:54px;height:54px;border-radius:50%;background:var(--card2);border:1px solid var(--brd);display:flex;align-items:center;justify-content:center;margin:0 auto 5px;color:${color||'var(--t1)'}">${icn}</div>
+      <div style="font-size:11px;color:var(--t2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lbl}</div></div>`;
+    let quick=qa(ic('phone',22),'Appeler','newCall()','var(--op-l)');
+    if(isPro()) quick+=qa(ic('cal',22),'Planifier','openReunions()','#5fcf80');
+    const favs=_members.filter(m=>m.uid!==ME.uid).slice(0,4);
+    favs.forEach(m=>{ const nm=esc((m.name||'').replace(/'/g,'')); quick+=qa(`<span style="font-weight:800;font-size:19px">${ini(m.name)}</span>`,esc((m.name||'').split(' ')[0]),`startCall(['${m.uid}'],['${nm}'],'audio')`); });
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2></div>
+      <div style="display:flex;gap:10px;overflow:auto;padding:2px 2px 16px;-webkit-overflow-scrolling:touch">${quick}</div>
       ${meetHtml}
-      <button class="btn block" style="margin-bottom:16px" onclick="newCall()">${ic('phone',18)}Nouvel appel</button>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:0 2px 8px;font-weight:700">Récents</div>
       <div id="call-list"><p class="muted center">Chargement…</p></div>`;
     if(_meetTicker)clearInterval(_meetTicker); if(up.length) _meetTicker=setInterval(tickCountdowns,30000);
     try{
@@ -781,10 +791,27 @@
       let html=''; list.forEach(c=>{ const out=c.from===ME.uid; const grp=(c.members||[]).length>1;
         const who = grp ? ('Groupe ('+((c.memberNames||[]).length)+')') : (out? ((c.memberNames&&c.memberNames[0])||'Contact') : c.fromName);
         const missed = c.status==='missed'||c.status==='declined'; const d=c.ts&&c.ts.toDate?c.ts.toDate():null;
-        html+=`<div class="row" onclick="recall('${c.id}')"><div class="ava" style="${avatarStyle(who)}">${grp?ic('users',20):ini(who)}</div><div class="info"><div class="nm" style="${missed?'color:#f87171':''}">${esc(who)}</div><div class="ds">${out?'Sortant':'Entrant'}${missed?' · manqué':''} · ${c.type==='audio'?'audio':'vidéo'}${d?' · '+d.toLocaleDateString('fr-FR')+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</div></div>${ic('phone',18)}</div>`; });
-      $('call-list').innerHTML=html||'<p class="muted center">Aucun appel. Touchez « Nouvel appel ».</p>';
+        const arrow = out?'<span style="color:var(--t3)">↗</span>':(missed?'<span style="color:#f87171">↙</span>':'<span style="color:#22c55e">↙</span>');
+        html+=`<div class="row" onclick="recall('${c.id}')"><div class="ava" style="${avatarStyle(who)}">${grp?ic('users',20):ini(who)}</div>
+          <div class="info"><div class="nm" style="${missed?'color:#f87171':''}">${esc(who)}</div>
+          <div class="ds">${arrow} ${out?'Sortant':(missed?'Manqué':'Entrant')} · ${c.type==='audio'?'audio':'vidéo'}</div></div>
+          <div style="display:flex;align-items:center;gap:10px"><span class="when" style="font-size:11px;color:var(--t3)">${d?fmtListTime(d.getTime()):''}</span>
+          <button class="ic" style="width:32px;height:32px;border-radius:50%;border:1px solid var(--brd2);background:transparent;color:var(--t2);font-size:14px;display:inline-flex;align-items:center;justify-content:center" onclick="event.stopPropagation();callInfo('${c.id}')">ⓘ</button></div></div>`; });
+      $('call-list').innerHTML=html||'<p class="muted center">Aucun appel. Touchez « Appeler ».</p>';
     }catch(e){ $('call-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
+  async function callInfo(id){ openSheet('<p class="muted center">Chargement…</p>');
+    let c={}; try{ const d=await callsCol().doc(id).get(); if(d.exists) c=d.data(); }catch(e){}
+    const out=c.from===ME.uid; const who=(c.members||[]).length>1?('Groupe · '+((c.memberNames||[]).join(', ')||'')):(out?((c.memberNames||[])[0]||'Contact'):(c.fromName||'Contact'));
+    const d=c.ts&&c.ts.toDate?c.ts.toDate():null; const missed=c.status==='missed'||c.status==='declined';
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:4px">${esc(who)}</h3>
+      <p class="muted" style="margin-bottom:14px">${out?'Appel sortant':(missed?'Appel manqué':'Appel entrant')} · ${c.type==='audio'?'audio':'vidéo'}${d?' · '+d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</p>
+      <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();recall('${id}')">${ic('phone',18)}Rappeler</button>
+      <button class="btn ghost block" onclick="closeSheet();recallVideo('${id}')">${ic('video',18)}Rappeler en vidéo</button>`); }
+  async function recallVideo(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
+    const ids = out ? c.members : [c.from, ...(c.members||[]).filter(u=>u!==ME.uid)];
+    const names = out ? c.memberNames : [c.fromName, ...((c.memberNames||[]))];
+    startCall(ids, names, 'video'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function newCall(){
     openSheet('<p class="muted center">Chargement…</p>'); let chks='';
     try{ const list=await listMembers();
@@ -870,17 +897,55 @@
   function checkMeetingAlerts(){ const now=Date.now(); _myMeetings.forEach(m=>{ const t=m.scheduledAt; if(!t) return; const diff=t-now;
     if(diff>0 && diff<=5*60000 && !_alerted[m.id]){ _alerted[m.id]=1; beep(); toast('⏰ Réunion « '+(m.name||'')+' » dans 5 minutes'); } }); }
 
-  // ---- RÉUNIONS (séparé des appels) : salles visio + partage d'écran ----
+  // ---- RÉUNIONS : page dédiée plein écran (pro) ----
+  function openPage(html){ const p=$('page'); p.innerHTML=html; const was=p.classList.contains('open'); p.classList.add('open'); if(!was) pushBack(); }
+  function closePage(){ $('page').classList.remove('open'); $('page').innerHTML=''; }
   async function openReunions(){
     if(!isPro()){ toast('Les réunions sont réservées aux comptes entreprise.'); return; }
-    openSheet('<p class="muted center">Chargement…</p>'); let rooms='';
+    openPage(`<div class="topbar">
+        <button class="bk" onclick="closePage()">${ic('back',26)}</button>
+        <div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div>
+        <div class="ti"><b>Réunions</b><span>${esc(COMP.name)}</span></div>
+        <button class="ic" onclick="newRoom()" title="Nouvelle réunion">${ic('plus',22)}</button>
+      </div>
+      <div class="view" style="padding:14px 14px 30px" id="reun-body"><p class="muted center">Chargement…</p></div>`);
+    let sched=[], perm=[];
     try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').orderBy('createdAt','desc').get();
-      qs.forEach(d=>{ const r=d.data(); rooms+=`<div class="row" onclick="closeSheet();joinRoom('${d.id}','${esc((r.name||'').replace(/'/g,''))}')"><div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div><div class="info"><div class="nm">${esc(r.name||'')}</div><div class="ds">Rejoindre · partage d'écran</div></div><div class="chev">›</div></div>`; }); }catch(e){}
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">Réunions</h3>
-      <p class="muted" style="margin-bottom:12px">Salles de visioconférence avec partage d'écran.</p>
-      <button class="btn block" style="margin-bottom:14px" onclick="newRoom()">${ic('video',18)}Nouvelle salle</button>
-      ${rooms||'<p class="muted">Aucune salle pour l\'instant.</p>'}`);
+      qs.forEach(d=>{ const r={id:d.id,...d.data()}; if(r.scheduledAt) sched.push(r); else perm.push(r); }); }catch(e){}
+    sched.sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    const now=Date.now();
+    const upcoming=sched.filter(r=>r.scheduledAt>now-3600000), past=sched.filter(r=>r.scheduledAt<=now-3600000);
+    const canDel=r=>(r.createdBy===ME.uid||IS_OWNER);
+    const roomRow=(r,extra)=>`<div class="row" style="margin-bottom:8px">
+        <div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div>
+        <div class="info" onclick="closePage();joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')"><div class="nm">${esc(r.name||'')}</div><div class="ds">${extra}</div></div>
+        <button class="btn sm" onclick="closePage();joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre</button>
+        ${canDel(r)?`<button class="btn ghost sm" style="color:#fca5a5;padding:8px 10px" onclick="delRoom('${r.id}')">🗑</button>`:''}
+      </div>`;
+    let h=`
+      <div style="border:1px solid var(--brd);border-radius:16px;padding:18px 16px;margin-bottom:18px;background:linear-gradient(135deg,rgba(34,177,76,.12),rgba(91,143,214,.10))">
+        <div style="font-size:17px;font-weight:800;margin-bottom:4px">Visioconférence d'équipe</div>
+        <p class="muted" style="font-size:12.5px;margin-bottom:14px">HD · partage d'écran · sans limite de durée</p>
+        <div style="display:flex;gap:8px">
+          <button class="btn" style="flex:1;background:#22b14c" onclick="instantMeeting()">${ic('video',17)}Démarrer maintenant</button>
+          <button class="btn ghost" style="flex:1" onclick="newRoom()">${ic('cal',17)}Planifier</button>
+        </div>
+      </div>`;
+    if(upcoming.length){ h+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 8px;font-weight:700">À venir (${upcoming.length})</div>`;
+      h+=upcoming.map(r=>{ const mine=(r.members||[]).length; return roomRow(r, esc(fmtWhen(r.scheduledAt))+' · '+esc(fmtCountdown(r.scheduledAt-now))+(mine?' · '+mine+' invité'+(mine>1?'s':''):'')); }).join(''); h+='<div style="height:10px"></div>'; }
+    if(perm.length){ h+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 8px;font-weight:700">Salles permanentes (${perm.length})</div>`;
+      h+=perm.map(r=>roomRow(r,'Salle ouverte · partage d\'écran')).join(''); h+='<div style="height:10px"></div>'; }
+    if(past.length){ h+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 8px;font-weight:700">Passées</div>`;
+      h+=past.slice(0,8).map(r=>roomRow(r, esc(fmtWhen(r.scheduledAt)))).join(''); }
+    if(!upcoming.length&&!perm.length&&!past.length) h+=`<div style="text-align:center;padding:30px 10px;color:var(--t3)"><div style="font-size:38px;margin-bottom:8px">🎥</div>Aucune réunion pour l'instant.<br>Démarrez-en une ou planifiez-la.</div>`;
+    const b=$('reun-body'); if(b) b.innerHTML=h;
   }
+  async function instantMeeting(){
+    const d=new Date(); const name='Réunion du '+d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    try{ const ref=await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,members:[ME.uid],createdAt:FV()});
+      closePage(); joinRoom(ref.id,name); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  async function delRoom(id){ if(!confirm('Supprimer cette réunion ?')) return;
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).delete(); toast('Réunion supprimée'); openReunions(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function newRoom(){ openSheet('<p class="muted center">Chargement…</p>'); let chks='';
     try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
       qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
@@ -894,7 +959,7 @@
     const whenV=($('nr-when')||{}).value||''; const scheduledAt = whenV ? new Date(whenV).getTime() : null;
     const sel=[...document.querySelectorAll('#nr-members .chk.sel')].map(x=>x.dataset.uid); const members=Array.from(new Set([ME.uid,...sel]));
     const data={name,createdBy:ME.uid,members,createdAt:FV()}; if(scheduledAt) data.scheduledAt=scheduledAt;
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add(data); openReunions(); if(scheduledAt) toast('Réunion planifiée — les invités seront prévenus.'); }catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add(data); closeSheet(); openReunions(); if(scheduledAt) toast('Réunion planifiée — les invités seront prévenus.'); }catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
 
   // ========== CHAT (par canal) ==========
   let _chMsgUnsub=null, _curCh=null;
@@ -1241,10 +1306,10 @@
     $('view').innerHTML=`<div class="view-h"><h2>Profil</h2></div>
       <div style="max-width:460px;margin:0 auto">
       <div style="text-align:center;margin-bottom:14px">
-        ${photo?`<img src="${photo}" style="width:90px;height:90px;border-radius:26px;object-fit:cover">`:`<div class="ava" style="width:90px;height:90px;border-radius:26px;font-size:34px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}
-        <div style="font-size:17px;font-weight:600;margin-top:10px">${esc(USER.name||'')}</div>
+        ${(USER.status||'').trim()?`<div style="display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--brd);border-radius:100px;padding:6px 14px;font-size:13px;font-weight:600;margin-bottom:-12px;position:relative;z-index:2"><span style="width:8px;height:8px;border-radius:50%;background:#22c55e"></span>${esc(USER.status)}</div>`:''}
+        <div>${photo?`<img src="${photo}" style="width:104px;height:104px;border-radius:50%;object-fit:cover;border:3px solid var(--brd)">`:`<div class="ava" style="width:104px;height:104px;border-radius:50%;font-size:38px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}</div>
+        <div style="font-size:21px;font-weight:800;margin-top:8px">${esc(USER.name||'')}</div>
         <div class="muted">${MODE==='perso'?'@'+esc(USER.handle||''):esc(COMP.name)+(IS_OWNER?' · admin':'')}</div>
-        ${(USER.status||'').trim()?`<div style="margin-top:5px;font-style:italic;color:var(--t2);font-size:13px">« ${esc(USER.status)} »</div>`:''}
         <div style="margin-top:8px"><span style="font-size:11px;${MODE==='perso'?'background:rgba(148,163,184,.2);color:var(--t2)':(isPro()?'background:rgba(34,177,76,.18);color:#5fcf80':'background:rgba(91,143,214,.2);color:var(--op-l)')};padding:4px 11px;border-radius:100px;font-weight:600">${MODE==='perso'?'Compte perso · sans réunions':(isPro()?'Compte entreprise · accès complet':'Utilisateur · sans réunions')}</span></div>
         ${MODE==='perso'?`<p class="muted" style="font-size:12px;margin-top:8px">Partagez votre identifiant <b>@${esc(USER.handle||'')}</b> pour qu'on vous ajoute.</p>`:''}
         <button class="btn ghost sm" style="margin-top:12px" onclick="$('photopick').click()">Changer la photo</button>
@@ -1272,7 +1337,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='250';
+  const APP_VER='251';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
@@ -1468,12 +1533,13 @@
 
   // ===== Bouton « retour » du téléphone : ferme l'écran ouvert au lieu de quitter l'app =====
   function pushBack(){ try{ history.pushState({op:1},''); }catch(e){} }
-  function anyOverlayOpen(){ return ['viewer','jitsi','ring','sheet','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
+  function anyOverlayOpen(){ return ['viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
   function closeTopOverlay(){
     if($('viewer')&&$('viewer').classList.contains('open')){ closeViewer(); return true; }
     if($('jitsi')&&$('jitsi').classList.contains('open')){ closeJitsi(); return true; }
     if($('ring')&&$('ring').classList.contains('open')){ declineCall(); return true; }
     if($('sheet')&&$('sheet').classList.contains('open')){ closeSheet(); return true; }
+    if($('page')&&$('page').classList.contains('open')){ closePage(); return true; }
     if($('chat')&&$('chat').classList.contains('open')){ closeChat(); return true; }
     return false;
   }
