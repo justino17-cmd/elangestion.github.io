@@ -163,6 +163,20 @@
   function readKey(id){ return 'opmsg_read_'+MODE+'_'+id; }
   function getReadTs(id){ return +(localStorage.getItem(readKey(id))||0); }
   function setReadTs(id){ try{ localStorage.setItem(readKey(id),''+Date.now()); }catch(e){} }
+  // Compteur exact de non-lus (par canal)
+  function rcKey(id){ return 'opmsg_rc_'+MODE+'_'+id; }
+  function getReadCount(id){ return +(localStorage.getItem(rcKey(id))||0); }
+  function setReadCount(id,n){ try{ localStorage.setItem(rcKey(id),''+n); }catch(e){} }
+  // Bloquer / archiver
+  let _block=lsSet('opmsg_block'), _arch=lsSet('opmsg_arch');
+  function isBlocked(uid){ return _block.has(uid); }
+  function toggleBlock(uid){ if(_block.has(uid))_block.delete(uid); else _block.add(uid); lsSave('opmsg_block',_block); }
+  function isArch(id){ return _arch.has(ck(id)); }
+  function toggleArch(id){ const k=ck(id); if(_arch.has(k))_arch.delete(k); else _arch.add(k); lsSave('opmsg_arch',_arch); }
+  // Fond d'écran de conversation
+  function chatWall(){ return localStorage.getItem('opmsg_wall')||''; }
+  function setWall(v){ if(v) localStorage.setItem('opmsg_wall',v); else localStorage.removeItem('opmsg_wall'); applyWall(); if(_curView==='prof') viewProfile(); }
+  function applyWall(){ const s=$('stream'); if(s) s.style.background=chatWall()||''; }
   const FV=()=>firebase.firestore.FieldValue.serverTimestamp();
   function loginEmail(v){ v=(v||'').trim().toLowerCase(); if(!v) return ''; return v.includes('@')?v:v.replace(/[^a-z0-9._-]/g,'')+'@opmsg.local'; }
   function siretValid(s){ return /^\d{14}$/.test((s||'').replace(/\s/g,'')); }
@@ -485,11 +499,14 @@
         mem.forEach(d=>nmap[d.id]=d.data().name||'');
         gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data());
       }
-      const list=Object.entries(map).sort((a,b)=>{
-        const pa=isPinned(a[0])?1:0, pb=isPinned(b[0])?1:0; if(pa!==pb) return pb-pa;
-        const ta=a[1].lastMsgAt||(a[1].type==='general'?1:0), tb=b[1].lastMsgAt||(b[1].type==='general'?1:0); return (tb||0)-(ta||0);
-      });
-      let html=''; list.forEach(([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
+      let entries=Object.entries(map);
+      // masque les DM des contacts bloqués
+      entries=entries.filter(([id,c])=>{ if(c.type!=='dm') return true; const o=(c.members||[]).find(u=>u!==ME.uid); return !isBlocked(o); });
+      const archived=entries.filter(([id])=>isArch(id));
+      const active=entries.filter(([id])=>!isArch(id));
+      const sortFn=(a,b)=>{ const pa=isPinned(a[0])?1:0, pb=isPinned(b[0])?1:0; if(pa!==pb) return pb-pa; const ta=a[1].lastMsgAt||(a[1].type==='general'?1:0), tb=b[1].lastMsgAt||(b[1].type==='general'?1:0); return (tb||0)-(ta||0); };
+      active.sort(sortFn); archived.sort(sortFn);
+      const rowHtml=([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
         let nm=c.name||'', avInner=ini(nm), avBg=avatarStyle(nm);
         if(g){ nm='Général'; avInner=ic('chat',20); avBg='background:rgba(91,143,214,.2);color:var(--op-l)'; }
         else if(dm){ const o=(c.members||[]).find(u=>u!==ME.uid); nm=nmap[o]||'Contact'; avInner=ini(nm); avBg=avatarStyle(nm); }
@@ -497,8 +514,11 @@
         if(c.lastMsg){ const who=c.lastMsgFrom===ME.uid?'Vous : ':((g||!dm)&&c.lastMsgName?esc(c.lastMsgName)+' : ':''); sub=who+esc((c.lastMsg||'').slice(0,42)); }
         else sub = g?'Toute l\'entreprise':(dm?'Message privé':n+' membre'+(n>1?'s':''));
         const t=c.lastMsgAt?fmtListTime(c.lastMsgAt):'';
-        const unread=c.lastMsgAt && c.lastMsgFrom!==ME.uid && c.lastMsgAt>getReadTs(id);
-        html+=`<div class="row" onclick="openChannel('${id}','${esc((nm||'').replace(/'/g,''))}')"><div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isMuted(id)?' 🔇':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${unread?'<span style="width:10px;height:10px;border-radius:50%;background:#22c55e"></span>':''}</div></div>`; });
+        let unread=0; if(c.lastMsgFrom!==ME.uid){ unread=Math.max(0,(c.msgCount||0)-getReadCount(id)); if(!c.msgCount && c.lastMsgAt && c.lastMsgAt>getReadTs(id)) unread=1; }
+        const badge = unread? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:11px;background:#22c55e;color:#04110a;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${unread>99?'99+':unread}</span>` : '';
+        return `<div class="row" onclick="openChannel('${id}','${esc((nm||'').replace(/'/g,''))}')"><div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isMuted(id)?' 🔇':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>`; };
+      let html=active.map(rowHtml).join('');
+      if(archived.length){ html+=`<div onclick="_showArch=!_showArch;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🗄️ Archivées (${archived.length}) <span style="margin-left:auto;color:var(--t3)">${_showArch?'▲':'▼'}</span></div>`; if(_showArch) html+=archived.map(rowHtml).join(''); }
       $('disc-list').innerHTML=html||'<p class="muted center">Aucune discussion.</p>';
     }catch(e){ $('disc-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
@@ -539,15 +559,35 @@
     }catch(e){ $('cont-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
   }
   function COMP_owner(){ return COMP&&COMP.ownerUid; }
-  async function contactActions(uid,name){ openSheet('<p class="muted center">Chargement…</p>'); let phone='';
-    try{ if(MODE==='perso'){ const d=await fs.collection('op_users').doc(uid).get(); if(d.exists) phone=d.data().phone||''; } else { const d=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).get(); if(d.exists) phone=d.data().phone||''; } }catch(e){}
-    const nm=esc((name||'').replace(/'/g,''));
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:${phone?'4':'14'}px">${esc(name)}</h3>
-      ${phone?`<p class="muted" style="margin-bottom:14px">${esc(phone)}</p>`:''}
+  async function contactActions(uid,name){ openSheet('<p class="muted center">Chargement…</p>'); let phone='',status='',handle='';
+    try{ const d=await fs.collection('op_users').doc(uid).get(); if(d.exists){ phone=d.data().phone||''; status=d.data().status||''; handle=d.data().handle||''; } }catch(e){}
+    if(!phone && MODE!=='perso'){ try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).get(); if(d.exists) phone=d.data().phone||''; }catch(e){} }
+    const nm=esc((name||'').replace(/'/g,'')); const blk=isBlocked(uid);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:4px">${esc(name)}</h3>
+      ${status?`<p style="margin:2px 0 10px;font-style:italic;color:var(--t2)">« ${esc(status)} »</p>`:''}
+      ${phone?`<p class="muted" style="margin-bottom:4px">${esc(phone)}</p>`:''}
+      ${handle?`<p class="muted" style="margin-bottom:14px">@${esc(handle)}</p>`:'<div style="height:8px"></div>'}
       <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();openDM('${uid}','${nm}')">${ic('chat',18)}Envoyer un message</button>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'audio')">${ic('phone',18)}Appel audio (in-app)</button>
-      <button class="btn ghost block" ${phone?'style="margin-bottom:10px"':''} onclick="closeSheet();startCall(['${uid}'],['${nm}'],'video')">${ic('video',18)}Appel vidéo (in-app)</button>
-      ${phone?`<a class="btn ghost block" style="text-decoration:none" href="tel:${esc(phone.replace(/[^0-9+]/g,''))}">${ic('phone',18)}Appeler au téléphone</a>`:''}`); }
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'video')">${ic('video',18)}Appel vidéo (in-app)</button>
+      ${phone?`<a class="btn ghost block" style="text-decoration:none;margin-bottom:10px" href="tel:${esc(phone.replace(/[^0-9+]/g,''))}">${ic('phone',18)}Appeler au téléphone</a>`:''}
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="shareContact('${uid}','${nm}')">${ic('users',18)}Partager ce contact</button>
+      ${MODE==='perso'?`<button class="btn ghost block" style="${blk?'color:#5fcf80':'color:#fca5a5'}" onclick="blockContact('${uid}','${nm}')">${blk?'Débloquer':'Bloquer'} ${esc(name)}</button>`:''}`); }
+  function blockContact(uid,name){ toggleBlock(uid); closeSheet(); toast(isBlocked(uid)?name+' bloqué':name+' débloqué'); if(_curView==='disc') viewDisc(); if(_curCh) renderStream(); }
+  // ---- Partager un contact vers une conversation ----
+  let _shareContact=null;
+  async function shareContact(uid,name){ let d={}; try{ const s=await fs.collection('op_users').doc(uid).get(); if(s.exists) d=s.data(); }catch(e){}
+    _shareContact={name:name, handle:d.handle||'', phone:d.phone||''};
+    openSheet('<p class="muted center">Chargement…</p>');
+    let convos=[]; try{ const ch=chanCol();
+      if(MODE==='perso'){ const qs=await ch.where('members','array-contains',ME.uid).get(); const nm={}; (await listMembers()).forEach(m=>nm[m.uid]=m.name); qs.forEach(dd=>{ const c=dd.data(); let n=c.name||''; if(c.type==='dm'){ const o=(c.members||[]).find(u=>u!==ME.uid); n=nm[o]||'Contact'; } convos.push({id:dd.id,name:n}); }); }
+      else { const [gen,grp]=await Promise.all([ ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get() ]); const nm={}; (await listMembers()).forEach(m=>nm[m.uid]=m.name); gen.forEach(dd=>convos.push({id:dd.id,name:'Général'})); grp.forEach(dd=>{ const c=dd.data(); let n=c.name||''; if(c.type==='dm'){ const o=(c.members||[]).find(u=>u!==ME.uid); n=nm[o]||'Contact'; } convos.push({id:dd.id,name:n}); }); }
+    }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Partager ${esc(name)} vers…</h3>${convos.length?convos.map(c=>`<div class="row" onclick="doShareContact('${c.id}','${esc((c.name||'').replace(/'/g,''))}')"><div class="ava" style="${avatarStyle(c.name)}">${ini(c.name)}</div><div class="info"><div class="nm">${esc(c.name)}</div></div><div class="chev">›</div></div>`).join(''):'<p class="muted">Aucune conversation.</p>'}`);
+  }
+  async function doShareContact(chId,cname){ if(!_shareContact){ closeSheet(); return; } const c=_shareContact;
+    const txt='👤 Contact : '+c.name+(c.handle?'\n@'+c.handle:'')+(c.phone?'\n📞 '+c.phone:'');
+    try{ await addMsgTo(chId,{uid:ME.uid,name:USER.name||ME.email,text:txt,ts:FV()}); closeSheet(); toast('Contact partagé à '+cname); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function openDM(uid,name){ const pair=[ME.uid,uid].sort(); const id='dm_'+pair.join('_');
     const ref=chanCol().doc(id);
     try{ const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
@@ -736,19 +776,19 @@
         <button class="send" onclick="sendMsg()">${ic('send',20)}</button>
       </div>`;
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
-    listenCh(id); listenChDoc(id);
+    applyWall(); listenCh(id); listenChDoc(id);
   }
   function closeChat(){ clearTyping(); if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
   function chDoc(id){ return chanCol().doc(id); }
   function chMsgs(){ return chDoc(_curCh.id).collection('messages'); }
   // Envoi centralisé : ajoute le message ET met à jour l'aperçu du canal (dernier message + heure)
   async function addMsgTo(chId,data){ const ref=await chanCol().doc(chId).collection('messages').add(data);
-    try{ await chanCol().doc(chId).set({lastMsg:(previewOf(data)||'').slice(0,80),lastMsgAt:Date.now(),lastMsgFrom:ME.uid,lastMsgName:USER.name||''},{merge:true}); }catch(e){}
+    try{ await chanCol().doc(chId).set({lastMsg:(previewOf(data)||'').slice(0,80),lastMsgAt:Date.now(),lastMsgFrom:ME.uid,lastMsgName:USER.name||'',msgCount:firebase.firestore.FieldValue.increment(1)},{merge:true}); }catch(e){}
     return ref; }
   function addMsg(data){ return addMsgTo(_curCh.id,data); }
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
   function fmtListTime(ms){ try{ const d=new Date(ms), now=new Date(); if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return 'Hier'; return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}); }catch(e){ return ''; } }
-  let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={},_chDocUnsub=null,_starFilter=false,_dmOther=null,_typingTs=0;
+  let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={},_chDocUnsub=null,_starFilter=false,_dmOther=null,_typingTs=0,_showArch=false;
   function markRead(id){ setReadTs(id); try{ chDoc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
   // ---- Indicateur « en train d'écrire » + « en ligne / vu » ----
   function signalTyping(){ if(!_curCh) return; const now=Date.now(); if(now-_typingTs<2500) return; _typingTs=now;
@@ -757,7 +797,7 @@
   function listenChDoc(id){ if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;}
     // pour un DM, prépare le statut « en ligne / vu »
     _dmOther=null; if((''+id).indexOf('dm_')===0){ const parts=(''+id).slice(3).split('_'); const o=parts.find(u=>u!==ME.uid); if(o){ fs.collection('op_users').doc(o).get().then(d=>{ if(d.exists){ _dmOther=d.data(); updateChSub(); } }).catch(()=>{}); } }
-    _chDocUnsub=chDoc(id).onSnapshot(d=>{ const data=d.exists?d.data():{}; const typ=data.typing||{}; _chTyping=Object.keys(typ).some(u=>u!==ME.uid && (Date.now()-(typ[u]||0)<6000)); updateChSub(); }, err=>{});
+    _chDocUnsub=chDoc(id).onSnapshot(d=>{ const data=d.exists?d.data():{}; const typ=data.typing||{}; _chTyping=Object.keys(typ).some(u=>u!==ME.uid && (Date.now()-(typ[u]||0)<6000)); if(_curCh&&_curCh.id===id) setReadCount(id, data.msgCount||0); updateChSub(); }, err=>{});
   }
   let _chTyping=false;
   function updateChSub(){ const el=$('ch-sub'); if(!el||!_curCh) return;
@@ -787,6 +827,7 @@
     const s=$('stream'); if(!s) return;
     const q=(($('chsearch')||{}).value||'').trim().toLowerCase();
     let msgs = q? _curMsgs.filter(x=>(x.m.text||'').toLowerCase().includes(q)) : _curMsgs;
+    if(_block.size) msgs=msgs.filter(x=>!isBlocked(x.m.uid));
     if(_starFilter) msgs=msgs.filter(x=>_star.has(x.id));
     let html='',lastDay='';
     const vis=msgs.filter(x=>!_hidden.has(x.id)); let lastMineId=null; for(let i=vis.length-1;i>=0;i--){ if(vis[i].m.uid===ME.uid){ lastMineId=vis[i].id; break; } }
@@ -913,9 +954,15 @@
   async function vote(id,i){ try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:i}); _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=i; renderStream(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
 
   // ---- Infos / gestion de groupe ----
-  function pinMuteBtns(id){ return `<div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn ghost sm" style="flex:1" onclick="pinChat('${id}')">${isPinned(id)?'📌 Désépingler':'📌 Épingler'}</button><button class="btn ghost sm" style="flex:1" onclick="muteChat('${id}')">${isMuted(id)?'🔔 Réactiver le son':'🔇 Mettre en sourdine'}</button></div>`; }
+  function pinMuteBtns(id){ return `<div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn ghost sm" style="flex:1" onclick="pinChat('${id}')">${isPinned(id)?'📌 Désépingler':'📌 Épingler'}</button><button class="btn ghost sm" style="flex:1" onclick="muteChat('${id}')">${isMuted(id)?'🔔 Son':'🔇 Sourdine'}</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn ghost sm" style="flex:1" onclick="archiveChat('${id}')">${isArch(id)?'📤 Désarchiver':'🗄️ Archiver'}</button><button class="btn ghost sm" style="flex:1" onclick="exportChat()">⬇️ Exporter</button></div>`; }
   function pinChat(id){ togglePin(id); closeSheet(); if(_curView==='disc') viewDisc(); toast(isPinned(id)?'Conversation épinglée':'Désépinglée'); }
-  function muteChat(id){ toggleMute(id); closeSheet(); toast(isMuted(id)?'Notifications coupées':'Notifications réactivées'); if(_curCh&&_curCh.id===id){ const el=$('ch-sub'); } }
+  function muteChat(id){ toggleMute(id); closeSheet(); toast(isMuted(id)?'Notifications coupées':'Notifications réactivées'); }
+  function archiveChat(id){ toggleArch(id); closeSheet(); closeChat(); showView('disc'); toast(isArch(id)?'Conversation archivée':'Désarchivée'); }
+  function exportChat(){ if(!_curMsgs.length){ toast('Rien à exporter.'); return; }
+    let txt='Conversation OP MESSAGES — '+(_curCh&&_curCh.name||'')+'\n\n';
+    _curMsgs.forEach(({m,d})=>{ const t=d.toLocaleString('fr-FR'); txt+='['+t+'] '+(m.name||'')+' : '+(m.text||previewOf(m))+'\n'; });
+    const blob=new Blob([txt],{type:'text/plain'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='conversation-'+((_curCh&&_curCh.name)||'chat').replace(/[^a-z0-9]/gi,'_')+'.txt'; document.body.appendChild(a); a.click(); a.remove(); closeSheet(); toast('Conversation exportée'); }
   async function openGroupInfo(id){
     openSheet('<p class="muted center">Chargement…</p>');
     let cd; try{ cd=await chDoc(id).get(); }catch(e){ openSheet('<div class="err">'+esc(e.message)+'</div>'); return; }
@@ -989,10 +1036,13 @@
       <button class="btn ghost block" style="margin-bottom:6px" onclick="showInvite()">Voir / partager le code d'invitation</button>
       <p class="muted" style="font-size:12px;margin:0 2px 6px">Vos employés téléchargent l'app, choisissent « Rejoindre » et entrent ce code.</p>`:''}
       <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
+      <div class="field"><label>Statut (à propos)</label><input id="pf-status" value="${esc(USER.status||'')}" placeholder="Ex : Disponible 🙂 / En réunion" maxlength="80"></div>
       <div class="field"><label>Téléphone</label><input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78"></div>
       <button class="btn block" onclick="saveName()">Enregistrer</button>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Thème</div>
       <div style="display:flex;gap:8px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}')">${t==='auto'?'Auto':t==='light'?'Jour':'Nuit'}</button>`).join('')}</div>
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Fond des conversations</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${[['Défaut',''],['Nuit','#0b1220'],['Ardoise','#12161d'],['Forêt','linear-gradient(160deg,#0e1c14,#0a1410)'],['Océan','linear-gradient(160deg,#0c1a26,#0a1119)'],['Prune','linear-gradient(160deg,#1a1020,#12060f)']].map(([lbl,v])=>`<button class="btn ${chatWall()===v?'':'ghost'} sm" onclick="setWall('${v}')">${lbl}</button>`).join('')}</div>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:18px 2px 8px">Réglages</div>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="toggleSound()">Son des messages : <b>${soundOn()?'Activé':'Coupé'}</b></button>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
@@ -1000,8 +1050,8 @@
       <a class="btn ghost block" href="index.html" style="margin-bottom:10px;text-decoration:none">Retour à TeamOP</a>
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       </div>`; }
-  async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim();
-    try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim(); const status=($('pf-status')&&$('pf-status').value||'').trim();
+    try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
     try{ await auth.currentUser.updatePassword(np); alert('✅ Mot de passe modifié.'); }
     catch(e){ if((e.code||'')==='auth/requires-recent-login') alert('Sécurité : déconnecte-toi, reconnecte-toi, puis réessaie.'); else alert('Erreur : '+(e.message||e)); } }
