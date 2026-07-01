@@ -1133,6 +1133,7 @@
         ${photo?`<img src="${photo}" style="width:90px;height:90px;border-radius:26px;object-fit:cover">`:`<div class="ava" style="width:90px;height:90px;border-radius:26px;font-size:34px;margin:0 auto;${avatarStyle(USER.name)}">${ini(USER.name)}</div>`}
         <div style="font-size:17px;font-weight:600;margin-top:10px">${esc(USER.name||'')}</div>
         <div class="muted">${MODE==='perso'?'@'+esc(USER.handle||''):esc(COMP.name)+(IS_OWNER?' · admin':'')}</div>
+        ${(USER.status||'').trim()?`<div style="margin-top:5px;font-style:italic;color:var(--t2);font-size:13px">« ${esc(USER.status)} »</div>`:''}
         <div style="margin-top:8px"><span style="font-size:11px;${MODE==='perso'?'background:rgba(148,163,184,.2);color:var(--t2)':(isPro()?'background:rgba(34,177,76,.18);color:#5fcf80':'background:rgba(91,143,214,.2);color:var(--op-l)')};padding:4px 11px;border-radius:100px;font-weight:600">${MODE==='perso'?'Compte perso · sans réunions':(isPro()?'Compte entreprise · accès complet':'Utilisateur · sans réunions')}</span></div>
         ${MODE==='perso'?`<p class="muted" style="font-size:12px;margin-top:8px">Partagez votre identifiant <b>@${esc(USER.handle||'')}</b> pour qu'on vous ajoute.</p>`:''}
         <button class="btn ghost sm" style="margin-top:12px" onclick="$('photopick').click()">Changer la photo</button>
@@ -1142,6 +1143,9 @@
       <p class="muted" style="font-size:12px;margin:0 2px 6px">Vos employés téléchargent l'app, choisissent « Rejoindre » et entrent ce code.</p>`:''}
       <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
       <div class="field"><label>Statut (à propos)</label><input id="pf-status" value="${esc(USER.status||'')}" placeholder="Ex : Disponible 🙂 / En réunion" maxlength="80"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:-6px 0 14px">
+        ${statusChips()}
+      </div>
       <div class="field"><label>Téléphone</label><input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78"></div>
       <button class="btn block" style="margin-bottom:18px" onclick="saveName()">Enregistrer</button>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Réglages</div>
@@ -1157,7 +1161,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='243';
+  const APP_VER='244';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
@@ -1198,6 +1202,28 @@
     <a class="btn ghost block" style="margin-bottom:10px;text-decoration:none" href="mailto:support@teamop.fr">✉️ Contacter le support</a>
     <a class="btn ghost block" style="margin-bottom:10px;text-decoration:none" href="index.html">🏠 Accueil TeamOP</a>
     <p class="muted center" style="margin-top:12px;font-size:12px">OP MESSAGES · version ${APP_VER}<br>© TeamOP</p>`); }
+  // ---- Statuts : propositions prédéfinies + statuts personnalisés enregistrés ----
+  const STATUS_PRESETS=['🟢 Disponible','🔴 Occupé','📅 En réunion','💼 Au travail','🚗 En déplacement','🏖️ En congé','🔕 Ne pas déranger','🔋 Batterie faible','🚨 Urgences uniquement','⏳ De retour bientôt'];
+  function myStatuses(){ try{ return JSON.parse(localStorage.getItem('opmsg_mystatus')||'[]'); }catch(e){ return []; } }
+  function saveMyStatuses(a){ try{ localStorage.setItem('opmsg_mystatus',JSON.stringify(a.slice(0,12))); }catch(e){} }
+  function statusChips(){
+    const cur=(USER.status||'').trim();
+    const chip=(s,custom)=>{ const on=cur===s; const sq=esc(s.replace(/'/g,''));
+      return `<span style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;border-radius:100px;border:1px solid ${on?'var(--op)':'var(--brd2)'};background:${on?'rgba(91,143,214,.22)':'var(--card2)'};color:${on?'var(--op-l)':'var(--t2)'};font-size:12.5px;font-weight:600;cursor:pointer" onclick="setStatus('${sq}')">${esc(s)}${custom?`<b style="margin-left:2px;opacity:.7;cursor:pointer" onclick="event.stopPropagation();delCustomStatus('${sq}')">✕</b>`:''}</span>`; };
+    let h=myStatuses().map(s=>chip(s,true)).join('')+STATUS_PRESETS.map(s=>chip(s,false)).join('');
+    h+=`<span style="display:inline-flex;align-items:center;padding:7px 12px;border-radius:100px;border:1px dashed var(--brd2);color:var(--op-l);font-size:12.5px;font-weight:700;cursor:pointer" onclick="addCustomStatus()">＋ Créer un statut</span>`;
+    if(cur) h+=`<span style="display:inline-flex;align-items:center;padding:7px 12px;border-radius:100px;border:1px solid var(--brd2);color:#fca5a5;font-size:12.5px;font-weight:600;cursor:pointer" onclick="setStatus('')">Effacer le statut</span>`;
+    return h;
+  }
+  async function setStatus(s){
+    try{ await fs.collection('op_users').doc(ME.uid).set({status:s},{merge:true}); USER.status=s;
+      const inp=$('pf-status'); if(inp) inp.value=s;
+      toast(s?'Statut : '+s:'Statut effacé'); if(_curView==='prof') viewProfile();
+    }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  function addCustomStatus(){ const t=prompt('Votre nouveau statut (80 caractères max) :'); if(t==null) return; const s=t.trim().slice(0,80); if(!s) return;
+    const a=myStatuses(); if(!a.includes(s)){ a.unshift(s); saveMyStatuses(a); }
+    setStatus(s); }
+  function delCustomStatus(s){ saveMyStatuses(myStatuses().filter(x=>x!==s)); if((USER.status||'')===s) setStatus(''); else if(_curView==='prof') viewProfile(); }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim(); const status=($('pf-status')&&$('pf-status').value||'').trim();
     try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function changePass(){ const np=prompt('Nouveau mot de passe (min. 6 caractères) :'); if(np==null) return; if((np||'').length<6){ alert('6 caractères minimum.'); return; }
