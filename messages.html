@@ -135,7 +135,8 @@
   const ROOT=$('root');
   let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc',_msgCache={};
   let _members=[];
-  let MODE='company'; // 'company' (entreprise SIRET) | 'perso' (particulier, façon WhatsApp)
+  let MODE='perso'; // espace ACTIF : 'perso' | 'company' (basculé par le bouton en haut)
+  let HAS_COMPANY=false, _meetWatchUnsub=null; // le compte appartient-il à une entreprise ?
   // Références Firestore centralisées : le moteur de chat/appels marche pour les 2 modes
   function chanCol(){ return MODE==='perso' ? fs.collection('op_channels') : fs.collection('op_companies').doc(COMP.id).collection('channels'); }
   function callsCol(){ return MODE==='perso' ? fs.collection('op_calls') : fs.collection('op_companies').doc(COMP.id).collection('calls'); }
@@ -160,7 +161,7 @@
   function setTheme(p){ localStorage.setItem('opmsg_theme',p); applyTheme(); if(_curView==='prof') viewProfile(); }
   try{ if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{ if((localStorage.getItem('opmsg_theme')||'auto')==='auto') applyTheme(); }); } }catch(e){}
   applyTheme();
-  function isPro(){ return IS_OWNER || (USER&&USER.role==='entreprise'); }
+  function isPro(){ return MODE==='company' && HAS_COMPANY && (IS_OWNER || (USER&&USER.role==='entreprise')); }
   function soundOn(){ return localStorage.getItem('opmsg_sound')!=='0'; }
   function toggleSound(){ localStorage.setItem('opmsg_sound', soundOn()?'0':'1'); if(_curView==='prof') viewProfile(); }
   const ICON={
@@ -188,9 +189,10 @@
     if(_provisioning) return; // doJoin/doCreate gèrent l'entrée dans l'app
     let us; try{ us=await fs.collection('op_users').doc(user.uid).get(); }catch(e){}
     USER=(us&&us.exists)?us.data():{uid:user.uid,email:user.email,name:(user.email||'Utilisateur').split('@')[0]};
-    if(USER&&USER.companyId){ MODE='company'; COMP={id:USER.companyId,name:USER.companyName}; enterApp(); return; }
-    if(USER&&USER.role==='perso'){ enterPerso(); return; }
-    renderSetup();
+    HAS_COMPANY = !!(USER&&USER.companyId);
+    COMP = HAS_COMPANY ? {id:USER.companyId,name:USER.companyName} : null;
+    MODE = HAS_COMPANY ? 'company' : 'perso';
+    enterApp();
   });
   function logout(){ auth.signOut(); }
 
@@ -265,7 +267,7 @@
     try{
       const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
       await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle,phone,role:'perso',lastActive:Date.now()});
-      USER={uid:ME.uid,email,name,handle,phone,role:'perso'}; COMP=null; _provisioning=false; enterPerso();
+      USER={uid:ME.uid,email,name,handle,phone,role:'perso'}; COMP=null; HAS_COMPANY=false; MODE='perso'; _provisioning=false; enterApp();
     }catch(e){ _provisioning=false; if((e.code||'')==='auth/email-already-in-use') aerr('Cet identifiant est déjà pris.'); else aerr(aMsg(e)); $('p-sub').disabled=false; }
   }
   async function doLogin(){
@@ -289,9 +291,10 @@
       const ref=fs.collection('op_companies').doc(); const code=code6();
       await ref.set({name,siret,code,ownerUid:ME.uid,createdAt:FV()});
       await ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:yourname,role:'entreprise',ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name:yourname,role:'entreprise',companyId:ref.id,companyName:name});
-      USER={uid:ME.uid,email,name:yourname,role:'entreprise',companyId:ref.id,companyName:name};
-      COMP={id:ref.id,name}; _provisioning=false; enterApp();
+      const chandle=handleOf(email.split('@')[0]);
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name:yourname,handle:chandle,role:'entreprise',companyId:ref.id,companyName:name,lastActive:Date.now()});
+      USER={uid:ME.uid,email,name:yourname,handle:chandle,role:'entreprise',companyId:ref.id,companyName:name};
+      COMP={id:ref.id,name}; HAS_COMPANY=true; MODE='company'; _provisioning=false; enterApp();
     }catch(e){ _provisioning=false; aerr(aMsg(e)); $('c-sub').disabled=false; }
   }
   async function doJoin(){
@@ -312,9 +315,9 @@
     try{
       const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
       await cdoc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name,role:'classique',ts:FV()});
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,role:'classique',companyId:cdoc.id,companyName:cname});
-      USER={uid:ME.uid,email,name,role:'classique',companyId:cdoc.id,companyName:cname};
-      COMP={id:cdoc.id,name:cname}; _provisioning=false; enterApp();
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle:ident,role:'classique',companyId:cdoc.id,companyName:cname,lastActive:Date.now()});
+      USER={uid:ME.uid,email,name,handle:ident,role:'classique',companyId:cdoc.id,companyName:cname};
+      COMP={id:cdoc.id,name:cname}; HAS_COMPANY=true; MODE='company'; _provisioning=false; enterApp();
     }catch(e){ _provisioning=false; if((e.code||'')==='auth/email-already-in-use') aerr('Cet identifiant est déjà pris. Choisissez-en un autre, ou allez sur « Connexion ».'); else aerr(aMsg(e)); $('j-sub').disabled=false; }
   }
   function aMsg(e){ const c=(e&&e.code)||'';
@@ -370,19 +373,68 @@
   }
 
   // ========== APP SHELL ==========
-  async function enterPerso(){
-    MODE='perso'; IS_OWNER=false; COMP=null;
-    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
-    renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener();
-  }
+  // Un seul compte : espace Perso (toujours) + éventuellement un espace Pro (entreprise).
   async function enterApp(){
-    MODE='company';
-    try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=d.data().ownerUid===ME.uid; COMP.code=d.data().code; } }catch(e){}
-    if(IS_OWNER && USER) USER.role='entreprise';
-    try{ const mq=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); _members=[]; mq.forEach(d=>{ const m=d.data(); _members.push({uid:m.uid,name:m.name||''}); }); }catch(e){}
-    // s'assure qu'un canal "Général" existe
-    try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
-    renderShell(); showView('disc'); startPresence(); _loginTs=Date.now(); startCallListener(); startMeetingWatch();
+    if(USER&&USER.companyId){ HAS_COMPANY=true; COMP={id:USER.companyId,name:USER.companyName}; }
+    IS_OWNER=false;
+    if(HAS_COMPANY&&COMP){
+      try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=(d.data().ownerUid===ME.uid); COMP.code=d.data().code; } }catch(e){}
+      if(IS_OWNER && USER) USER.role='entreprise';
+      try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
+    }
+    if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
+    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners();
+  }
+  function startSpaceListeners(){
+    startPresence(); startCallListener();
+    if(_meetWatchUnsub){ _meetWatchUnsub(); _meetWatchUnsub=null; }
+    if(MODE==='company'&&HAS_COMPANY) startMeetingWatch(); else { _myMeetings=[]; }
+  }
+  // Bascule Perso <-> Pro (bouton en haut)
+  async function switchSpace(sp){
+    if(sp===MODE) return;
+    if(sp==='company'&&!HAS_COMPANY){ showAddCompany(); return; }
+    closeChat(); MODE=sp; _curView='disc';
+    IS_OWNER = (MODE==='company') && HAS_COMPANY && COMP && COMP.ownerUid===ME.uid;
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
+    renderShell(); showView('disc'); startSpaceListeners();
+  }
+  // Ajouter un espace pro depuis l'app (utilisateur déjà connecté)
+  function showAddCompany(){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">Ajouter un espace pro</h3>
+      <p class="muted" style="margin-bottom:12px">Rejoignez votre entreprise avec le code reçu, ou créez la vôtre.</p>
+      <div id="acomperr"></div>
+      <div class="field"><label>J'ai un code entreprise</label><input id="ic-code" placeholder="Ex : 4FK7P2" style="text-transform:uppercase" autocapitalize="characters"></div>
+      <button class="btn block" onclick="inAppJoin()">Rejoindre avec le code</button>
+      <div style="text-align:center;color:var(--t3);font-size:12px;margin:16px 0 10px">— ou créer une entreprise —</div>
+      <div class="field"><label>Nom de l'entreprise</label><input id="ic-name" placeholder="Ex : Dupont SARL"></div>
+      <div class="field"><label>Numéro SIRET (14 chiffres)</label><input id="ic-siret" inputmode="numeric" placeholder="123 456 789 00012"></div>
+      <button class="btn ghost block" onclick="inAppCreate()">Créer l'entreprise</button>`);
+  }
+  function acompErr(m){ const el=$('acomperr'); if(el) el.innerHTML='<div class="err">'+esc(m)+'</div>'; }
+  async function applyCompany(id,name){ USER.companyId=id; USER.companyName=name; COMP={id,name}; HAS_COMPANY=true; MODE='company'; closeSheet(); await enterApp(); }
+  async function inAppJoin(){
+    const code=($('ic-code').value||'').trim().toUpperCase(); if(code.length<4) return acompErr('Entrez le code de votre entreprise.');
+    try{ const qs=await fs.collection('op_companies').where('code','==',code).limit(1).get();
+      if(qs.empty) return acompErr('Aucune entreprise pour ce code.');
+      const doc=qs.docs[0], name=doc.data().name;
+      await doc.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||'',phone:USER.phone||'',role:'classique',ts:FV()});
+      await fs.collection('op_users').doc(ME.uid).set({companyId:doc.id,companyName:name},{merge:true});
+      await applyCompany(doc.id,name); toast('Espace pro ajouté : '+name);
+    }catch(e){ acompErr(e.message||'Erreur'); }
+  }
+  async function inAppCreate(){
+    const name=($('ic-name').value||'').trim(), siret=($('ic-siret').value||'').replace(/\s/g,'');
+    if(!name) return acompErr("Indiquez le nom de l'entreprise.");
+    if(!siretValid(siret)) return acompErr('Le SIRET doit comporter 14 chiffres.');
+    try{
+      const ref=fs.collection('op_companies').doc(); const code=code6();
+      await ref.set({name,siret,code,ownerUid:ME.uid,createdAt:FV()});
+      await ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:USER.name||'',phone:USER.phone||'',role:'entreprise',ts:FV()});
+      await fs.collection('op_users').doc(ME.uid).set({companyId:ref.id,companyName:name,role:'entreprise'},{merge:true}); USER.role='entreprise';
+      await applyCompany(ref.id,name); toast('Entreprise créée : '+name);
+    }catch(e){ acompErr(e.message||'Erreur'); }
   }
   let _presTimer=null,_loginTs=0;
   function startPresence(){ const upd=()=>{ try{ if(MODE==='perso') fs.collection('op_users').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); else fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
@@ -395,6 +447,10 @@
         <img src="icons/opmsg-512.png" alt="">
         <div class="tt"><b id="ab-title">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</b><span id="ab-sub">${MODE==='perso'?'Compte perso':(IS_OWNER?'Administrateur':'Membre')}</span></div>
         <button class="ic" onclick="openMenu()">⋯</button>
+      </div>
+      <div style="display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)">
+        <button onclick="switchSpace('perso')" style="flex:1;padding:9px 6px;border-radius:10px;border:1px solid var(--brd2);font-weight:700;font-size:13px;cursor:pointer;background:${MODE==='perso'?'var(--op)':'transparent'};color:${MODE==='perso'?'#fff':'var(--t2)'}">Perso</button>
+        <button onclick="switchSpace('company')" style="flex:1;padding:9px 6px;border-radius:10px;border:1px solid var(--brd2);font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:${MODE==='company'?'#22b14c':'transparent'};color:${MODE==='company'?'#fff':'var(--t2)'}">${HAS_COMPANY?esc(COMP.name):'Pro ＋'}</button>
       </div>
       <div class="view" id="view"></div>
       <div class="nav">
@@ -563,7 +619,7 @@
   }
   function loadJitsi(){ return new Promise((res,rej)=>{ if(window.JitsiMeetExternalAPI) return res(); const s=document.createElement('script'); s.src='https://meet.jit.si/external_api.js'; s.onload=res; s.onerror=()=>rej(new Error('jitsi')); document.head.appendChild(s); }); }
   async function openJitsi(roomName,title,audioOnly){
-    $('jitsi-name').textContent=title||'Appel'; $('jitsi').classList.add('open');
+    $('jitsi-name').textContent=title||'Appel'; { const _jw=$('jitsi').classList.contains('open'); $('jitsi').classList.add('open'); if(!_jw) pushBack(); }
     try{ await loadJitsi(); }catch(e){ $('jitsi-box').innerHTML='<p class="muted center" style="margin:auto;padding:30px">Connexion impossible (Internet requis).</p>'; return; }
     const room=(roomName).replace(/[^a-zA-Z0-9]/g,''); $('jitsi-box').innerHTML='';
     _japi=new JitsiMeetExternalAPI('meet.jit.si',{roomName:room,parentNode:$('jitsi-box'),userInfo:{displayName:USER.name||'Invité'},
@@ -588,7 +644,7 @@
   function showRing(ref,c){ _ringRef=ref;
     $('ring').innerHTML=`<div style="text-align:center"><div class="ring-av" style="${avatarStyle(c.fromName)}">${ini(c.fromName)}</div><div style="font-size:20px;font-weight:700;margin-top:14px">${esc(c.fromName)}</div><div class="muted" style="margin-top:2px">Appel ${c.type==='audio'?'audio':'vidéo'} entrant…</div>
       <div style="display:flex;gap:46px;justify-content:center;margin-top:32px"><div><button class="ring-btn decline" onclick="declineCall()">${ic('phone',26)}</button><div class="muted" style="margin-top:6px;font-size:12px">Refuser</div></div><div><button class="ring-btn accept" onclick="acceptCall('${c.room}','${c.type}')">${ic('phone',26)}</button><div class="muted" style="margin-top:6px;font-size:12px">Répondre</div></div></div></div>`;
-    $('ring').classList.add('open'); ringStart();
+    { const _rw=$('ring').classList.contains('open'); $('ring').classList.add('open'); if(!_rw) pushBack(); } ringStart();
     _ringRefUnsub=ref.onSnapshot(d=>{ if(!d.exists||d.data().status!=='ringing') hideRing(); });
   }
   function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); openJitsi(room,'Appel',type==='audio'); }
@@ -605,7 +661,8 @@
   function tickCountdowns(){ document.querySelectorAll('.cd[data-t]').forEach(el=>{ el.textContent=fmtCountdown((+el.dataset.t)-Date.now()); }); }
   let _myMeetings=[],_alerted={},_meetAlertTimer=null,_meetTicker=null;
   function startMeetingWatch(){
-    fs.collection('op_companies').doc(COMP.id).collection('rooms').where('members','array-contains',ME.uid).onSnapshot(qs=>{
+    if(_meetWatchUnsub){ _meetWatchUnsub(); }
+    _meetWatchUnsub=fs.collection('op_companies').doc(COMP.id).collection('rooms').where('members','array-contains',ME.uid).onSnapshot(qs=>{
       _myMeetings=[]; qs.forEach(d=>{ const r=d.data(); if(r.scheduledAt) _myMeetings.push({id:d.id,...r}); });
       qs.docChanges().forEach(ch=>{ if(ch.type!=='added') return; const r=ch.doc.data(); const ct=r.createdAt&&r.createdAt.toMillis?r.createdAt.toMillis():0;
         if(r.scheduledAt && r.createdBy!==ME.uid && ct>_loginTs-4000) toast('Réunion planifiée : « '+(r.name||'')+' » — '+fmtWhen(r.scheduledAt)); });
@@ -663,7 +720,7 @@
         <input id="msg" placeholder="Message…  (@ pour mentionner)" oninput="onMsgInput()" onkeydown="if(event.key==='Enter')sendMsg()">
         <button class="send" onclick="sendMsg()">${ic('send',20)}</button>
       </div>`;
-    $('chat').classList.add('open');
+    const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
     listenCh(id);
   }
   function closeChat(){ if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
@@ -828,7 +885,7 @@
     if(f.size>800000){ alert('Fichier trop volumineux (max 800 Ko).'); e.target.value=''; return; }
     const r=new FileReader(); r.onload=async()=>{ try{ await chMsgs().add({uid:ME.uid,name:USER.name||ME.email,file:{name:f.name,type:f.type||'',data:r.result},ts:FV()}); }catch(err){ alert('Erreur fichier : '+(err.message||err)); } }; r.readAsDataURL(f); e.target.value=''; });
   function openFile(id){ const f=_files[id]; if(!f) return; const pdf=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name||'');
-    if(pdf){ $('viewer-name').textContent=f.name||'Document'; $('viewer-frame').src=f.data; $('viewer').classList.add('open'); }
+    if(pdf){ $('viewer-name').textContent=f.name||'Document'; $('viewer-frame').src=f.data; const _vw=$('viewer').classList.contains('open'); $('viewer').classList.add('open'); if(!_vw) pushBack(); }
     else { const a=document.createElement('a'); a.href=f.data; a.download=f.name||'fichier'; document.body.appendChild(a); a.click(); a.remove(); } }
   function closeViewer(){ $('viewer').classList.remove('open'); $('viewer-frame').src='about:blank'; }
 
@@ -919,9 +976,23 @@
   async function shareCreds(){ const t=credsText(); if(!t) return; if(navigator.share){ try{ await navigator.share({title:'Accès OP MESSAGES',text:t}); }catch(e){} } else copyCreds(); }
   function copyCreds(btn){ const t=credsText(); if(!t) return; if(navigator.clipboard){ navigator.clipboard.writeText(t).then(()=>{ if(btn){ const o=btn.textContent; btn.textContent='✅ Copié'; setTimeout(()=>btn.textContent=o,1600);} }); } else alert(t); }
 
-  function openSheet(html){ $('sheet-c').innerHTML=html+'<p class="center" style="margin-top:14px"><a class="link" onclick="closeSheet()">Fermer</a></p>'; $('sheet').classList.add('open'); }
+  function openSheet(html){ const wasOpen=$('sheet').classList.contains('open'); $('sheet-c').innerHTML=html+'<p class="center" style="margin-top:14px"><a class="link" onclick="closeSheet()">Fermer</a></p>'; $('sheet').classList.add('open'); if(!wasOpen) pushBack(); }
   function closeSheet(){ $('sheet').classList.remove('open'); }
   $('sheet').addEventListener('click',e=>{ if(e.target.id==='sheet') closeSheet(); });
+
+  // ===== Bouton « retour » du téléphone : ferme l'écran ouvert au lieu de quitter l'app =====
+  function pushBack(){ try{ history.pushState({op:1},''); }catch(e){} }
+  function anyOverlayOpen(){ return ['viewer','jitsi','ring','sheet','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
+  function closeTopOverlay(){
+    if($('viewer')&&$('viewer').classList.contains('open')){ closeViewer(); return true; }
+    if($('jitsi')&&$('jitsi').classList.contains('open')){ closeJitsi(); return true; }
+    if($('ring')&&$('ring').classList.contains('open')){ declineCall(); return true; }
+    if($('sheet')&&$('sheet').classList.contains('open')){ closeSheet(); return true; }
+    if($('chat')&&$('chat').classList.contains('open')){ closeChat(); return true; }
+    return false;
+  }
+  window.addEventListener('popstate', function(){ if(anyOverlayOpen()){ closeTopOverlay(); pushBack(); } });
+  try{ history.replaceState({op:0},''); }catch(e){}
 </script>
 </body>
 </html>
