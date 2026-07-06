@@ -162,7 +162,7 @@ app.post('/api/sendmail', async (req, res) => {
       const name = String((brand && brand.name) || 'TeamOP').replace(/["<>\r\n]/g, '').slice(0, 80);
       const replyTo = (brand && brand.replyTo && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(brand.replyTo))) ? String(brand.replyTo) : undefined;
       const addr = (config.smtp.from || config.smtp.user).match(/<([^>]+)>/) ? (config.smtp.from || config.smtp.user).match(/<([^>]+)>/)[1] : (config.smtp.user);
-      await mailer.sendMail({ from: '"' + name + ' — via TeamOP" <' + addr + '>', replyTo, ...msg });
+      await mailer.sendMail({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
