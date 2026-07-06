@@ -1,5 +1,5 @@
 /* ELAN GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v312';
+const CACHE = 'elan-gestion-v313';
 const ASSETS = [
   './',
   'index.html',
@@ -46,4 +46,24 @@ self.addEventListener('fetch', e => {
       })
       .catch(() => caches.match(req).then(r => r || caches.match('app.html')))
   );
+});
+
+/* ── Notifications push ── */
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data.json(); } catch (_) { d = { title: 'TeamOP', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'TeamOP', {
+    body: d.body || '',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    data: { url: d.url || '/app.html' }
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/app.html';
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
+    for (const w of ws) { if ('focus' in w) { try { w.navigate(url); } catch (_) {} return w.focus(); } }
+    return clients.openWindow(url);
+  }));
 });
