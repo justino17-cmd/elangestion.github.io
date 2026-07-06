@@ -136,6 +136,24 @@ app.post('/api/notify', async (req, res) => {
   res.json({ ok: true, sent, removed: dead });
 });
 
+// envoi d'e-mail applicatif (rapports, avis, devis…) — réservé aux équipes ayant au moins un appareil abonné
+const mailQuota = new Map();
+app.post('/api/sendmail', async (req, res) => {
+  if (!mailer) return res.status(503).json({ error: 'email_off' });
+  const { teamId, to, subject, text } = req.body || {};
+  if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
+  if (!Object.values(subs).some(s => s.teamId === teamId)) return res.status(403).json({ error: 'équipe inconnue' });
+  const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
+  if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
+  if (q.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' });
+  q.count++; mailQuota.set(teamId, q);
+  try {
+    await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // envoi d'e-mail (rapports, avis de passage) — nécessite la config smtp
 app.post('/api/email', async (req, res) => {
   if (!mailer) return res.status(503).json({ error: "e-mail non configuré sur le serveur (config.json → smtp)" });
