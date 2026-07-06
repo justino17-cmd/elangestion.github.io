@@ -140,20 +140,30 @@ app.post('/api/notify', async (req, res) => {
 // jamais via l'adresse TeamOP (réservée aux codes de sécurité)
 const mailQuota = new Map();
 app.post('/api/sendmail', async (req, res) => {
-  const { teamId, to, subject, text, smtp } = req.body || {};
+  const { teamId, to, subject, text, smtp, brand } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
-  if (!smtp || !smtp.user || !smtp.pass || !smtp.host) return res.status(400).json({ error: 'smtp_entreprise_requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
   if (!Object.values(subs).some(s => s.teamId === teamId)) return res.status(403).json({ error: 'équipe inconnue' });
   const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
   if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
   if (q.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' });
   q.count++; mailQuota.set(teamId, q);
+  const msg = { to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) };
   try {
-    const nodemailer = require('nodemailer');
-    const port = parseInt(smtp.port) || 465;
-    const t = nodemailer.createTransport({ host: String(smtp.host).slice(0, 100), port, secure: port === 465, auth: { user: String(smtp.user).slice(0, 120), pass: String(smtp.pass).slice(0, 200) } });
-    await t.sendMail({ from: String(smtp.from || smtp.user).slice(0, 160), to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) });
+    if (smtp && smtp.user && smtp.pass && smtp.host) {
+      // Mode avancé : boîte de l'entreprise / de l'utilisateur
+      const nodemailer = require('nodemailer');
+      const port = parseInt(smtp.port) || 465;
+      const t = nodemailer.createTransport({ host: String(smtp.host).slice(0, 100), port, secure: port === 465, auth: { user: String(smtp.user).slice(0, 120), pass: String(smtp.pass).slice(0, 200) } });
+      await t.sendMail({ from: String(smtp.from || smtp.user).slice(0, 160), ...msg });
+    } else {
+      // Mode simple : la plateforme envoie au nom de l'entreprise (Reply-To vers elle)
+      if (!mailer) return res.status(503).json({ error: 'email_off' });
+      const name = String((brand && brand.name) || 'TeamOP').replace(/["<>\r\n]/g, '').slice(0, 80);
+      const replyTo = (brand && brand.replyTo && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(brand.replyTo))) ? String(brand.replyTo) : undefined;
+      const addr = (config.smtp.from || config.smtp.user).match(/<([^>]+)>/) ? (config.smtp.from || config.smtp.user).match(/<([^>]+)>/)[1] : (config.smtp.user);
+      await mailer.sendMail({ from: '"' + name + ' — via TeamOP" <' + addr + '>', replyTo, ...msg });
+    }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
