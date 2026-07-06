@@ -64,6 +64,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── codes de sécurité (actions sensibles : remise à zéro, etc.) ──
+const codes = new Map();
+app.post('/api/sendcode', async (req, res) => {
+  const { teamId, email, purpose } = req.body || {};
+  if (!teamId || !email) return res.status(400).json({ error: 'teamId et email requis' });
+  if (!mailer) return res.status(503).json({ error: 'email_off' });
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  codes.set(teamId + '|' + (purpose || 'reset'), { code, email, exp: Date.now() + 10 * 60000, tries: 0 });
+  try {
+    await mailer.sendMail({
+      from: config.smtp.from || config.smtp.user, to: email,
+      subject: 'TeamOP — code de confirmation : ' + code,
+      text: 'Votre code de confirmation TeamOP : ' + code + '\n\nIl expire dans 10 minutes.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.'
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/checkcode', (req, res) => {
+  const { teamId, code, purpose } = req.body || {};
+  const k = (teamId || '') + '|' + (purpose || 'reset');
+  const c = codes.get(k);
+  if (!c || Date.now() > c.exp) return res.status(400).json({ ok: false, error: 'expiré' });
+  c.tries = (c.tries || 0) + 1;
+  if (c.tries > 5) { codes.delete(k); return res.status(429).json({ ok: false, error: 'trop d\'essais' }); }
+  if (String(code) !== c.code) return res.status(400).json({ ok: false, error: 'code incorrect' });
+  codes.delete(k);
+  res.json({ ok: true });
+});
+
 app.get('/health', (req, res) => res.json({ ok: true, subs: Object.keys(subs).length, email: !!mailer }));
 app.get('/api/vapid', (req, res) => res.json({ key: config.vapidPublicKey }));
 
