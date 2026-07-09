@@ -110,6 +110,8 @@
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const isAdmin=u=>u&&u.email&&u.email.toLowerCase()===ADMIN_EMAIL.toLowerCase();
   let _unsubMsgs=null,_unsubReqs=null,_unsubNews=null;
+  let _clients=[]; // [{uid,label}] pour le ciblage des nouveautés
+  let _myUid=null;
 
   // Catalogue des applications activables
   const APPS={
@@ -177,6 +179,7 @@
   function renderClient(user){
     _unsubReqs=fs.collection('teamop_requests').doc(user.uid).onSnapshot(snap=>{
       const d=snap.exists?snap.data():{};
+      _myUid=user.uid;
       paintClient(user,d);
       loadNews('news-list',false);
       listenMsgs(user.uid,'client');
@@ -237,20 +240,33 @@
   function newsRow(id,n,admin){
     const t=NEWS_TAGS[n.tag]||NEWS_TAGS.info;
     const dt=(n.ts&&n.ts.toDate)?n.ts.toDate().toLocaleDateString('fr-FR',{day:'numeric',month:'long'}):'';
-    return `<div class="newsit"><div style="flex:1;min-width:0"><b>${esc(n.title||'')}<span class="tagb ${t[1]}">${t[0]}</span></b><span class="tx">${esc(n.text||'')}</span>${dt?`<span style="font-size:11px;color:var(--t3)">${dt}</span>`:''}</div>${admin?`<button class="btn sm ghost" style="color:var(--red);flex-shrink:0" onclick="delNews('${id}')">✕</button>`:''}</div>`;
+    const aud=n.audience||'public'; const audL=aud==='public'?'🌍 Tout le monde':(aud==='clients'?'👥 Clients connectés':'🎯 '+((_clients.find(c=>c.uid===aud)||{}).label||'1 client'));
+    return `<div class="newsit"><div style="flex:1;min-width:0"><b>${esc(n.title||'')}<span class="tagb ${t[1]}">${t[0]}</span></b><span class="tx">${esc(n.text||'')}</span>${admin?`<span style="font-size:11px;color:var(--op-l)">${esc(audL)}</span>`:''}${dt?`<span style="font-size:11px;color:var(--t3)">${dt}</span>`:''}</div>${admin?`<button class="btn sm ghost" style="color:var(--red);flex-shrink:0" onclick="delNews('${id}')">✕</button>`:''}</div>`;
+  }
+  function newsVisible(n,admin){
+    if(admin) return true;
+    const a=n.audience||'public';
+    if(a==='public'||a==='clients') return true;   // tout le monde / tous les clients connectés
+    return a===_myUid;                              // ciblée sur ce client précis
   }
   function loadNews(elId,admin){
-    fs.collection('teamop_news').orderBy('ts','desc').limit(10).get().then(qs=>{
+    fs.collection('teamop_news').orderBy('ts','desc').limit(30).get().then(qs=>{
       const el=$(elId); if(!el) return;
-      if(qs.empty){ el.innerHTML='<p class="muted center">Aucune nouveauté pour le moment.</p>'; return; }
-      let h=''; qs.forEach(doc=>{ h+=newsRow(doc.id,doc.data(),admin); }); el.innerHTML=h;
+      let h='',n=0; qs.forEach(doc=>{ const d=doc.data(); if(!newsVisible(d,admin)) return; h+=newsRow(doc.id,d,admin); n++; });
+      el.innerHTML=n?h:'<p class="muted center">Aucune nouveauté pour le moment.</p>';
     }).catch(()=>{ const el=$(elId); if(el) el.innerHTML='<p class="muted center">Nouveautés indisponibles.</p>'; });
   }
   async function publishNews(){
-    const title=($('n-title').value||'').trim(), text=($('n-text').value||'').trim(), tag=$('n-tag').value;
+    const title=($('n-title').value||'').trim(), text=($('n-text').value||'').trim(), tag=$('n-tag').value, audience=($('n-aud')||{}).value||'public';
     if(!title){ alert('Donne un titre.'); return; }
-    try{ await fs.collection('teamop_news').add({title,text,tag,ts:firebase.firestore.FieldValue.serverTimestamp()});
+    try{ await fs.collection('teamop_news').add({title,text,tag,audience,ts:firebase.firestore.FieldValue.serverTimestamp()});
+      // notifie les clients ciblés (push) si le serveur est joignable
+      try{ const t2=(NEWS_TAGS[tag]||['Info'])[0];
+        if(audience==='clients'||audience==='public'){ /* diffusion large gérée à l'ouverture de l'espace */ }
+        else if(audience){ fetch('https://api.teamop.fr/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:'opmsg-user-'+audience,title:'📣 '+t2+' — TeamOP',body:title,url:'/espace.html'})}).catch(()=>{}); }
+      }catch(_){}
       $('n-title').value=''; $('n-text').value=''; loadNews('adm-news',true);
+      alert('Nouveauté publiée ✅');
     }catch(e){ alert('Erreur : '+(e.message||e)); }
   }
   async function delNews(id){ if(!confirm('Supprimer cette nouveauté ?')) return; try{ await fs.collection('teamop_news').doc(id).delete(); loadNews('adm-news',true); }catch(e){ alert('Erreur : '+(e.message||e)); } }
@@ -262,6 +278,7 @@
         <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:10px">📣 PUBLIER UNE NOUVEAUTÉ</h3>
         <div class="field"><label>Titre</label><input id="n-title" placeholder="Ex. Notifications sur OP MESSAGES"></div>
         <div class="field"><label>Type</label><select id="n-tag"><option value="nouveau">Nouveau</option><option value="beta">Bêta — à tester</option><option value="officiel">Version officielle</option><option value="info">Info</option></select></div>
+        <div class="field"><label>Destinataire</label><select id="n-aud"><option value="public">🌍 Tout le monde (public + clients)</option><option value="clients">👥 Tous les clients connectés</option></select></div>
         <div class="field"><label>Texte</label><textarea id="n-text" placeholder="Description courte de la nouveauté…"></textarea></div>
         <button class="btn" onclick="publishNews()">Publier</button>
         <div style="margin-top:16px" id="adm-news"><p class="muted">Chargement…</p></div>
@@ -269,7 +286,11 @@
       <div class="panel"><h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:10px">👑 DEMANDES CLIENTS</h3><div id="admin-list"><p class="muted">Chargement…</p></div></div>`;
     loadNews('adm-news',true);
     _unsubReqs=fs.collection('teamop_requests').orderBy('createdAt','desc').onSnapshot(qs=>{
-      const list=$('admin-list'); if(!list) return; if(qs.empty){ list.innerHTML='<p class="muted">Aucune demande.</p>'; return; }
+      const list=$('admin-list'); if(!list) return;
+      // met à jour la liste des clients pour le ciblage des nouveautés
+      _clients=[]; qs.forEach(doc=>{ const d=doc.data(); _clients.push({uid:doc.id,label:(d.company||d.name||d.email||'Client')}); });
+      const aud=$('n-aud'); if(aud){ const cur=aud.value; aud.innerHTML='<option value="public">🌍 Tout le monde (public + clients)</option><option value="clients">👥 Tous les clients connectés</option>'+_clients.map(c=>`<option value="${c.uid}">🎯 ${esc(c.label)}</option>`).join(''); aud.value=cur; }
+      if(qs.empty){ list.innerHTML='<p class="muted">Aucune demande.</p>'; return; }
       let html=''; qs.forEach(doc=>{ const d=doc.data(); const apps=Array.isArray(d.apps)?d.apps:[];
         const b=d.status==='fourni'?'b-done':(d.status==='nouveau'?'b-new':'b-prog'); const bl=d.status==='fourni'?'Accès activé':(d.status==='nouveau'?'Nouvelle demande':(d.status==='compte'?'Compte créé':'En cours'));
         html+=`<div class="req"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><h4>${esc(d.company||d.email||'—')}</h4><div class="muted">${esc(d.name||'')} · ${esc(d.email||'')}${d.app?' · souhaite : '+esc(d.app):''}</div></div><span class="badge ${b}">${bl}</span></div>
