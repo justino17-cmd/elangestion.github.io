@@ -84,6 +84,20 @@
   .faq-c{color:var(--t3);transition:transform .2s}.faq.open .faq-c{transform:rotate(90deg)}
   .faq-a{max-height:0;overflow:hidden;transition:max-height .25s}.faq.open .faq-a{max-height:200px}
   .faq-a p{padding:0 15px 14px;color:var(--t2);font-size:13.5px;line-height:1.55}
+  .setrow{display:flex;align-items:center;gap:13px;padding:13px 4px;border-bottom:1px solid var(--brd);cursor:pointer}
+  .setrow:last-child{border-bottom:none}
+  .setrow .si{font-size:20px;width:26px;text-align:center}
+  .setrow .sl{flex:1;min-width:0}.setrow .sl b{font-size:14.5px;display:block}.setrow .sl span{font-size:12.5px;color:var(--t3);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .setrow .sc{color:var(--t3);font-size:20px}
+  .setrow:active{background:var(--card2)}
+  .amodal{position:fixed;inset:0;z-index:9999;background:rgba(4,8,16,.7);backdrop-filter:blur(4px);display:none;align-items:flex-end;justify-content:center}
+  .amodal.open{display:flex}
+  .amodal-box{background:var(--card);border:1px solid var(--brd2);border-radius:22px 22px 0 0;padding:22px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
+  @media(min-width:560px){.amodal{align-items:center}.amodal-box{border-radius:22px}}
+  .amh{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .amh h3{font-family:'Space Mono',monospace;font-size:16px}
+  .amx{background:transparent;border:none;color:var(--t2);font-size:20px;cursor:pointer}
+  #am-codezone{margin-top:6px}
   .center{text-align:center}.hide{display:none!important}
   footer{text-align:center;color:var(--t3);font-size:13px;padding:28px 0 40px}
 </style>
@@ -124,7 +138,7 @@
   const isAdmin=u=>u&&u.email&&u.email.toLowerCase()===ADMIN_EMAIL.toLowerCase();
   let _unsubMsgs=null,_unsubReqs=null,_unsubNews=null;
   let _clients=[]; // [{uid,label}] pour le ciblage des nouveautés
-  let _myUid=null;
+  let _myUid=null, _meDoc=null;
 
   // Catalogue des applications activables
   const APPS={
@@ -192,7 +206,7 @@
   function renderClient(user){
     _unsubReqs=fs.collection('teamop_requests').doc(user.uid).onSnapshot(snap=>{
       const d=snap.exists?snap.data():{};
-      _myUid=user.uid;
+      _myUid=user.uid; _meDoc=d;
       paintClient(user,d);
       loadNews('news-list',false);
       listenMsgs(user.uid,'client');
@@ -250,28 +264,11 @@
       </div>
 
       <div class="panel">
-        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:4px">👤 MON COMPTE</h3>
-        <p class="muted" style="margin-bottom:14px">Gérez vos informations, votre e-mail et votre mot de passe.</p>
-        <div id="acc-msg"></div>
-
-        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom</label><input id="ac-prenom" value="${esc(d.prenom||'')}" placeholder="Prénom"></div>
-        <div class="field" style="flex:1"><label>Nom</label><input id="ac-nom" value="${esc(d.nom||'')}" placeholder="Nom"></div></div>
-        <div class="field"><label>Entreprise</label><input id="ac-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
-        <button class="btn sm" onclick="accSaveProfile('${user.uid}')">Enregistrer mes infos</button>
-
-        <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
-        <div class="field"><label>Adresse e-mail</label><input id="ac-email" type="email" value="${esc(user.email||'')}" placeholder="vous@entreprise.fr"></div>
-        <div class="field"><label>Mot de passe actuel (pour confirmer)</label><input id="ac-curpass-mail" type="password" placeholder="••••••••" autocomplete="current-password"></div>
-        <button class="btn sm ghost" onclick="accChangeEmail()">Changer mon e-mail</button>
-
-        <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
-        <div class="field"><label>Mot de passe actuel</label><input id="ac-curpass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
-        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nouveau mot de passe</label><input id="ac-newpass" type="password" placeholder="8 caractères min." autocomplete="new-password"></div>
-        <div class="field" style="flex:1"><label>Confirmer</label><input id="ac-newpass2" type="password" placeholder="••••••••" autocomplete="new-password"></div></div>
-        <button class="btn sm ghost" onclick="accChangePass()">Changer mon mot de passe</button>
-
-        <div style="border-top:1px solid var(--brd);margin:18px 0 12px"></div>
-        <button class="btn sm ghost" style="color:var(--red)" onclick="accDelete()">🗑️ Supprimer mon compte</button>
+        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:12px">👤 MON COMPTE</h3>
+        <div class="setrow" onclick="acctInfo()"><span class="si">📝</span><div class="sl"><b>Mes informations</b><span>Prénom, nom, entreprise</span></div><span class="sc">›</span></div>
+        <div class="setrow" onclick="acctEmail()"><span class="si">📧</span><div class="sl"><b>Adresse e-mail</b><span>${esc(user.email||'')}</span></div><span class="sc">›</span></div>
+        <div class="setrow" onclick="acctPass()"><span class="si">🔒</span><div class="sl"><b>Mot de passe</b><span>Modifier avec code de sécurité</span></div><span class="sc">›</span></div>
+        <div class="setrow" onclick="acctDelete()"><span class="si">🗑️</span><div class="sl"><b style="color:var(--red)">Supprimer mon compte</b><span>Action définitive</span></div><span class="sc">›</span></div>
       </div>
 
       <div class="panel">
@@ -319,33 +316,83 @@
       accMsg('✅ Informations enregistrées.',true);
     }catch(e){ accMsg(e.message||'Erreur',false); }
   }
-  async function accChangeEmail(){
-    const email=($('ac-email').value||'').trim(), pass=$('ac-curpass-mail').value||'';
-    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return accMsg('Adresse e-mail invalide.',false);
-    if(!pass) return accMsg('Entrez votre mot de passe actuel pour confirmer.',false);
-    try{ await accReauth(pass); await auth.currentUser.updateEmail(email);
-      await fs.collection('teamop_requests').doc(auth.currentUser.uid).set({email,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-      $('ac-curpass-mail').value=''; accMsg('✅ E-mail mis à jour. Utilisez-le à la prochaine connexion.',true);
-    }catch(e){ accMsg(authMsg(e),false); }
-  }
-  async function accChangePass(){
-    const cur=$('ac-curpass').value||'', np=$('ac-newpass').value||'', np2=$('ac-newpass2').value||'';
-    if(!cur) return accMsg('Entrez votre mot de passe actuel.',false);
-    if(np.length<8) return accMsg('Le nouveau mot de passe doit faire au moins 8 caractères.',false);
-    if(np!==np2) return accMsg('Les deux nouveaux mots de passe ne sont pas identiques.',false);
-    try{ await accReauth(cur); await auth.currentUser.updatePassword(np);
-      $('ac-curpass').value=''; $('ac-newpass').value=''; $('ac-newpass2').value=''; accMsg('✅ Mot de passe modifié.',true);
-    }catch(e){ accMsg(authMsg(e),false); }
-  }
-  async function accDelete(){
-    if(!confirm('Supprimer définitivement votre compte TeamOP ? Cette action est irréversible.')) return;
-    const pass=prompt('Confirmez avec votre mot de passe actuel :'); if(!pass) return;
-    try{ await accReauth(pass); const uid=auth.currentUser.uid;
-      try{ await fs.collection('teamop_requests').doc(uid).delete(); }catch(_){}
-      await auth.currentUser.delete();
-      alert('Compte supprimé.');
-    }catch(e){ accMsg(authMsg(e),false); }
-  }
+  /* ── Modale compte (épuré + code de sécurité par e-mail) ── */
+  function acctModal(html){ let m=$('acct-modal'); if(!m){ m=document.createElement('div'); m.id='acct-modal'; m.className='amodal'; document.body.appendChild(m); }
+    m.innerHTML=`<div class="amodal-box">${html}</div>`; m.classList.add('open'); m.onclick=e=>{ if(e.target===m) acctClose(); }; }
+  function acctClose(){ const m=$('acct-modal'); if(m) m.classList.remove('open'); }
+  function _mrow(label,inner){ return `<div class="field"><label>${label}</label>${inner}</div>`; }
+  const ACODE={ teamId:()=>'acct-'+(_myUid||'x') };
+
+  function acctInfo(){ const d=_meDoc||{};
+    acctModal(`<div class="amh"><h3>📝 Mes informations</h3><button class="amx" onclick="acctClose()">✕</button></div>
+      <div id="am-err"></div>
+      <div style="display:flex;gap:10px">${_mrow('Prénom','<input id="am-prenom" value="'+esc(d.prenom||'')+'">')}${_mrow('Nom','<input id="am-nom" value="'+esc(d.nom||'')+'">')}</div>
+      ${_mrow('Entreprise','<input id="am-company" value="'+esc(d.company||'')+'">')}
+      <button class="btn block" onclick="acctInfoSave()">Enregistrer</button>`); }
+  async function acctInfoSave(){ const prenom=($('am-prenom').value||'').trim(),nom=($('am-nom').value||'').trim(),company=($('am-company').value||'').trim();
+    try{ await fs.collection('teamop_requests').doc(_myUid).set({prenom,nom,name:(prenom+' '+nom).trim(),company,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); acctClose(); }
+    catch(e){ $('am-err').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
+
+  function amErr(t){ const e=$('am-err'); if(e) e.innerHTML='<div class="err">'+esc(t)+'</div>'; }
+  async function _sendCode(purpose){ const email=(auth.currentUser&&auth.currentUser.email)||''; 
+    const r=await fetch('https://api.teamop.fr/api/sendcode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:ACODE.teamId(),email,purpose})});
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw {message:d.error==='email_off'?'Envoi d\'e-mail momentanément indisponible.':'Impossible d\'envoyer le code.'}; } return email; }
+  async function _checkCode(purpose,code){ const r=await fetch('https://api.teamop.fr/api/checkcode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:ACODE.teamId(),code,purpose})}); if(!r.ok){ const d=await r.json().catch(()=>({})); throw {message:d.error==='code incorrect'?'Code incorrect.':'Code expiré ou invalide.'}; } }
+
+  function acctEmail(){ const cur=(auth.currentUser&&auth.currentUser.email)||'';
+    acctModal(`<div class="amh"><h3>📧 Changer d'e-mail</h3><button class="amx" onclick="acctClose()">✕</button></div>
+      <p class="muted" style="margin-bottom:12px">Pour votre sécurité, un <b>code de confirmation</b> sera envoyé à votre adresse actuelle (<b>${esc(cur)}</b>).</p>
+      <div id="am-err"></div>
+      ${_mrow('Nouvelle adresse e-mail','<input id="am-newemail" type="email" placeholder="vous@entreprise.fr">')}
+      ${_mrow('Mot de passe actuel','<input id="am-pass" type="password" autocomplete="current-password" placeholder="••••••••">')}
+      <button class="btn block" id="am-send" onclick="acctEmailSend()">M'envoyer le code</button>
+      <div id="am-codezone"></div>`); }
+  async function acctEmailSend(){ const em=($('am-newemail').value||'').trim(),pass=$('am-pass').value||'';
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return amErr('Adresse e-mail invalide.');
+    if(!pass) return amErr('Entrez votre mot de passe actuel.');
+    try{ $('am-send').disabled=true; await accReauth(pass); await _sendCode('email');
+      $('am-codezone').innerHTML=_mrow('Code reçu par e-mail','<input id="am-code" inputmode="numeric" maxlength="6" placeholder="6 chiffres" style="letter-spacing:4px;text-align:center;font-size:18px">')+'<button class="btn block" onclick="acctEmailConfirm()">Confirmer le changement</button>';
+      $('am-send').style.display='none';
+    }catch(e){ $('am-send').disabled=false; amErr(authMsg(e)); } }
+  async function acctEmailConfirm(){ const code=($('am-code').value||'').trim(),em=($('am-newemail').value||'').trim();
+    if(code.length<6) return amErr('Entrez le code à 6 chiffres.');
+    try{ await _checkCode('email',code); await auth.currentUser.updateEmail(em);
+      await fs.collection('teamop_requests').doc(_myUid).set({email:em,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); acctClose(); alert('✅ E-mail mis à jour. Utilisez-le à la prochaine connexion.');
+    }catch(e){ amErr(authMsg(e)); } }
+
+  function acctPass(){ const cur=(auth.currentUser&&auth.currentUser.email)||'';
+    acctModal(`<div class="amh"><h3>🔒 Changer de mot de passe</h3><button class="amx" onclick="acctClose()">✕</button></div>
+      <p class="muted" style="margin-bottom:12px">Un <b>code de confirmation</b> sera envoyé à <b>${esc(cur)}</b>.</p>
+      <div id="am-err"></div>
+      ${_mrow('Mot de passe actuel','<input id="am-cur" type="password" autocomplete="current-password" placeholder="••••••••">')}
+      ${_mrow('Nouveau mot de passe','<input id="am-new" type="password" autocomplete="new-password" placeholder="8 caractères min.">')}
+      ${_mrow('Confirmer','<input id="am-new2" type="password" autocomplete="new-password" placeholder="••••••••">')}
+      <button class="btn block" id="am-send" onclick="acctPassSend()">M'envoyer le code</button>
+      <div id="am-codezone"></div>`); }
+  async function acctPassSend(){ const cur=$('am-cur').value||'',np=$('am-new').value||'',np2=$('am-new2').value||'';
+    if(!cur) return amErr('Entrez votre mot de passe actuel.');
+    if(np.length<8) return amErr('Le nouveau mot de passe doit faire au moins 8 caractères.');
+    if(np!==np2) return amErr('Les deux mots de passe ne sont pas identiques.');
+    try{ $('am-send').disabled=true; await accReauth(cur); await _sendCode('pwd');
+      $('am-codezone').innerHTML=_mrow('Code reçu par e-mail','<input id="am-code" inputmode="numeric" maxlength="6" placeholder="6 chiffres" style="letter-spacing:4px;text-align:center;font-size:18px">')+'<button class="btn block" onclick="acctPassConfirm()">Confirmer le changement</button>';
+      $('am-send').style.display='none';
+    }catch(e){ $('am-send').disabled=false; amErr(authMsg(e)); } }
+  async function acctPassConfirm(){ const code=($('am-code').value||'').trim(),np=$('am-new').value||'';
+    if(code.length<6) return amErr('Entrez le code à 6 chiffres.');
+    try{ await _checkCode('pwd',code); await auth.currentUser.updatePassword(np); acctClose(); alert('✅ Mot de passe modifié.');
+    }catch(e){ amErr(authMsg(e)); } }
+
+  function acctDelete(){ 
+    acctModal(`<div class="amh"><h3 style="color:var(--red)">🗑️ Supprimer mon compte</h3><button class="amx" onclick="acctClose()">✕</button></div>
+      <p class="muted" style="margin-bottom:12px">Cette action est <b>irréversible</b>. Confirmez avec votre mot de passe.</p>
+      <div id="am-err"></div>
+      ${_mrow('Mot de passe actuel','<input id="am-delpass" type="password" placeholder="••••••••">')}
+      <button class="btn block" style="background:var(--red);border-color:var(--red)" onclick="acctDeleteGo()">Supprimer définitivement</button>`); }
+  async function acctDeleteGo(){ const pass=$('am-delpass').value||''; if(!pass) return amErr('Entrez votre mot de passe.');
+    try{ await accReauth(pass); const uid=auth.currentUser.uid; try{ await fs.collection('teamop_requests').doc(uid).delete(); }catch(_){}
+      await auth.currentUser.delete(); acctClose(); alert('Compte supprimé.');
+    }catch(e){ amErr(authMsg(e)); } }
+
   async function accSaveBilling(uid){
     const g=id=>($(id)||{}).value||'';
     const data={adresse:g('bi-adresse').trim(),cp:g('bi-cp').trim(),ville:g('bi-ville').trim(),siret:g('bi-siret').trim(),tva:g('bi-tva').trim(),tel:g('bi-tel').trim(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
