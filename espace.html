@@ -216,6 +216,31 @@
       </div>
 
       <div class="panel">
+        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:4px">👤 MON COMPTE</h3>
+        <p class="muted" style="margin-bottom:14px">Gérez vos informations, votre e-mail et votre mot de passe.</p>
+        <div id="acc-msg"></div>
+
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom</label><input id="ac-prenom" value="${esc(d.prenom||'')}" placeholder="Prénom"></div>
+        <div class="field" style="flex:1"><label>Nom</label><input id="ac-nom" value="${esc(d.nom||'')}" placeholder="Nom"></div></div>
+        <div class="field"><label>Entreprise</label><input id="ac-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
+        <button class="btn sm" onclick="accSaveProfile('${user.uid}')">Enregistrer mes infos</button>
+
+        <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
+        <div class="field"><label>Adresse e-mail</label><input id="ac-email" type="email" value="${esc(user.email||'')}" placeholder="vous@entreprise.fr"></div>
+        <div class="field"><label>Mot de passe actuel (pour confirmer)</label><input id="ac-curpass-mail" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+        <button class="btn sm ghost" onclick="accChangeEmail()">Changer mon e-mail</button>
+
+        <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
+        <div class="field"><label>Mot de passe actuel</label><input id="ac-curpass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nouveau mot de passe</label><input id="ac-newpass" type="password" placeholder="8 caractères min." autocomplete="new-password"></div>
+        <div class="field" style="flex:1"><label>Confirmer</label><input id="ac-newpass2" type="password" placeholder="••••••••" autocomplete="new-password"></div></div>
+        <button class="btn sm ghost" onclick="accChangePass()">Changer mon mot de passe</button>
+
+        <div style="border-top:1px solid var(--brd);margin:18px 0 12px"></div>
+        <button class="btn sm ghost" style="color:var(--red)" onclick="accDelete()">🗑️ Supprimer mon compte</button>
+      </div>
+
+      <div class="panel">
         <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:12px">📰 NOUVEAUTÉS</h3>
         <div id="news-list"><p class="muted center">Chargement…</p></div>
       </div>
@@ -225,6 +250,42 @@
         <div class="msgs" id="msgs"><p class="muted center">Aucun message.</p></div>
         <div class="row"><input id="m-text" placeholder="Écrire un message…"><button class="btn sm" onclick="sendMsg('${user.uid}','client')">Envoyer</button></div>
       </div>`;
+  }
+  function accMsg(t,ok){ const el=$('acc-msg'); if(el) el.innerHTML='<div class="'+(ok?'ok':'err')+'">'+esc(t)+'</div>'; if(ok) setTimeout(()=>{ const e=$('acc-msg'); if(e) e.innerHTML=''; },4000); }
+  async function accReauth(pass){ const u=auth.currentUser; if(!u) throw {message:'Session expirée, reconnectez-vous.'};
+    const cred=firebase.auth.EmailAuthProvider.credential(u.email,pass); await u.reauthenticateWithCredential(cred); }
+  async function accSaveProfile(uid){
+    const prenom=($('ac-prenom').value||'').trim(), nom=($('ac-nom').value||'').trim(), company=($('ac-company').value||'').trim();
+    try{ await fs.collection('teamop_requests').doc(uid).set({prenom,nom,name:(prenom+' '+nom).trim(),company,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      accMsg('✅ Informations enregistrées.',true);
+    }catch(e){ accMsg(e.message||'Erreur',false); }
+  }
+  async function accChangeEmail(){
+    const email=($('ac-email').value||'').trim(), pass=$('ac-curpass-mail').value||'';
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return accMsg('Adresse e-mail invalide.',false);
+    if(!pass) return accMsg('Entrez votre mot de passe actuel pour confirmer.',false);
+    try{ await accReauth(pass); await auth.currentUser.updateEmail(email);
+      await fs.collection('teamop_requests').doc(auth.currentUser.uid).set({email,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      $('ac-curpass-mail').value=''; accMsg('✅ E-mail mis à jour. Utilisez-le à la prochaine connexion.',true);
+    }catch(e){ accMsg(authMsg(e),false); }
+  }
+  async function accChangePass(){
+    const cur=$('ac-curpass').value||'', np=$('ac-newpass').value||'', np2=$('ac-newpass2').value||'';
+    if(!cur) return accMsg('Entrez votre mot de passe actuel.',false);
+    if(np.length<8) return accMsg('Le nouveau mot de passe doit faire au moins 8 caractères.',false);
+    if(np!==np2) return accMsg('Les deux nouveaux mots de passe ne sont pas identiques.',false);
+    try{ await accReauth(cur); await auth.currentUser.updatePassword(np);
+      $('ac-curpass').value=''; $('ac-newpass').value=''; $('ac-newpass2').value=''; accMsg('✅ Mot de passe modifié.',true);
+    }catch(e){ accMsg(authMsg(e),false); }
+  }
+  async function accDelete(){
+    if(!confirm('Supprimer définitivement votre compte TeamOP ? Cette action est irréversible.')) return;
+    const pass=prompt('Confirmez avec votre mot de passe actuel :'); if(!pass) return;
+    try{ await accReauth(pass); const uid=auth.currentUser.uid;
+      try{ await fs.collection('teamop_requests').doc(uid).delete(); }catch(_){}
+      await auth.currentUser.delete();
+      alert('Compte supprimé.');
+    }catch(e){ accMsg(authMsg(e),false); }
   }
   async function sendRequest(uid){
     const app=$('r-app').value, company=($('r-company').value||'').trim(), besoin=($('r-besoin').value||'').trim();
