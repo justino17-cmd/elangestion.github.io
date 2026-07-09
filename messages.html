@@ -230,6 +230,31 @@
   function vibrateOn(){ return prefOn('vibrate',true); }
   function enterSendOn(){ return prefOn('entersend',true); }
   function notifOn(){ return prefOn('notif',true); }
+  // ---- Notifications push (serveur api.teamop.fr) : messages reçus même app fermée ----
+  const PUSH_API='https://api.teamop.fr';
+  const PUSH_VAPID='BBOBOciYMxg1WjLB2oxOgl23Ayu-DBkPnf9DhRUe660mBaEcAVvQVKlLZdWyzZbmyZlb9cjhCoPhjJolZSLvNiE';
+  function _vapidArr(k){ const p='='.repeat((4-k.length%4)%4); const b=atob((k+p).replace(/-/g,'+').replace(/_/g,'/')); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
+  function pushSupported(){ return ('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window); }
+  async function opPushSub(quiet){ try{
+    if(!pushSupported()||!ME) return false;
+    if(Notification.permission==='denied'){ if(!quiet) alert('Notifications bloquées — autorise-les dans les réglages du navigateur ou du téléphone.'); return false; }
+    if(Notification.permission!=='granted'){ const p=await Notification.requestPermission(); if(p!=='granted') return false; }
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:_vapidArr(PUSH_VAPID)});
+    await fetch(PUSH_API+'/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sub:sub.toJSON(),teamId:'opmsg-user-'+ME.uid,userId:ME.uid,userName:(USER&&USER.name)||''})});
+    try{ localStorage.setItem('opmsg_push_on','1'); }catch(e){}
+    if(!quiet) alert('Notifications activées sur cet appareil ✓');
+    return true;
+  }catch(e){ console.error('push',e); if(!quiet) alert('Activation impossible pour le moment (connexion ?).'); return false; } }
+  function opPushNotifyUsers(uids,title,body){ try{ (uids||[]).forEach(u=>{ if(!u||u===ME.uid) return;
+    fetch(PUSH_API+'/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:'opmsg-user-'+u,title:String(title||'').slice(0,120),body:String(body||'').slice(0,300),url:'/messages.html'})}).catch(()=>{}); }); }catch(e){} }
+  function opPushPropose(){ try{ if(!pushSupported()||!ME) return; if(Notification.permission!=='default') return;
+    const k='opmsg_push_ask_'+ME.uid; if(localStorage.getItem(k)) return; localStorage.setItem(k,'1');
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🔔 Notifications</h3>
+      <p class="muted" style="font-size:13.5px;line-height:1.55;margin-bottom:14px">Sois prévenu des nouveaux messages même quand OP MESSAGES est fermée.</p>
+      <button class="btn block" onclick="closeSheet();opPushSub()">Activer les notifications</button>
+      <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
+  }catch(e){} }
   function fontSize(){ return pref('fontsize','m'); }
   function applyFontSize(){ const map={s:'13.5px',m:'15px',l:'17px',xl:'19px'}; let st=$('fsStyle'); if(!st){ st=document.createElement('style'); st.id='fsStyle'; document.head.appendChild(st); } st.textContent='.m{font-size:'+(map[fontSize()]||'15px')+'}'; }
   applyFontSize();
@@ -417,6 +442,7 @@
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
     renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
+    setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') opPushSub(true); else setTimeout(opPushPropose,1500); }catch(e){} },1800);
   }
   function startSpaceListeners(){
     startPresence(); startCallListener();
@@ -1026,6 +1052,15 @@
   // Envoi centralisé : ajoute le message ET met à jour l'aperçu du canal (dernier message + heure)
   async function addMsgTo(chId,data){ const ref=await chanCol().doc(chId).collection('messages').add(data);
     try{ await chanCol().doc(chId).set({lastMsg:(previewOf(data)||'').slice(0,80),lastMsgAt:Date.now(),lastMsgFrom:ME.uid,lastMsgName:USER.name||'',msgCount:firebase.firestore.FieldValue.increment(1)},{merge:true}); }catch(e){}
+    try{ // push aux destinataires (membres du canal, ou toute l'équipe pour le canal Général)
+      const cd=await chanCol().doc(chId).get(); const c=cd.data()||{};
+      let dest=(Array.isArray(c.members)&&c.members.length)?c.members:_members.map(m=>m.uid);
+      dest=[...new Set(dest)].filter(u=>u&&u!==ME.uid);
+      const who=(USER&&USER.name)||'Message';
+      const title='💬 '+(c.type==='dm'?who:((c.name||'Général')+(MODE==='company'&&COMP&&COMP.name?' · '+COMP.name:'')));
+      const body=(c.type==='dm'?'':(who+' : '))+(previewOf(data)||'').slice(0,140);
+      opPushNotifyUsers(dest,title,body);
+    }catch(e){}
     return ref; }
   function addMsg(data){ const e=getEph(_curCh.id); if(e && !data.exp) data.exp=Date.now()+e; return addMsgTo(_curCh.id,data); }
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
@@ -1394,7 +1429,7 @@
       <button class="btn block" style="background:rgba(248,113,113,.15);color:#fca5a5" onclick="logout()">Déconnexion</button>
       <p class="muted center" style="margin-top:16px;font-size:11px">OP MESSAGES · v${APP_VER}</p>
       </div>`; }
-  const APP_VER='255';
+  const APP_VER='256';
   function setRow(ic,title,sub,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${ic}</div><div class="info"><div class="nm">${esc(title)}</div><div class="ds">${esc(sub)}</div></div><div class="chev">›</div></div>`; }
   // ---- Feuilles de réglages (façon WhatsApp) ----
   function toggleLine(label,on,fn){ return `<div class="row" onclick="${fn}" style="cursor:pointer"><div class="info"><div class="nm">${esc(label)}</div></div><div style="width:44px;height:26px;border-radius:20px;background:${on?'#22c55e':'var(--brd2)'};position:relative;transition:.15s;flex-shrink:0"><span style="position:absolute;top:3px;${on?'right:3px':'left:3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s"></span></div></div>`; }
@@ -1421,7 +1456,9 @@
     ${toggleLine('Son des messages',soundOn(),"togglePref('sound',true);sheetNotif()")}
     ${toggleLine('Vibration',vibrateOn(),"togglePref('vibrate',true);sheetNotif()")}
     ${toggleLine('Aperçus dans l’app',notifOn(),"togglePref('notif',true);sheetNotif()")}
-    <p class="muted" style="font-size:12px;margin-top:10px">Les notifications quand l'app est fermée arriveront avec la prochaine mise à jour (serveur).</p>`); }
+    <div style="height:10px"></div>
+    <button class="btn block" onclick="opPushSub()">${(typeof Notification!=='undefined'&&Notification.permission==='granted'&&localStorage.getItem('opmsg_push_on'))?'✓ Notifications app fermée : activées':'🔔 Activer les notifications (app fermée)'}</button>
+    <p class="muted" style="font-size:12px;margin-top:10px">Tu seras prévenu des nouveaux messages même quand OP MESSAGES est fermée — sur iPhone, installe d'abord l'app sur l'écran d'accueil.</p>`); }
   function sheetAccount(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">👤 Compte</h3>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();showView('prof')">Changer le numéro / le nom</button>
