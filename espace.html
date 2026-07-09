@@ -111,6 +111,8 @@
   .sec-b{max-height:0;overflow:hidden;transition:max-height .3s ease}
   .sec.open .sec-b{max-height:1400px}
   .sec-in{padding:2px 16px 18px}
+  .subhead{display:flex;align-items:center;gap:12px;margin:4px 0 16px}
+  .subhead h2{font-family:'Space Mono',monospace;font-size:19px;letter-spacing:.5px}
   .center{text-align:center}.hide{display:none!important}
   footer{text-align:center;color:var(--t3);font-size:13px;padding:28px 0 40px}
 </style>
@@ -151,7 +153,7 @@
   const isAdmin=u=>u&&u.email&&u.email.toLowerCase()===ADMIN_EMAIL.toLowerCase();
   let _unsubMsgs=null,_unsubReqs=null,_unsubNews=null;
   let _clients=[]; // [{uid,label}] pour le ciblage des nouveautés
-  let _myUid=null, _meDoc=null;
+  let _myUid=null, _meDoc=null, _meUser=null, _curView='menu';
 
   // Catalogue des applications activables
   const APPS={
@@ -221,71 +223,87 @@
       const d=snap.exists?snap.data():{};
       _myUid=user.uid; _meDoc=d;
       paintClient(user,d);
-      loadNews('news-list',false);
-      listenMsgs(user.uid,'client');
     }, ()=>{ paintClient(user,{}); });
   }
-  function paintClient(user,d){
+  function paintClient(user,d){ _meUser=user; _meDoc=d;
+    if(_curView && _curView!=='menu') return;   // ne pas quitter une sous-page lors d'une mise à jour
+    renderMenu();
+  }
+  function _cliBadge(d){ return d.status==='nouveau'?'<span class="badge b-new">Demande envoyée</span>':d.status==='encours'?'<span class="badge b-prog">Demande en cours</span>':d.status==='fourni'?'<span class="badge b-done">Accès activé</span>':''; }
+  function renderMenu(){ _curView='menu'; const user=_meUser,d=_meDoc||{}; if(!user) return;
     const apps=Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[];
     const prenom=d.prenom||((d.name||user.email||'').split(' ')[0])||'';
-    const stBadge = d.status==='nouveau'?'<span class="badge b-new">Demande envoyée</span>'
-                  : d.status==='encours'?'<span class="badge b-prog">Demande en cours</span>'
-                  : d.status==='fourni'?'<span class="badge b-done">Accès activé</span>':'';
     const avaL=((prenom[0]||user.email||'?')[0]||'?').toUpperCase();
     const docs=Array.isArray(d.docs)?d.docs:[];
     const planTxt=(d.plan||'Découverte')+' · '+(d.planStatus==='suspendu'?'Suspendu':(d.planStatus==='essai'?'Essai':'Actif'));
-
-    // helper accordéon
-    const SEC=(id,ic,title,sub,badge,body)=>`<div class="sec" id="sec-${id}"><div class="sec-h" onclick="toggleSec('${id}')"><span class="sec-i">${ic}</span><div class="sec-l"><b>${title}${badge||''}</b><span>${sub}</span></div><span class="sec-c">›</span></div><div class="sec-b"><div class="sec-in">${body}</div></div></div>`;
-
-    // corps de chaque section
-    const bApps = apps.length ? apps.map(k=>{ const a=APPS[k]; return `<a class="appc" href="${a.href}" onclick="try{localStorage.setItem('teamop_app','${a.href}')}catch(e){}"><img src="${a.ic}" alt="${esc(a.name)}"><div class="an"><h4>${esc(a.name)}</h4><p>${esc(a.desc)}</p></div><span class="openb" style="background:${a.btn}">Ouvrir →</span></a>`; }).join('')
-      : `<p class="muted" style="line-height:1.6">⚪ Aucune application activée pour l'instant.<br>Envoie ta demande dans « Demander un accès » — dès validation, tes applications apparaîtront ici.</p>`;
-    const bAbo = `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-size:17px;font-weight:800">${esc(d.plan||'Découverte')}</div><div class="muted">${d.planStatus==='suspendu'?'Suspendu':(d.planStatus==='essai'?"Période d'essai":'Actif')}</div></div><span class="badge ${d.planStatus==='suspendu'?'b-prog':'b-done'}">${d.planStatus==='suspendu'?'⏸ Suspendu':'● Actif'}</span></div><p class="muted" style="margin-top:10px;font-size:12.5px">Pour faire évoluer votre offre, contactez-nous via le support ou à contact@teamop.fr.</p>`;
-    const bDocs = docs.length?docs.map(doc=>`<a class="docr" href="${esc(doc.url||'#')}" target="_blank" rel="noopener"><span style="font-size:20px">${esc(doc.ic||'📄')}</span><div style="flex:1;min-width:0"><b style="font-size:14px">${esc(doc.name||'Document')}</b><span class="muted" style="display:block">${esc(doc.date||'')}</span></div><span style="color:var(--op-l);font-size:13px;font-weight:700">Ouvrir ↗</span></a>`).join(''):`<p class="muted">Aucun document pour l'instant. Vos <b>contrats et factures d'abonnement TeamOP</b> apparaîtront ici.</p>`;
-    const bReq = `<div id="req-msg"></div><div class="field"><label>Application</label><select id="r-app"><option>ELAN GESTION</option><option>OP MESSAGES</option><option>Les deux (ELAN GESTION + OP MESSAGES)</option></select></div><div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div><div class="field"><label>Votre besoin</label><textarea id="r-besoin" placeholder="Ce que vous voulez faire (nombre d'utilisateurs, activité…)">${esc(d.besoin||'')}</textarea></div><button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`;
-    const bInfo = `<div id="info-msg"></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom</label><input id="in-prenom" value="${esc(d.prenom||'')}"></div><div class="field" style="flex:1"><label>Nom</label><input id="in-nom" value="${esc(d.nom||'')}"></div></div><div class="field"><label>Entreprise</label><input id="in-company" value="${esc(d.company||'')}"></div><button class="btn sm" onclick="infoSave('${user.uid}')">Enregistrer</button>`;
-    const bBill = `<div id="bill-msg"></div><div class="field"><label>Adresse</label><input id="bi-adresse" value="${esc(d.adresse||'')}" placeholder="N° et rue"></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Code postal</label><input id="bi-cp" value="${esc(d.cp||'')}" placeholder="75000"></div><div class="field" style="flex:2"><label>Ville</label><input id="bi-ville" value="${esc(d.ville||'')}"></div></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>SIRET</label><input id="bi-siret" value="${esc(d.siret||'')}"></div><div class="field" style="flex:1"><label>N° TVA</label><input id="bi-tva" value="${esc(d.tva||'')}"></div></div><div class="field"><label>Téléphone</label><input id="bi-tel" value="${esc(d.tel||'')}"></div><button class="btn sm" onclick="accSaveBilling('${user.uid}')">Enregistrer</button>`;
-    const bEmail = `<p class="muted" style="margin-bottom:10px">Un <b>code de sécurité</b> sera envoyé à votre adresse actuelle.</p><div id="em-err"></div><div class="field"><label>Nouvelle adresse e-mail</label><input id="em-new" type="email" placeholder="vous@entreprise.fr"></div><div class="field"><label>Mot de passe actuel</label><input id="em-pass" type="password" autocomplete="current-password"></div><button class="btn sm block" id="em-send" onclick="emSend()">M'envoyer le code</button><div id="em-code"></div>`;
-    const bPass = `<p class="muted" style="margin-bottom:10px">Un <b>code de sécurité</b> sera envoyé à votre e-mail.</p><div id="pw-err"></div><div class="field"><label>Mot de passe actuel</label><input id="pw-cur" type="password" autocomplete="current-password"></div><div class="field"><label>Nouveau mot de passe</label><input id="pw-new" type="password" placeholder="8 caractères min." autocomplete="new-password"></div><div class="field"><label>Confirmer</label><input id="pw-new2" type="password" autocomplete="new-password"></div><button class="btn sm block" id="pw-send" onclick="pwSend()">M'envoyer le code</button><div id="pw-code"></div>`;
-    const bNotif = `<p class="muted" style="margin-bottom:12px">Soyez prévenu des nouveautés, réponses et documents — même navigateur fermé.</p><button class="btn sm" id="cli-push" onclick="cliPushSub()">${(typeof Notification!=='undefined'&&Notification.permission==='granted')?'✓ Activées sur cet appareil':'Activer les notifications'}</button>`;
-    const bFaq = [['Comment activer une application ?','Envoyez une demande dans « Demander un accès ». Dès validation, l\'application apparaît dans « Mes applications ».'],['Mes données sont-elles sécurisées ?','Oui : chiffrement de bout en bout (AES-256) et espace totalement isolé par entreprise.'],['Comment ajouter mes collègues ?','Depuis l\'application (Administration → Utilisateurs), créez leurs comptes et réglez leurs permissions.'],['Comment changer mon offre ?','Écrivez-nous via le support ou à contact@teamop.fr.']].map(f=>`<div class="faq" onclick="event.stopPropagation();this.classList.toggle('open')"><div class="faq-q">${esc(f[0])}<span class="faq-c">›</span></div><div class="faq-a"><p>${esc(f[1])}</p></div></div>`).join('');
-    const bSupport = `<p class="muted" style="margin-bottom:12px">Une question ? Écrivez-nous, nous répondons directement ici.</p><div class="msgs" id="msgs"><p class="muted center">Aucun message.</p></div><div class="row"><input id="m-text" placeholder="Écrire un message…"><button class="btn sm" onclick="sendMsg('${user.uid}','client')">Envoyer</button></div>`;
-    const bDel = `<div id="del-err"></div><p class="muted" style="margin-bottom:12px">Cette action est <b>irréversible</b>. Confirmez avec votre mot de passe.</p><div class="field"><label>Mot de passe actuel</label><input id="del-pass" type="password"></div><button class="btn sm block" style="background:var(--red);border-color:var(--red)" onclick="delGo()">Supprimer définitivement</button>`;
-
+    const ROW=(v,ic,title,sub,badge)=>`<div class="setrow" onclick="openView('${v}')"><span class="si">${ic}</span><div class="sl"><b>${title}${badge||''}</b><span>${sub}</span></div><span class="sc">›</span></div>`;
     $('space').innerHTML=`
-      <div class="hero-cli"><div class="cli-ava">${avaL}</div><div style="flex:1;min-width:0"><div class="hi">Bonjour ${esc(prenom||'👋')} 👋</div><div class="hs">${esc(d.company||'Ton espace TeamOP')} ${stBadge}</div></div></div>
-      ${(()=>{ const steps=[['Compte créé',true],['Profil complété',!!(d.prenom&&d.nom&&d.company)],['Accès demandé',d.status==='nouveau'||d.status==='encours'||d.status==='fourni'||(Array.isArray(d.apps)&&d.apps.length>0)],['Application activée',Array.isArray(d.apps)&&d.apps.length>0]]; const done=steps.filter(x=>x[1]).length; if(done>=4) return '';
+      <div class="hero-cli"><div class="cli-ava">${avaL}</div><div style="flex:1;min-width:0"><div class="hi">Bonjour ${esc(prenom||'👋')} 👋</div><div class="hs">${esc(d.company||'Ton espace TeamOP')} ${_cliBadge(d)}</div></div></div>
+      ${(()=>{ const steps=[['Compte créé',true],['Profil complété',!!(d.prenom&&d.nom&&d.company)],['Accès demandé',d.status==='nouveau'||d.status==='encours'||d.status==='fourni'||(apps.length>0)],['Application activée',apps.length>0]]; const done=steps.filter(x=>x[1]).length; if(done>=4) return '';
         return `<div class="panel" style="padding:16px 18px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px"><b style="font-size:14px">🚀 Prise en main</b><span class="muted">${done}/4 · ${Math.round(done/4*100)}%</span></div><div class="prog"><div class="prog-b" style="width:${done/4*100}%"></div></div></div>`; })()}
 
       <div class="grp2">Mon activité</div>
       <div class="acard">
-        ${SEC('apps','📱','Mes applications',apps.length?'Ouvrir vos applications':'Aucune application activée',apps.length?`<span class="badge b-done" style="margin-left:6px">${apps.length} active${apps.length>1?'s':''}</span>`:'',bApps)}
-        ${SEC('abo','💼','Mon abonnement',esc(planTxt),'',bAbo)}
-        ${SEC('docs','📄','Mes documents',docs.length?docs.length+' document(s)':'Contrats et factures TeamOP','',bDocs)}
-        ${SEC('req','➕','Demander un accès','Activer une nouvelle application','',bReq)}
+        ${ROW('apps','📱','Mes applications',apps.length?'Ouvrir vos applications':'Aucune application activée',apps.length?`<span class="badge b-done" style="margin-left:6px">${apps.length}</span>`:'')}
+        ${ROW('abo','💼','Mon abonnement',esc(planTxt),'')}
+        ${ROW('docs','📄','Mes documents',docs.length?docs.length+' document(s)':'Contrats et factures TeamOP','')}
       </div>
 
       <div class="grp2">Mon compte</div>
       <div class="acard">
-        ${SEC('info','📝','Mes informations','Prénom, nom, entreprise','',bInfo)}
-        ${SEC('bill','🏢','Coordonnées de facturation','Adresse, SIRET, TVA, téléphone','',bBill)}
-        ${SEC('email','📧','Adresse e-mail',esc(user.email||''),'',bEmail)}
-        ${SEC('pass','🔒','Mot de passe','Modifier avec code de sécurité','',bPass)}
-        ${SEC('notif','🔔','Notifications','Nouveautés, réponses, documents','',bNotif)}
+        ${ROW('info','📝','Mes informations','Prénom, nom, entreprise','')}
+        ${ROW('bill','🏢','Coordonnées de facturation','Adresse, SIRET, TVA, téléphone','')}
+        ${ROW('email','📧','Adresse e-mail',esc(user.email||''),'')}
+        ${ROW('pass','🔒','Mot de passe','Modifier avec code de sécurité','')}
+        ${ROW('notif','🔔','Notifications','Nouveautés, réponses, documents','')}
       </div>
 
       <div class="grp2">Infos &amp; aide</div>
       <div class="acard">
-        ${SEC('news','📰','Nouveautés','Annonces et mises à jour TeamOP','',`<div id="news-list"><p class="muted center">Chargement…</p></div>`)}
-        ${SEC('faq','❓','Aide &amp; FAQ','Questions fréquentes','',bFaq)}
-        ${SEC('support','💬','Support','Écrire à l\'équipe TeamOP','',bSupport)}
-        ${SEC('del','🗑️','<span style="color:var(--red)">Supprimer mon compte</span>','Action définitive','',bDel)}
+        ${ROW('news','📰','Nouveautés','Annonces et mises à jour TeamOP','')}
+        ${ROW('faq','❓','Aide &amp; FAQ','Questions fréquentes','')}
+        ${ROW('support','💬','Support','Écrire à l\'équipe TeamOP','')}
+        ${ROW('del','🗑️','<span style="color:var(--red)">Supprimer mon compte</span>','Action définitive','')}
       </div>`;
+    window.scrollTo(0,0);
   }
-  function toggleSec(id){ const el=$('sec-'+id); if(!el) return; el.classList.toggle('open');
-    if(el.classList.contains('open')){ if(id==='news') loadNews('news-list',false); if(id==='support') listenMsgs(_myUid,'client'); } }
-  async function accReauth(pass){ const u=auth.currentUser; if(!u) throw {message:'Session expirée, reconnectez-vous.'};
+
+  function openView(v){ _curView=v; const user=_meUser,d=_meDoc||{}; if(!user) return;
+    const apps=Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[];
+    const docs=Array.isArray(d.docs)?d.docs:[];
+    const T={apps:'Mes applications',abo:'Mon abonnement',docs:'Mes documents',info:'Mes informations',bill:'Coordonnées de facturation',email:'Adresse e-mail',pass:'Mot de passe',notif:'Notifications',news:'Nouveautés',faq:'Aide & FAQ',support:'Support',del:'Supprimer mon compte'};
+    let body='';
+    if(v==='apps'){
+      body = (apps.length ? apps.map(k=>{ const a=APPS[k]; return `<a class="appc" href="${a.href}" onclick="try{localStorage.setItem('teamop_app','${a.href}')}catch(e){}"><img src="${a.ic}" alt="${esc(a.name)}"><div class="an"><h4>${esc(a.name)}</h4><p>${esc(a.desc)}</p></div><span class="openb" style="background:${a.btn}">Ouvrir →</span></a>`; }).join('')
+        : `<p class="muted" style="line-height:1.6">⚪ Aucune application activée pour l'instant.<br>Fais ta demande ci-dessous — dès validation, tes applications apparaîtront ici.</p>`)
+        + `<div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
+        <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">➕ Demander un accès</h4>
+        <p class="muted" style="margin-bottom:14px">Choisis l'application, décris ton besoin — nous validons et l'application s'active ici. Tu peux aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
+        <div id="req-msg"></div>
+        <div class="field"><label>Application</label><select id="r-app"><option>ELAN GESTION</option><option>OP MESSAGES</option><option>Les deux (ELAN GESTION + OP MESSAGES)</option></select></div>
+        <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
+        <div class="field"><label>Votre besoin</label><textarea id="r-besoin" placeholder="Ce que vous voulez faire (nombre d'utilisateurs, activité…)">${esc(d.besoin||'')}</textarea></div>
+        <button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`;
+    }
+    else if(v==='abo'){ body=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-size:19px;font-weight:800">${esc(d.plan||'Découverte')}</div><div class="muted">${d.planStatus==='suspendu'?'Suspendu':(d.planStatus==='essai'?"Période d'essai":'Actif')}</div></div><span class="badge ${d.planStatus==='suspendu'?'b-prog':'b-done'}">${d.planStatus==='suspendu'?'⏸ Suspendu':'● Actif'}</span></div><p class="muted" style="margin-top:14px;line-height:1.6">Votre abonnement TeamOP vous donne accès à vos applications. Pour faire évoluer votre offre, écrivez-nous via le <b>Support</b> ou à <b>contact@teamop.fr</b>.</p>`; }
+    else if(v==='docs'){ body = docs.length?docs.map(doc=>`<a class="docr" href="${esc(doc.url||'#')}" target="_blank" rel="noopener"><span style="font-size:20px">${esc(doc.ic||'📄')}</span><div style="flex:1;min-width:0"><b style="font-size:14px">${esc(doc.name||'Document')}</b><span class="muted" style="display:block">${esc(doc.date||'')}</span></div><span style="color:var(--op-l);font-size:13px;font-weight:700">Ouvrir ↗</span></a>`).join(''):`<p class="muted">Aucun document pour l'instant. Vos <b>contrats et factures d'abonnement TeamOP</b> apparaîtront ici.</p>`; }
+    else if(v==='info'){ body=`<div id="info-msg"></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom</label><input id="in-prenom" value="${esc(d.prenom||'')}"></div><div class="field" style="flex:1"><label>Nom</label><input id="in-nom" value="${esc(d.nom||'')}"></div></div><div class="field"><label>Entreprise</label><input id="in-company" value="${esc(d.company||'')}"></div><button class="btn sm" onclick="infoSave('${user.uid}')">Enregistrer</button>`; }
+    else if(v==='bill'){ body=`<p class="muted" style="margin-bottom:12px">Utilisées pour vos documents et factures d'abonnement.</p><div id="bill-msg"></div><div class="field"><label>Adresse</label><input id="bi-adresse" value="${esc(d.adresse||'')}" placeholder="N° et rue"></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Code postal</label><input id="bi-cp" value="${esc(d.cp||'')}" placeholder="75000"></div><div class="field" style="flex:2"><label>Ville</label><input id="bi-ville" value="${esc(d.ville||'')}"></div></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>SIRET</label><input id="bi-siret" value="${esc(d.siret||'')}"></div><div class="field" style="flex:1"><label>N° TVA</label><input id="bi-tva" value="${esc(d.tva||'')}"></div></div><div class="field"><label>Téléphone</label><input id="bi-tel" value="${esc(d.tel||'')}"></div><button class="btn sm" onclick="accSaveBilling('${user.uid}')">Enregistrer</button>`; }
+    else if(v==='email'){ body=`<p class="muted" style="margin-bottom:6px">Adresse actuelle : <b>${esc(user.email||'')}</b></p><p class="muted" style="margin-bottom:12px">Un <b>code de sécurité</b> sera envoyé à votre adresse actuelle pour confirmer.</p><div id="em-err"></div><div class="field"><label>Nouvelle adresse e-mail</label><input id="em-new" type="email" placeholder="vous@entreprise.fr"></div><div class="field"><label>Mot de passe actuel</label><input id="em-pass" type="password" autocomplete="current-password"></div><button class="btn sm block" id="em-send" onclick="emSend()">M'envoyer le code</button><div id="em-code"></div>`; }
+    else if(v==='pass'){ body=`<p class="muted" style="margin-bottom:12px">Un <b>code de sécurité</b> sera envoyé à votre e-mail pour confirmer.</p><div id="pw-err"></div><div class="field"><label>Mot de passe actuel</label><input id="pw-cur" type="password" autocomplete="current-password"></div><div class="field"><label>Nouveau mot de passe</label><input id="pw-new" type="password" placeholder="8 caractères min." autocomplete="new-password"></div><div class="field"><label>Confirmer</label><input id="pw-new2" type="password" autocomplete="new-password"></div><button class="btn sm block" id="pw-send" onclick="pwSend()">M'envoyer le code</button><div id="pw-code"></div>`; }
+    else if(v==='notif'){ body=`<p class="muted" style="margin-bottom:12px">Soyez prévenu des nouveautés, réponses et documents — même navigateur fermé.</p><button class="btn sm" id="cli-push" onclick="cliPushSub()">${(typeof Notification!=='undefined'&&Notification.permission==='granted')?'✓ Activées sur cet appareil':'Activer les notifications'}</button>`; }
+    else if(v==='news'){ body=`<div id="news-list"><p class="muted center">Chargement…</p></div>`; }
+    else if(v==='faq'){ body=[['Comment activer une application ?','Faites une demande dans « Mes applications → Demander un accès ». Dès validation, elle apparaît dans « Mes applications ».'],['Mes données sont-elles sécurisées ?','Oui : chiffrement de bout en bout (AES-256) et espace totalement isolé par entreprise.'],['Comment ajouter mes collègues ?','Depuis l\'application (Administration → Utilisateurs), créez leurs comptes et réglez leurs permissions.'],['Comment changer mon offre ?','Écrivez-nous via le Support ou à contact@teamop.fr.']].map(f=>`<div class="faq" onclick="this.classList.toggle('open')"><div class="faq-q">${esc(f[0])}<span class="faq-c">›</span></div><div class="faq-a"><p>${esc(f[1])}</p></div></div>`).join(''); }
+    else if(v==='support'){ body=`<p class="muted" style="margin-bottom:12px">Une question ? Écrivez-nous, nous répondons directement ici.</p><div class="msgs" id="msgs"><p class="muted center">Aucun message.</p></div><div class="row"><input id="m-text" placeholder="Écrire un message…"><button class="btn sm" onclick="sendMsg('${user.uid}','client')">Envoyer</button></div>`; }
+    else if(v==='del'){ body=`<div id="del-err"></div><p class="muted" style="margin-bottom:12px">Cette action est <b>irréversible</b>. Confirmez avec votre mot de passe.</p><div class="field"><label>Mot de passe actuel</label><input id="del-pass" type="password"></div><button class="btn sm block" style="background:var(--red);border-color:var(--red)" onclick="delGo()">Supprimer définitivement</button>`; }
+
+    $('space').innerHTML=`<div class="subhead"><button class="btn ghost sm" onclick="renderMenu()">← Retour</button><h2>${esc(T[v]||'')}</h2></div><div class="panel">${body}</div>`;
+    window.scrollTo(0,0);
+    if(v==='news') loadNews('news-list',false);
+    if(v==='support') listenMsgs(user.uid,'client');
+  }
+
+    async function accReauth(pass){ const u=auth.currentUser; if(!u) throw {message:'Session expirée, reconnectez-vous.'};
     const cred=firebase.auth.EmailAuthProvider.credential(u.email,pass); await u.reauthenticateWithCredential(cred); }
   function _err(id,t){ const e=$(id); if(e) e.innerHTML='<div class="err">'+esc(t)+'</div>'; }
   function _ok(id,t){ const e=$(id); if(e){ e.innerHTML='<div class="ok">'+esc(t)+'</div>'; setTimeout(()=>{ const x=$(id); if(x) x.innerHTML=''; },4000); } }
