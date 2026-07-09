@@ -57,6 +57,20 @@
   .msg .code{margin-top:8px;background:#0a1424;border:1px solid var(--brd2);border-radius:9px;padding:8px;font-family:'Space Mono',monospace;font-size:11px;word-break:break-all;color:var(--op-l)}
   .row{display:flex;gap:8px}.row input{flex:1}
   a.link{color:var(--op-l);cursor:pointer;text-decoration:underline;font-size:13.5px}
+  .appc{display:flex;align-items:center;gap:14px;background:var(--card2);border:1px solid var(--brd);border-radius:16px;padding:14px;margin-bottom:10px;text-decoration:none;color:inherit;transition:border-color .15s}
+  .appc:hover{border-color:var(--brd2)}
+  .appc img{width:46px;height:46px;border-radius:12px;border:1px solid var(--brd2);object-fit:cover;flex-shrink:0}
+  .appc .an{flex:1;min-width:0}
+  .appc h4{font-family:'Space Mono',monospace;font-size:14.5px;letter-spacing:.5px}
+  .appc p{font-size:12.5px;color:var(--t3);line-height:1.4}
+  .openb{flex-shrink:0;font-weight:800;font-size:13px;padding:9px 16px;border-radius:100px;color:#04140a}
+  .newsit{display:flex;gap:11px;background:var(--card2);border:1px solid var(--brd);border-radius:14px;padding:12px 14px;margin-bottom:9px;align-items:flex-start}
+  .newsit b{font-size:14px;display:block}
+  .newsit .tx{font-size:12.5px;color:var(--t2);line-height:1.5;display:block;margin:2px 0}
+  .tagb{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:100px;margin-left:7px;vertical-align:1px}
+  .tg-nouveau{background:rgba(74,222,128,.16);color:#4ade80}.tg-beta{background:rgba(245,158,11,.16);color:#fbbf24}.tg-officiel{background:rgba(91,143,214,.2);color:#8fb6e8}.tg-info{background:rgba(255,255,255,.08);color:var(--t2)}
+  .hello{margin:4px 0 18px}.hello .hi{font-size:22px;font-weight:800}.hello .hs{font-size:13px;color:var(--t3);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--t2);cursor:pointer}
   .center{text-align:center}.hide{display:none!important}
   footer{text-align:center;color:var(--t3);font-size:13px;padding:28px 0 40px}
 </style>
@@ -73,8 +87,8 @@
     </div>
   </nav>
 
-  <h1>Espace client</h1>
-  <p class="sub">Créez votre compte, demandez l'accès à une application et suivez votre demande.</p>
+  <h1>Mon espace</h1>
+  <p class="sub">Vos applications, vos demandes d'accès et les nouveautés TeamOP.</p>
 
   <div id="space"><div class="panel center"><p class="muted">Chargement…</p></div></div>
 
@@ -95,77 +109,119 @@
   const $=id=>document.getElementById(id);
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const isAdmin=u=>u&&u.email&&u.email.toLowerCase()===ADMIN_EMAIL.toLowerCase();
-  let _unsubMsgs=null,_unsubReqs=null;
+  let _unsubMsgs=null,_unsubReqs=null,_unsubNews=null;
+
+  // Catalogue des applications activables
+  const APPS={
+    elan:{ name:'ELAN GESTION', desc:'Gestion terrain : interventions, stock & box, équipe.', href:'app.html', ic:'icons/logo-day.png', btn:'var(--elan)' },
+    opmsg:{ name:'OP MESSAGES', desc:"Messagerie d'équipe : chat temps réel, groupes, photos.", href:'messages.html', ic:'icons/opmsg-512.png', btn:'var(--op)' }
+  };
+  const NEWS_TAGS={ nouveau:['Nouveau','tg-nouveau'], beta:['Bêta — à tester','tg-beta'], officiel:['Version officielle','tg-officiel'], info:['Info','tg-info'] };
+
   function genSpace(name){ const slug=(name||'espace').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20)||'espace'; const r=crypto.getRandomValues(new Uint8Array(4)); const rnd=Array.from(r).map(b=>b.toString(16).padStart(2,'0')).join(''); const kb=crypto.getRandomValues(new Uint8Array(24)); let ks=''; kb.forEach(b=>ks+=String.fromCharCode(b)); const k=btoa(ks).replace(/[^A-Za-z0-9]/g,'').slice(0,28); const t=slug+'-'+rnd; const code=btoa(unescape(encodeURIComponent(JSON.stringify({t,k,n:name||''})))).replace(/=+$/,''); return {t,k,code,name:name||''}; }
 
   auth.onAuthStateChanged(user=>{
-    if(_unsubMsgs){_unsubMsgs();_unsubMsgs=null;} if(_unsubReqs){_unsubReqs();_unsubReqs=null;}
+    if(_unsubMsgs){_unsubMsgs();_unsubMsgs=null;} if(_unsubReqs){_unsubReqs();_unsubReqs=null;} if(_unsubNews){_unsubNews();_unsubNews=null;}
     if(!user){ $('u-email').classList.add('hide'); $('btn-logout').classList.add('hide'); renderAuth(); return; }
     $('u-email').textContent=(isAdmin(user)?'👑 ':'')+user.email; $('u-email').classList.remove('hide'); $('btn-logout').classList.remove('hide');
     if(isAdmin(user)) renderAdmin(user); else renderClient(user);
   });
   function opLogout(){ auth.signOut(); }
 
+  /* ═══════════ CONNEXION / CRÉATION DE COMPTE ═══════════ */
   function renderAuth(){
     $('space').innerHTML=`<div class="panel">
       <div class="tabs"><div class="tab active" id="tab-login" onclick="authTab('login')">Se connecter</div><div class="tab" id="tab-signup" onclick="authTab('signup')">Créer un compte</div></div>
       <div id="auth-err"></div>
       <div id="signup-fields" class="hide">
-        <div class="field"><label>Nom complet</label><input id="a-name" placeholder="Votre nom"></div>
-        <div class="field"><label>Entreprise</label><input id="a-company" placeholder="Nom de votre entreprise"></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom</label><input id="a-prenom" placeholder="Prénom" autocomplete="given-name"></div>
+        <div class="field" style="flex:1"><label>Nom</label><input id="a-nom" placeholder="Nom" autocomplete="family-name"></div></div>
+        <div class="field"><label>Entreprise</label><input id="a-company" placeholder="Nom de votre entreprise" autocomplete="organization"></div>
       </div>
       <div class="field"><label>E-mail</label><input id="a-email" type="email" placeholder="vous@entreprise.fr" autocomplete="email"></div>
       <div class="field"><label>Mot de passe</label><input id="a-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+      <div id="signup-fields2" class="hide"><div class="field"><label>Confirmer le mot de passe</label><input id="a-pass2" type="password" placeholder="••••••••" autocomplete="new-password"></div></div>
       <button class="btn block" id="a-submit" onclick="authSubmit()">Se connecter</button>
       <p class="muted center" style="margin-top:14px">« Se connecter » = vous avez déjà un compte. « Créer un compte » = nouveau client.</p>
     </div>`;
   }
   let _authMode='login';
-  function authTab(m){ _authMode=m; $('tab-login').classList.toggle('active',m==='login'); $('tab-signup').classList.toggle('active',m==='signup'); $('signup-fields').classList.toggle('hide',m!=='signup'); $('a-submit').textContent=m==='signup'?'Créer mon compte':'Se connecter'; $('auth-err').innerHTML=''; }
+  function authTab(m){ _authMode=m; $('tab-login').classList.toggle('active',m==='login'); $('tab-signup').classList.toggle('active',m==='signup'); $('signup-fields').classList.toggle('hide',m!=='signup'); $('signup-fields2').classList.toggle('hide',m!=='signup'); $('a-submit').textContent=m==='signup'?'Créer mon compte':'Se connecter'; $('auth-err').innerHTML=''; }
   async function authSubmit(){
     const email=($('a-email').value||'').trim(), pass=$('a-pass').value||'';
-    if(!email||!pass){ $('auth-err').innerHTML='<div class="err">Renseignez e-mail et mot de passe.</div>'; return; }
+    const err=t=>{ $('auth-err').innerHTML='<div class="err">'+esc(t)+'</div>'; $('a-submit').disabled=false; };
+    if(!email||!pass) return err('Renseignez e-mail et mot de passe.');
     $('a-submit').disabled=true;
     try{
-      if(_authMode==='signup'){ if(pass.length<6) throw {message:'Le mot de passe doit faire au moins 6 caractères.'};
+      if(_authMode==='signup'){
+        const prenom=($('a-prenom').value||'').trim(), nom=($('a-nom').value||'').trim(), company=($('a-company').value||'').trim(), pass2=$('a-pass2').value||'';
+        if(!prenom||!nom) return err('Renseignez votre prénom et votre nom.');
+        if(!company) return err("Renseignez le nom de votre entreprise.");
+        if(pass.length<8) return err('Le mot de passe doit faire au moins 8 caractères.');
+        if(pass!==pass2) return err('Les deux mots de passe ne sont pas identiques.');
         const cred=await auth.createUserWithEmailAndPassword(email,pass);
-        await fs.collection('teamop_requests').doc(cred.user.uid).set({uid:cred.user.uid,email,name:($('a-name').value||'').trim(),company:($('a-company').value||'').trim(),app:'',besoin:'',status:'compte',createdAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await fs.collection('teamop_requests').doc(cred.user.uid).set({uid:cred.user.uid,email,prenom,nom,name:(prenom+' '+nom).trim(),company,apps:[],app:'',besoin:'',status:'compte',createdAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
       } else { await auth.signInWithEmailAndPassword(email,pass); }
-    }catch(e){ $('auth-err').innerHTML='<div class="err">'+esc(authMsg(e))+'</div>'; $('a-submit').disabled=false; }
+    }catch(e){ err(authMsg(e)); }
   }
   function authMsg(e){ const c=(e&&e.code)||'';
     if(c==='auth/email-already-in-use') return 'Cet e-mail a déjà un compte. Connectez-vous.';
     if(c==='auth/invalid-email') return 'E-mail invalide.';
     if(c==='auth/wrong-password'||c==='auth/invalid-credential') return 'E-mail ou mot de passe incorrect.';
     if(c==='auth/user-not-found') return 'Aucun compte avec cet e-mail.';
-    if(c==='auth/weak-password') return 'Mot de passe trop faible (min. 6 caractères).';
+    if(c==='auth/weak-password') return 'Mot de passe trop faible (min. 8 caractères).';
     return (e&&e.message)||'Erreur. Réessayez.';
   }
+
+  /* ═══════════ MON ESPACE (client) ═══════════ */
   function renderClient(user){
-    fs.collection('teamop_requests').doc(user.uid).get().then(snap=>{ const d=snap.exists?snap.data():{};
-      $('space').innerHTML=`
-        <div class="panel">
-          <h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:4px">🚀 Vos applications</h3>
-          <p class="muted" style="margin-bottom:14px">Vous êtes connecté — ouvrez directement votre application :</p>
-          <a href="messages.html" class="btn block" style="text-decoration:none;text-align:center;margin-bottom:10px">💬 Ouvrir OP MESSAGES</a>
-          <a href="app.html" class="btn block" style="text-decoration:none;text-align:center;background:#22B14C">🌿 Ouvrir ELAN GESTION</a>
-        </div>
-        <div class="panel">
-          <h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:4px">Demander un accès</h3>
-          <p class="muted" style="margin-bottom:14px">Uniquement pour une <b>nouvelle</b> application : décrivez votre besoin, nous vous répondrons avec un accès. Vous pouvez aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
-          <div id="req-msg"></div>
-          <div class="field"><label>Application</label><select id="r-app"><option>ELAN GESTION</option><option>OP MESSAGES</option><option>Les deux (ELAN GESTION + OP MESSAGES)</option></select></div>
-          <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
-          <div class="field"><label>Votre besoin</label><textarea id="r-besoin" placeholder="Ce que vous voulez faire (nombre d'utilisateurs, activité…)">${esc(d.besoin||'')}</textarea></div>
-          <button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>
-        </div>
-        <div class="panel">
-          <h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">💬 Messagerie</h3>
-          <div class="msgs" id="msgs"><p class="muted center">Aucun message.</p></div>
-          <div class="row"><input id="m-text" placeholder="Écrire un message…"><button class="btn sm" onclick="sendMsg('${user.uid}','client')">Envoyer</button></div>
-        </div>`;
+    _unsubReqs=fs.collection('teamop_requests').doc(user.uid).onSnapshot(snap=>{
+      const d=snap.exists?snap.data():{};
+      paintClient(user,d);
+      loadNews('news-list',false);
       listenMsgs(user.uid,'client');
-    });
+    }, ()=>{ paintClient(user,{}); });
+  }
+  function paintClient(user,d){
+    const apps=Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[];
+    const prenom=d.prenom||((d.name||user.email||'').split(' ')[0])||'';
+    const stBadge = d.status==='nouveau'?'<span class="badge b-new">Demande envoyée</span>'
+                  : d.status==='encours'?'<span class="badge b-prog">Demande en cours</span>'
+                  : d.status==='fourni'?'<span class="badge b-done">Accès activé</span>':'';
+    $('space').innerHTML=`
+      <div class="hello"><div class="hi">Bonjour ${esc(prenom)} 👋</div><div class="hs">${esc(d.company||'Ton espace TeamOP')} ${stBadge}</div></div>
+
+      <div class="panel">
+        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:12px">MES APPLICATIONS</h3>
+        ${apps.length ? apps.map(k=>{ const a=APPS[k]; return `
+          <a class="appc" href="${a.href}" onclick="try{localStorage.setItem('teamop_app','${a.href}')}catch(e){}">
+            <img src="${a.ic}" alt="${esc(a.name)}">
+            <div class="an"><h4>${esc(a.name)}</h4><p>${esc(a.desc)}</p></div>
+            <span class="openb" style="background:${a.btn}">Ouvrir →</span>
+          </a>`; }).join('')
+        : `<p class="muted" style="line-height:1.6">⚪ Aucune application activée pour l'instant.<br>Envoie ta demande ci-dessous — dès validation, tes applications apparaîtront <b>ici</b> et tu recevras un message.</p>`}
+      </div>
+
+      <div class="panel">
+        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:4px">DEMANDER UN ACCÈS</h3>
+        <p class="muted" style="margin-bottom:14px">Choisis l'application, décris ton besoin — nous validons et l'application s'active dans ton espace. Tu peux aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
+        <div id="req-msg"></div>
+        <div class="field"><label>Application</label><select id="r-app"><option>ELAN GESTION</option><option>OP MESSAGES</option><option>Les deux (ELAN GESTION + OP MESSAGES)</option></select></div>
+        <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
+        <div class="field"><label>Votre besoin</label><textarea id="r-besoin" placeholder="Ce que vous voulez faire (nombre d'utilisateurs, activité…)">${esc(d.besoin||'')}</textarea></div>
+        <button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>
+      </div>
+
+      <div class="panel">
+        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:12px">📰 NOUVEAUTÉS</h3>
+        <div id="news-list"><p class="muted center">Chargement…</p></div>
+      </div>
+
+      <div class="panel">
+        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:10px">💬 MESSAGERIE</h3>
+        <div class="msgs" id="msgs"><p class="muted center">Aucun message.</p></div>
+        <div class="row"><input id="m-text" placeholder="Écrire un message…"><button class="btn sm" onclick="sendMsg('${user.uid}','client')">Envoyer</button></div>
+      </div>`;
   }
   async function sendRequest(uid){
     const app=$('r-app').value, company=($('r-company').value||'').trim(), besoin=($('r-besoin').value||'').trim();
@@ -176,18 +232,66 @@
       $('req-msg').innerHTML='<div class="ok">✅ Demande envoyée ! Réponse dans la messagerie.</div>';
     }catch(e){ $('req-msg').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
+
+  /* ═══════════ NOUVEAUTÉS ═══════════ */
+  function newsRow(id,n,admin){
+    const t=NEWS_TAGS[n.tag]||NEWS_TAGS.info;
+    const dt=(n.ts&&n.ts.toDate)?n.ts.toDate().toLocaleDateString('fr-FR',{day:'numeric',month:'long'}):'';
+    return `<div class="newsit"><div style="flex:1;min-width:0"><b>${esc(n.title||'')}<span class="tagb ${t[1]}">${t[0]}</span></b><span class="tx">${esc(n.text||'')}</span>${dt?`<span style="font-size:11px;color:var(--t3)">${dt}</span>`:''}</div>${admin?`<button class="btn sm ghost" style="color:var(--red);flex-shrink:0" onclick="delNews('${id}')">✕</button>`:''}</div>`;
+  }
+  function loadNews(elId,admin){
+    fs.collection('teamop_news').orderBy('ts','desc').limit(10).get().then(qs=>{
+      const el=$(elId); if(!el) return;
+      if(qs.empty){ el.innerHTML='<p class="muted center">Aucune nouveauté pour le moment.</p>'; return; }
+      let h=''; qs.forEach(doc=>{ h+=newsRow(doc.id,doc.data(),admin); }); el.innerHTML=h;
+    }).catch(()=>{ const el=$(elId); if(el) el.innerHTML='<p class="muted center">Nouveautés indisponibles.</p>'; });
+  }
+  async function publishNews(){
+    const title=($('n-title').value||'').trim(), text=($('n-text').value||'').trim(), tag=$('n-tag').value;
+    if(!title){ alert('Donne un titre.'); return; }
+    try{ await fs.collection('teamop_news').add({title,text,tag,ts:firebase.firestore.FieldValue.serverTimestamp()});
+      $('n-title').value=''; $('n-text').value=''; loadNews('adm-news',true);
+    }catch(e){ alert('Erreur : '+(e.message||e)); }
+  }
+  async function delNews(id){ if(!confirm('Supprimer cette nouveauté ?')) return; try{ await fs.collection('teamop_news').doc(id).delete(); loadNews('adm-news',true); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+
+  /* ═══════════ ADMIN ═══════════ */
   function renderAdmin(user){
-    $('space').innerHTML=`<div class="panel"><h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">👑 Demandes clients</h3><div id="admin-list"><p class="muted">Chargement…</p></div></div>`;
+    $('space').innerHTML=`
+      <div class="panel">
+        <h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:10px">📣 PUBLIER UNE NOUVEAUTÉ</h3>
+        <div class="field"><label>Titre</label><input id="n-title" placeholder="Ex. Notifications sur OP MESSAGES"></div>
+        <div class="field"><label>Type</label><select id="n-tag"><option value="nouveau">Nouveau</option><option value="beta">Bêta — à tester</option><option value="officiel">Version officielle</option><option value="info">Info</option></select></div>
+        <div class="field"><label>Texte</label><textarea id="n-text" placeholder="Description courte de la nouveauté…"></textarea></div>
+        <button class="btn" onclick="publishNews()">Publier</button>
+        <div style="margin-top:16px" id="adm-news"><p class="muted">Chargement…</p></div>
+      </div>
+      <div class="panel"><h3 style="font-family:'Space Mono',monospace;font-size:15px;letter-spacing:1px;margin-bottom:10px">👑 DEMANDES CLIENTS</h3><div id="admin-list"><p class="muted">Chargement…</p></div></div>`;
+    loadNews('adm-news',true);
     _unsubReqs=fs.collection('teamop_requests').orderBy('createdAt','desc').onSnapshot(qs=>{
       const list=$('admin-list'); if(!list) return; if(qs.empty){ list.innerHTML='<p class="muted">Aucune demande.</p>'; return; }
-      let html=''; qs.forEach(doc=>{ const d=doc.data();
-        const b=d.status==='fourni'?'b-done':(d.status==='nouveau'?'b-new':'b-prog'); const bl=d.status==='fourni'?'Accès fourni':(d.status==='nouveau'?'Nouveau':(d.status==='compte'?'Compte créé':'En cours'));
-        html+=`<div class="req"><div style="display:flex;justify-content:space-between;gap:8px"><div><h4>${esc(d.company||d.email||'—')}</h4><div class="muted">${esc(d.email||'')}${d.app?' · '+esc(d.app):''}</div></div><span class="badge ${b}">${bl}</span></div>
+      let html=''; qs.forEach(doc=>{ const d=doc.data(); const apps=Array.isArray(d.apps)?d.apps:[];
+        const b=d.status==='fourni'?'b-done':(d.status==='nouveau'?'b-new':'b-prog'); const bl=d.status==='fourni'?'Accès activé':(d.status==='nouveau'?'Nouvelle demande':(d.status==='compte'?'Compte créé':'En cours'));
+        html+=`<div class="req"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><h4>${esc(d.company||d.email||'—')}</h4><div class="muted">${esc(d.name||'')} · ${esc(d.email||'')}${d.app?' · souhaite : '+esc(d.app):''}</div></div><span class="badge ${b}">${bl}</span></div>
           ${d.besoin?`<p style="font-size:13.5px;color:var(--t2);margin-top:8px">${esc(d.besoin)}</p>`:''}
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn sm ghost" onclick="openThread('${doc.id}','${esc((d.company||d.email||'').replace(/'/g,''))}')">Messagerie</button><button class="btn sm green" onclick="provision('${doc.id}','${esc((d.company||'Entreprise').replace(/'/g,''))}')">Créer l'espace & envoyer l'accès</button></div></div>`;
+          <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--brd)">
+            <label class="chk"><input type="checkbox" id="gr-elan-${doc.id}" ${apps.includes('elan')?'checked':''}> 🌿 ELAN GESTION</label>
+            <label class="chk"><input type="checkbox" id="gr-opmsg-${doc.id}" ${apps.includes('opmsg')?'checked':''}> 💬 OP MESSAGES</label>
+            <button class="btn sm green" onclick="grantApps('${doc.id}')">✅ Activer les accès</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm ghost" onclick="openThread('${doc.id}','${esc((d.company||d.email||'').replace(/'/g,''))}')">💬 Messagerie</button><button class="btn sm ghost" onclick="provision('${doc.id}','${esc((d.company||'Entreprise').replace(/'/g,''))}')">🏢 Espace ELAN (code équipe)</button></div>
+        </div>`;
       });
       list.innerHTML=html;
-    }, err=>{ $('admin-list').innerHTML='<div class="err">Accès refusé. Règles publiées ? ('+esc(err.message)+')</div>'; });
+    }, err=>{ $('admin-list').innerHTML='<div class="err">Accès refusé ('+esc(err.message)+')</div>'; });
+  }
+  async function grantApps(uid){
+    const apps=[]; if($('gr-elan-'+uid)&&$('gr-elan-'+uid).checked) apps.push('elan'); if($('gr-opmsg-'+uid)&&$('gr-opmsg-'+uid).checked) apps.push('opmsg');
+    try{
+      await fs.collection('teamop_requests').doc(uid).set({apps,status:apps.length?'fourni':'compte',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      if(apps.length) await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:'🎉 Vos applications sont activées : '+apps.map(k=>APPS[k].name).join(' + ')+'. Elles vous attendent dans « Mes applications » en haut de votre espace !',ts:firebase.firestore.FieldValue.serverTimestamp()});
+      alert(apps.length?'Accès activés ✅ ('+apps.map(k=>APPS[k].name).join(', ')+')':'Accès retirés (aucune application cochée)');
+    }catch(e){ alert('Erreur : '+(e.message||e)); }
   }
   async function provision(uid, company){
     if(!confirm('Créer un espace ELAN GESTION pour « '+company+' » et envoyer l\'accès ?')) return;
