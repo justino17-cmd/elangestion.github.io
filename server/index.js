@@ -38,7 +38,7 @@ if (config.smtp && config.smtp.host) {
 }
 
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+app.use(express.json({ limit: '6mb' })); // large : les e-mails peuvent porter un PDF en pièce jointe (base64)
 
 // CORS — uniquement le site TeamOP
 const ORIGINS = config.origins || ['https://teamop.fr', 'https://www.teamop.fr'];
@@ -93,7 +93,7 @@ app.post('/api/checkcode', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/health', (req, res) => res.json({ ok: true, subs: Object.keys(subs).length, email: !!mailer }));
+app.get('/health', (req, res) => res.json({ ok: true, subs: Object.keys(subs).length, email: !!mailer, atts: true }));
 app.get('/api/vapid', (req, res) => res.json({ key: config.vapidPublicKey }));
 
 // abonnement push d'un appareil
@@ -140,7 +140,7 @@ app.post('/api/notify', async (req, res) => {
 // jamais via l'adresse TeamOP (réservée aux codes de sécurité)
 const mailQuota = new Map();
 app.post('/api/sendmail', async (req, res) => {
-  const { teamId, to, subject, text, smtp, brand } = req.body || {};
+  const { teamId, to, subject, text, smtp, brand, atts } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
   if (!Object.values(subs).some(s => s.teamId === teamId)) return res.status(403).json({ error: 'équipe inconnue' });
@@ -149,6 +149,18 @@ app.post('/api/sendmail', async (req, res) => {
   if (q.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' });
   q.count++; mailQuota.set(teamId, q);
   const msg = { to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) };
+  // Pièces jointes (ex : bon de commande en PDF) — max 3 fichiers, ~4 Mo au total (base64)
+  if (Array.isArray(atts) && atts.length) {
+    let total = 0; const list = [];
+    for (const a of atts.slice(0, 3)) {
+      const content = String((a && a.content) || '');
+      if (!content || !/^[A-Za-z0-9+/=]+$/.test(content)) continue;
+      total += content.length;
+      list.push({ filename: (String((a && a.filename) || 'document.pdf').replace(/[^\w. ()-]/g, '').slice(0, 80)) || 'document.pdf', content, encoding: 'base64' });
+    }
+    if (total > 5500000) return res.status(413).json({ error: 'pièces jointes trop volumineuses (max ~4 Mo)' });
+    if (list.length) msg.attachments = list;
+  }
   try {
     if (smtp && smtp.user && smtp.pass && smtp.host) {
       // Mode avancé : boîte de l'entreprise / de l'utilisateur
