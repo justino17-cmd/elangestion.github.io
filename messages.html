@@ -230,6 +230,20 @@
   function vibrateOn(){ return prefOn('vibrate',true); }
   function enterSendOn(){ return prefOn('entersend',true); }
   function notifOn(){ return prefOn('notif',true); }
+  // ---- Vigie : toute erreur JavaScript est signalée au serveur TeamOP (anonyme, par espace) ----
+  (function(){ const sent={};
+    function rep(msg,src,line,stack){ try{
+      msg=String(msg||''); src=String(src||'');
+      if(!msg) return;
+      if(/ResizeObserver|^Script error|Failed to fetch|NetworkError|Load failed|The network connection was lost|annulé/i.test(msg)) return;
+      if(/extension:\/\//.test(src)) return;
+      const k=msg.slice(0,120); if(sent[k]) return; sent[k]=1;
+      let team='perso'; try{ team=(window.COMP&&window.COMP.id)||'perso'; }catch(_){}
+      fetch('https://api.teamop.fr/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:team,app:'opmessages',version:'',msg:msg.slice(0,300),src:src.slice(0,200),line:line||0,stack:String(stack||'').slice(0,800),ua:navigator.userAgent.slice(0,150)})}).catch(()=>{});
+    }catch(_){}}
+    window.addEventListener('error',e=>rep(e.message,e.filename,e.lineno,e.error&&e.error.stack));
+    window.addEventListener('unhandledrejection',e=>{ const r=e.reason||{}; rep('Promesse rejetée : '+(r.message||String(r)),'',0,r.stack); });
+  })();
   // ---- Notifications push (serveur api.teamop.fr) : messages reçus même app fermée ----
   const PUSH_API='https://api.teamop.fr';
   const PUSH_VAPID='BBOBOciYMxg1WjLB2oxOgl23Ayu-DBkPnf9DhRUe660mBaEcAVvQVKlLZdWyzZbmyZlb9cjhCoPhjJolZSLvNiE';
