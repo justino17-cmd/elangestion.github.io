@@ -93,7 +93,49 @@ app.post('/api/checkcode', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/health', (req, res) => res.json({ ok: true, subs: Object.keys(subs).length, email: !!mailer, atts: true }));
+app.get('/health', (req, res) => res.json({ ok: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length }));
+
+// ── Vigie : les applications signalent leurs erreurs JavaScript (par espace entreprise, anonyme)
+//    → e-mail d'alerte immédiat à l'admin de la plateforme, journal consultable, compteur dans /health
+const BUGS_PATH = path.join(DATA_DIR, 'bugs.jsonl');
+let bugTimes = [];
+try { // recharge les dernières 24 h au démarrage
+  const tail = fs.readFileSync(BUGS_PATH, 'utf8').trim().split('\n').slice(-500);
+  const lim = Date.now() - 86400000;
+  tail.forEach(l => { try { const e = JSON.parse(l); if (e.ts > lim) bugTimes.push(e.ts); } catch (e) {} });
+} catch (e) {}
+const bugSeen = new Map();   // hash d'erreur -> date du dernier e-mail (anti-spam)
+const bugQuota = new Map();  // espace -> quota horaire
+app.post('/api/bug', (req, res) => {
+  const { teamId, app: appName, version, msg, src, line, stack, ua } = req.body || {};
+  if (!msg) return res.status(400).json({ error: 'msg requis' });
+  const team = String(teamId || 'inconnu').slice(0, 60);
+  const q = bugQuota.get(team) || { count: 0, reset: Date.now() + 3600000 };
+  if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
+  if (q.count >= 20) return res.json({ ok: true, muted: true });
+  q.count++; bugQuota.set(team, q);
+  const entry = { ts: Date.now(), team, app: String(appName || '?').slice(0, 20), version: String(version || '?').slice(0, 12), msg: String(msg).slice(0, 300), src: String(src || '').slice(0, 200), line: parseInt(line) || 0, stack: String(stack || '').slice(0, 800), ua: String(ua || '').slice(0, 150) };
+  try { fs.appendFileSync(BUGS_PATH, JSON.stringify(entry) + '\n'); } catch (e) {}
+  bugTimes.push(entry.ts); if (bugTimes.length > 2000) bugTimes = bugTimes.slice(-1000);
+  const hash = entry.app + '|' + entry.version + '|' + entry.msg.slice(0, 120);
+  if (mailer && Date.now() - (bugSeen.get(hash) || 0) > 6 * 3600000) {
+    bugSeen.set(hash, Date.now());
+    const to = config.alertEmail || config.contactEmail || 'contact@teamop.fr';
+    mailer.sendMail({
+      from: config.smtp.from || config.smtp.user, to,
+      subject: '🐛 Bug ' + entry.app.toUpperCase() + (entry.version !== '?' ? ' v' + entry.version : '') + ' — espace « ' + team + ' »',
+      text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + entry.app + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».'
+    }).catch(e => console.error('bug mail:', e.message));
+  }
+  res.json({ ok: true });
+});
+// journal des bugs (protégé par la clé API du serveur)
+app.get('/api/bugs', (req, res) => {
+  if ((req.query.key || '') !== config.apiKey) return res.status(403).json({ error: 'clé invalide' });
+  let list = [];
+  try { list = fs.readFileSync(BUGS_PATH, 'utf8').trim().split('\n').slice(-200).map(l => JSON.parse(l)).reverse(); } catch (e) {}
+  res.json({ bugs: list });
+});
 app.get('/api/vapid', (req, res) => res.json({ key: config.vapidPublicKey }));
 
 // abonnement push d'un appareil

@@ -52,6 +52,7 @@ function get(url) {
     if (!j.ok) problems.push('api.teamop.fr : réponse anormale (ok=' + j.ok + ')');
     if (!j.email) problems.push('api.teamop.fr : envoi d\'e-mails désactivé (email:false) — codes de sécurité HS');
     if (!j.atts) problems.push('api.teamop.fr : pièces jointes désactivées (atts:false) — bons de commande sans PDF');
+    if (typeof j.bugs1h === 'number' && j.bugs1h > 0) problems.push(j.bugs1h + ' erreur(s) signalée(s) par les applications des entreprises dans la dernière heure (vigie) — voir l\'e-mail d\'alerte et corriger au plus vite');
   } catch (e) { problems.push('api.teamop.fr/health : injoignable — ' + e.message); }
 
   if (problems.length) {
