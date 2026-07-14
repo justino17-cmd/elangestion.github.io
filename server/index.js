@@ -93,7 +93,8 @@ app.post('/api/checkcode', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/health', (req, res) => res.json({ ok: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length }));
+let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
+app.get('/health', (req, res) => res.json({ ok: true, v: 3, subs: Object.keys(subs).length, email: !!mailer, atts: true, bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
 
 // ── Vigie : les applications signalent leurs erreurs JavaScript (par espace entreprise, anonyme)
 //    → e-mail d'alerte immédiat à l'admin de la plateforme, journal consultable, compteur dans /health
@@ -192,12 +193,12 @@ app.post('/api/sendmail', async (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
     const qi = mailQuota.get('ip:' + ip) || { count: 0, reset: Date.now() + 3600000 };
     if (Date.now() > qi.reset) { qi.count = 0; qi.reset = Date.now() + 3600000; }
-    if (qi.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h) — réessaie dans une heure' });
+    if (qi.count >= 30) { lastRefus = { ts: Date.now(), raison: 'quota IP (espace sans notifications)' }; return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h) — réessaie dans une heure' }); }
     qi.count++; mailQuota.set('ip:' + ip, qi);
   } else {
     const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
     if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
-    if (q.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' });
+    if (q.count >= 30) { lastRefus = { ts: Date.now(), raison: 'quota équipe (30/h)' }; return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' }); }
     q.count++; mailQuota.set(teamId, q);
   }
   const msg = { to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) };
@@ -229,7 +230,7 @@ app.post('/api/sendmail', async (req, res) => {
       await mailer.sendMail({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
     }
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
 });
 
 // envoi d'e-mail (rapports, avis de passage) — nécessite la config smtp
