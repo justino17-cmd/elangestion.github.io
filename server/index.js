@@ -94,7 +94,7 @@ app.post('/api/checkcode', (req, res) => {
 });
 
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
-app.get('/health', (req, res) => res.json({ ok: true, v: 3, subs: Object.keys(subs).length, email: !!mailer, atts: true, bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
+app.get('/health', (req, res) => res.json({ ok: true, v: 4, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
 
 // ── Vigie : les applications signalent leurs erreurs JavaScript (par espace entreprise, anonyme)
 //    → e-mail d'alerte immédiat à l'admin de la plateforme, journal consultable, compteur dans /health
@@ -129,6 +129,63 @@ app.post('/api/bug', (req, res) => {
     }).catch(e => console.error('bug mail:', e.message));
   }
   res.json({ ok: true });
+});
+// ── 📥 Boîte Commandes intégrée : les réponses des fournisseurs arrivent DANS l'application ──
+//    Les bons partent avec Reply-To = la boîte commandes ; le serveur la relève toutes les 2 min,
+//    rattache chaque réponse au bon (n° BC-… dans l'objet/le texte) et pousse une notification à l'équipe.
+const REPLIES_PATH = path.join(DATA_DIR, 'replies.jsonl');
+const SENTMAP_PATH = path.join(DATA_DIR, 'sentmap.jsonl');
+let sentMap = [];
+try { sentMap = fs.readFileSync(SENTMAP_PATH, 'utf8').trim().split('\n').map(l => JSON.parse(l)).slice(-2000); } catch (e) {}
+function rememberSent(teamId, bonNum, to) {
+  const e = { ts: Date.now(), teamId: String(teamId).slice(0, 80), bonNum: String(bonNum).slice(0, 30).toUpperCase(), to: String(to || '').toLowerCase().slice(0, 120) };
+  sentMap.push(e); if (sentMap.length > 3000) sentMap = sentMap.slice(-2000);
+  try { fs.appendFileSync(SENTMAP_PATH, JSON.stringify(e) + '\n'); } catch (_) {}
+}
+let boiteBusy = false;
+async function releveBoite() {
+  if (!config.imap || !config.imap.user || !config.imap.pass || boiteBusy) return;
+  boiteBusy = true; let client;
+  try {
+    const { ImapFlow } = require('imapflow');
+    client = new ImapFlow({ host: config.imap.host || 'ssl0.ovh.net', port: config.imap.port || 993, secure: true, auth: { user: config.imap.user, pass: config.imap.pass }, logger: false });
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      const nouveaux = [];
+      for await (const msg of client.fetch({ seen: false }, { envelope: true, source: true })) nouveaux.push(msg);
+      for (const msg of nouveaux) {
+        let text = '';
+        try { const { simpleParser } = require('mailparser'); const p = await simpleParser(msg.source); text = String(p.text || '').slice(0, 2000); } catch (e) {}
+        const env = msg.envelope || {}; const from = ((env.from || [])[0] || {});
+        const fromAddr = String(from.address || '').toLowerCase();
+        const subj = String(env.subject || '');
+        const m = (subj + ' ' + text).match(/BC-\d{4}-\d{2,4}/i);
+        const bonNum = m ? m[0].toUpperCase() : '';
+        let map = bonNum ? sentMap.slice().reverse().find(x => x.bonNum === bonNum) : null;
+        if (!map) map = sentMap.slice().reverse().find(x => x.to === fromAddr);
+        const entry = { ts: Date.now(), teamId: map ? map.teamId : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text };
+        try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); } catch (_) {}
+        try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {}
+        if (entry.teamId) {
+          const payload = JSON.stringify({ title: '📥 Réponse fournisseur' + (bonNum ? ' — ' + bonNum : ''), body: ((entry.fromName || fromAddr) + ' : ' + subj).slice(0, 240), url: '/app.html#v=bons' });
+          const targets = Object.values(subs).filter(s => s.teamId === entry.teamId);
+          for (const t of targets) { try { await webpush.sendNotification(t.sub, payload); } catch (e) { if (e.statusCode === 404 || e.statusCode === 410) { delete subs[t.sub.endpoint]; saveSubs(); } } }
+        }
+      }
+    } finally { lock.release(); }
+    await client.logout();
+  } catch (e) { console.error('releve boite:', e.message); try { if (client) client.close(); } catch (_) {} }
+  boiteBusy = false;
+}
+setInterval(() => { releveBoite().catch(() => {}); }, 120000);
+setTimeout(() => { releveBoite().catch(() => {}); }, 8000);
+// réponses d'une équipe (les 100 dernières)
+app.get('/api/replies', (req, res) => {
+  const teamId = String(req.query.teamId || ''); if (!teamId) return res.status(400).json({ error: 'teamId requis' });
+  let list = [];
+  try { list = fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.teamId === teamId).slice(-100).reverse(); } catch (e) {}
+  res.json({ replies: list });
 });
 // journal des bugs (protégé par la clé API du serveur)
 app.get('/api/bugs', (req, res) => {
@@ -183,7 +240,7 @@ app.post('/api/notify', async (req, res) => {
 // jamais via l'adresse TeamOP (réservée aux codes de sécurité)
 const mailQuota = new Map();
 app.post('/api/sendmail', async (req, res) => {
-  const { teamId, to, subject, text, smtp, brand, atts } = req.body || {};
+  const { teamId, to, subject, text, smtp, brand, atts, meta } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
   const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
@@ -229,6 +286,7 @@ app.post('/api/sendmail', async (req, res) => {
       const addr = (config.smtp.from || config.smtp.user).match(/<([^>]+)>/) ? (config.smtp.from || config.smtp.user).match(/<([^>]+)>/)[1] : (config.smtp.user);
       await mailer.sendMail({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
     }
+    if (meta && meta.bonNum) rememberSent(teamId, meta.bonNum, to);   // pour rattacher la future réponse du fournisseur
     res.json({ ok: true });
   } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
 });
