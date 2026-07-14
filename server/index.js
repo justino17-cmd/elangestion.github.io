@@ -192,7 +192,7 @@ app.post('/api/sendmail', async (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
     const qi = mailQuota.get('ip:' + ip) || { count: 0, reset: Date.now() + 3600000 };
     if (Date.now() > qi.reset) { qi.count = 0; qi.reset = Date.now() + 3600000; }
-    if (qi.count >= 10) return res.status(429).json({ error: 'quota horaire atteint — active les notifications dans l\'app pour un quota complet' });
+    if (qi.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h) — réessaie dans une heure' });
     qi.count++; mailQuota.set('ip:' + ip, qi);
   } else {
     const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
