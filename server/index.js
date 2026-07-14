@@ -185,11 +185,21 @@ app.post('/api/sendmail', async (req, res) => {
   const { teamId, to, subject, text, smtp, brand, atts } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
-  if (!Object.values(subs).some(s => s.teamId === teamId)) return res.status(403).json({ error: 'équipe inconnue' });
-  const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
-  if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
-  if (q.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' });
-  q.count++; mailQuota.set(teamId, q);
+  const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
+  if (!teamConnue) {
+    // Espace sans appareil abonné aux notifications : envoi autorisé quand même,
+    // mais quota serré par adresse IP (anti-abus). Notifications activées = quota complet.
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
+    const qi = mailQuota.get('ip:' + ip) || { count: 0, reset: Date.now() + 3600000 };
+    if (Date.now() > qi.reset) { qi.count = 0; qi.reset = Date.now() + 3600000; }
+    if (qi.count >= 10) return res.status(429).json({ error: 'quota horaire atteint — active les notifications dans l\'app pour un quota complet' });
+    qi.count++; mailQuota.set('ip:' + ip, qi);
+  } else {
+    const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
+    if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
+    if (q.count >= 30) return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' });
+    q.count++; mailQuota.set(teamId, q);
+  }
   const msg = { to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) };
   // Pièces jointes (ex : bon de commande en PDF) — max 3 fichiers, ~4 Mo au total (base64)
   if (Array.isArray(atts) && atts.length) {
