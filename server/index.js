@@ -142,13 +142,65 @@ function rememberSent(teamId, bonNum, to) {
   sentMap.push(e); if (sentMap.length > 3000) sentMap = sentMap.slice(-2000);
   try { fs.appendFileSync(SENTMAP_PATH, JSON.stringify(e) + '\n'); } catch (_) {}
 }
-let boiteBusy = false;
-async function releveBoite() {
-  if (!config.imap || !config.imap.user || !config.imap.pass || boiteBusy) return;
-  boiteBusy = true; let client;
+// ── Boîtes mail connectées (plusieurs par équipe, relevées par le serveur) ──
+const MAILBOX_PATH = path.join(DATA_DIR, 'mailboxes.json');
+let mailboxes = {};   // clé "boxId" -> { id, teamId, email, pass, name, imapHost, imapPort, smtpHost, smtpPort }
+try { mailboxes = JSON.parse(fs.readFileSync(MAILBOX_PATH, 'utf8')); } catch (e) {}
+// migration éventuelle depuis l'ancien format "teamId|userId"
+for (const k of Object.keys(mailboxes)) { const b = mailboxes[k]; if (!b.id) { b.id = 'mb' + Math.random().toString(36).slice(2, 9); mailboxes[b.id] = b; delete mailboxes[k]; } }
+function saveMailboxes() { try { fs.writeFileSync(MAILBOX_PATH, JSON.stringify(mailboxes)); } catch (e) {} }
+// Détection automatique des serveurs selon le domaine
+function mailServers(email) {
+  const dom = String(email || '').split('@')[1] || '';
+  const P = { host: 'ssl0.ovh.net', imap: 993, smtp: 465 };
+  if (/gmail\.com|googlemail\.com/i.test(dom)) return { imapHost: 'imap.gmail.com', imapPort: 993, smtpHost: 'smtp.gmail.com', smtpPort: 465 };
+  if (/outlook|hotmail|live\.|msn\.com/i.test(dom)) return { imapHost: 'outlook.office365.com', imapPort: 993, smtpHost: 'smtp.office365.com', smtpPort: 587 };
+  if (/orange\.fr|wanadoo/i.test(dom)) return { imapHost: 'imap.orange.fr', imapPort: 993, smtpHost: 'smtp.orange.fr', smtpPort: 465 };
+  if (/free\.fr/i.test(dom)) return { imapHost: 'imap.free.fr', imapPort: 993, smtpHost: 'smtp.free.fr', smtpPort: 465 };
+  if (/sfr\.fr|neuf\.fr/i.test(dom)) return { imapHost: 'imap.sfr.fr', imapPort: 993, smtpHost: 'smtp.sfr.fr', smtpPort: 465 };
+  if (/yahoo\./i.test(dom)) return { imapHost: 'imap.mail.yahoo.com', imapPort: 993, smtpHost: 'smtp.mail.yahoo.com', smtpPort: 465 };
+  return { imapHost: P.host, imapPort: P.imap, smtpHost: 'ssl0.ovh.net', smtpPort: 465 };   // OVH & domaines pro par défaut
+}
+// Connecter / tester une boîte (une équipe peut en connecter plusieurs)
+app.post('/api/mailbox/connect', async (req, res) => {
+  const { teamId, email, pass, name } = req.body || {};
+  if (!teamId || !email || !pass) return res.status(400).json({ error: 'champs requis manquants' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email))) return res.status(400).json({ error: 'adresse invalide' });
+  const srv = mailServers(email);
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({ host: srv.smtpHost, port: srv.smtpPort, secure: srv.smtpPort === 465, auth: { user: email, pass } });
+    await t.verify();
+  } catch (e) { return res.status(400).json({ error: 'Connexion envoi (SMTP) refusée : ' + String(e.message || e).slice(0, 140) + '. Pour Gmail/Outlook, utilise un « mot de passe d\'application ».' }); }
   try {
     const { ImapFlow } = require('imapflow');
-    client = new ImapFlow({ host: config.imap.host || 'ssl0.ovh.net', port: config.imap.port || 993, secure: true, auth: { user: config.imap.user, pass: config.imap.pass }, logger: false });
+    const c = new ImapFlow({ host: srv.imapHost, port: srv.imapPort, secure: true, auth: { user: email, pass }, logger: false });
+    await c.connect(); await c.logout();
+  } catch (e) { return res.status(400).json({ error: 'Connexion réception (IMAP) refusée : ' + String(e.message || e).slice(0, 140) }); }
+  // remplace une éventuelle boîte de même adresse dans la même équipe
+  const ex = Object.values(mailboxes).find(b => b.teamId === teamId && b.email.toLowerCase() === String(email).toLowerCase());
+  const id = ex ? ex.id : ('mb' + Math.random().toString(36).slice(2, 9));
+  mailboxes[id] = { id, teamId, email: String(email), pass: String(pass), name: String(name || '').slice(0, 80), ...srv, ts: Date.now() };
+  saveMailboxes();
+  res.json({ ok: true, id, email });
+});
+app.post('/api/mailbox/disconnect', (req, res) => {
+  const { teamId, id } = req.body || {}; const b = mailboxes[id];
+  if (b && b.teamId === teamId) { delete mailboxes[id]; saveMailboxes(); }
+  res.json({ ok: true });
+});
+// liste des boîtes d'une équipe (sans mot de passe)
+app.get('/api/mailboxes', (req, res) => {
+  const teamId = String(req.query.teamId || '');
+  const list = Object.values(mailboxes).filter(b => b.teamId === teamId).map(b => ({ id: b.id, email: b.email, name: b.name, imapHost: b.imapHost, smtpHost: b.smtpHost }));
+  res.json({ mailboxes: list });
+});
+
+let boiteBusy = false;
+async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag = {teamId, userId} pour le rattachement
+  const { ImapFlow } = require('imapflow'); let client;
+  try {
+    client = new ImapFlow({ host: cfg.host, port: cfg.port || 993, secure: true, auth: { user: cfg.user, pass: cfg.pass }, logger: false });
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
@@ -162,20 +214,27 @@ async function releveBoite() {
         const subj = String(env.subject || '');
         const m = (subj + ' ' + text).match(/BC-\d{4}-\d{2,4}/i);
         const bonNum = m ? m[0].toUpperCase() : '';
-        let map = bonNum ? sentMap.slice().reverse().find(x => x.bonNum === bonNum) : null;
-        if (!map) map = sentMap.slice().reverse().find(x => x.to === fromAddr);
-        const entry = { ts: Date.now(), teamId: map ? map.teamId : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text };
+        let teamId = tag ? tag.teamId : '';
+        if (!teamId) { let map = bonNum ? sentMap.slice().reverse().find(x => x.bonNum === bonNum) : null; if (!map) map = sentMap.slice().reverse().find(x => x.to === fromAddr); if (map) { teamId = map.teamId; } }
+        const entry = { ts: Date.now(), teamId, boite: tag ? tag.email : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text };
         try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); } catch (_) {}
         try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {}
-        if (entry.teamId) {
-          const payload = JSON.stringify({ title: '📥 Réponse fournisseur' + (bonNum ? ' — ' + bonNum : ''), body: ((entry.fromName || fromAddr) + ' : ' + subj).slice(0, 240), url: '/app.html#v=bons' });
-          const targets = Object.values(subs).filter(s => s.teamId === entry.teamId);
+        if (teamId) {
+          const payload = JSON.stringify({ title: '📥 Nouveau message' + (bonNum ? ' — ' + bonNum : ''), body: ((entry.fromName || fromAddr) + ' : ' + subj).slice(0, 240), url: '/app.html#v=boiteMail' });
+          const targets = Object.values(subs).filter(s => s.teamId === teamId);
           for (const t of targets) { try { await webpush.sendNotification(t.sub, payload); } catch (e) { if (e.statusCode === 404 || e.statusCode === 410) { delete subs[t.sub.endpoint]; saveSubs(); } } }
         }
       }
     } finally { lock.release(); }
     await client.logout();
-  } catch (e) { console.error('releve boite:', e.message); try { if (client) client.close(); } catch (_) {} }
+  } catch (e) { console.error('releve', (cfg.user || '') + ':', e.message); try { if (client) client.close(); } catch (_) {} }
+}
+async function releveBoite() {
+  if (boiteBusy) return; boiteBusy = true;
+  try {
+    if (config.imap && config.imap.user && config.imap.pass) await releveUneBoite({ host: config.imap.host || 'ssl0.ovh.net', port: config.imap.port || 993, user: config.imap.user, pass: config.imap.pass }, null);
+    for (const k of Object.keys(mailboxes)) { const b = mailboxes[k]; await releveUneBoite({ host: b.imapHost, port: b.imapPort, user: b.email, pass: b.pass }, { teamId: b.teamId, email: b.email }); }
+  } catch (e) { console.error('releveBoite:', e.message); }
   boiteBusy = false;
 }
 setInterval(() => { releveBoite().catch(() => {}); }, 120000);
@@ -240,7 +299,7 @@ app.post('/api/notify', async (req, res) => {
 // jamais via l'adresse TeamOP (réservée aux codes de sécurité)
 const mailQuota = new Map();
 app.post('/api/sendmail', async (req, res) => {
-  const { teamId, to, subject, text, smtp, brand, atts, meta } = req.body || {};
+  const { teamId, to, subject, text, smtp, brand, atts, meta, useMailbox } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
   const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
@@ -271,8 +330,15 @@ app.post('/api/sendmail', async (req, res) => {
     if (total > 5500000) return res.status(413).json({ error: 'pièces jointes trop volumineuses (max ~4 Mo)' });
     if (list.length) msg.attachments = list;
   }
+  // Boîte connectée choisie à l'envoi : le serveur a le mot de passe, l'app ne l'envoie jamais
+  const mb = (useMailbox && useMailbox.id && mailboxes[useMailbox.id] && mailboxes[useMailbox.id].teamId === teamId) ? mailboxes[useMailbox.id] : null;
   try {
-    if (smtp && smtp.user && smtp.pass && smtp.host) {
+    if (mb) {
+      const nodemailer = require('nodemailer');
+      const t = nodemailer.createTransport({ host: mb.smtpHost, port: mb.smtpPort, secure: mb.smtpPort === 465, auth: { user: mb.email, pass: mb.pass } });
+      const dn = String((brand && brand.name) || mb.name || '').replace(/["<>\r\n]/g, '').slice(0, 80);
+      await t.sendMail({ from: dn ? '"' + dn + '" <' + mb.email + '>' : mb.email, ...msg });
+    } else if (smtp && smtp.user && smtp.pass && smtp.host) {
       // Mode avancé : boîte de l'entreprise / de l'utilisateur
       const nodemailer = require('nodemailer');
       const port = parseInt(smtp.port) || 465;
@@ -286,7 +352,7 @@ app.post('/api/sendmail', async (req, res) => {
       const addr = (config.smtp.from || config.smtp.user).match(/<([^>]+)>/) ? (config.smtp.from || config.smtp.user).match(/<([^>]+)>/)[1] : (config.smtp.user);
       await mailer.sendMail({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
     }
-    if (meta && meta.bonNum) rememberSent(teamId, meta.bonNum, to);   // pour rattacher la future réponse du fournisseur
+    if (meta && (meta.bonNum || meta.track)) rememberSent(teamId, meta.bonNum || '', to);   // pour rattacher la future réponse
     res.json({ ok: true });
   } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
 });
