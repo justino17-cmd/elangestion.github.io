@@ -230,6 +230,7 @@ async function importHistorique(b, limit = 60) {
       }
     } finally { lock.release(); }
     await client.logout();
+    if (b.id && mailboxes[b.id]) { mailboxes[b.id].histoDone = true; saveMailboxes(); }   // une seule fois par boîte
   } catch (e) { console.error('histo', b.email + ':', e.message); try { if (client) client.close(); } catch (_) {} }
 }
 let boiteBusy = false;
@@ -272,7 +273,9 @@ async function releveBoite() {
   if (boiteBusy) return; boiteBusy = true;
   try {
     if (config.imap && config.imap.user && config.imap.pass) await releveUneBoite({ host: config.imap.host || 'ssl0.ovh.net', port: config.imap.port || 993, user: config.imap.user, pass: config.imap.pass }, null);
-    for (const k of Object.keys(mailboxes)) { const b = mailboxes[k]; await releveUneBoite({ host: b.imapHost, port: b.imapPort, user: b.email, pass: b.pass }, { teamId: b.teamId, email: b.email }); }
+    for (const k of Object.keys(mailboxes)) { const b = mailboxes[k];
+      if (!b.histoDone) await importHistorique(b).catch(() => {});   // boîtes connectées avant cette mise à jour : historique importé au premier passage
+      await releveUneBoite({ host: b.imapHost, port: b.imapPort, user: b.email, pass: b.pass }, { teamId: b.teamId, email: b.email }); }
   } catch (e) { console.error('releveBoite:', e.message); }
   boiteBusy = false;
 }
