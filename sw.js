@@ -1,5 +1,5 @@
 /* ELAN GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v372';
+const CACHE = 'elan-gestion-v373';
 const ASSETS = [
   './',
   'index.html',
