@@ -94,7 +94,7 @@ app.post('/api/checkcode', (req, res) => {
 });
 
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
-app.get('/health', (req, res) => res.json({ ok: true, v: 4, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
+app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
 
 // ── Vigie : les applications signalent leurs erreurs JavaScript (par espace entreprise, anonyme)
 //    → e-mail d'alerte immédiat à l'admin de la plateforme, journal consultable, compteur dans /health
@@ -183,6 +183,7 @@ app.post('/api/mailbox/connect', async (req, res) => {
   mailboxes[id] = { id, teamId, email: String(email), pass: String(pass), name: String(name || '').slice(0, 80), ...srv, ts: Date.now() };
   saveMailboxes();
   res.json({ ok: true, id, email });
+  importHistorique(mailboxes[id]).catch(() => {});   // les anciens mails de la boîte arrivent dans l'app (en arrière-plan)
 });
 app.post('/api/mailbox/disconnect', (req, res) => {
   const { teamId, id } = req.body || {}; const b = mailboxes[id];
@@ -196,6 +197,41 @@ app.get('/api/mailboxes', (req, res) => {
   res.json({ mailboxes: list });
 });
 
+// Message-ID déjà enregistrés (évite les doublons entre l'import d'historique et la relève)
+let seenMids = new Set();
+try { fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n').forEach(l => { try { const r = JSON.parse(l); if (r.mid) seenMids.add(r.mid); } catch (_) {} }); } catch (e) {}
+// 📜 Import de l'historique d'une boîte à sa connexion : les ~60 derniers mails (lus ou non)
+//    arrivent dans l'app avec leur vraie date — sans notification, sans toucher aux drapeaux lu/non-lu.
+async function importHistorique(b, limit = 60) {
+  const { ImapFlow } = require('imapflow'); const { simpleParser } = require('mailparser'); let client;
+  try {
+    client = new ImapFlow({ host: b.imapHost, port: b.imapPort || 993, secure: true, auth: { user: b.email, pass: b.pass }, logger: false });
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      const total = (client.mailbox && client.mailbox.exists) || 0;
+      if (total) {
+        const range = Math.max(1, total - limit + 1) + ':*';
+        let n = 0;
+        for await (const msg of client.fetch(range, { envelope: true, source: { maxLength: 150000 } })) {
+          const env = msg.envelope || {};
+          const mid = String(env.messageId || '').slice(0, 200);
+          if (mid && seenMids.has(mid)) continue;
+          let text = '';
+          try { const p = await simpleParser(msg.source); text = String(p.text || '').slice(0, 2000); } catch (e) {}
+          const from = ((env.from || [])[0] || {});
+          const subj = String(env.subject || '');
+          const m = (subj + ' ' + text).match(/BC-\d{4}-\d{2,4}/i);
+          const entry = { ts: env.date ? new Date(env.date).getTime() : Date.now(), teamId: b.teamId, boite: b.email, bonNum: m ? m[0].toUpperCase() : '', from: String(from.address || '').toLowerCase(), fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid, histo: 1 };
+          try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); n++; } catch (_) {}
+          if (mid) seenMids.add(mid);
+        }
+        console.log('historique importé:', b.email, '(' + n + ' mails)');
+      }
+    } finally { lock.release(); }
+    await client.logout();
+  } catch (e) { console.error('histo', b.email + ':', e.message); try { if (client) client.close(); } catch (_) {} }
+}
 let boiteBusy = false;
 async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag = {teamId, userId} pour le rattachement
   const { ImapFlow } = require('imapflow'); let client;
@@ -207,6 +243,8 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
       const nouveaux = [];
       for await (const msg of client.fetch({ seen: false }, { envelope: true, source: true })) nouveaux.push(msg);
       for (const msg of nouveaux) {
+        const mid = String((msg.envelope || {}).messageId || '').slice(0, 200);
+        if (mid && seenMids.has(mid)) { try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {} continue; }   // déjà importé via l'historique
         let text = '';
         try { const { simpleParser } = require('mailparser'); const p = await simpleParser(msg.source); text = String(p.text || '').slice(0, 2000); } catch (e) {}
         const env = msg.envelope || {}; const from = ((env.from || [])[0] || {});
@@ -216,8 +254,9 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
         const bonNum = m ? m[0].toUpperCase() : '';
         let teamId = tag ? tag.teamId : '';
         if (!teamId) { let map = bonNum ? sentMap.slice().reverse().find(x => x.bonNum === bonNum) : null; if (!map) map = sentMap.slice().reverse().find(x => x.to === fromAddr); if (map) { teamId = map.teamId; } }
-        const entry = { ts: Date.now(), teamId, boite: tag ? tag.email : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text };
+        const entry = { ts: Date.now(), teamId, boite: tag ? tag.email : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid };
         try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); } catch (_) {}
+        if (mid) seenMids.add(mid);
         try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {}
         if (teamId) {
           const payload = JSON.stringify({ title: '📥 Nouveau message' + (bonNum ? ' — ' + bonNum : ''), body: ((entry.fromName || fromAddr) + ' : ' + subj).slice(0, 240), url: '/app.html#v=boiteMail' });
@@ -243,7 +282,7 @@ setTimeout(() => { releveBoite().catch(() => {}); }, 8000);
 app.get('/api/replies', (req, res) => {
   const teamId = String(req.query.teamId || ''); if (!teamId) return res.status(400).json({ error: 'teamId requis' });
   let list = [];
-  try { list = fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.teamId === teamId).slice(-100).reverse(); } catch (e) {}
+  try { list = fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.teamId === teamId).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 200); } catch (e) {}
   res.json({ replies: list });
 });
 // journal des bugs (protégé par la clé API du serveur)
