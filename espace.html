@@ -393,7 +393,8 @@
     const t=NEWS_TAGS[n.tag]||NEWS_TAGS.info;
     const dt=(n.ts&&n.ts.toDate)?n.ts.toDate().toLocaleDateString('fr-FR',{day:'numeric',month:'long'}):'';
     const aud=n.audience||'public'; const audL=aud==='public'?'🌍 Tout le monde':(aud==='clients'?'👥 Clients connectés':'🎯 '+((_clients.find(c=>c.uid===aud)||{}).label||'1 client'));
-    return `<div class="newsit"><div style="flex:1;min-width:0"><b>${esc(n.title||'')}<span class="tagb ${t[1]}">${t[0]}</span></b><span class="tx">${esc(n.text||'')}</span>${admin?`<span style="font-size:11px;color:var(--op-l)">${esc(audL)}</span>`:''}${dt?`<span style="font-size:11px;color:var(--t3)">${dt}</span>`:''}</div>${admin?`<button class="btn sm ghost" style="color:var(--red);flex-shrink:0" onclick="delNews('${id}')">✕</button>`:''}</div>`;
+    const lien=n.url?`<a href="${esc(n.url)}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;margin-top:7px;font-size:12.5px;font-weight:700;text-decoration:none;border-radius:100px;padding:6px 14px;${n.tag==='beta'?'background:rgba(245,158,11,.16);color:#fbbf24;border:1px solid rgba(245,158,11,.35)':'background:rgba(91,143,214,.16);color:#8fb6e8;border:1px solid rgba(91,143,214,.35)'}">${n.tag==='beta'?'🧪 Tester la bêta':'Découvrir'} →</a>`:'';
+    return `<div class="newsit"><div style="flex:1;min-width:0"><b>${esc(n.title||'')}<span class="tagb ${t[1]}">${t[0]}</span></b><span class="tx">${esc(n.text||'')}</span>${lien}${admin?`<span style="font-size:11px;color:var(--op-l)">${esc(audL)}</span>`:''}${dt?`<span style="font-size:11px;color:var(--t3)">${dt}</span>`:''}</div>${admin?`<button class="btn sm ghost" style="color:var(--red);flex-shrink:0" onclick="delNews('${id}')">✕</button>`:''}</div>`;
   }
   function newsVisible(n,admin){
     if(admin) return true;
@@ -410,14 +411,16 @@
   }
   async function publishNews(){
     const title=($('n-title').value||'').trim(), text=($('n-text').value||'').trim(), tag=$('n-tag').value, audience=($('n-aud')||{}).value||'public';
+    const url=(($('n-url')||{}).value||'').trim();
     if(!title){ alert('Donne un titre.'); return; }
-    try{ await fs.collection('teamop_news').add({title,text,tag,audience,ts:firebase.firestore.FieldValue.serverTimestamp()});
+    if(url&&!/^https?:\/\//.test(url)){ alert('Le lien doit commencer par https://'); return; }
+    try{ await fs.collection('teamop_news').add({title,text,tag,audience,url,ts:firebase.firestore.FieldValue.serverTimestamp()});
       // notifie les clients ciblés (push) si le serveur est joignable
       try{ const t2=(NEWS_TAGS[tag]||['Info'])[0];
         if(audience==='clients'||audience==='public'){ /* diffusion large gérée à l'ouverture de l'espace */ }
         else if(audience){ fetch('https://api.teamop.fr/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:'opmsg-user-'+audience,title:'📣 '+t2+' — TeamOP',body:title,url:'/espace.html'})}).catch(()=>{}); }
       }catch(_){}
-      $('n-title').value=''; $('n-text').value=''; loadNews('adm-news',true);
+      $('n-title').value=''; $('n-text').value=''; const nu=$('n-url'); if(nu) nu.value=''; loadNews('adm-news',true);
       alert('Nouveauté publiée ✅');
     }catch(e){ alert('Erreur : '+(e.message||e)); }
   }
@@ -432,6 +435,7 @@
         <div class="field"><label>Type</label><select id="n-tag"><option value="nouveau">Nouveau</option><option value="beta">Bêta — à tester</option><option value="officiel">Version officielle</option><option value="info">Info</option></select></div>
         <div class="field"><label>Destinataire</label><select id="n-aud"><option value="public">🌍 Tout le monde (public + clients)</option><option value="clients">👥 Tous les clients connectés</option></select></div>
         <div class="field"><label>Texte</label><textarea id="n-text" placeholder="Description courte de la nouveauté…"></textarea></div>
+        <div class="field"><label>Lien (optionnel)</label><input id="n-url" placeholder="https://teamop.fr/… — affiche un bouton « 🧪 Tester la bêta » ou « Découvrir »"></div>
         <button class="btn" onclick="publishNews()">Publier</button>
         <div style="margin-top:16px" id="adm-news"><p class="muted">Chargement…</p></div>
       </div>
