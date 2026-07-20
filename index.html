@@ -218,13 +218,14 @@ try{ const pwa=window.matchMedia('(display-mode: standalone)').matches||navigato
   (async()=>{ try{
     const r=await fetch('https://firestore.googleapis.com/v1/projects/elan-gestion/databases/(default)/documents/teamop_news?pageSize=20');
     const j=await r.json();
-    const docs=(j.documents||[]).map(d=>{ const f=d.fields||{}; return { title:(f.title&&f.title.stringValue)||'', text:(f.text&&f.text.stringValue)||'', tag:(f.tag&&f.tag.stringValue)||'info', audience:(f.audience&&f.audience.stringValue)||'public', ts:(f.ts&&f.ts.timestampValue)||d.createTime||'' }; }).filter(n=>n.audience==='public')
+    const docs=(j.documents||[]).map(d=>{ const f=d.fields||{}; return { title:(f.title&&f.title.stringValue)||'', text:(f.text&&f.text.stringValue)||'', tag:(f.tag&&f.tag.stringValue)||'info', audience:(f.audience&&f.audience.stringValue)||'public', url:(f.url&&f.url.stringValue)||'', ts:(f.ts&&f.ts.timestampValue)||d.createTime||'' }; }).filter(n=>n.audience==='public')
       .sort((a,b)=>String(b.ts).localeCompare(String(a.ts))).slice(0,4);
     if(!docs.length) return;
     const TAG={nouveau:['Nouveau','rgba(74,222,128,.16)','#4ade80'],beta:['Bêta — à tester','rgba(245,158,11,.16)','#fbbf24'],officiel:['Version officielle','rgba(91,143,214,.2)','#8fb6e8'],info:['Info','rgba(255,255,255,.08)','#aab8cc']};
     const esc2=s2=>String(s2||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     document.getElementById('news-box').innerHTML=docs.map(n=>{ const t=TAG[n.tag]||TAG.info; const dt=n.ts?new Date(n.ts).toLocaleDateString('fr-FR',{day:'numeric',month:'long'}):'';
-      return `<div style="background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:14px 16px;margin-bottom:10px"><div style="font-size:14.5px;font-weight:700">${esc2(n.title)} <span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:100px;background:${t[1]};color:${t[2]};margin-left:6px;vertical-align:1px">${t[0]}</span></div>${n.text?`<div style="font-size:13px;color:var(--t2);line-height:1.5;margin-top:3px">${esc2(n.text)}</div>`:''}${dt?`<div style="font-size:11px;color:var(--t3);margin-top:5px">${dt}</div>`:''}</div>`; }).join('');
+      const lien=n.url&&/^https?:\/\//.test(n.url)?`<a href="${esc2(n.url)}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;font-weight:700;text-decoration:none;border-radius:100px;padding:6px 14px;background:${t[1]};color:${t[2]};border:1px solid ${t[2]}55">${n.tag==='beta'?'🧪 Tester la bêta':'Découvrir'} →</a>`:'';
+      return `<div style="background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:14px 16px;margin-bottom:10px"><div style="font-size:14.5px;font-weight:700">${esc2(n.title)} <span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:100px;background:${t[1]};color:${t[2]};margin-left:6px;vertical-align:1px">${t[0]}</span></div>${n.text?`<div style="font-size:13px;color:var(--t2);line-height:1.5;margin-top:3px">${esc2(n.text)}</div>`:''}${lien}${dt?`<div style="font-size:11px;color:var(--t3);margin-top:5px">${dt}</div>`:''}</div>`; }).join('');
     document.getElementById('news-sec').style.display='';
   }catch(e){} })();
   </script>
