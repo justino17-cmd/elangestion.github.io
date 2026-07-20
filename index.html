@@ -49,11 +49,16 @@ try{ const pwa=window.matchMedia('(display-mode: standalone)').matches||navigato
   .btn.ghost{background:transparent;border:1px solid var(--brd2);color:var(--t1)}
   .trust{display:flex;gap:8px;flex-wrap:wrap}
   .trust span{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--t3);border:1px solid var(--brd);border-radius:100px;padding:6px 12px}
-  /* aperçu visuel façon application (pur CSS, décoratif) */
-  .preview{position:relative;background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--brd2);border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.5);overflow:hidden;user-select:none;pointer-events:none}
+  /* aperçu visuel façon application — diaporama qui défile entre les apps (pur CSS+JS, décoratif) */
+  .preview{position:relative;background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--brd2);border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.5);overflow:hidden;user-select:none}
   .pv-bar{display:flex;align-items:center;gap:6px;padding:11px 14px;border-bottom:1px solid var(--brd)}
   .pv-bar i{width:10px;height:10px;border-radius:50%;display:block}
-  .pv-body{display:grid;grid-template-columns:112px 1fr;min-height:250px}
+  .pv-app{margin-left:10px;display:inline-flex;align-items:center;gap:7px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;letter-spacing:1.5px;color:var(--t2)}
+  .pv-app i{width:7px;height:7px;border-radius:50%}
+  .pv-stage{position:relative;min-height:262px}
+  .pv-slide{position:absolute;inset:0;opacity:0;transform:translateX(18px);transition:opacity .5s ease,transform .5s ease;pointer-events:none}
+  .pv-slide.on{opacity:1;transform:none}
+  .pv-body{display:grid;grid-template-columns:112px 1fr;height:100%}
   .pv-side{border-right:1px solid var(--brd);padding:12px 10px;display:flex;flex-direction:column;gap:7px}
   .pv-side .it{height:11px;border-radius:6px;background:rgba(255,255,255,.07)}
   .pv-side .it.on{background:rgba(91,143,214,.45)}
@@ -69,7 +74,35 @@ try{ const pwa=window.matchMedia('(display-mode: standalone)').matches||navigato
   .pv-rows .r{display:flex;align-items:center;gap:8px;border:1px solid var(--brd);border-radius:10px;padding:8px 10px}
   .pv-rows .r i{width:8px;height:8px;border-radius:50%;flex-shrink:0}
   .pv-rows .r b{height:9px;border-radius:5px;background:rgba(255,255,255,.09);flex:1}
-  .pv-badge{position:absolute;bottom:14px;right:14px;font-size:10.5px;font-weight:800;letter-spacing:1px;color:var(--t3);border:1px solid var(--brd);border-radius:100px;padding:5px 12px;background:rgba(8,13,24,.6)}
+  /* slide planning : mini calendrier */
+  .pv-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:11px}
+  .pv-cal i{height:26px;border-radius:7px;background:rgba(255,255,255,.05);display:block}
+  .pv-cal i.ev{background:rgba(34,177,76,.35)}
+  .pv-cal i.ev2{background:rgba(91,143,214,.35)}
+  .pv-cal i.today{background:var(--elan);opacity:.85}
+  .pv-crd{display:flex;gap:8px;align-items:center;border:1px solid var(--brd);border-radius:10px;padding:9px 10px;margin-bottom:7px;border-left:3px solid var(--elan)}
+  .pv-crd .h{font-family:'Space Mono',monospace;font-size:10.5px;color:var(--t3);flex-shrink:0}
+  .pv-crd b{height:9px;border-radius:5px;background:rgba(255,255,255,.09);flex:1}
+  .pv-crd .st{font-size:8.5px;font-weight:800;padding:2px 7px;border-radius:100px;background:rgba(34,177,76,.16);color:var(--elan-l);flex-shrink:0}
+  /* slide messagerie : bulles de chat */
+  .pv-chans{border-right:1px solid var(--brd);padding:12px 10px;display:flex;flex-direction:column;gap:7px}
+  .pv-chans .c{display:flex;align-items:center;gap:6px}
+  .pv-chans .c em{font-style:normal;color:var(--op-l);font-weight:800;font-size:11px}
+  .pv-chans .c i{height:10px;border-radius:5px;background:rgba(255,255,255,.07);flex:1;display:block}
+  .pv-chans .c.on i{background:rgba(91,143,214,.4)}
+  .pv-chat{padding:14px;display:flex;flex-direction:column;gap:8px}
+  .pv-msg{max-width:72%;border-radius:13px;padding:8px 11px}
+  .pv-msg.in{background:rgba(255,255,255,.06);border:1px solid var(--brd);align-self:flex-start;border-bottom-left-radius:4px}
+  .pv-msg.out{background:rgba(91,143,214,.3);border:1px solid rgba(91,143,214,.4);align-self:flex-end;border-bottom-right-radius:4px}
+  .pv-msg i{display:block;height:8px;border-radius:4px;background:rgba(255,255,255,.14);margin-bottom:5px}
+  .pv-msg i:last-child{margin-bottom:0;width:60%}
+  .pv-input{margin-top:auto;display:flex;gap:8px;align-items:center;border:1px solid var(--brd2);border-radius:100px;padding:8px 13px}
+  .pv-input b{height:9px;border-radius:5px;background:rgba(255,255,255,.08);flex:1}
+  .pv-input em{font-style:normal;font-size:13px;color:var(--op-l)}
+  /* points de navigation */
+  .pv-dots{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:7px;z-index:5}
+  .pv-dots i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.18);cursor:pointer;transition:background .2s,width .2s}
+  .pv-dots i.on{background:var(--op-l);width:20px;border-radius:100px}
   /* ── Sections ── */
   .section{padding:30px 0}
   .sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px}
@@ -156,28 +189,82 @@ try{ const pwa=window.matchMedia('(display-mode: standalone)').matches||navigato
       </div>
     </div>
     <div class="preview" aria-hidden="true">
-      <div class="pv-bar"><i style="background:#f66"></i><i style="background:#fb3"></i><i style="background:#3c6"></i></div>
-      <div class="pv-body">
-        <div class="pv-side">
-          <div class="it on"></div><div class="it"></div><div class="it"></div><div class="it"></div><div class="it"></div>
-          <div style="flex:1"></div>
-          <div class="it" style="background:rgba(34,177,76,.4)"></div><div class="it" style="background:rgba(91,143,214,.35)"></div>
-        </div>
-        <div class="pv-main">
-          <div class="pv-kpis">
-            <div class="pv-kpi"><b>12 480 €</b><span>CA du mois</span></div>
-            <div class="pv-kpi"><b>42/60</b><span>Box occupés</span></div>
-            <div class="pv-kpi"><b>6</b><span>Commandes</span></div>
+      <div class="pv-bar"><i style="background:#f66"></i><i style="background:#fb3"></i><i style="background:#3c6"></i>
+        <span class="pv-app" id="pv-app"><i style="background:var(--elan)"></i>ELAN&nbsp;GESTION</span></div>
+      <div class="pv-stage">
+
+        <!-- 1 · ELAN GESTION — tableau de bord -->
+        <div class="pv-slide on"><div class="pv-body">
+          <div class="pv-side">
+            <div class="it" style="background:rgba(34,177,76,.45)"></div><div class="it"></div><div class="it"></div><div class="it"></div><div class="it"></div>
+            <div style="flex:1"></div>
+            <div class="it" style="background:rgba(34,177,76,.4)"></div><div class="it" style="background:rgba(91,143,214,.35)"></div>
           </div>
-          <div class="pv-chart"><i style="height:30%"></i><i style="height:45%"></i><i style="height:38%"></i><i style="height:62%"></i><i style="height:52%"></i><i style="height:74%"></i><i class="hi" style="height:100%"></i></div>
-          <div class="pv-rows">
-            <div class="r"><i style="background:#4ade80"></i><b></b></div>
-            <div class="r"><i style="background:#fbbf24"></i><b style="max-width:70%"></b></div>
+          <div class="pv-main">
+            <div class="pv-kpis">
+              <div class="pv-kpi"><b>12 480 €</b><span>CA du mois</span></div>
+              <div class="pv-kpi"><b>42/60</b><span>Box occupés</span></div>
+              <div class="pv-kpi"><b>6</b><span>Commandes</span></div>
+            </div>
+            <div class="pv-chart"><i style="height:30%"></i><i style="height:45%"></i><i style="height:38%"></i><i style="height:62%"></i><i style="height:52%"></i><i style="height:74%"></i><i class="hi" style="height:100%;background:var(--elan)"></i></div>
+            <div class="pv-rows">
+              <div class="r"><i style="background:#4ade80"></i><b></b></div>
+              <div class="r"><i style="background:#fbbf24"></i><b style="max-width:70%"></b></div>
+            </div>
           </div>
-        </div>
+        </div></div>
+
+        <!-- 2 · ELAN GESTION — planning des interventions -->
+        <div class="pv-slide"><div class="pv-body">
+          <div class="pv-side">
+            <div class="it"></div><div class="it on" style="background:rgba(34,177,76,.45)"></div><div class="it"></div><div class="it"></div><div class="it"></div>
+            <div style="flex:1"></div>
+            <div class="it" style="background:rgba(34,177,76,.4)"></div><div class="it" style="background:rgba(91,143,214,.35)"></div>
+          </div>
+          <div class="pv-main">
+            <div class="pv-cal">
+              <i></i><i class="ev"></i><i></i><i class="ev2"></i><i></i><i></i><i></i>
+              <i class="ev"></i><i></i><i class="today"></i><i></i><i class="ev"></i><i></i><i></i>
+            </div>
+            <div class="pv-crd"><span class="h">09:00</span><b></b><span class="st">Confirmé</span></div>
+            <div class="pv-crd" style="border-left-color:#fbbf24"><span class="h">10:30</span><b style="max-width:64%"></b><span class="st" style="background:rgba(245,158,11,.16);color:#fbbf24">En cours</span></div>
+            <div class="pv-crd" style="border-left-color:#5b8fd6"><span class="h">14:00</span><b style="max-width:78%"></b><span class="st" style="background:rgba(91,143,214,.18);color:#8fb6e8">Planifié</span></div>
+          </div>
+        </div></div>
+
+        <!-- 3 · OP MESSAGES — messagerie d'équipe -->
+        <div class="pv-slide"><div class="pv-body" style="grid-template-columns:118px 1fr">
+          <div class="pv-chans">
+            <div class="c on"><em>#</em><i></i></div>
+            <div class="c"><em>#</em><i style="max-width:70%"></i></div>
+            <div class="c"><em>#</em><i style="max-width:85%"></i></div>
+            <div class="c"><em>👤</em><i style="max-width:60%"></i></div>
+            <div class="c"><em>👤</em><i style="max-width:75%"></i></div>
+          </div>
+          <div class="pv-chat">
+            <div class="pv-msg in"><i style="width:110px"></i><i></i></div>
+            <div class="pv-msg out"><i style="width:90px"></i><i></i></div>
+            <div class="pv-msg in"><i style="width:70px"></i></div>
+            <div class="pv-input"><b></b><em>➤</em></div>
+          </div>
+        </div></div>
+
       </div>
-      <div class="pv-badge">SUITE&nbsp;TEAM&nbsp;OP</div>
+      <div class="pv-dots" id="pv-dots"><i class="on"></i><i></i><i></i></div>
     </div>
+    <script>
+    (()=>{ const APPS=[['ELAN&nbsp;GESTION','var(--elan)'],['ELAN&nbsp;GESTION','var(--elan)'],['OP&nbsp;MESSAGES','var(--op)']];
+      const slides=document.querySelectorAll('.pv-slide'), dots=document.querySelectorAll('#pv-dots i'), lbl=document.getElementById('pv-app');
+      let cur=0, timer=null;
+      function show(n){ cur=(n+slides.length)%slides.length;
+        slides.forEach((s,i)=>s.classList.toggle('on',i===cur));
+        dots.forEach((d,i)=>d.classList.toggle('on',i===cur));
+        if(lbl) lbl.innerHTML=`<i style="background:${APPS[cur][1]}"></i>${APPS[cur][0]}`; }
+      function arm(){ clearInterval(timer); timer=setInterval(()=>show(cur+1),3800); }
+      dots.forEach((d,i)=>d.addEventListener('click',()=>{ show(i); arm(); }));
+      arm();
+    })();
+    </script>
   </section>
 
   <!-- APPLICATIONS -->
