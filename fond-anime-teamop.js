@@ -4,7 +4,9 @@
 (function () {
   var VITESSE = 1;        // 0.3 = lent, 2.5 = rapide
   var INTERACTIF = true;  // réagit à la souris / au toucher
-  var MOT = 'TEAM OP';
+  /* Le mot écrit en fond : par défaut TEAM OP, ou le nom de l'application
+     de la page via <script src="fond-anime-teamop.js" data-mot="ELAN GESTION" defer> */
+  var MOT = (document.currentScript && document.currentScript.getAttribute('data-mot')) || 'TEAM OP';
 
   function init() {
     var c = document.createElement('canvas');
