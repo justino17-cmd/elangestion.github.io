@@ -240,6 +240,15 @@ body.theme-light{
   #dskside{display:flex}
   .maincol .nav{display:none}
   .chat{left:300px}
+  /* En-tête de conversation façon maquette : grand titre, pas de retour, bouton Réunion bleu */
+  .chat .topbar .bk{display:none}
+  .chat .topbar{padding:14px 24px;gap:12px}
+  .chat .topbar .ti b{font-size:19px}
+  .chat .topbar .ic[title="Appel"]{width:auto;height:40px;padding:0 16px;background:var(--op);color:#fff;border-radius:12px;font-weight:800;display:inline-flex;align-items:center;gap:7px}
+  .chat .topbar .ic[title="Appel"]::after{content:"Réunion";font-size:13px}
+  .chat .stream{padding:22px 28px}
+  .chat .composer{padding:14px 24px 18px}
+  .view{max-width:860px;margin:0 auto;width:100%}
 }
 
 /* ── 5) Écritures en blanc partout, sélection = bleu accent (même règle qu'ELAN) ── */
@@ -773,8 +782,11 @@ body.theme-light{
       try{ const dc=$('dsk-canaux'); if(dc){
         dc.innerHTML=active.slice(0,7).map(([id,c])=>{ const nm=dispName(id,c); const nmSafe=esc((nm||'').replace(/'/g,'')); const u=unreadOf(id,c);
           const sub=(c.lastMsg&&(c.lastMsgAt||0)>getClearedAt(id))?esc((c.lastMsg||'').slice(0,34)):(c.type==='dm'?'Message privé':'');
-          return `<div class="dsk-chan${(typeof _curCh!=='undefined'&&_curCh===id)?' on':''}" onclick="rowOpen('${id}','${nmSafe}')"><b>${c.type==='dm'?'👤':'#'} ${esc(nm)}</b>${sub?`<span>${sub}</span>`:''}${u?`<i class="dbadge">${u>99?'99+':u}</i>`:''}</div>`; }).join('')
-          ||'<div style="font-size:11px;color:#8B9AB8;padding:0 6px">Aucune discussion</div>'; } }catch(e){}
+          return `<div class="dsk-chan${(typeof _curCh!=='undefined'&&_curCh&&_curCh.id===id)?' on':''}" data-cid="${id}" onclick="rowOpen('${id}','${nmSafe}')"><b>${c.type==='dm'?'👤':'#'} ${esc(nm)}</b>${sub?`<span>${sub}</span>`:''}${u?`<i class="dbadge">${u>99?'99+':u}</i>`:''}</div>`; }).join('')
+          ||'<div style="font-size:11px;color:#8B9AB8;padding:0 6px">Aucune discussion</div>'; }
+        // Version bureau : ouvre automatiquement la 1re discussion à l'arrivée (comme la maquette)
+        if(window.innerWidth>=1024 && !_curCh && active.length && !window._dskAutoOpened){ window._dskAutoOpened=true;
+          const [aid,ac]=active[0]; rowOpen(aid, dispName(aid,ac).replace(/'/g,'')); } }catch(e){}
       const rowHtml=([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
         let nm=c.name||'', avInner=ini(nm), avBg=avatarStyle(nm);
         if(g){ nm='Général'; avInner=ic('chat',20); avBg='background:rgba(94,130,255,.2);color:var(--op-l)'; }
@@ -1201,7 +1213,7 @@ body.theme-light{
       <div class="topbar">
         <button class="bk" onclick="closeChat()">${ic('back',26)}</button>
         <div class="ava" style="${name==='Général'?'background:rgba(94,130,255,.2);color:var(--op-l)':avatarStyle(name)}">${name==='Général'?ic('chat',18):'#'}</div>
-        <div class="ti" onclick="openGroupInfo('${id}')" style="cursor:pointer"><b>${esc(name)}${isMuted(id)?' 🔇':''}</b><span id="ch-sub">Touchez pour les infos ›</span></div>
+        <div class="ti" onclick="openGroupInfo('${id}')" style="cursor:pointer"><b>${esc(name)}${isMuted(id)?' 🔇':''}</b><span id="ch-sub">${(window.innerWidth>=1024)?'synchronisé en temps réel ›':'Touchez pour les infos ›'}</span></div>
         <button class="ic" id="starfilt" onclick="toggleStarFilter()" title="Messages importants">${ic('star',20)}</button>
         <button class="ic" onclick="toggleSearch()" title="Rechercher">${ic('search',20)}</button>
         <button class="ic" onclick="joinRoom('chat-${id}','Réunion : ${esc(name).replace(/"/g,'')}')" title="Appel">${ic('phone',19)}</button>
@@ -1220,6 +1232,7 @@ body.theme-light{
         <button class="send" onclick="sendMsg()">${ic('send',20)}</button>
       </div>`;
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
+    try{ document.querySelectorAll('.dsk-chan').forEach(x=>x.classList.toggle('on',x.dataset.cid===id)); }catch(e){}
     applyWall(); bindSwipeReply(); listenCh(id); listenChDoc(id);
   }
   // Balayage vers la droite sur un message = répondre (comme WhatsApp)
