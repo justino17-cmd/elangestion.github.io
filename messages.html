@@ -319,8 +319,18 @@ body.theme-light{
   function ini(n){ return (n||'?').trim().slice(0,1).toUpperCase(); }
   function hue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
   function avatarStyle(s){ const h=hue(s); return `background:hsl(${h} 45% 22%);color:hsl(${h} 70% 72%)`; }
-  function applyTheme(){ const p=localStorage.getItem('opmsg_theme')||'auto'; let dark; if(p==='auto'){ dark=!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches); } else dark=(p!=='light'); document.body.classList.toggle('theme-light',!dark); document.body.classList.toggle('theme-dark',dark); try{ const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content',dark?'#0d1624':'#f4f6fa'); }catch(e){} }
+  function applyTheme(){ const p=localStorage.getItem('opmsg_theme')||'auto'; let dark; if(p==='auto'){ dark=!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches); } else dark=(p!=='light'); document.body.classList.toggle('theme-light',!dark); document.body.classList.toggle('theme-dark',dark); try{ const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content',dark?'#0d1624':'#f4f6fa'); }catch(e){}
+    // 🎨 Couleur d'accent (même système qu'ELAN GESTION) : la teinte remplace le bleu partout
+    try{ const ac=localStorage.getItem('opmsg_accent')||'blue'; const hx=localStorage.getItem('opmsg_accent_hex')||'';
+      const P={green:{d:'#37C68A',l:'#1E7A4E'},purple:{d:'#9D7AFF',l:'#7A5AF8'},orange:{d:'#E79A3C',l:'#C26A10'}};
+      const st=document.body.style;
+      if(ac==='custom'&&/^#[0-9a-fA-F]{6}$/.test(hx)){ st.setProperty('--op',hx); st.setProperty('--op-l', dark?('color-mix(in srgb,#fff 30%,'+hx+')'):hx); }
+      else if(P[ac]){ const v=dark?P[ac].d:P[ac].l; st.setProperty('--op',v); st.setProperty('--op-l', dark?('color-mix(in srgb,#fff 28%,'+v+')'):v); }
+      else { st.removeProperty('--op'); st.removeProperty('--op-l'); }
+    }catch(e){} }
   function setTheme(p){ localStorage.setItem('opmsg_theme',p); applyTheme(); if(_curView==='prof') viewProfile(); }
+  function setOpAccent(a){ localStorage.setItem('opmsg_accent',a); applyTheme(); toast('Couleur appliquée'); sheetChats(); }
+  function setOpAccentCustom(hex){ if(!/^#[0-9a-fA-F]{6}$/.test(hex)) return; localStorage.setItem('opmsg_accent_hex',hex); localStorage.setItem('opmsg_accent','custom'); applyTheme(); }
   try{ if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{ if((localStorage.getItem('opmsg_theme')||'auto')==='auto') applyTheme(); }); } }catch(e){}
   applyTheme();
   function isPro(){ return MODE==='company' && HAS_COMPANY && (IS_OWNER || (USER&&USER.role==='entreprise')); }
@@ -1569,6 +1579,11 @@ body.theme-light{
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">💬 Discussions</h3>
     <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:2px 2px 8px">Thème</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">${['auto','light','dark'].map(t=>`<button class="btn ${theme===t?'':'ghost'} sm" style="flex:1" onclick="setTheme('${t}');sheetChats()">${t==='auto'?'Auto':t==='light'?'Jour':'Nuit'}</button>`).join('')}</div>
+    <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:2px 2px 8px">Couleur d'accent</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-start">${(()=>{ const cur=localStorage.getItem('opmsg_accent')||'blue';
+      const sw=[['blue','#2563EB','Bleu OP'],['green','#1E7A4E','Vert'],['purple','#7A5AF8','Violet'],['orange','#C26A10','Orange']];
+      return sw.map(([k,c,l])=>`<div onclick="setOpAccent('${k}')" style="cursor:pointer;text-align:center"><div style="width:38px;height:38px;border-radius:50%;background:${c};margin:0 auto 5px;border:3px solid ${cur===k?'var(--t1)':'transparent'};box-shadow:0 0 0 1px var(--brd2)"></div><div style="font-size:11px;color:${cur===k?'var(--t1)':'var(--t3)'}">${l}</div></div>`).join('')
+      +`<label style="cursor:pointer;text-align:center;position:relative"><div style="width:38px;height:38px;border-radius:50%;background:conic-gradient(#e0524d,#e79a3c,#f5c84c,#37c68a,#2563eb,#7a5af8,#e0524d);margin:0 auto 5px;border:3px solid ${cur==='custom'?'var(--t1)':'transparent'};box-shadow:0 0 0 1px var(--brd2);display:flex;align-items:center;justify-content:center;font-size:14px">${cur==='custom'?'✓':'🎨'}</div><div style="font-size:11px;color:${cur==='custom'?'var(--t1)':'var(--t3)'}">Ma couleur</div><input type="color" value="${localStorage.getItem('opmsg_accent_hex')||'#7A5AF8'}" oninput="setOpAccentCustom(this.value)" onchange="sheetChats()" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%"></label>`; })()}</div>
     <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:2px 2px 8px">Taille du texte</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">${[['s','Petit'],['m','Normal'],['l','Grand'],['xl','Très grand']].map(([v,l])=>`<button class="btn ${fs2===v?'':'ghost'} sm" style="flex:1" onclick="setPref('fontsize','${v}');applyFontSize();sheetChats()">${l}</button>`).join('')}</div>
     <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:2px 2px 8px">Fond des conversations</div>
