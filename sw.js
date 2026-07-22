@@ -1,5 +1,5 @@
 /* ELAN GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v414';
+const CACHE = 'elan-gestion-v415';
 const ASSETS = [
   './',
   'index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   'espace.html',
   'messages.html',
   'app.html',
+  'fond-anime-teamop.js',
   'manifest.webmanifest',
   'manifest-teamop.webmanifest',
   'manifest-opmsg.webmanifest',
