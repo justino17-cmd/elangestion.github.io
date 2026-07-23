@@ -451,8 +451,6 @@
     .topbar-ava{display:flex;width:36px;height:36px;cursor:pointer;}
     /* Barre contextuelle : ◀ + titre + actions de la catégorie */
     body.ctx .topbar-brand,body.ctx #create-btn,body.ctx #sync-btn,body.ctx .topbar-ava,body.ctx #search-btn{display:none;}
-    body.ctx #plan-badge{display:none !important;}
-    #plan-badge{width:32px;height:32px;border-radius:8px;}
     body.ctx .menu-btn{width:34px;height:34px;font-size:15px;flex-shrink:0;}
     body.ctx #topbar-back{display:flex !important;align-items:center;justify-content:center;}
     body.ctx .topbar-title{display:block;flex:1;min-width:0;}
@@ -687,6 +685,7 @@ table, .tbl, .list-row {
       <div style="min-width:0">
         <div class="hi" id="brand-name" style="font-family:'Space Mono',monospace;letter-spacing:2px;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">OP&nbsp;GESTION</div>
         <div id="brand-sub" style="display:none;font-size:9px;letter-spacing:.16em;color:var(--t3)">OP GESTION</div>
+        <div id="brand-plan" style="display:none;font-size:8.5px;font-weight:800;letter-spacing:.18em;margin-top:2px;white-space:nowrap"></div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -694,14 +693,14 @@ table, .tbl, .list-row {
       <div style="font-size:10px;font-weight:800;letter-spacing:1.4px;color:var(--t3);margin:0 2px 6px">SUITE</div>
       <div id="suite-box">
         <div class="suite-row on suite-mini" onclick="document.getElementById('suite-box').classList.toggle('open')" title="Changer d'application">
-          <span style="width:20px;height:20px;border-radius:6px;background:var(--hero);color:#fff;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;flex-shrink:0;line-height:1">EL<br>AN</span>
+          <img id="suite-ic-elan" src="icons/plan-gestion.png" alt="" style="width:20px;height:20px;border-radius:6px;flex-shrink:0;object-fit:cover">
           <b style="font-size:11.5px;color:var(--t1)">OP GESTION</b>
           <span style="width:6px;height:6px;border-radius:50%;background:#22C55E;flex-shrink:0" title="Vous êtes ici"></span>
           <span style="margin-left:auto;color:var(--t3);font-size:10px">⌄</span>
         </div>
         <div id="suite-fly">
           <a id="suite-opmsg" href="messages.html" class="suite-row suite-mini" style="display:none;text-decoration:none;color:var(--t2)" title="Ouvrir OP MESSAGES ici">
-            <span style="width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#EEF1F6 50%,#25335C 50%);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#2563EB;flex-shrink:0">M</span>
+            <img src="icons/plan-msg.png" alt="" style="width:20px;height:20px;border-radius:6px;flex-shrink:0;object-fit:cover">
             <b style="font-size:11.5px">OP MESSAGES</b>
             <span style="margin-left:auto;display:flex;gap:4px" onclick="event.preventDefault();event.stopPropagation()">
               <button class="btn ghost sm" style="padding:3px 7px;font-size:11px" title="Écran partagé — les 2 apps dans la même fenêtre" onclick="splitOpen('messages.html')">⫽</button>
@@ -741,7 +740,6 @@ table, .tbl, .list-row {
         <div id="notif-panel"></div>
       </div>
       <button class="bell" id="search-btn" onclick="openSearch()" title="Rechercher partout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
-      <img id="plan-badge" src="icons/plan-gestion.png" alt="Forfait" title="" style="display:none;width:38px;height:38px;border-radius:10px;object-fit:cover;flex-shrink:0;cursor:pointer;border:1px solid var(--brd)" onclick="go('parametres')">
     </div>
     <div class="page-head" id="page-head"></div>
     <div class="content" id="content"></div>
@@ -1983,20 +1981,20 @@ function entNom(){ return (((db.entreprise||{}).nom)||'').trim() || ((db.mailFro
 /* 🏷️ Marque de l'entreprise dans la barre — Business : logo uniquement · Business Premium : logo + nom + couleur */
 function applyBrand(){ const img=$('brand-logo'), nm=$('brand-name'), sub=$('brand-sub'); if(!img||!nm) return;
   const E=db.entreprise||{}, f=forfait();
-  if(f==='premium' && ((E.nom||'').trim()||E.logo)){ img.src=E.logo||'icons/icon-192.png'; nm.textContent=(E.nom||'').trim()||'OP GESTION'; if(sub) sub.style.display='block'; }
+  if(f==='premium' && ((E.nom||'').trim()||E.logo)){ img.src=E.logo||PLAN_BADGE[f]; nm.textContent=(E.nom||'').trim()||'OP GESTION'; if(sub) sub.style.display='block'; }
   else if(f==='business' && E.logo){ img.src=E.logo; nm.innerHTML='OP&nbsp;GESTION'; if(sub) sub.style.display='none'; }
-  else { img.src='icons/icon-192.png'; nm.innerHTML='OP&nbsp;GESTION'; if(sub) sub.style.display='none'; }
+  else { img.src=PLAN_BADGE[f]||'icons/icon-192.png'; nm.innerHTML='OP&nbsp;GESTION'; if(sub) sub.style.display='none'; }
+  // Nom du forfait écrit en couleur sous le nom
+  const pl=$('brand-plan'); if(pl){ pl.textContent=PLANS[f].l.toUpperCase(); pl.style.color=PLAN_COLOR[f]||'var(--t3)'; pl.style.display='block'; }
+  const se=$('suite-ic-elan'); if(se) se.src=PLAN_BADGE[f]||'icons/plan-gestion.png';
   // Couleur de l'entreprise (Business Premium) : appliquée à toute l'équipe, sauf choix perso de l'utilisateur
   try{ if(!localStorage.getItem('elan_accent')){ const r=document.documentElement, want=entCouleur()||'';
     if(want!==(r.style.getPropertyValue('--acc')||'').trim()) applyTheme(); } }catch(e){}
   try{ applyPlanBadge(); }catch(e){} }
-/* 🎖️ Badge du forfait en haut à droite — prouve l'abonnement actif ;
+/* 🎖️ Logo du forfait dans la barre latérale — prouve l'abonnement actif ;
    si l'entreprise a son propre logo (Business / Business Premium), c'est lui qui s'affiche à la place */
 const PLAN_BADGE={gratuit:'icons/plan-gestion.png',pro:'icons/plan-gestion-pro.png',business:'icons/plan-gestion-business.png',premium:'icons/plan-gestion-premium.png'};
-function applyPlanBadge(){ const el=$('plan-badge'); if(!el) return; const E=(db&&db.entreprise)||{}, f=forfait();
-  if(['business','premium'].includes(f) && E.logo){ el.src=E.logo; el.title='Logo de votre entreprise — forfait '+PLANS[f].l; }
-  else { el.src=PLAN_BADGE[f]||PLAN_BADGE.gratuit; el.title='Forfait '+PLANS[f].l; }
-  el.style.display='block'; }
+const PLAN_COLOR={gratuit:'#93a9d4',pro:'#4a9b7f',business:'#3b82f6',premium:'#a78bfa'};
 /* Couleur choisie par l'entreprise — valable uniquement avec le forfait Business Premium */
 function entCouleur(){ try{ const E=(db&&db.entreprise)||{}; return (forfait()==='premium'&&/^#[0-9a-fA-F]{6}$/.test(E.couleur||''))?E.couleur:null; }catch(e){ return null; } }
 function entCouleurSet(hex){ if(!/^#[0-9a-fA-F]{6}$/.test(hex)) return; db.entreprise=db.entreprise||{}; db.entreprise.couleur=hex;
