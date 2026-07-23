@@ -159,7 +159,7 @@
 
   // Catalogue des applications activables
   const APPS={
-    elan:{ name:'ELAN GESTION', desc:'Gestion terrain : interventions, stock & box, équipe.', href:'app.html', ic:'icons/logo-day.png', btn:'var(--elan)' },
+    elan:{ name:'OP GESTION', desc:'Gestion terrain : interventions, stock & box, équipe.', href:'app.html', ic:'icons/logo-day.png', btn:'var(--elan)' },
     opmsg:{ name:'OP MESSAGES', desc:"Messagerie d'équipe : chat temps réel, groupes, photos.", href:'messages.html', ic:'icons/opmsg-512.png', btn:'var(--op)' }
   };
   const NEWS_TAGS={ nouveau:['Nouveau','tg-nouveau'], beta:['Bêta — à tester','tg-beta'], officiel:['Version officielle','tg-officiel'], info:['Info','tg-info'] };
@@ -231,9 +231,10 @@
     if(_curView && _curView!=='menu') return;   // ne pas quitter une sous-page lors d'une mise à jour
     renderMenu();
   }
+  function clientApps(user,d){ if(((user&&user.email)||'').toLowerCase().endsWith('@teamop.fr')) return Object.keys(APPS); return Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[]; }
   function _cliBadge(d){ return d.status==='nouveau'?'<span class="badge b-new">Demande envoyée</span>':d.status==='encours'?'<span class="badge b-prog">Demande en cours</span>':d.status==='fourni'?'<span class="badge b-done">Accès activé</span>':''; }
   function renderMenu(){ _curView='menu'; const user=_meUser,d=_meDoc||{}; if(!user) return;
-    const apps=Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[];
+    const apps=clientApps(user,d);
     const prenom=d.prenom||((d.name||user.email||'').split(' ')[0])||'';
     const avaL=((prenom[0]||user.email||'?')[0]||'?').toUpperCase();
     const docs=Array.isArray(d.docs)?d.docs:[];
@@ -271,7 +272,7 @@
   }
 
   function openView(v){ _curView=v; const user=_meUser,d=_meDoc||{}; if(!user) return;
-    const apps=Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[];
+    const apps=clientApps(user,d);
     const docs=Array.isArray(d.docs)?d.docs:[];
     const T={apps:'Mes applications',abo:'Mon abonnement',docs:'Mes documents',info:'Mes informations',bill:'Coordonnées de facturation',email:'Adresse e-mail',pass:'Mot de passe',notif:'Notifications',news:'Nouveautés',faq:'Aide & FAQ',support:'Support',del:'Supprimer mon compte'};
     let body='';
@@ -282,7 +283,7 @@
         <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">➕ Demander un accès</h4>
         <p class="muted" style="margin-bottom:14px">Choisis l'application, décris ton besoin — nous validons et l'application s'active ici. Tu peux aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
         <div id="req-msg"></div>
-        <div class="field"><label>Application</label><select id="r-app"><option>ELAN GESTION</option><option>OP MESSAGES</option><option>Les deux (ELAN GESTION + OP MESSAGES)</option></select></div>
+        <div class="field"><label>Application</label><select id="r-app"><option>OP GESTION</option><option>OP MESSAGES</option><option>Les deux (OP GESTION + OP MESSAGES)</option></select></div>
         <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
         <div class="field"><label>Votre besoin</label><textarea id="r-besoin" placeholder="Ce que vous voulez faire (nombre d'utilisateurs, activité…)">${esc(d.besoin||'')}</textarea></div>
         <button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`;
@@ -454,7 +455,7 @@
         html+=`<div class="req"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><h4>${esc(d.company||d.email||'—')}</h4><div class="muted">${esc(d.name||'')} · ${esc(d.email||'')}${d.app?' · souhaite : '+esc(d.app):''}</div></div><span class="badge ${b}">${bl}</span></div>
           ${d.besoin?`<p style="font-size:13.5px;color:var(--t2);margin-top:8px">${esc(d.besoin)}</p>`:''}
           <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--brd)">
-            <label class="chk"><input type="checkbox" id="gr-elan-${doc.id}" ${apps.includes('elan')?'checked':''}> 🌿 ELAN GESTION</label>
+            <label class="chk"><input type="checkbox" id="gr-elan-${doc.id}" ${apps.includes('elan')?'checked':''}> 🌿 OP GESTION</label>
             <label class="chk"><input type="checkbox" id="gr-opmsg-${doc.id}" ${apps.includes('opmsg')?'checked':''}> 💬 OP MESSAGES</label>
             <button class="btn sm green" onclick="grantApps('${doc.id}')">✅ Activer les accès</button>
           </div>
@@ -482,7 +483,7 @@
       await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:'📄 Nouveau document disponible : '+name.trim()+' (voir « Mes documents »).',ts:firebase.firestore.FieldValue.serverTimestamp()});
       alert('Document ajouté ✅'); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function provision(uid, company){
-    if(!confirm('Créer un espace ELAN GESTION pour « '+company+' » et envoyer l\'accès ?')) return;
+    if(!confirm('Créer un espace OP GESTION pour « '+company+' » et envoyer l\'accès ?')) return;
     const sp=genSpace(company);
     try{ await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:'🏢 Votre espace « '+company+' » est prêt ! Cliquez sur « Activer mon espace » pour créer votre compte administrateur. Accès à usage unique.',access:sp.code,accessName:company,ts:firebase.firestore.FieldValue.serverTimestamp()});
       await fs.collection('teamop_requests').doc(uid).set({status:'fourni',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
@@ -513,7 +514,7 @@
     try{ await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:role,text,ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   function activate(code){ let o=null; try{ o=JSON.parse(decodeURIComponent(escape(atob(code)))); }catch(e){}
     if(!o||!o.t||!o.k){ alert('Code invalide.'); return; }
-    if(!confirm('Activer votre espace « '+(o.n||o.t)+' » et créer votre compte administrateur ELAN GESTION ?')) return;
+    if(!confirm('Activer votre espace « '+(o.n||o.t)+' » et créer votre compte administrateur OP GESTION ?')) return;
     try{ localStorage.setItem('elan_sync_team',o.t); localStorage.setItem('elan_sync_secret',o.k); localStorage.setItem('elan_sync_on','1'); localStorage.removeItem('elan_gestion_v2'); sessionStorage.setItem('elan_create_admin','1'); }catch(e){}
     window.location.href='app.html';
   }
