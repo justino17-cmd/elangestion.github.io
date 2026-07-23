@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v423';
+const CACHE = 'elan-gestion-v424';
 const ASSETS = [
   './',
   'index.html',
@@ -19,7 +19,11 @@ const ASSETS = [
   'manifest-opmsg.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',
-  'icons/apple-touch-icon.png'
+  'icons/apple-touch-icon.png',
+  'icons/plan-gestion.png',
+  'icons/plan-gestion-pro.png',
+  'icons/plan-gestion-business.png',
+  'icons/plan-gestion-premium.png'
 ];
 
 self.addEventListener('install', e => {
