@@ -23,7 +23,10 @@ const ASSETS = [
   'icons/plan-gestion.png',
   'icons/plan-gestion-pro.png',
   'icons/plan-gestion-business.png',
-  'icons/plan-gestion-premium.png'
+  'icons/plan-gestion-premium.png',
+  'icons/plan-msg.png',
+  'icons/plan-msg-pro.png',
+  'icons/plan-msg-premium.png'
 ];
 
 self.addEventListener('install', e => {
