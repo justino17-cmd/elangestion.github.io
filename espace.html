@@ -237,26 +237,62 @@
     }, ()=>{ paintClient(user,{}); });
   }
   function paintClient(user,d){ _meUser=user; _meDoc=d;
+    try{ promoAlerteJ2(user.uid,d); }catch(e){}
     if(_curView && _curView!=='menu') return;   // ne pas quitter une sous-page lors d'une mise à jour
     renderMenu();
   }
-  function clientApps(user,d){ if(((user&&user.email)||'').toLowerCase().endsWith('@teamop.fr')) return Object.keys(APPS); return Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[]; }
+  /* 🎁 Codes promo : accès aux applications pendant N mois */
+  const PROMO_CODES={ 'TEAMOP3MOIS': {mois:3, apps:['elan','opmsg'], label:'3 mois offerts'} };
+  function promoInfo(d){ try{ const p=d&&d.promo; if(!p||!p.until) return null; const until=(p.until&&p.until.toMillis)?p.until.toMillis():p.until; const rest=until-Date.now(); if(rest<=0) return null;
+    return {code:p.code||'',label:p.label||'3 mois offerts',until,jours:Math.ceil(rest/86400000),apps:(Array.isArray(p.apps)?p.apps:Object.keys(APPS)).filter(k=>APPS[k])}; }catch(e){ return null; } }
+  function clientApps(user,d){ if(((user&&user.email)||'').toLowerCase().endsWith('@teamop.fr')) return Object.keys(APPS);
+    const base=Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[]; const pi=promoInfo(d);
+    return pi?[...new Set(base.concat(pi.apps))]:base; }
+  async function promoActivate(uid){ const inp=document.getElementById('promo-code'); const msg=document.getElementById('promo-msg'); if(!inp) return;
+    const code=(inp.value||'').trim().toUpperCase().replace(/\s+/g,'');
+    const err=s=>{ if(msg) msg.innerHTML='<div class="err">'+esc(s)+'</div>'; };
+    if(!code) return err('Entrez votre code promo.');
+    const def=PROMO_CODES[code]; if(!def) return err('Code inconnu ou expiré.');
+    const d=_meDoc||{};
+    if(Array.isArray(d.promoUsed)&&d.promoUsed.includes(code)) return err('Ce code a déjà été utilisé sur ce compte.');
+    if(promoInfo(d)) return err('Une offre est déjà active sur votre compte.');
+    const until=Date.now()+def.mois*30*86400000;
+    const promo={code,label:def.label,apps:def.apps,activatedAt:Date.now(),until};
+    try{
+      await fs.collection('teamop_requests').doc(uid).set({promo,promoUsed:firebase.firestore.FieldValue.arrayUnion(code)},{merge:true});
+      _meDoc=Object.assign({},_meDoc,{promo,promoUsed:(d.promoUsed||[]).concat([code])});
+      try{ await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:'🎁 Code « '+code+' » activé : '+def.label+' sur vos applications, jusqu\'au '+new Date(until).toLocaleDateString('fr-FR')+'. Profitez bien !',ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
+      openView('abo');
+    }catch(e){ err('Erreur : '+(e.message||e)); } }
+  /* ⏳ Alerte J-2 avant la fin de l'offre : bannière + message + notification (une seule fois) */
+  function promoBanner(d){ const pi=promoInfo(d); if(!pi||pi.jours>2) return '';
+    return '<div class="panel" style="padding:14px 18px;margin-bottom:16px;border-color:rgba(245,158,11,.55);background:rgba(245,158,11,.08)"><b style="font-size:14px">⏳ Votre offre « '+esc(pi.label)+' » se termine dans '+pi.jours+' jour'+(pi.jours>1?'s':'')+'</b><p class="muted" style="margin-top:6px;line-height:1.55">Pour garder l\'accès à vos applications, choisissez votre abonnement dès maintenant. <b>Vos données ne sont jamais perdues</b>, quoi qu\'il arrive.</p><a class="btn sm" style="margin-top:10px;display:inline-block" href="recap-abonnement.html?formule=premium">Choisir mon abonnement →</a></div>'; }
+  async function promoAlerteJ2(uid,d){ try{ const pi=promoInfo(d); if(!pi||pi.jours>2) return; if(d.promoAlerte===pi.code) return;
+    await fs.collection('teamop_requests').doc(uid).set({promoAlerte:pi.code},{merge:true});
+    _meDoc=Object.assign({},_meDoc,{promoAlerte:pi.code});
+    const txt='⏳ Plus que '+pi.jours+' jour'+(pi.jours>1?'s':'')+' avant la fin de votre offre « '+pi.label+' ». Choisissez votre abonnement sur teamop.fr/recap-abonnement.html pour garder vos applications — vos données ne sont jamais perdues.';
+    try{ await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:txt,ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
+    try{ fetch('https://api.teamop.fr/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:'opmsg-user-'+uid,title:'⏳ Votre offre se termine bientôt — TeamOP',body:txt,url:'/espace.html'})}).catch(()=>{}); }catch(e){}
+  }catch(e){} }
   function _cliBadge(d){ return d.status==='nouveau'?'<span class="badge b-new">Demande envoyée</span>':d.status==='encours'?'<span class="badge b-prog">Demande en cours</span>':d.status==='fourni'?'<span class="badge b-done">Accès activé</span>':''; }
   function renderMenu(){ _curView='menu'; const user=_meUser,d=_meDoc||{}; if(!user) return;
     const apps=clientApps(user,d);
     const prenom=d.prenom||((d.name||user.email||'').split(' ')[0])||'';
     const avaL=((prenom[0]||user.email||'?')[0]||'?').toUpperCase();
     const docs=Array.isArray(d.docs)?d.docs:[];
-    const planTxt=(d.plan||'Découverte')+' · '+(d.planStatus==='suspendu'?'Suspendu':(d.planStatus==='essai'?'Essai':'Actif'));
+    const _pi0=promoInfo(d);
+    const planTxt=(d.plan||'Découverte')+' · '+(d.planStatus==='suspendu'?'Suspendu':(d.planStatus==='essai'?'Essai':'Actif'))+(_pi0?(' · 🎁 '+_pi0.label+' — reste '+_pi0.jours+' j'):'');
     const ROW=(v,ic,title,sub,badge)=>`<div class="setrow" onclick="openView('${v}')"><span class="si">${ic}</span><div class="sl"><b>${title}${badge||''}</b><span>${sub}</span></div><span class="sc">›</span></div>`;
     $('space').innerHTML=`
       <div class="hero-cli"><div class="cli-ava">${avaL}</div><div style="flex:1;min-width:0"><div class="hi">Bonjour ${esc(prenom||'👋')} 👋</div><div class="hs">${esc(d.company||'Ton espace TeamOP')} ${_cliBadge(d)}</div></div></div>
       ${(()=>{ const steps=[['Compte créé',true],['Profil complété',!!(d.prenom&&d.nom&&d.company)],['Accès demandé',d.status==='nouveau'||d.status==='encours'||d.status==='fourni'||(apps.length>0)],['Application activée',apps.length>0]]; const done=steps.filter(x=>x[1]).length; if(done>=4) return '';
         return `<div class="panel" style="padding:16px 18px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px"><b style="font-size:14px">🚀 Prise en main</b><span class="muted">${done}/4 · ${Math.round(done/4*100)}%</span></div><div class="prog"><div class="prog-b" style="width:${done/4*100}%"></div></div></div>`; })()}
 
+      ${promoBanner(d)}
       <div class="grp2">Mon activité</div>
       <div class="acard">
         ${ROW('apps','📱','Mes applications',apps.length?'Ouvrir vos applications':'Aucune application activée',apps.length?`<span class="badge b-done" style="margin-left:6px">${apps.length}</span>`:'')}
+        ${ROW('demandes','📨',"Mes demandes d'accès",(Array.isArray(d.demandes)&&d.demandes.length)?d.demandes.length+' demande(s) — suivi détaillé':'Demander et suivre vos accès',_cliBadge(d)?' '+_cliBadge(d):'')}
         ${ROW('abo','💼','Mon abonnement',esc(planTxt),'')}
         ${ROW('docs','📄','Mes documents',docs.length?docs.length+' document(s)':'Contrats et factures TeamOP','')}
       </div>
@@ -283,22 +319,76 @@
   function openView(v){ _curView=v; const user=_meUser,d=_meDoc||{}; if(!user) return;
     const apps=clientApps(user,d);
     const docs=Array.isArray(d.docs)?d.docs:[];
-    const T={apps:'Mes applications',abo:'Mon abonnement',docs:'Mes documents',info:'Mes informations',bill:'Coordonnées de facturation',email:'Adresse e-mail',pass:'Mot de passe',notif:'Notifications',news:'Nouveautés',faq:'Aide & FAQ',support:'Support',del:'Supprimer mon compte'};
+    const T={apps:'Mes applications',demandes:"Mes demandes d'accès",abo:'Mon abonnement',docs:'Mes documents',info:'Mes informations',bill:'Coordonnées de facturation',email:'Adresse e-mail',pass:'Mot de passe',notif:'Notifications',news:'Nouveautés',faq:'Aide & FAQ',support:'Support',del:'Supprimer mon compte'};
     let body='';
     if(v==='apps'){
-      body = (apps.length ? apps.map(k=>{ const a=APPS[k]; return `<a class="appc" href="${a.href}" onclick="try{localStorage.setItem('teamop_app','${a.href}')}catch(e){}"><img src="${a.ic}" alt="${esc(a.name)}"><div class="an"><h4>${esc(a.name)}</h4><p>${esc(a.desc)}</p></div><span class="openb" style="background:${a.btn}">Ouvrir →</span></a>`; }).join('')
-        : `<p class="muted" style="line-height:1.6">⚪ Aucune application activée pour l'instant.<br>Fais ta demande ci-dessous — dès validation, tes applications apparaîtront ici.</p>`)
-        + `<div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
-        <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">➕ Demander un accès</h4>
-        <p class="muted" style="margin-bottom:14px">Choisis l'application, décris ton besoin — nous validons et l'application s'active ici. Tu peux aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
+      const pi=promoInfo(d);
+      body = (apps.length ? apps.map(k=>{ const a=APPS[k]; const viaPromo=pi&&pi.apps.includes(k)&&!(Array.isArray(d.apps)&&d.apps.includes(k));
+        return `<a class="appc" href="${a.href}" onclick="try{localStorage.setItem('teamop_app','${a.href}')}catch(e){}"><img src="${a.ic}" alt="${esc(a.name)}"><div class="an"><h4>${esc(a.name)}${viaPromo?' <span class="badge b-done" style="font-size:10px">🎁 '+esc(pi.label)+'</span>':''}</h4><p>${esc(a.desc)}</p></div><span class="openb" style="background:${a.btn}">Ouvrir →</span></a>`; }).join('')
+        : `<p class="muted" style="line-height:1.6">⚪ Aucune application activée pour l'instant.<br>Faites une demande dans <b>« Mes demandes d'accès »</b> — dès validation, vos applications apparaîtront ici.</p><button class="btn sm" style="margin-top:10px" onclick="openView('demandes')">➕ Demander un accès</button>`);
+    }
+    else if(v==='demandes'){
+      const dems=Array.isArray(d.demandes)?d.demandes.slice().sort((a,b)=>(b.date||0)-(a.date||0)):[];
+      const stLib={'nouveau':['Envoyée','b-new'],'encours':['En cours d\'étude','b-prog'],'fourni':['Accès activé','b-done']};
+      const fmtDH=ts=>{ try{ const x=new Date(ts); return x.toLocaleDateString('fr-FR')+' à '+x.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } };
+      const histo = dems.length ? dems.map((dm,i)=>{ const st=(i===0&&d.status&&stLib[d.status])?stLib[d.status]:(stLib[dm.statut]||['Envoyée','b-new']);
+        return `<div class="panel" style="padding:14px 16px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:14.5px">📨 ${esc(dm.app||'Demande')}</b><span class="badge ${st[1]}">${st[0]}</span></div>
+          <div class="muted" style="margin-top:6px;line-height:1.65;font-size:13px">
+            🕐 Envoyée le <b>${fmtDH(dm.date)}</b><br>
+            ${dm.company?('🏢 Entreprise : <b>'+esc(dm.company)+'</b><br>'):''}
+            ${dm.users?('👥 Utilisateurs souhaités : <b>'+esc(String(dm.users))+'</b><br>'):''}
+            ${dm.formule?('💼 Formule envisagée : <b>'+esc(dm.formule)+'</b><br>'):''}
+            ${dm.besoin?('📝 Besoin : '+esc(dm.besoin)):''}
+          </div></div>`; }).join('')
+        : `<p class="muted" style="margin-bottom:14px">Aucune demande pour l'instant. Détaillez votre besoin ci-dessous — plus c'est précis, plus l'activation est rapide.</p>`;
+      body = `${histo}
+        <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
+        <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">➕ Nouvelle demande d'accès</h4>
+        <p class="muted" style="margin-bottom:14px">Nous validons et l'application s'active dans « Mes applications ». Vous pouvez aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
         <div id="req-msg"></div>
         <div class="field"><label>Application</label><select id="r-app"><option>OP GESTION</option><option>OP MESSAGES</option><option>Les deux (OP GESTION + OP MESSAGES)</option></select></div>
         <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
-        <div class="field"><label>Votre besoin</label><textarea id="r-besoin" placeholder="Ce que vous voulez faire (nombre d'utilisateurs, activité…)">${esc(d.besoin||'')}</textarea></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nombre d'utilisateurs</label><input id="r-users" type="number" min="1" max="250" placeholder="ex. 5"></div>
+        <div class="field" style="flex:1.4"><label>Formule envisagée</label><select id="r-formule"><option>Je ne sais pas encore</option><option>Gratuit</option><option>Pro</option><option>Business</option><option>Business Premium</option></select></div></div>
+        <div class="field"><label>Votre besoin / exigences</label><textarea id="r-besoin" placeholder="Votre activité, ce que vous voulez faire, vos exigences…">${esc(d.besoin||'')}</textarea></div>
         <button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`;
     }
-    else if(v==='abo'){ body=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-size:19px;font-weight:800">${esc(d.plan||'Découverte')}</div><div class="muted">${d.planStatus==='suspendu'?'Suspendu':(d.planStatus==='essai'?"Période d'essai":'Actif')}</div></div><span class="badge ${d.planStatus==='suspendu'?'b-prog':'b-done'}">${d.planStatus==='suspendu'?'⏸ Suspendu':'● Actif'}</span></div><p class="muted" style="margin-top:14px;line-height:1.6">Votre abonnement TeamOP vous donne accès à vos applications. Pour faire évoluer votre offre, écrivez-nous via le <b>Support</b> ou à <b>contact@teamop.fr</b>.</p>`; }
-    else if(v==='docs'){ body = docs.length?docs.map(doc=>`<a class="docr" href="${esc(doc.url||'#')}" target="_blank" rel="noopener"><span style="font-size:20px">${esc(doc.ic||'📄')}</span><div style="flex:1;min-width:0"><b style="font-size:14px">${esc(doc.name||'Document')}</b><span class="muted" style="display:block">${esc(doc.date||'')}</span></div><span style="color:var(--op-l);font-size:13px;font-weight:700">Ouvrir ↗</span></a>`).join(''):`<p class="muted">Aucun document pour l'instant. Vos <b>contrats et factures d'abonnement TeamOP</b> apparaîtront ici.</p>`; }
+    else if(v==='abo'){
+      const pi=promoInfo(d);
+      // 1) l'offre en cours
+      body=`${promoBanner(d)}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-size:19px;font-weight:800">${esc(d.plan||'Découverte')}</div><div class="muted">${d.planStatus==='suspendu'?'Suspendu':(d.planStatus==='essai'?"Période d'essai":'Actif')}</div></div><span class="badge ${d.planStatus==='suspendu'?'b-prog':'b-done'}">${d.planStatus==='suspendu'?'⏸ Suspendu':'● Actif'}</span></div>`;
+      // 2) applications activées
+      body+=`<div class="grp2" style="margin-top:18px">Applications activées</div>`;
+      const lignes=Object.keys(APPS).map(k=>{ const a=APPS[k]; const actif=apps.includes(k);
+        const viaPromo=pi&&pi.apps.includes(k)&&!(Array.isArray(d.apps)&&d.apps.includes(k));
+        return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--brd)"><img src="${a.ic}" alt="" style="width:34px;height:34px;border-radius:9px"><div style="flex:1;min-width:0"><b style="font-size:14px">${esc(a.name)}</b>${viaPromo?`<span class="muted" style="display:block;font-size:12px">🎁 via le code « ${esc(pi.code)} »</span>`:''}</div>${actif?`<span class="badge b-done">● Actif</span>`:`<span class="badge" style="background:rgba(100,116,142,.15);color:var(--t3)">Non activé</span>`}</div>`; }).join('');
+      body+=lignes;
+      // 3) offre promo : compte à rebours OU champ d'activation
+      if(pi){ const total=(pi.until-((d.promo&&d.promo.activatedAt)||pi.until-90*86400000)); const passe=Math.max(0,Date.now()-((d.promo&&d.promo.activatedAt)||Date.now())); const pct=Math.max(3,Math.min(100,Math.round(passe/Math.max(1,total)*100)));
+        body+=`<div class="panel" style="padding:16px 18px;margin-top:18px;border-color:rgba(52,211,153,.4)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:14px">🎁 ${esc(pi.label)} — code « ${esc(pi.code)} »</b><span class="badge ${pi.jours<=2?'b-prog':'b-done'}">⏳ Reste ${pi.jours} jour${pi.jours>1?'s':''}</span></div>
+          <div class="prog" style="margin-top:10px"><div class="prog-b" style="width:${pct}%"></div></div>
+          <p class="muted" style="margin-top:8px;font-size:12.5px">Fin de l'offre le <b>${new Date(pi.until).toLocaleDateString('fr-FR')}</b>. Ensuite, choisissez votre abonnement — <b>vos données ne sont jamais perdues</b>.</p>
+          <a class="btn sm" style="margin-top:8px;display:inline-block" href="recap-abonnement.html">Choisir mon abonnement →</a>
+        </div>`; }
+      else { body+=`<div class="grp2" style="margin-top:18px">Code promo</div>
+        <p class="muted" style="margin-bottom:10px">Vous avez un code (ex. 3 mois offerts) ? Activez-le ici : vos applications se débloquent immédiatement, avec un compte à rebours visible.</p>
+        <div id="promo-msg"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap"><input id="promo-code" placeholder="VOTRE CODE" style="flex:1;min-width:160px;text-transform:uppercase"><button class="btn sm" onclick="promoActivate('${user.uid}')">🎁 Activer</button></div>`; }
+      body+=`<p class="muted" style="margin-top:16px;line-height:1.6">Pour souscrire ou faire évoluer votre offre : <a href="recap-abonnement.html" style="color:inherit"><b>la page d'abonnement</b></a>, le <b>Support</b> ou <b>contact@teamop.fr</b>.</p>`;
+    }
+    else if(v==='docs'){
+      const pi=promoInfo(d);
+      const contrats=[];
+      if(pi) contrats.push({t:'promo',ic:'🎁',name:'Contrat — Offre '+pi.label,sub:'Applications : '+pi.apps.map(k=>APPS[k].name).join(' + ')+' · jusqu\'au '+new Date(pi.until).toLocaleDateString('fr-FR')});
+      (Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[]).forEach(k=>contrats.push({t:'app',k,ic:'📱',name:'Contrat de mise à disposition — '+APPS[k].name,sub:'Formule '+(d.plan||'Découverte')}));
+      const genHtml=contrats.length?`<div class="grp2" style="margin-top:2px">Contrats TeamOP</div>`+contrats.map((c,i)=>`<a class="docr" href="#" onclick="event.preventDefault();contratVoir(${i})"><span style="font-size:20px">${c.ic}</span><div style="flex:1;min-width:0"><b style="font-size:14px">${esc(c.name)}</b><span class="muted" style="display:block">${esc(c.sub)}</span></div><span style="color:var(--op-l);font-size:13px;font-weight:700">Voir / Imprimer ↗</span></a>`).join(''):'';
+      window._contrats=contrats;
+      const adminHtml=docs.length?`<div class="grp2" style="margin-top:${contrats.length?'16px':'2px'}">Documents TeamOP</div>`+docs.map(doc=>`<a class="docr" href="${esc(doc.url||'#')}" target="_blank" rel="noopener"><span style="font-size:20px">${esc(doc.ic||'📄')}</span><div style="flex:1;min-width:0"><b style="font-size:14px">${esc(doc.name||'Document')}</b><span class="muted" style="display:block">${esc(doc.date||'')}</span></div><span style="color:var(--op-l);font-size:13px;font-weight:700">Ouvrir ↗</span></a>`).join(''):'';
+      body = (genHtml+adminHtml) || `<p class="muted">Aucun document pour l'instant. Vos <b>contrats et factures d'abonnement TeamOP</b> apparaîtront ici dès qu'une application ou une offre est activée.</p>`;
+    }
     else if(v==='info'){ body=`<div id="info-msg"></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom</label><input id="in-prenom" value="${esc(d.prenom||'')}"></div><div class="field" style="flex:1"><label>Nom</label><input id="in-nom" value="${esc(d.nom||'')}"></div></div><div class="field"><label>Entreprise</label><input id="in-company" value="${esc(d.company||'')}"></div><button class="btn sm" onclick="infoSave('${user.uid}')">Enregistrer</button>`; }
     else if(v==='bill'){ body=`<p class="muted" style="margin-bottom:12px">Utilisées pour vos documents et factures d'abonnement.</p><div id="bill-msg"></div><div class="field"><label>Adresse</label><input id="bi-adresse" value="${esc(d.adresse||'')}" placeholder="N° et rue"></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Code postal</label><input id="bi-cp" value="${esc(d.cp||'')}" placeholder="75000"></div><div class="field" style="flex:2"><label>Ville</label><input id="bi-ville" value="${esc(d.ville||'')}"></div></div><div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>SIRET</label><input id="bi-siret" value="${esc(d.siret||'')}"></div><div class="field" style="flex:1"><label>N° TVA</label><input id="bi-tva" value="${esc(d.tva||'')}"></div></div><div class="field"><label>Téléphone</label><input id="bi-tel" value="${esc(d.tel||'')}"></div><button class="btn sm" onclick="accSaveBilling('${user.uid}')">Enregistrer</button>`; }
     else if(v==='email'){ body=`<p class="muted" style="margin-bottom:6px">Adresse actuelle : <b>${esc(user.email||'')}</b></p><p class="muted" style="margin-bottom:12px">Un <b>code de sécurité</b> sera envoyé à votre adresse actuelle pour confirmer.</p><div id="em-err"></div><div class="field"><label>Nouvelle adresse e-mail</label><input id="em-new" type="email" placeholder="vous@entreprise.fr"></div><div class="field"><label>Mot de passe actuel</label><input id="em-pass" type="password" autocomplete="current-password"></div><button class="btn sm block" id="em-send" onclick="emSend()">M'envoyer le code</button><div id="em-code"></div>`; }
@@ -390,13 +480,51 @@
     await fetch('https://api.teamop.fr/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sub:sub.toJSON(),teamId:'opmsg-user-'+_myUid,userId:_myUid,userName:(auth.currentUser&&auth.currentUser.email)||''})});
     const b=$('cli-push'); if(b) b.textContent='✓ Activées sur cet appareil';
   }catch(e){ alert('Activation impossible pour le moment.'); } }
+  /* 📄 Contrats générés — ouverture dans une fenêtre imprimable */
+  function contratVoir(i){ const c=(window._contrats||[])[i]; if(!c) return; const d=_meDoc||{}, u=_meUser||{};
+    const pi=promoInfo(d);
+    const client=[(d.prenom||'')+' '+(d.nom||''),d.company?('Entreprise : '+d.company):'',u.email?('E-mail : '+u.email):'',d.adresse?(d.adresse+', '+(d.cp||'')+' '+(d.ville||'')):'',d.siret?('SIRET : '+d.siret):''].filter(x=>x&&x.trim()).map(esc).join('<br>');
+    const auj=new Date().toLocaleDateString('fr-FR');
+    let objet='',duree='',prix='';
+    if(c.t==='promo'&&pi){ objet='Mise à disposition des applications '+esc(pi.apps.map(k=>APPS[k].name).join(' et '))+' dans le cadre de l\'offre promotionnelle « '+esc(pi.label)+' » (code '+esc(pi.code)+').';
+      duree='Du '+new Date((d.promo&&d.promo.activatedAt)||Date.now()).toLocaleDateString('fr-FR')+' au '+new Date(pi.until).toLocaleDateString('fr-FR')+' inclus. À l\'issue de cette période, l\'accès se poursuit uniquement par la souscription d\'un abonnement sur teamop.fr.';
+      prix='Gratuit pendant la durée de l\'offre. Aucun prélèvement automatique à l\'issue : sans souscription, le compte repasse en formule Gratuit.'; }
+    else { objet='Mise à disposition de l\'application '+esc((APPS[c.k]||{}).name||'')+' au titre de la formule « '+esc(d.plan||'Découverte')+' ».';
+      duree='Abonnement sans engagement de durée, reconduit par période mensuelle (ou annuelle selon la formule choisie), résiliable à tout moment.';
+      prix='Selon la formule en vigueur affichée sur teamop.fr/tarifs.html au jour de la souscription, payée par carte bancaire via Stripe.'; }
+    const w=window.open('','_blank'); if(!w) return alert('Autorisez les fenêtres pop-up pour voir le contrat.');
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>${esc(c.name)} — TEAM OP</title>
+      <style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:720px;margin:40px auto;padding:0 24px;color:#111;line-height:1.65;font-size:14px}h1{font-size:20px}h2{font-size:15px;margin:22px 0 6px}hr{border:none;border-top:1px solid #ccc;margin:18px 0}.sig{display:flex;gap:40px;margin-top:36px}.sig div{flex:1;border-top:1px solid #999;padding-top:8px;font-size:12.5px;color:#555}.mut{color:#555;font-size:12.5px}@media print{.noprint{display:none}}</style></head><body>
+      <button class="noprint" onclick="window.print()" style="padding:9px 16px;border-radius:8px;border:1px solid #999;cursor:pointer;float:right">🖨️ Imprimer / PDF</button>
+      <h1>${esc(c.name)}</h1>
+      <p class="mut">Établi le ${auj} — TEAM OP (teamop.fr)</p><hr>
+      <h2>Entre</h2>
+      <p><b>TEAM OP</b> — Justin Biret, entrepreneur individuel<br>SIREN 107 995 011 — 10 rue de la Gravière, 17220 Salles-sur-Mer, France<br>contact@teamop.fr</p>
+      <h2>Et</h2>
+      <p>${client||'<i>Client TeamOP</i>'}</p>
+      <h2>1. Objet</h2><p>${objet}</p>
+      <h2>2. Durée</h2><p>${duree}</p>
+      <h2>3. Prix</h2><p>${prix}</p>
+      <h2>4. Utilisateurs</h2><p>Le nombre de comptes utilisateurs disponibles suit la formule souscrite (et le nombre d'abonnements). L'application applique automatiquement cette limite.</p>
+      <h2>5. Données</h2><p>Les données appartiennent au client. Elles sont chiffrées (AES-256), hébergées dans un espace isolé par entreprise, exportables à tout moment, et <b>ne sont jamais supprimées en cas de changement ou d'arrêt de formule</b>.</p>
+      <h2>6. Résiliation</h2><p>Sans engagement : le client peut arrêter à tout moment depuis son espace ou par e-mail à contact@teamop.fr. L'accès payant cesse à la fin de la période en cours ; le compte repasse alors en formule Gratuit, données conservées.</p>
+      <h2>7. Droit applicable</h2><p>Le présent contrat est soumis au droit français.</p>
+      <div class="sig"><div>TEAM OP<br>Justin Biret</div><div>Le client<br>${esc((d.prenom||'')+' '+(d.nom||''))}</div></div>
+      </body></html>`);
+    w.document.close(); }
+
   async function sendRequest(uid){
     const app=$('r-app').value, company=($('r-company').value||'').trim(), besoin=($('r-besoin').value||'').trim();
+    const users=($('r-users')&&$('r-users').value)?parseInt($('r-users').value,10):0;
+    const formule=($('r-formule')&&$('r-formule').value)||'';
     if(!besoin){ $('req-msg').innerHTML='<div class="err">Décrivez votre besoin.</div>'; return; }
     try{
-      await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,status:'nouveau',email:auth.currentUser.email,uid,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-      await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'📩 Demande : '+app+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
-      $('req-msg').innerHTML='<div class="ok">✅ Demande envoyée ! Réponse dans la messagerie.</div>';
+      const dem={app,company,besoin,users:users||null,formule,date:Date.now(),statut:'nouveau'};
+      await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,status:'nouveau',email:auth.currentUser.email,uid,demandes:firebase.firestore.FieldValue.arrayUnion(dem),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'📩 Demande : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
+      _meDoc=Object.assign({},_meDoc,{status:'nouveau',demandes:((_meDoc&&_meDoc.demandes)||[]).concat([dem])});
+      openView('demandes');
+      setTimeout(()=>{ const m=$('req-msg'); if(m) m.innerHTML='<div class="ok">✅ Demande envoyée ! Réponse dans la messagerie.</div>'; },50);
     }catch(e){ $('req-msg').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
 
