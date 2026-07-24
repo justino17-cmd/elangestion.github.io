@@ -335,24 +335,33 @@
         return `<div class="panel" style="padding:14px 16px;margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:14.5px">📨 ${esc(dm.app||'Demande')}</b><span class="badge ${st[1]}">${st[0]}</span></div>
           <div class="muted" style="margin-top:6px;line-height:1.65;font-size:13px">
-            🕐 Envoyée le <b>${fmtDH(dm.date)}</b><br>
+            🕐 Envoyée le <b>${fmtDH(dm.date)}</b>${dm.modifie?(' · ✏️ modifiée le <b>'+fmtDH(dm.modifie)+'</b>'):''}<br>
             ${dm.company?('🏢 Entreprise : <b>'+esc(dm.company)+'</b><br>'):''}
             ${dm.users?('👥 Utilisateurs souhaités : <b>'+esc(String(dm.users))+'</b><br>'):''}
             ${dm.formule?('💼 Formule envisagée : <b>'+esc(dm.formule)+'</b><br>'):''}
             ${dm.besoin?('📝 Besoin : '+esc(dm.besoin)):''}
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn sm ghost" onclick="demEdit(${dm.date||0})">✏️ Modifier</button>
+            <button class="btn sm ghost" style="color:var(--red)" onclick="demRemove('${user.uid}',${dm.date||0})">🗑️ Retirer</button>
           </div></div>`; }).join('')
         : `<p class="muted" style="margin-bottom:14px">Aucune demande pour l'instant. Détaillez votre besoin ci-dessous — plus c'est précis, plus l'activation est rapide.</p>`;
-      body = `${histo}
+      const confirmBloc = window._demConfirm ? `<div class="panel" style="padding:16px 18px;margin-bottom:14px;border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.07)">
+        <b style="font-size:14.5px">✅ Votre demande est bien prise en compte</b>
+        <p class="muted" style="margin-top:6px;line-height:1.6;font-size:13px">Notre équipe l'étudie et revient vers vous <b>au plus vite</b>. Si nous avons besoin de renseignements supplémentaires, nous vous contacterons via la <b>messagerie de votre espace</b> ou par e-mail.<br>Vous pouvez <b>modifier ou retirer votre demande à tout moment</b> ci-dessous.</p></div>` : '';
+      const ed = window._demEdit ? dems.find(x=>x.date===window._demEdit) : null;
+      body = `${confirmBloc}${histo}
         <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
-        <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">➕ Nouvelle demande d'accès</h4>
+        <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">${ed?'✏️ Modifier ma demande':'➕ Nouvelle demande d\'accès'}</h4>
         <p class="muted" style="margin-bottom:14px">Nous validons et l'application s'active dans « Mes applications ». Vous pouvez aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
         <div id="req-msg"></div>
-        <div class="field"><label>Application</label><select id="r-app"><option>OP GESTION</option><option>OP MESSAGES</option><option>Les deux (OP GESTION + OP MESSAGES)</option></select></div>
-        <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc(d.company||'')}" placeholder="Nom de l'entreprise"></div>
-        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nombre d'utilisateurs</label><input id="r-users" type="number" min="1" max="250" placeholder="ex. 5"></div>
-        <div class="field" style="flex:1.4"><label>Formule envisagée</label><select id="r-formule"><option>Je ne sais pas encore</option><option>Gratuit</option><option>Pro</option><option>Business</option><option>Business Premium</option></select></div></div>
-        <div class="field"><label>Votre besoin / exigences</label><textarea id="r-besoin" placeholder="Votre activité, ce que vous voulez faire, vos exigences…">${esc(d.besoin||'')}</textarea></div>
-        <button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`;
+        <div class="field"><label>Application</label><select id="r-app">${['OP GESTION','OP MESSAGES','Les deux (OP GESTION + OP MESSAGES)'].map(o=>`<option ${ed&&ed.app===o?'selected':''}>${o}</option>`).join('')}</select></div>
+        <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc((ed&&ed.company)||d.company||'')}" placeholder="Nom de l'entreprise"></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nombre d'utilisateurs</label><input id="r-users" type="number" min="1" max="250" placeholder="ex. 5" value="${ed&&ed.users?esc(String(ed.users)):''}"></div>
+        <div class="field" style="flex:1.4"><label>Formule envisagée</label><select id="r-formule">${['Je ne sais pas encore','Gratuit','Pro','Business','Business Premium'].map(o=>`<option ${ed&&ed.formule===o?'selected':''}>${o}</option>`).join('')}</select></div></div>
+        <div class="field"><label>Votre besoin / exigences</label><textarea id="r-besoin" placeholder="Votre activité, ce que vous voulez faire, vos exigences…">${esc((ed&&ed.besoin)||(ed?'':d.besoin)||'')}</textarea></div>
+        ${ed?`<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="sendRequest('${user.uid}')">💾 Enregistrer les modifications</button><button class="btn sm ghost" onclick="window._demEdit=null;openView('demandes')">Annuler</button></div>`
+            :`<button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`}`;
     }
     else if(v==='abo'){
       const pi=promoInfo(d);
@@ -383,6 +392,7 @@
       const pi=promoInfo(d);
       const contrats=[];
       if(pi) contrats.push({t:'promo',ic:'🎁',name:'Contrat — Offre '+pi.label,sub:'Applications : '+pi.apps.map(k=>APPS[k].name).join(' + ')+' · jusqu\'au '+new Date(pi.until).toLocaleDateString('fr-FR')});
+      if(d.plan&&d.plan!=='Découverte') contrats.push({t:'abo',ic:'💼',name:'Contrat d\'abonnement — Formule '+d.plan,sub:'Votre abonnement TeamOP'+(d.planStatus==='suspendu'?' (suspendu)':'')});
       (Array.isArray(d.apps)?d.apps.filter(k=>APPS[k]):[]).forEach(k=>contrats.push({t:'app',k,ic:'📱',name:'Contrat de mise à disposition — '+APPS[k].name,sub:'Formule '+(d.plan||'Découverte')}));
       const genHtml=contrats.length?`<div class="grp2" style="margin-top:2px">Contrats TeamOP</div>`+contrats.map((c,i)=>`<a class="docr" href="#" onclick="event.preventDefault();contratVoir(${i})"><span style="font-size:20px">${c.ic}</span><div style="flex:1;min-width:0"><b style="font-size:14px">${esc(c.name)}</b><span class="muted" style="display:block">${esc(c.sub)}</span></div><span style="color:var(--op-l);font-size:13px;font-weight:700">Voir / Imprimer ↗</span></a>`).join(''):'';
       window._contrats=contrats;
@@ -489,6 +499,9 @@
     if(c.t==='promo'&&pi){ objet='Mise à disposition des applications '+esc(pi.apps.map(k=>APPS[k].name).join(' et '))+' dans le cadre de l\'offre promotionnelle « '+esc(pi.label)+' » (code '+esc(pi.code)+').';
       duree='Du '+new Date((d.promo&&d.promo.activatedAt)||Date.now()).toLocaleDateString('fr-FR')+' au '+new Date(pi.until).toLocaleDateString('fr-FR')+' inclus. À l\'issue de cette période, l\'accès se poursuit uniquement par la souscription d\'un abonnement sur teamop.fr.';
       prix='Gratuit pendant la durée de l\'offre. Aucun prélèvement automatique à l\'issue : sans souscription, le compte repasse en formule Gratuit.'; }
+    else if(c.t==='abo'){ objet='Souscription de l\'abonnement TeamOP formule « '+esc(d.plan||'')+' », donnant accès aux applications de la suite TEAM OP selon les droits de cette formule, avec le nombre de comptes utilisateurs qu\'elle inclut (multiplié par le nombre d\'abonnements souscrits).';
+      duree='Abonnement sans engagement de durée, reconduit tacitement par période mensuelle ou annuelle selon le cycle choisi, résiliable à tout moment depuis l\'espace client ou par e-mail.';
+      prix='Prix de la formule en vigueur affiché sur teamop.fr/tarifs.html au jour de la souscription (TVA non applicable, art. 293 B du CGI), payé par carte bancaire via Stripe. Les reçus sont envoyés par e-mail à chaque échéance.'; }
     else { objet='Mise à disposition de l\'application '+esc((APPS[c.k]||{}).name||'')+' au titre de la formule « '+esc(d.plan||'Découverte')+' ».';
       duree='Abonnement sans engagement de durée, reconduit par période mensuelle (ou annuelle selon la formule choisie), résiliable à tout moment.';
       prix='Selon la formule en vigueur affichée sur teamop.fr/tarifs.html au jour de la souscription, payée par carte bancaire via Stripe.'; }
@@ -519,14 +532,35 @@
     const formule=($('r-formule')&&$('r-formule').value)||'';
     if(!besoin){ $('req-msg').innerHTML='<div class="err">Décrivez votre besoin.</div>'; return; }
     try{
-      const dem={app,company,besoin,users:users||null,formule,date:Date.now(),statut:'nouveau'};
-      await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,status:'nouveau',email:auth.currentUser.email,uid,demandes:firebase.firestore.FieldValue.arrayUnion(dem),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-      await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'📩 Demande : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
-      _meDoc=Object.assign({},_meDoc,{status:'nouveau',demandes:((_meDoc&&_meDoc.demandes)||[]).concat([dem])});
+      const d=_meDoc||{}; const liste=Array.isArray(d.demandes)?d.demandes.slice():[];
+      let dem;
+      if(window._demEdit){
+        const i=liste.findIndex(x=>x.date===window._demEdit);
+        dem=Object.assign({},(i>=0?liste[i]:{}),{app,company,besoin,users:users||null,formule,modifie:Date.now()});
+        if(!dem.date) dem.date=Date.now();
+        if(i>=0) liste[i]=dem; else liste.push(dem);
+        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'✏️ Demande modifiée : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
+      } else {
+        dem={app,company,besoin,users:users||null,formule,date:Date.now(),statut:'nouveau'};
+        liste.push(dem);
+        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,status:'nouveau',email:auth.currentUser.email,uid,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'📩 Demande : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
+        try{ await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:'✅ Votre demande a bien été prise en compte ! Notre équipe l\'étudie et revient vers vous au plus vite. Si nous avons besoin de renseignements supplémentaires, nous vous contacterons ici même. Vous pouvez modifier votre demande à tout moment dans « Mes demandes d\'accès ».',ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
+      }
+      _meDoc=Object.assign({},_meDoc,{status:(window._demEdit?(_meDoc&&_meDoc.status)||'nouveau':'nouveau'),app,company,besoin,demandes:liste});
+      window._demConfirm=!window._demEdit; window._demEdit=null;
       openView('demandes');
-      setTimeout(()=>{ const m=$('req-msg'); if(m) m.innerHTML='<div class="ok">✅ Demande envoyée ! Réponse dans la messagerie.</div>'; },50);
+      setTimeout(()=>{ window._demConfirm=false; },100);
     }catch(e){ $('req-msg').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
+  function demEdit(date){ window._demEdit=date; openView('demandes'); const f=document.getElementById('r-besoin'); if(f){ f.scrollIntoView({behavior:'smooth',block:'center'}); } }
+  async function demRemove(uid,date){ if(!confirm('Retirer cette demande ?')) return;
+    try{ const d=_meDoc||{}; const liste=(Array.isArray(d.demandes)?d.demandes:[]).filter(x=>x.date!==date);
+      await fs.collection('teamop_requests').doc(uid).set({demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'🗑️ Demande retirée.',ts:firebase.firestore.FieldValue.serverTimestamp()});
+      _meDoc=Object.assign({},_meDoc,{demandes:liste}); window._demEdit=null; openView('demandes');
+    }catch(e){ alert('Erreur : '+(e.message||e)); } }
 
   /* ═══════════ NOUVEAUTÉS ═══════════ */
   function newsRow(id,n,admin){
