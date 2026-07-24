@@ -590,6 +590,8 @@ const params = new URLSearchParams(window.location.search);
 let formuleActive = params.get('formule') || 'business';
 if (!FORMULES[formuleActive]) formuleActive = 'business';
 let cycleAnnuel = false;
+/* Préremplissage : recap-abonnement.html?formule=business&utilisateurs=7 */
+let nbUsersVoulu = Math.min(250, Math.max(1, parseInt(params.get('utilisateurs'), 10) || 1));
 
 /* ---------- RENDU : SÉLECTEUR ---------- */
 function rendreSelecteur() {
@@ -600,7 +602,7 @@ function rendreSelecteur() {
   ).join('');
   c.querySelectorAll('.puce-formule').forEach(b => {
     b.addEventListener('click', () => {
-      formuleActive = b.dataset.formule;
+      formuleActive = b.dataset.formule; nbUsersVoulu = 1;
       history.replaceState(null, '', '?formule=' + formuleActive);
       rendreTout();
     });
@@ -660,6 +662,9 @@ function rendrePaiement() {
   const f = FORMULES[formuleActive];
   const c = document.getElementById('cartePaiement');
   const gratuit = f.prixMensuel === 0;
+  if (nbUsersVoulu < 1) nbUsersVoulu = 1;
+  const nbAbos = gratuit ? 1 : Math.max(1, Math.ceil(nbUsersVoulu / f.utilisateurs));
+  const nbPlaces = f.utilisateurs * nbAbos;
   // L'option annuelle n'apparaît que si son lien Stripe est configuré
   const annuelDispo = !gratuit && CONFIG_STRIPE[formuleActive] && CONFIG_STRIPE[formuleActive].annuel && !CONFIG_STRIPE[formuleActive].annuel.includes('A_REMPLACER');
   if (!annuelDispo) cycleAnnuel = false;
@@ -671,15 +676,29 @@ function rendrePaiement() {
   const parUtilisateur = gratuit ? null
     : (cycleAnnuel ? prixAffiche / 12 / f.utilisateurs : prixAffiche / f.utilisateurs);
 
+  const totalAffiche = prixAffiche * nbAbos;
   c.innerHTML = `
     <div style="text-align:center; margin-bottom: 6px;">
-      <span class="prix-grand">${gratuit ? '0 €' : prixAffiche + ' €'} <small>${suffixe}</small></span>
+      <span class="prix-grand">${gratuit ? '0 €' : totalAffiche + ' €'} <small>${suffixe}</small></span>
     </div>
     <div style="text-align:center; font-size:12.5px; color:var(--texte-2); margin-bottom: 6px;">
       Formule ${f.nom} · ${f.utilisateurs} utilisateur${f.utilisateurs > 1 ? 's' : ''} inclus
       ${parUtilisateur ? `<br>soit ${parUtilisateur.toFixed(2).replace('.', ',').replace(',00','')} € / mois par utilisateur` : ''}
     </div>
 
+    ${!gratuit ? `
+    <div style="margin:10px 0 12px;padding:12px 14px;border-radius:12px;background:rgba(96,165,250,.07);border:1px solid rgba(96,165,250,.2);">
+      <div style="font-size:12px;font-weight:800;letter-spacing:.04em;color:#9db4d8;margin-bottom:9px;">COMBIEN D'UTILISATEURS ?</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="aboMoins" type="button" style="width:38px;height:38px;border-radius:10px;border:1px solid rgba(124,198,255,.35);background:transparent;color:#cfe7ff;font-size:20px;font-weight:800;cursor:pointer;flex-shrink:0;">\u2212</button>
+        <div style="flex:1;text-align:center;">
+          <div style="font-size:22px;font-weight:800;white-space:nowrap;"><input id="nbUsers" type="number" min="1" max="250" value="${nbUsersVoulu}" title="Tapez votre nombre d'utilisateurs" style="width:${String(nbUsersVoulu).length+1.2}ch;text-align:right;font-size:22px;font-weight:800;background:transparent;border:none;outline:none;color:inherit;font-family:inherit;padding:0;border-bottom:1px dashed rgba(124,198,255,.35);"> utilisateur${nbUsersVoulu>1?'s':''}</div>
+          <div style="font-size:11.5px;color:#7d92b8;margin-top:4px;">${nbAbos} abonnement${nbAbos>1?'s':''} ${f.nom} \u00d7 ${f.utilisateurs} place${f.utilisateurs>1?'s':''}${nbPlaces>nbUsersVoulu?' \u00b7 '+nbPlaces+' places au total':''}</div>
+        </div>
+        <button id="aboPlus" type="button" style="width:38px;height:38px;border-radius:10px;border:1px solid rgba(124,198,255,.35);background:transparent;color:#cfe7ff;font-size:20px;font-weight:800;cursor:pointer;flex-shrink:0;">+</button>
+      </div>
+      ${nbAbos>1?`<div style="margin-top:9px;font-size:11.5px;color:#9db4d8;text-align:center;">\u26a0\ufe0f Sur la page de paiement, indiquez la quantit\u00e9 : <b style="color:#cfe7ff;">${nbAbos}</b></div>`:''}
+    </div>` : ''}
     ${!gratuit && annuelDispo ? `
       <div class="choix-cycle">
         <button class="cycle ${!cycleAnnuel ? 'actif' : ''}" data-cycle="mensuel">
@@ -693,17 +712,17 @@ function rendrePaiement() {
       </div>` : ''}
     ${!gratuit ? `
       <div class="ligne-prix">
-        <span>Abonnement ${f.nom}</span>
-        <span>${cycleAnnuel ? (f.prixMensuel * 12) + ' €' : f.prixMensuel + ' €'}</span>
+        <span>Abonnement ${f.nom}${nbAbos>1?' \u00d7 '+nbAbos:''}</span>
+        <span>${(cycleAnnuel ? f.prixMensuel * 12 : f.prixMensuel) * nbAbos} €</span>
       </div>
       ${cycleAnnuel ? `
         <div class="ligne-prix" style="color:var(--vert);">
           <span>Remise annuelle (${REMISE_ANNUELLE} mois offerts)</span>
-          <span>− ${f.prixMensuel * REMISE_ANNUELLE} €</span>
+          <span>− ${f.prixMensuel * REMISE_ANNUELLE * nbAbos} €</span>
         </div>` : ''}
       <div class="ligne-prix total">
         <span>Total ${cycleAnnuel ? 'annuel' : 'mensuel'}</span>
-        <span>${prixAffiche} € TTC</span>
+        <span>${totalAffiche} € TTC</span>
       </div>
     ` : ''}
 
@@ -742,6 +761,12 @@ function rendrePaiement() {
     </div>
   `;
 
+  const bm=document.getElementById('aboMoins'), bp=document.getElementById('aboPlus'), ni=document.getElementById('nbUsers');
+  const abosActuels = () => Math.max(1, Math.ceil(nbUsersVoulu / f.utilisateurs));
+  if(bm) bm.addEventListener('click', ()=>{ if(abosActuels()>1){ nbUsersVoulu=(abosActuels()-1)*f.utilisateurs; rendrePaiement(); } });
+  if(bp) bp.addEventListener('click', ()=>{ if(abosActuels()<50){ nbUsersVoulu=(abosActuels()+1)*f.utilisateurs; rendrePaiement(); } });
+  if(ni){ ni.addEventListener('change', ()=>{ nbUsersVoulu=Math.min(250,Math.max(1,parseInt(ni.value,10)||1)); rendrePaiement(); });
+    ni.addEventListener('keyup', e=>{ if(e.key==='Enter') ni.blur(); }); }
   c.querySelectorAll('.cycle').forEach(b => {
     b.addEventListener('click', () => {
       cycleAnnuel = b.dataset.cycle === 'annuel';
