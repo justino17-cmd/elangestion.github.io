@@ -667,26 +667,37 @@
   function isOnline(m){ return m && m.lastActive && (Date.now()-m.lastActive < 95000); }
   function renderShell(){
     const role=MODE==='perso'?'Compte perso':(IS_OWNER?'Administrateur':'Membre');
+    const dash=(MODE==='company'&&HAS_COMPANY);
+    // Navigation latérale : entreprise = Tableau de bord, Messages, Appels, Réunions, Contacts · perso = Messages, Appels, Contacts
+    let pills='';
+    if(dash) pills+=`<div id="nv2-dash" class="dsk-item" onclick="showView('dash')">Tableau de bord</div>`;
+    pills+=`<div id="nv2-disc" class="dsk-item on" onclick="showView('disc')">Messages<span class="dbadge" id="dsk-b-disc" style="display:none"></span></div>`;
+    pills+=`<div id="nv2-appel" class="dsk-item" onclick="showView('appel')">Appels</div>`;
+    if(isPro()) pills+=`<div id="nv2-meet" class="dsk-item" onclick="dskMeet()">Réunions</div>`;
+    pills+=`<div id="nv2-cont" class="dsk-item" onclick="showView('cont')">Contacts</div>`;
     ROOT.innerHTML=`
       <aside id="dskside">
-        <div style="display:flex;align-items:center;gap:11px;padding:2px 4px 12px">
-          <img src="${planMsgBadge()}" alt="" title="${planMsgTitle()}" style="width:40px;height:40px;border-radius:11px">
+        <div style="display:flex;align-items:center;gap:11px;padding:4px 10px 20px">
+          <img src="${planMsgBadge()}" alt="" title="${planMsgTitle()}" style="width:38px;height:38px;border-radius:11px;flex-shrink:0">
           <div style="min-width:0">
-            <div style="font-family:'Space Mono',monospace;letter-spacing:2px;font-size:13.5px;font-weight:700">OP&nbsp;MESSAGES</div>
-            <div style="font-size:8.5px;font-weight:800;letter-spacing:.18em;margin-top:2px;color:${planMsgColor()}">${planMsgLabel()}</div>
+            <div style="font-weight:800;letter-spacing:.12em;font-size:14px">OP&nbsp;MESSAGES</div>
+            <div style="font-size:9px;font-weight:700;letter-spacing:.22em;margin-top:3px;color:${planMsgColor()}">${planMsgLabel()}</div>
           </div>
         </div>
-        <div id="nv2-disc" class="dsk-item on" onclick="showView('disc')">Messages<span class="dbadge" id="dsk-b-disc" style="display:none"></span></div>
-        <div id="nv2-appel" class="dsk-item" onclick="showView('appel')">Appels</div>
-        ${isPro()?`<div id="nv2-meet" class="dsk-item" onclick="dskMeet()">Réunions</div>`:''}
-        <div id="nv2-cont" class="dsk-item" onclick="showView('cont')">Contacts</div>
-        <div class="dsk-lbl">Canaux</div>
-        <div id="dsk-canaux"><div style="font-size:11px;color:#8B9AB8;padding:0 6px">Chargement…</div></div>
+        ${pills}
+        ${MODE!=='perso'?`<div class="dsk-lbl">Canaux</div>
+        <div id="dsk-canaux"><div style="font-size:11px;color:var(--t3);padding:0 6px">Chargement…</div></div>`:''}
         <div style="flex:1"></div>
         <div class="dsk-lbl">Suite</div>
-        <a class="dsk-suite" href="app.html" title="Ouvrir OP GESTION"><img src="icons/plan-gestion.png" alt="" style="width:26px;height:26px;border-radius:8px;flex-shrink:0;object-fit:cover">OP GESTION<span style="margin-left:auto;color:#8B9AB8">›</span></a>
-        <div class="dsk-suite" style="background:color-mix(in srgb,var(--op) 12%,transparent)"><img src="${planMsgBadge()}" alt="" style="width:26px;height:26px;border-radius:8px;flex-shrink:0;object-fit:cover">OP MESSAGES<span style="width:7px;height:7px;border-radius:50%;background:#22C55E;margin-left:auto;flex-shrink:0" title="Vous êtes ici"></span></div>
-        <div class="dsk-user" onclick="showView('prof')" style="cursor:pointer" title="Mon profil & réglages"><div style="width:34px;height:34px;border-radius:11px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0">${USER.photo?`<img src="${USER.photo}" alt="" style="width:100%;height:100%;border-radius:11px;object-fit:cover">`:esc(ini(USER.name||'U'))}</div><div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(USER.name||'')}</div><div style="font-size:10.5px;color:#8B9AB8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(role)}${MODE!=='perso'&&COMP?' · '+esc(COMP.name):''}</div></div><span style="width:8px;height:8px;border-radius:50%;background:#37C68A;flex-shrink:0"></span></div>
+        <a class="dsk-suite" href="app.html" title="Ouvrir OP GESTION"><img src="icons/plan-gestion.png" alt="" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;object-fit:cover">OP GESTION<span class="ms" style="font-size:15px;margin-left:auto;color:var(--lbl)">chevron_right</span></a>
+        <div class="dsk-suite here"><img src="${planMsgBadge()}" alt="" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;object-fit:cover">OP MESSAGES<span style="width:8px;height:8px;border-radius:999px;background:var(--pres);margin-left:auto;flex-shrink:0" title="Vous êtes ici"></span></div>
+        <div class="dsk-user" onclick="showView('prof')" title="Mon profil & réglages">
+          <div style="position:relative;flex-shrink:0">
+            <div style="width:36px;height:36px;border-radius:999px;background:var(--tint3);color:var(--tile-tx);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12.5px;overflow:hidden">${USER.photo?`<img src="${USER.photo}" alt="" style="width:100%;height:100%;object-fit:cover">`:esc(ini(USER.name||'U'))}</div>
+            <span style="position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-radius:999px;background:var(--pres);border:2px solid var(--sd)"></span>
+          </div>
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(USER.name||'')}</div><div style="font-size:10.5px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(role)}${MODE!=='perso'&&COMP?' · '+esc(COMP.name):''}</div></div>
+        </div>
       </aside>
       <div class="maincol">
       <div class="appbar">
@@ -697,13 +708,14 @@
         </div>
         <button class="ic accent" onclick="quickNew()" title="Nouveau">＋</button>
       </div>
-      ${HAS_COMPANY?`<div style="display:flex;gap:6px;padding:6px 14px 8px">
-        <button onclick="switchSpace('perso')" style="flex:1;padding:8px 6px;border-radius:100px;border:1px solid var(--brd2);font-weight:700;font-size:12.5px;cursor:pointer;background:${MODE==='perso'?'var(--op)':'transparent'};color:${MODE==='perso'?'#fff':'var(--t2)'}">Perso</button>
-        <button onclick="switchSpace('company')" style="flex:1;padding:8px 6px;border-radius:100px;border:1px solid var(--brd2);font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:${MODE==='company'?'#22b14c':'transparent'};color:${MODE==='company'?'#fff':'var(--t2)'}">${esc(COMP.name)}</button>
+      ${HAS_COMPANY?`<div style="display:flex;gap:10px;padding:6px 14px 8px">
+        <button class="sptab${MODE==='perso'?' on-perso':''}" style="flex:1" onclick="switchSpace('perso')">Perso</button>
+        <button class="sptab${MODE==='company'?' on-ent':''}" style="flex:1.4" onclick="switchSpace('company')">${esc(COMP.name)}</button>
       </div>`:''}
       <div class="view" id="view"></div>
       <div class="nav">
         <span id="nav-blob"></span>
+        ${dash?`<button id="nv-dash" onclick="showView('dash')"><span class="ni"><span class="ms" style="font-size:17px">space_dashboard</span></span>Tableau</button>`:''}
         <button id="nv-disc" class="on" onclick="showView('disc')"><span class="ni">${ic('chat')}<span class="navdot" id="nav-unread" style="display:none"></span></span>Discussions</button>
         <button id="nv-cont" onclick="showView('cont')"><span class="ni">${ic('users')}</span>Contacts</button>
         <button id="nv-appel" onclick="showView('appel')"><span class="ni">${ic('phone')}</span>Appels</button>
@@ -712,7 +724,7 @@
       </div>`;
   }
   // Réunions depuis la colonne bureau : surligne l'onglet et ouvre la vue
-  function dskMeet(){ ['disc','cont','appel'].forEach(x=>{ const b=$('nv2-'+x); if(b) b.classList.remove('on'); });
+  function dskMeet(){ ['dash','disc','cont','appel'].forEach(x=>{ const b=$('nv2-'+x); if(b) b.classList.remove('on'); });
     const m=$('nv2-meet'); if(m) m.classList.add('on');
     if(window.innerWidth>=1024 && typeof closeChat==='function'){ try{ closeChat(); }catch(e){} }
     openReunions(); }
@@ -725,12 +737,12 @@
   function showView(v){ _curView=v;
     try{ if(typeof closeSheet==='function') closeSheet(); }catch(e){}   // aucune feuille ne doit rester par-dessus
     if(_meetTicker){clearInterval(_meetTicker);_meetTicker=null;}
-    ['disc','cont','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===v); });
+    ['dash','disc','cont','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===v); });
     const m2=$('nv2-meet'); if(m2) m2.classList.remove('on');
     if(window.innerWidth>=1024 && typeof closeChat==='function'){ try{ closeChat(); }catch(e){} }   // bureau : la section choisie s'affiche (la conversation se ferme)
-    setTimeout(()=>{ try{ ['disc','cont','appel','prof'].forEach(x=>{ const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===_curView); }); }catch(e){} },400);   // ré-assure la pastille active après le rendu
+    setTimeout(()=>{ try{ ['dash','disc','cont','appel','prof'].forEach(x=>{ const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===_curView); }); }catch(e){} },400);   // ré-assure la pastille active après le rendu
     moveNavBlob();
-    if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else viewProfile();
+    if(v==='dash') viewDash(); else if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else viewProfile();
   }
   // Fait glisser la bulle sous l'onglet actif (animation « liquid glass »)
   function moveNavBlob(instant){ const blob=$('nav-blob'); const b=$('nv-'+_curView); if(!blob||!b) return;
@@ -749,9 +761,9 @@
   let _discSearch='';
   function discSearchInput(v){ _discSearch=(v||'').trim().toLowerCase(); viewDisc(true); }
   async function viewDisc(keepFocus){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?`<button class="btn ghost sm" onclick="openReunions()">${ic('video',16)}Réunions</button>`:''}</div>
-      <div class="gsearch">${ic('search',18)}<input id="disc-search" placeholder="Rechercher une discussion…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
-      <div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ic('plus',26)}</button>`;
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?`<button class="hbtn neutral" onclick="openReunions()">${ms('videocam',18)}Réunions</button>`:`<button class="hbtn neutral" onclick="showView('cont')">${ms('edit_square',18)}Nouveau message</button>`}</div>
+      <div class="gsearch">${ms('search',19)}<input id="disc-search" placeholder="Rechercher une discussion…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
+      <div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ms('add',25)}</button>`;
     if(keepFocus){ const si=$('disc-search'); if(si){ si.focus(); try{ si.setSelectionRange(si.value.length,si.value.length); }catch(e){} } }
     try{
       const ch=chanCol();
@@ -789,14 +801,14 @@
       try{ const dc=$('dsk-canaux'); if(dc){
         dc.innerHTML=active.slice(0,7).map(([id,c])=>{ const nm=dispName(id,c); const nmSafe=esc((nm||'').replace(/'/g,'')); const u=unreadOf(id,c);
           const sub=(c.lastMsg&&(c.lastMsgAt||0)>getClearedAt(id))?esc((c.lastMsg||'').slice(0,34)):(c.type==='dm'?'Message privé':'');
-          return `<div class="dsk-chan${(typeof _curCh!=='undefined'&&_curCh&&_curCh.id===id)?' on':''}" data-cid="${id}" onclick="rowOpen('${id}','${nmSafe}')"><b>${c.type==='dm'?'👤':'#'} ${esc(nm)}</b>${sub?`<span>${sub}</span>`:''}${u?`<i class="dbadge">${u>99?'99+':u}</i>`:''}</div>`; }).join('')
+          return `<div class="dsk-chan${(typeof _curCh!=='undefined'&&_curCh&&_curCh.id===id)?' on':''}" data-cid="${id}" onclick="rowOpen('${id}','${nmSafe}')"><b>${c.type==='dm'?'👤 ':`<span style="color:var(--op-tx);font-weight:800">#</span> `}${esc(nm)}</b>${sub?`<span>${sub}</span>`:''}${u?`<i class="dbadge">${u>99?'99+':u}</i>`:''}</div>`; }).join('')
           ||'<div style="font-size:11px;color:#8B9AB8;padding:0 6px">Aucune discussion</div>'; }
         // Version bureau : ouvre automatiquement la 1re discussion à l'arrivée (comme la maquette)
         if(window.innerWidth>=1024 && !_curCh && active.length && !window._dskAutoOpened){ window._dskAutoOpened=true;
           const [aid,ac]=active[0]; rowOpen(aid, dispName(aid,ac).replace(/'/g,'')); } }catch(e){}
       const rowHtml=([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
-        let nm=c.name||'', avInner=ini(nm), avBg=avatarStyle(nm);
-        if(g){ nm='Général'; avInner=ic('chat',20); avBg='background:rgba(94,130,255,.2);color:var(--op-l)'; }
+        let nm=c.name||'', avInner=ini(nm), avBg=avatarStyle(nm)+';border-radius:11px';
+        if(g){ nm='Général'; avInner=ms('forum',22); avBg='background:var(--tile-bg);color:var(--tile-tx);border-radius:11px'; }
         else if(dm){ const o=(c.members||[]).find(u=>u!==ME.uid); nm=nmap[o]||'Contact'; avInner=ini(nm); avBg=avatarStyle(nm); }
         let sub;
         if(isLocked(id)) sub='🔒 Discussion verrouillée';
@@ -804,10 +816,10 @@
         else sub = g?'Toute l\'entreprise':(dm?'Message privé':n+' membre'+(n>1?'s':''));
         const t=c.lastMsgAt?fmtListTime(c.lastMsgAt):'';
         const unread=unreadOf(id,c);
-        const badge = unread? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:11px;background:#22c55e;color:#04110a;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${unread>99?'99+':unread}</span>` : '';
+        const badge = unread? `<span style="min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--badge-bg);color:var(--badge-tx);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${unread>99?'99+':unread}</span>` : '';
         const nmSafe=esc((nm||'').replace(/'/g,''));
         const actBtn=(bg,ic2,lbl,fn)=>`<div onclick="${fn}" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:${bg};color:#fff;cursor:pointer;font-size:10.5px;font-weight:700"><span style="font-size:17px">${ic2}</span>${lbl}</div>`;
-        return `<div class="sw-wrap" data-cid="${id}" style="position:relative;border-radius:12px;overflow:hidden;margin-bottom:2px">
+        return `<div class="sw-wrap" data-cid="${id}" style="position:relative;overflow:hidden">
           <div style="position:absolute;top:0;bottom:0;left:0;width:148px;display:flex">
             ${actBtn('var(--op)','💬',unread?'Lu':'Non lu',`rowMarkRead('${id}',${unread?'true':'false'})`)}
             ${actBtn('#64748b','📌',isPinned(id)?'Détacher':'Épingler',`rowPin('${id}')`)}
@@ -816,13 +828,13 @@
             ${actBtn('#64748b','⋯','Options',`rowMenu('${id}','${nmSafe}')`)}
             ${actBtn('var(--op)','🗄️',isArch(id)?'Désarchiver':'Archiver',`rowArch('${id}')`)}
           </div>
-          <div class="row sw-row" data-nm="${nmSafe}" onclick="${_selMode?`selToggle('${id}')`:`rowOpen('${id}','${nmSafe}')`}" style="position:relative;background:var(--bg);margin:0">${_selMode?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${_selSet.has(id)?'var(--op)':'var(--brd2)'};background:${_selSet.has(id)?'var(--op)':'transparent'};color:#fff">${_selSet.has(id)?'✓':''}</div>`:''}<div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:10.5px;color:var(--t3)">${t}</span>${badge}</div></div>
+          <div class="row sw-row" data-nm="${nmSafe}" onclick="${_selMode?`selToggle('${id}')`:`rowOpen('${id}','${nmSafe}')`}" style="position:relative;background:var(--card);margin:0">${_selMode?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${_selSet.has(id)?'var(--op)':'var(--brd2)'};background:${_selSet.has(id)?'var(--op)':'transparent'};color:#fff">${_selSet.has(id)?'✓':''}</div>`:''}<div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:11.5px;font-weight:600;color:var(--t3)">${t}</span>${badge}</div></div>
         </div>`; };
       const chips=[['all','Toutes'],['unread','Non lues'+(nbUnread?' '+nbUnread:'')],['fav','Favoris'],['groups','Groupes']]
-        .map(([k,l])=>`<button onclick="setDiscFilter('${k}')" style="padding:7px 14px;border-radius:100px;border:1px solid ${_discFilter===k?'var(--op)':'var(--brd2)'};background:${_discFilter===k?'rgba(94,130,255,.22)':'transparent'};color:${_discFilter===k?'var(--op-l)':'var(--t2)'};font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap">${l}</button>`).join('');
-      let html=`<div style="display:flex;gap:7px;overflow:auto;padding:0 2px 12px;-webkit-overflow-scrolling:touch">${chips}</div>`;
-      html+=active.map(rowHtml).join('')||`<p class="muted center">${_discFilter==='all'?'Aucune discussion.':'Rien dans ce filtre.'}</p>`;
-      if(archived.length){ html+=`<div onclick="_showArch=!_showArch;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🗄️ Archivées (${archived.length}) <span style="margin-left:auto;color:var(--t3)">${_showArch?'▲':'▼'}</span></div>`; if(_showArch) html+=archived.map(rowHtml).join(''); }
+        .map(([k,l])=>`<button class="${_discFilter===k?'on':''}" onclick="setDiscFilter('${k}')">${l}</button>`).join('');
+      let html=`<div style="overflow:auto;padding:0 2px 14px;-webkit-overflow-scrolling:touch"><div class="seg">${chips}</div></div>`;
+      html+=active.length?`<div class="listbox">${active.map(rowHtml).join('')}</div>`:`<p class="muted center">${_discFilter==='all'?'Aucune discussion.':'Rien dans ce filtre.'}</p>`;
+      if(archived.length){ html+=`<div onclick="_showArch=!_showArch;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🗄️ Archivées (${archived.length}) <span style="margin-left:auto;color:var(--t3)">${_showArch?'▲':'▼'}</span></div>`; if(_showArch) html+=`<div class="listbox">${archived.map(rowHtml).join('')}</div>`; }
       if(_selMode){ html=`<div style="display:flex;align-items:center;gap:8px;margin:0 2px 12px"><b style="flex:1">${_selSet.size} sélectionnée(s)</b><button class="btn ghost sm" onclick="exitSelMode()">✕ Annuler</button></div>`+html
         +`<div style="position:fixed;left:16px;right:16px;bottom:calc(62px + env(safe-area-inset-bottom));z-index:15;display:flex;gap:8px;background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:9px;max-width:440px;margin:0 auto;box-shadow:0 10px 26px rgba(0,0,0,.35)">
           <button class="btn sm" style="flex:1" onclick="selRead()">💬 Lire</button>
