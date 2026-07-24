@@ -166,8 +166,12 @@
 
   function genSpace(name){ const slug=(name||'espace').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20)||'espace'; const r=crypto.getRandomValues(new Uint8Array(4)); const rnd=Array.from(r).map(b=>b.toString(16).padStart(2,'0')).join(''); const kb=crypto.getRandomValues(new Uint8Array(24)); let ks=''; kb.forEach(b=>ks+=String.fromCharCode(b)); const k=btoa(ks).replace(/[^A-Za-z0-9]/g,'').slice(0,28); const t=slug+'-'+rnd; const code=btoa(unescape(encodeURIComponent(JSON.stringify({t,k,n:name||''})))).replace(/=+$/,''); return {t,k,code,name:name||''}; }
 
+  /* 🛒 Retour au paiement : espace.html?retour=recap-abonnement.html?formule=... (chemin strictement contrôlé) */
+  const RETOUR_PAIEMENT=(()=>{ try{ const r=new URLSearchParams(location.search).get('retour')||''; return /^recap-abonnement\.html(\?[\w=&%.-]*)?$/.test(r)?r:''; }catch(e){ return ''; } })();
+  let _signupBusy=false;
   auth.onAuthStateChanged(user=>{
     if(_unsubMsgs){_unsubMsgs();_unsubMsgs=null;} if(_unsubReqs){_unsubReqs();_unsubReqs=null;} if(_unsubNews){_unsubNews();_unsubNews=null;}
+    if(user && RETOUR_PAIEMENT && !_signupBusy){ location.href=RETOUR_PAIEMENT; return; }
     if(!user){ $('u-email').classList.add('hide'); $('btn-logout').classList.add('hide'); renderAuth(); return; }
     $('u-email').textContent=(isAdmin(user)?'👑 ':'')+user.email; $('u-email').classList.remove('hide'); $('btn-logout').classList.remove('hide');
     if(isAdmin(user)) renderAdmin(user); else renderClient(user);
@@ -177,6 +181,7 @@
   /* ═══════════ CONNEXION / CRÉATION DE COMPTE ═══════════ */
   function renderAuth(){
     $('space').innerHTML=`<div class="panel">
+      ${RETOUR_PAIEMENT?`<div style="margin-bottom:14px;padding:11px 14px;border-radius:10px;background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.25);font-size:13px;line-height:1.5;">🛒 Créez votre compte (ou connectez-vous) — vous <b>reviendrez automatiquement à votre paiement</b>.</div>`:''}
       <div class="tabs"><div class="tab active" id="tab-login" onclick="authTab('login')">Se connecter</div><div class="tab" id="tab-signup" onclick="authTab('signup')">Créer un compte</div></div>
       <div id="auth-err"></div>
       <div id="signup-fields" class="hide">
@@ -190,6 +195,7 @@
       <button class="btn block" id="a-submit" onclick="authSubmit()">Se connecter</button>
       <p class="muted center" style="margin-top:14px">« Se connecter » = vous avez déjà un compte. « Créer un compte » = nouveau client.</p>
     </div>`;
+    if(RETOUR_PAIEMENT) authTab('signup');
   }
   let _authMode='login';
   function authTab(m){ _authMode=m; $('tab-login').classList.toggle('active',m==='login'); $('tab-signup').classList.toggle('active',m==='signup'); $('signup-fields').classList.toggle('hide',m!=='signup'); $('signup-fields2').classList.toggle('hide',m!=='signup'); $('a-submit').textContent=m==='signup'?'Créer mon compte':'Se connecter'; $('auth-err').innerHTML=''; }
@@ -205,8 +211,11 @@
         if(!company) return err("Renseignez le nom de votre entreprise.");
         if(pass.length<8) return err('Le mot de passe doit faire au moins 8 caractères.');
         if(pass!==pass2) return err('Les deux mots de passe ne sont pas identiques.');
+        _signupBusy=true;
         const cred=await auth.createUserWithEmailAndPassword(email,pass);
         await fs.collection('teamop_requests').doc(cred.user.uid).set({uid:cred.user.uid,email,prenom,nom,name:(prenom+' '+nom).trim(),company,apps:[],app:'',besoin:'',status:'compte',createdAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        _signupBusy=false;
+        if(RETOUR_PAIEMENT){ location.href=RETOUR_PAIEMENT; return; }
       } else { await auth.signInWithEmailAndPassword(email,pass); }
     }catch(e){ err(authMsg(e)); }
   }
