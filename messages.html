@@ -757,6 +757,126 @@
   setInterval(()=>{ const blob=$('nav-blob'); const b=_curView&&$('nv-'+_curView); if(!blob||!b) return;
     if(Math.abs((+blob.dataset.x||0)-b.offsetLeft)>3 || Math.abs((parseFloat(blob.style.width)||0)-b.offsetWidth)>3) moveNavBlob(true); },1200);
 
+  // ---- TABLEAU DE BORD (entreprise uniquement) ----
+  let _dashSel=new Set(), _dashAlert=true;
+  function _dstr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  function _dashMonday(){ const now=new Date(); const mon=new Date(now); mon.setHours(0,0,0,0); mon.setDate(mon.getDate()-((mon.getDay()+6)%7)); return mon; }
+  async function viewDash(){
+    if(MODE!=='company'||!HAS_COMPANY){ showView('disc'); return; }
+    const view=$('view'); if(!view) return;
+    const now=new Date(); const mon=_dashMonday();
+    const days=[0,1,2,3,4].map(i=>{ const d=new Date(mon); d.setDate(mon.getDate()+i); return d; });
+    const fri=days[4]; const moLbl=d=>d.toLocaleDateString('fr-FR',{month:'long'});
+    const weekLbl='Semaine du '+days[0].getDate()+(moLbl(days[0])===moLbl(fri)?'':' '+moLbl(days[0]))+' au '+fri.getDate()+' '+moLbl(fri);
+    view.innerHTML=`<div style="width:min(1020px,100%);margin:0 auto;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><h2 style="font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1;margin:0">Tableau de bord</h2>
+        <div style="font-size:13px;color:var(--t2);margin-top:5px">${esc(weekLbl)} · ${esc(COMP.name)}</div></div>
+        <button class="hbtn green" onclick="newRoom()">${ms('event',18)}Nouvelle réunion</button>
+      </div>
+      <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
+      <div id="dash-grid" style="display:grid;grid-template-columns:${window.innerWidth>=1024?'1fr 330px':'1fr'};gap:14px;align-items:start"><p class="muted center">Chargement…</p></div>
+    </div>`;
+    let rooms=[]; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').get();
+      qs.forEach(d=>{ const r={id:d.id,...d.data()}; if(r.scheduledAt) rooms.push(r); }); }catch(e){}
+    if(_curView!=='dash') return;
+    rooms.sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    const nowMs=Date.now();
+    const upcoming=rooms.filter(r=>r.scheduledAt>nowMs-3600000);
+    const todayList=rooms.filter(r=>new Date(r.scheduledAt).toDateString()===now.toDateString());
+    const convoked=new Set(); upcoming.forEach(r=>(r.members||[]).forEach(u=>convoked.add(u)));
+    const stat=(icn,val,lbl,amber)=>`<div class="card" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:13px">
+      <div style="width:38px;height:38px;flex:none;border-radius:10px;background:${amber?'var(--amber-bg)':'var(--tile-bg)'};color:${amber?'var(--amber)':'var(--tile-tx)'};display:flex;align-items:center;justify-content:center">${ms(icn,20)}</div>
+      <div><div style="font-size:17px;font-weight:800;line-height:1">${val}</div><div style="font-size:11.5px;color:var(--t2);margin-top:3px">${lbl}</div></div></div>`;
+    const st=$('dash-stats'); if(st) st.innerHTML=stat('videocam',todayList.length,"Réunions aujourd'hui")+stat('group',convoked.size,'Participants convoqués')+stat('notifications_active',upcoming.length,'Alertes programmées',true);
+    // Planning de la semaine (LUN → VEN, lignes 09:00 / 11:00 / 14:00 / 15:00)
+    const HOURS=[9,11,14,15];
+    const cellMeet={};
+    rooms.forEach(r=>{ const d=new Date(r.scheduledAt); const d0=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+      const di=Math.round((d0-mon)/86400000); if(di<0||di>4) return;
+      const hh=d.getHours(); let hi; if(hh<11) hi=0; else if(hh<14) hi=1; else if(hh<15) hi=2; else hi=3;
+      (cellMeet[di+'_'+hi]=cellMeet[di+'_'+hi]||[]).push(r); });
+    const DN=['LUN','MAR','MER','JEU','VEN'];
+    let grid=`<div style="display:grid;grid-template-columns:48px repeat(5,1fr)">`;
+    grid+=`<div style="border-bottom:1px solid var(--sep)"></div>`;
+    days.forEach((d,i)=>{ const isT=d.toDateString()===now.toDateString();
+      grid+=`<div style="padding:9px 6px;text-align:center;border-bottom:1px solid var(--sep);border-left:1px solid var(--sep);${isT?'background:var(--today-hd)':''}"><div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:${isT?'var(--tile-tx)':'var(--t2)'}">${DN[i]}</div><div style="font-size:14px;font-weight:800;margin-top:1px;${isT?'color:var(--op-tx)':''}">${d.getDate()}</div></div>`; });
+    HOURS.forEach((h,hi)=>{
+      grid+=`<div style="padding:6px 8px 0 0;text-align:right;font-size:10px;font-weight:600;color:var(--t3);height:72px;${hi?'border-top:1px solid var(--sep)':''}">${String(h).padStart(2,'0')}:00</div>`;
+      days.forEach((d,di)=>{ const isT=d.toDateString()===now.toDateString();
+        const arr=cellMeet[di+'_'+hi]||[];
+        let inner='';
+        if(arr.length){ const r=arr[0]; const stD=new Date(r.scheduledAt); const soon=r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000;
+          const hstr=stD.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+          const nmr=esc((r.name||'').replace(/'/g,''));
+          if(soon) inner=`<div onclick="joinRoom('${r.id}','${nmr}')" style="border-radius:8px;background:var(--op);padding:6px 8px;cursor:pointer;box-shadow:var(--imminent-sh)"><div style="display:flex;align-items:center;gap:4px"><span class="ms f1" style="font-size:12px;color:#fff">notifications_active</span><div style="font-size:11px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div></div><div style="font-size:9.5px;font-weight:600;color:rgba(255,255,255,.8);margin-top:1px">${hstr}${(r.members||[]).length?' · '+(r.members||[]).length+' pers.':''}</div></div>`;
+          else inner=`<div onclick="joinRoom('${r.id}','${nmr}')" style="border-radius:8px;background:var(--blk-blue);padding:6px 8px;cursor:pointer"><div style="font-size:11px;font-weight:800;color:var(--blk-blue-tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div><div style="font-size:9.5px;font-weight:600;color:var(--blk-blue-sub);margin-top:1px">${hstr}</div></div>`;
+          if(arr.length>1) inner+=`<div style="font-size:9px;color:var(--t3);margin-top:2px;text-align:center">+${arr.length-1} autre${arr.length>2?'s':''}</div>`;
+        } else {
+          inner=`<div class="dash-cell" onclick="dashPrefill(${di},${h})" title="Placer une réunion ici" style="border:1.5px dashed transparent;border-radius:8px;height:calc(100% - 3px);display:flex;align-items:center;justify-content:center;color:transparent;cursor:pointer" onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'" onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div>`;
+        }
+        grid+=`<div style="border-left:1px solid var(--sep);${hi?'border-top:1px solid var(--sep);':''}${isT?'background:var(--today-col);':''}padding:3px">${inner}</div>`;
+      });
+    });
+    grid+=`</div>`;
+    // Colonne droite : Organiser une réunion + Alertes envoyées
+    let mem=[]; try{ mem=await listMembers(); }catch(e){}
+    if(_curView!=='dash') return;
+    _dashSel=new Set([ME.uid]); _dashAlert=true;
+    const defD=new Date(nowMs+3600000);
+    const parts=mem.filter(m=>m.uid!==ME.uid).map(m=>`<div class="dash-pp" data-uid="${esc(m.uid)}" title="${esc(m.name||'')}" onclick="dashTogglePart(this)" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`).join('');
+    const alerts=upcoming.slice(0,4).map(r=>{ const diff=r.scheduledAt-nowMs; const soon=diff>0&&diff<=15*60000; const started=diff<=0;
+      const icn=started?ms('check_circle',17):(soon?ms('notifications_active',17,1):ms('schedule',17));
+      const bg=started?'var(--blk-green)':(soon?'var(--amber-bg)':'var(--tile-bg)'), col=started?'var(--blk-green-tx)':(soon?'var(--amber)':'var(--tile-tx)');
+      const n=(r.members||[]).length;
+      const when=started?'en cours':(soon?('dans '+Math.max(1,Math.round(diff/60000))+' min'):esc(fmtWhen(r.scheduledAt)));
+      return `<div style="display:flex;gap:11px;margin-top:12px;cursor:pointer" onclick="joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')"><div style="width:34px;height:34px;flex:none;border-radius:10px;background:${bg};color:${col};display:flex;align-items:center;justify-content:center">${icn}</div>
+        <div style="min-width:0"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')} — ${when}</div>
+        <div style="font-size:11px;color:var(--t2);margin-top:2px">${n?n+' participant'+(n>1?'s':'')+' prévenus':'Alerte 15 min avant dans OP Messages'}</div></div></div>`; }).join('');
+    const dg=$('dash-grid'); if(!dg) return;
+    dg.innerHTML=`<div class="card" style="overflow:hidden">${grid}</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="card" style="padding:16px">
+          <div style="font-size:14.5px;font-weight:800">Organiser une réunion</div>
+          <input id="dp-name" placeholder="Titre de la réunion…" style="width:100%;margin-top:12px;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:13px;color:var(--t1);font-family:inherit;outline:none">
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <label style="flex:1;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">calendar_today</span><input id="dp-date" type="date" value="${_dstr(defD)}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
+            <label style="flex:1;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${String(defD.getHours()).padStart(2,'0')}:00" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
+          </div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">PARTICIPANTS</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">${parts||'<span class="muted" style="font-size:11.5px">Aucun autre membre</span>'}<span id="dp-count" style="font-size:11.5px;color:var(--t2);margin-left:4px">0 sélectionné</span></div>
+          <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
+            <div style="display:flex;align-items:center;gap:8px"><span class="ms f1" style="font-size:17px;color:var(--tile-tx)">notifications_active</span><span style="font-size:12.5px;font-weight:700">Alerter les participants</span></div>
+            <div id="dp-toggle" style="width:38px;height:22px;border-radius:999px;background:var(--green);position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:right .15s"></div></div>
+          </div>
+          <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
+          <button class="btn block" style="margin-top:12px;font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">Planifier la réunion</button>
+        </div>
+        <div class="card" style="padding:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:14.5px;font-weight:800">Alertes envoyées</div><div style="font-size:11px;font-weight:700;color:var(--tile-tx);cursor:pointer" onclick="openReunions()">Tout voir</div></div>
+          ${alerts||'<p class="muted" style="font-size:12px;margin-top:10px">Aucune réunion planifiée à venir.</p>'}
+        </div>
+      </div>`;
+  }
+  function dashTogglePart(el){ const uid=el.dataset.uid; if(_dashSel.has(uid)){ _dashSel.delete(uid); el.classList.remove('sel'); } else { _dashSel.add(uid); el.classList.add('sel'); }
+    const c=$('dp-count'); if(c){ const n=Math.max(0,_dashSel.size-1); c.textContent=n+' sélectionné'+(n>1?'s':''); } }
+  function dashToggleAlert(){ _dashAlert=!_dashAlert; const t=$('dp-toggle'); if(!t) return; t.style.background=_dashAlert?'var(--green)':'var(--brd2)'; const k=t.firstElementChild; if(k) k.style.right=_dashAlert?'2px':'18px'; }
+  function dashPrefill(di,h){ const mon=_dashMonday(); const d=new Date(mon); d.setDate(mon.getDate()+di);
+    const de=$('dp-date'), ti=$('dp-time'), ni=$('dp-name');
+    if(de) de.value=_dstr(d); if(ti) ti.value=String(h).padStart(2,'0')+':00'; if(ni){ ni.focus(); }
+    toast('Créneau choisi — complétez « Organiser une réunion ».'); }
+  // Planification : même écriture Firestore que createRoom (rooms + scheduledAt) → alertes existantes
+  async function dashPlan(){
+    const name=(($('dp-name')||{}).value||'').trim(); if(!name){ toast('Donnez un titre à la réunion.'); const n=$('dp-name'); if(n) n.focus(); return; }
+    const dv=(($('dp-date')||{}).value||''), tv=(($('dp-time')||{}).value||'');
+    if(!dv||!tv){ toast('Choisissez une date et une heure.'); return; }
+    const scheduledAt=new Date(dv+'T'+tv).getTime(); if(!scheduledAt||isNaN(scheduledAt)){ toast('Date invalide.'); return; }
+    const members=Array.from(new Set([ME.uid,..._dashSel]));
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,members,createdAt:FV(),scheduledAt});
+      toast(_dashAlert?'Réunion planifiée — les participants seront prévenus.':'Réunion planifiée.'); if(_curView==='dash') viewDash();
+    }catch(e){ alert('Erreur : '+(e.message||e)); }
+  }
+
   // ---- DISCUSSIONS (canaux/groupes) ----
   let _discSearch='';
   function discSearchInput(v){ _discSearch=(v||'').trim().toLowerCase(); viewDisc(true); }
@@ -1654,6 +1774,8 @@
       <div class="field"><label>Téléphone</label><input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78"></div>
       <button class="btn block" style="margin-bottom:18px" onclick="saveName()">Enregistrer</button>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Réglages</div>
+      <div class="row" style="cursor:default"><div class="info"><div class="nm">Thème</div><div class="ds">Clair ou sombre, appliqué immédiatement</div></div>
+        <div class="seg"><button class="${document.documentElement.getAttribute('data-theme')==='clair'?'on':''}" onclick="setTheme('light')">Clair</button><button class="${document.documentElement.getAttribute('data-theme')==='sombre'?'on':''}" onclick="setTheme('dark')">Sombre</button></div></div>
       ${setRow('🔒','Confidentialité','Vu, accusés de lecture, bloqués','sheetPrivacy()')}
       ${setRow('💬','Discussions','Thème, fond d’écran, taille du texte','sheetChats()')}
       ${setRow('🔔','Notifications','Son, vibration, aperçus','sheetNotif()')}
