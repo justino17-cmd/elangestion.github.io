@@ -1724,9 +1724,20 @@ function planIntCard(i,opts){ opts=opts||{}; const sc=INT_STCOLOR[i.statut]||'va
     <div class="pl-info"><div class="pl-title">${esc(i.titre)} ${i.prio==='haute'?'<span class="tag hot" style="font-size:9px">Urgent</span>':''} ${cf?'<span class="tag hot" style="font-size:9px" title="Chevauchement avec une autre intervention">Conflit</span>':''}</div><div class="pl-meta">${i.num?`<span class="mono">${esc(i.num)}</span> · `:''}${i.type?esc(i.type)+' · ':''}${esc(clientName(i.clientId))}${(i.checklist&&i.checklist.length)?` · ☑ ${i.checklist.filter(x=>x.done).length}/${i.checklist.length}`:''}</div>${opts.hideTech?'':`<div style="font-size:11px;color:var(--t3);margin-top:2px">${esc(techNames(i))}${i.recurrence&&i.recurrence!=='aucune'?' · 🔁 '+(INT_RECUR[i.recurrence]||''):''}</div>`}</div>
     ${badge(STATUT_INT,i.statut)}</div>`; }
 function planFilterSrc(){ let SRC=visibleInts(db.interventions); if(planTech!=='all') SRC=SRC.filter(i=>planTech===''?!intTechIds(i).length:intTechIds(i).includes(planTech)); return SRC; }
+/* ── Aides du planning grille / timeline ── */
+function planGroups(){ return [...db.techniciens.map(x=>({id:x.id,nom:x.nom})),{id:'',nom:'Non assigné'}].filter(g=>planTech==='all'||planTech===g.id); }
+function techOnline(nom){ try{ const u=(db.users||[]).find(x=>fullName(x).trim().toLowerCase()===String(nom||'').trim().toLowerCase()); return !!(u&&u.lastSeen&&Date.now()-u.lastSeen<5*60000); }catch(e){ return false; } }
+function fmtHmin(min){ return Math.floor(min/60)+'h'+(min%60?String(min%60).padStart(2,'0'):''); }
+function toMinH(h){ const m=/^(\d{1,2}):(\d{2})/.exec(h||''); return m?(+m[1])*60+(+m[2]):null; }
+function planMini(i){ const sc=INT_STCOLOR[i.statut]||'var(--acc)'; const cf=(i.date&&i.heure)?intConflictOf(i,i.id):null;
+  return `<div class="plg-mini" draggable="true" data-drag-int="${i.id}" ondragstart="planDragStart(event,'${i.id}')" onclick="event.stopPropagation();detailIntervention('${i.id}')" style="border-left-color:${sc};${cf?'outline:1.5px solid var(--red);':''}" title="${esc(i.titre||'')}${cf?' — chevauchement':''}">
+    <b>${i.heure?esc(i.heure)+' · ':''}${esc(i.titre||'Intervention')}${i.prio==='haute'?' 🔥':''}</b><small>${esc(clientName(i.clientId)||techNames(i)||'')}</small></div>`; }
+function planDragStart(e,id){ try{ e.dataTransfer.setData('text/plain',id); }catch(_){ } window._planDragging=true; }
+document.addEventListener('dragend',()=>{ if(window._planDragging){ window._planDragging=false;
+  if(window._planPending){ window._planPending=false; if(current==='planning'){ try{ views.planning(); }catch(e){} } } } });
 function planAPlanifier(SRC){ const pool=SRC.filter(i=>!i.date||i.statut==='aplanifier'); if(!pool.length) return '';
-  return `<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--org);margin:16px 2px 6px;font-weight:700">À planifier (${pool.length}) — glissez sur un jour ou un technicien</div>`
-    + pool.map(i=>planIntCard(i,{hideTech:false})).join(''); }
+  return `<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--org);margin:16px 2px 8px;font-weight:700">📥 À planifier (${pool.length}) — glissez vers une case du planning</div>
+    <div class="plg-trayrow">${pool.map(i=>planMini(i)).join('')}</div>`; }
 views.planning=function(){
   const SRC=planFilterSrc();
   if(!planSel) planSel=todayISO(); if(!planWeekRef) planWeekRef=planSel;
@@ -1741,8 +1752,41 @@ views.planning=function(){
   else body=planWeekHtml(SRC);
   $('content').innerHTML=modeBar+techChips+body+planAPlanifier(SRC);
 };
-/* ---- Vue SEMAINE ---- */
-function planWeekHtml(SRC){
+/* ---- Vue SEMAINE : grille techniciens × jours (Organilog) ---- */
+function planWeekHtml(SRC){ if((window.innerWidth||1200)<860) return planWeekListHtml(SRC);
+  const days=weekDays(planWeekRef), WD=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
+  const d0=new Date(days[0]+'T00:00:00'), d6=new Date(days[6]+'T00:00:00');
+  const label='Semaine du '+d0.getDate()+' '+d0.toLocaleDateString('fr-FR',{month:'short'})+' au '+d6.getDate()+' '+d6.toLocaleDateString('fr-FR',{month:'short'});
+  const nav=`<div class="card" style="padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+    <button class="btn ghost sm" onclick="planWeekRef=shiftDay(planWeekRef,-7);views.planning()">‹</button>
+    <div style="flex:1;text-align:center;font-weight:700">${label}</div>
+    <button class="btn ghost sm" onclick="window.print()" title="Imprimer la semaine">🖨️</button>
+    <button class="btn ghost sm" onclick="planWeekRef=shiftDay(planWeekRef,7);views.planning()">›</button></div>`;
+  const groups=planGroups();
+  let g='<div class="plg-h" style="border-left:none;text-align:left;padding-left:10px">Technicien</div>';
+  days.forEach((iso,k)=>{ const dd=new Date(iso+'T00:00:00'); g+=`<div class="plg-h ${iso===todayISO()?'today':''}">${WD[k]} ${dd.getDate()}${iso===todayISO()?' · auj.':''}</div>`; });
+  groups.forEach(gr=>{
+    const online=gr.id?techOnline(gr.nom):false;
+    const wk=SRC.filter(i=>days.includes(i.date)&&(gr.id?intTechIds(i).includes(gr.id):!intTechIds(i).length));
+    const totW=wk.reduce((s,i)=>s+(parseInt(i.duree)||60),0);
+    g+=`<div class="plg-tech"><span class="avatar" style="width:24px;height:24px;font-size:10px;flex-shrink:0">${initials(gr.nom)}</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(gr.nom)}${online?' <span class="dot-on"></span>':''}<span class="sub">${wk.length?wk.length+' int. · '+fmtHmin(totW):'libre'}</span></span></div>`;
+    days.forEach(iso=>{
+      const ints=SRC.filter(i=>i.date===iso&&(gr.id?intTechIds(i).includes(gr.id):!intTechIds(i).length)).sort((a,b)=>(a.heure||'').localeCompare(b.heure||''));
+      const tot=ints.reduce((s,i)=>s+(parseInt(i.duree)||60),0);
+      const abs=gr.id?absentOn(gr.id,iso):null;
+      g+=`<div class="plg-cell ${iso===todayISO()?'today':''} ${abs?'absx':''}" data-drop="cell:${iso}:${gr.id}"
+        ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')"
+        ondrop="this.classList.remove('drop');planDropCell(event,'${iso}','${gr.id}')"
+        onclick="if(event.target===this&&${can('creerIntervention')?'true':'false'}) formIntervention('','${iso}')">
+        ${tot?`<span class="plg-load">${fmtHmin(tot)}</span>`:''}
+        ${abs?`<div class="plg-absl">🏖️ ${esc(ABS_TYPES[abs.type]||abs.type)}</div>`:ints.map(i=>planMini(i)).join('')}
+      </div>`; });
+  });
+  return nav+`<div style="font-size:12px;color:var(--t3);margin:0 2px 8px">Glissez une carte sur une case pour changer <b>le jour et le technicien</b> d'un seul geste · Alt + glisser = dupliquer · cliquez une case vide pour créer</div>
+    <div class="card plg-wrap" style="padding:0"><div class="plg">${g}</div></div>`;
+}
+/* ---- Vue SEMAINE liste (mobile) ---- */
+function planWeekListHtml(SRC){
   const days=weekDays(planWeekRef), WD=['L','M','M','J','V','S','D'];
   const moisLabel=new Date(planSel+'T00:00:00').toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
   const strip=`<div class="card" style="padding:10px 8px;margin-bottom:12px">
