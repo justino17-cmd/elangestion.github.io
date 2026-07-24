@@ -391,6 +391,7 @@
     <aside class="carte carte-paiement" id="cartePaiement"></aside>
 
   </div>
+<p style="text-align:center;color:var(--texte-3);font-size:12.5px;margin-top:34px">© 2026 TEAM OP · <a href="mentions-legales.html" style="color:var(--texte-3)">Mentions légales &amp; CGV</a></p>
 </main>
 
 <script>
@@ -431,6 +432,16 @@ const CONFIG_STRIPE = {
 };
 
 /* ---------- DONNÉES DES FORMULES ---------- */
+/* Identifiants de tarifs Stripe — utilisés par le paiement automatique (quantité pré-remplie).
+   Mensuels : à compléter (les paiements mensuels passent par les liens classiques en attendant). */
+const STRIPE_PRICES = {
+  pro:        { mensuel: null, annuel: 'price_1TwgbqFKFKIrVWLDQQ6xFRtf' },
+  business:   { mensuel: null, annuel: 'price_1TwgcVFKFKIrVWLDpFbHY1lM' },
+  premium:    { mensuel: null, annuel: 'price_1Twgd8FKFKIrVWLDavn9cJvz' },
+  msgpro:     { mensuel: null, annuel: 'price_1TwgdtFKFKIrVWLDJ4xBhFlM' },
+  msgpremium: { mensuel: null, annuel: 'price_1TwgeFFKFKIrVWLDgqaRlO6V' }
+};
+
 const FORMULES = {
   gratuit: {
     groupe: 'gestion',
@@ -779,11 +790,26 @@ function rendrePaiement() {
     });
   });
 
-  document.getElementById('btnPayer').addEventListener('click', () => {
+  document.getElementById('btnPayer').addEventListener('click', async () => {
     if (formuleActive === 'gratuit' || formuleActive === 'msggratuit') {
       window.location.href = CONFIG_STRIPE.inscriptionGratuite;
       return;
     }
+    const btn = document.getElementById('btnPayer');
+    // 1) Paiement automatique via le serveur TeamOP : quantité déjà réglée + champ code promo
+    const priceId = (STRIPE_PRICES[formuleActive] || {})[cycleAnnuel ? 'annuel' : 'mensuel'];
+    if (priceId) {
+      const txt = btn.innerHTML;
+      btn.disabled = true; btn.innerHTML = 'Préparation du paiement…';
+      try {
+        const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 7000);
+        const r = await fetch('https://api.teamop.fr/api/stripe/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ price: priceId, quantity: nbAbos }), signal: ctl.signal });
+        clearTimeout(to);
+        if (r.ok) { const j = await r.json(); if (j && j.url) { window.location.href = j.url; return; } }
+      } catch (e) {}
+      btn.disabled = false; btn.innerHTML = txt;
+    }
+    // 2) Repli : lien de paiement classique (quantité à régler sur la page Stripe)
     const lien = CONFIG_STRIPE[formuleActive][cycleAnnuel ? 'annuel' : 'mensuel'];
     if (!lien || lien.includes('A_REMPLACER')) {
       alert('Le paiement annuel arrive très bientôt.\nEn attendant, choisissez le paiement mensuel — sans engagement.');

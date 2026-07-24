@@ -94,7 +94,31 @@ app.post('/api/checkcode', (req, res) => {
 });
 
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
-app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
+app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
+
+// ── Stripe : création d'une page de paiement avec la quantité déjà réglée + champ code promo
+//    Le site envoie { price, quantity, ref? } ; la clé secrète vit uniquement dans /opt/teamop/config.json (set-stripe.sh)
+app.post('/api/stripe/checkout', async (req, res) => {
+  try {
+    const sk = config.stripe && config.stripe.secretKey;
+    if (!sk) return res.status(501).json({ error: 'stripe non configuré' });
+    const { price, quantity, ref } = req.body || {};
+    if (!/^price_[A-Za-z0-9]+$/.test(String(price || ''))) return res.status(400).json({ error: 'tarif invalide' });
+    const qty = Math.min(50, Math.max(1, parseInt(quantity, 10) || 1));
+    const p = new URLSearchParams();
+    p.append('mode', 'subscription');
+    p.append('line_items[0][price]', String(price));
+    p.append('line_items[0][quantity]', String(qty));
+    p.append('allow_promotion_codes', 'true');
+    p.append('success_url', 'https://teamop.fr/merci.html');
+    p.append('cancel_url', 'https://teamop.fr/recap-abonnement.html');
+    if (typeof ref === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(ref)) p.append('client_reference_id', ref);
+    const r = await fetch('https://api.stripe.com/v1/checkout/sessions', { method: 'POST', headers: { Authorization: 'Bearer ' + sk, 'Content-Type': 'application/x-www-form-urlencoded' }, body: p.toString() });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.url) return res.status(502).json({ error: (d.error && d.error.message) || 'stripe erreur' });
+    res.json({ url: d.url });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
 
 // ── Vigie : les applications signalent leurs erreurs JavaScript (par espace entreprise, anonyme)
 //    → e-mail d'alerte immédiat à l'admin de la plateforme, journal consultable, compteur dans /health
