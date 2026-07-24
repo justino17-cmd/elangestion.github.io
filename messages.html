@@ -954,17 +954,34 @@
   }
 
   // ---- CONTACTS (membres) ----
+  let _contList=[],_contSearch='';
   async function viewCont(){
+    _contSearch='';
     const showFab = MODE==='perso' || IS_OWNER;
     const fabAction = MODE==='perso' ? 'addContactForm()' : 'addPeopleMenu()';
     const emptyMsg = MODE==='perso' ? 'Aucun contact. Touchez + pour en ajouter avec leur identifiant.' : 'Aucun contact.';
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2></div><div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ic('plus',26)}</button>`:''}`;
+    const hb = MODE==='perso' ? `<button class="hbtn blue" onclick="addContactForm()">${ms('person_add',18)}Ajouter</button>` : (IS_OWNER?`<button class="hbtn blue" onclick="addPeopleMenu()">${ms('person_add',18)}Inviter</button>`:'');
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2>${hb}</div>
+      <div class="gsearch">${ms('search',19)}<input id="cont-search" placeholder="Rechercher un contact…" oninput="_contSearch=this.value.trim().toLowerCase();renderContList()"></div>
+      <div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ms('person_add',24)}</button>`:''}`;
     try{
       const list = MODE==='perso' ? await listMembers() : (await (async()=>{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); const a=[]; qs.forEach(d=>a.push(d.data())); return a; })());
-      let html=''; list.forEach(m=>{ const on=isOnline(m)||m.uid===ME.uid; const self=m.uid===ME.uid;
-        html+=`<div class="row" ${self?'style="cursor:default"':`onclick="contactActions('${m.uid}','${esc((m.name||'').replace(/'/g,''))}')"`}><div style="position:relative;flex-shrink:0">${m.photo?`<img class="ava" src="${m.photo}" style="object-fit:cover">`:`<div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`}<span style="position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg);background:${on?'#22c55e':'#64748b'}"></span></div><div class="info"><div class="nm">${esc(m.name||'')}</div><div class="ds">${self?'Vous':(on?'En ligne':'Hors ligne')}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>${self?'':`<div style="color:var(--t3)">${ic('chat',18)}</div>`}</div>`; });
-      $('cont-list').innerHTML=html||('<p class="muted center">'+esc(emptyMsg)+'</p>');
+      _contList=list; renderContList(emptyMsg);
     }catch(e){ $('cont-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+  }
+  function renderContList(emptyMsg){
+    const box=$('cont-list'); if(!box) return;
+    let list=_contList; if(_contSearch) list=list.filter(m=>(m.name||'').toLowerCase().includes(_contSearch));
+    let html=''; list.forEach(m=>{ const on=isOnline(m)||m.uid===ME.uid; const self=m.uid===ME.uid; const nm=esc((m.name||'').replace(/'/g,''));
+      html+=`<div class="lrow" style="padding:14px 18px${self?';cursor:default':''}" ${self?'':`onclick="contactActions('${m.uid}','${nm}')"`}>
+        <div style="position:relative;flex-shrink:0">${m.photo?`<img class="cava" src="${m.photo}" style="object-fit:cover">`:`<div class="cava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`}<span class="pdot" style="background:${on?'var(--pres)':'var(--off)'}"></span></div>
+        <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div><div style="font-size:13px;color:var(--t2);margin-top:2px">${self?'Vous':(on?'En ligne':'Hors ligne')}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
+        ${self?'':`<div style="display:flex;align-items:center;gap:8px">
+          <button class="rbtn" title="Message" onclick="event.stopPropagation();openDM('${m.uid}','${nm}')">${ms('chat_bubble',18)}</button>
+          <button class="rbtn" title="Appeler" onclick="event.stopPropagation();startCall(['${m.uid}'],['${nm}'],'audio')">${ms('call',18)}</button>
+        </div>`}
+      </div>`; });
+    box.innerHTML = html?`<div class="listbox">${html}</div>`:('<p class="muted center">'+esc(emptyMsg||'Aucun contact.')+'</p>');
   }
   function COMP_owner(){ return COMP&&COMP.ownerUid; }
   async function contactActions(uid,name){ openSheet('<p class="muted center">Chargement…</p>'); let phone='',status='',handle='';
@@ -1027,41 +1044,47 @@
 
   // ---- APPELS (style WhatsApp : direct + groupe d'appel) ----
   function tms(t){ return t&&t.toMillis?t.toMillis():0; }
+  let _callFilter='all',_callRecents=[],_callSearch='';
+  function setCallFilter(k){ _callFilter=k; const sg=$('call-seg'); if(sg){ [...sg.querySelectorAll('button')].forEach(b=>b.classList.toggle('on',b.dataset.k===k)); } viewAppelList(); }
   async function viewAppel(){
+    _callSearch='';
     const up=isPro()? _myMeetings.filter(m=>m.scheduledAt && m.scheduledAt>Date.now()-3600000).sort((a,b)=>a.scheduledAt-b.scheduledAt) : [];
-    let meetHtml=''; if(up.length){ meetHtml=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:0 2px 8px">Réunions à venir</div>`+
-      up.map(m=>`<div class="meet" onclick="joinRoom('${m.id}','${esc((m.name||'').replace(/'/g,''))}')"><div class="ava" style="width:44px;height:44px;background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div><div class="info" style="flex:1"><div class="nm">${esc(m.name||'')}</div><div class="ds">${esc(fmtWhen(m.scheduledAt))}</div></div><div class="cd" data-t="${m.scheduledAt}">${esc(fmtCountdown(m.scheduledAt-Date.now()))}</div></div>`).join('')+`<div style="height:14px"></div>`; }
-    // Actions rapides rondes (façon WhatsApp) : Appeler · Planifier · contacts fréquents
-    const qa=(icn,lbl,fn,color)=>`<div onclick="${fn}" style="text-align:center;cursor:pointer;min-width:62px">
-      <div style="width:54px;height:54px;border-radius:50%;background:var(--card2);border:1px solid var(--brd);display:flex;align-items:center;justify-content:center;margin:0 auto 5px;color:${color||'var(--t1)'}">${icn}</div>
-      <div style="font-size:11px;color:var(--t2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lbl}</div></div>`;
-    let quick=qa(ic('phone',22),'Appeler','newCall()','var(--op-l)');
-    if(isPro()) quick+=qa(ic('cal',22),'Planifier','openReunions()','#5fcf80');
-    const favs=_members.filter(m=>m.uid!==ME.uid).slice(0,4);
-    favs.forEach(m=>{ const nm=esc((m.name||'').replace(/'/g,'')); quick+=qa(`<span style="font-weight:800;font-size:19px">${ini(m.name)}</span>`,esc((m.name||'').split(' ')[0]),`startCall(['${m.uid}'],['${nm}'],'audio')`); });
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2></div>
-      <div style="display:flex;gap:10px;overflow:auto;padding:2px 2px 16px;-webkit-overflow-scrolling:touch">${quick}</div>
+    let meetHtml=''; if(up.length){ meetHtml=`<div class="sec-lbl">Réunions à venir</div>`+
+      up.map(m=>`<div class="meet" onclick="joinRoom('${m.id}','${esc((m.name||'').replace(/'/g,''))}')"><div class="cava" style="border-radius:11px;background:var(--blk-green);color:var(--blk-green-tx)">${ms('videocam',20)}</div><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div><div style="font-size:12.5px;color:var(--t2);margin-top:2px">${esc(fmtWhen(m.scheduledAt))}</div></div><div class="cd" data-t="${m.scheduledAt}">${esc(fmtCountdown(m.scheduledAt-Date.now()))}</div></div>`).join('')+`<div style="height:14px"></div>`; }
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2><button class="hbtn blue" onclick="newCall()">${ms('add_call',18)}Nouvel appel</button></div>
+      <div class="gsearch">${ms('search',19)}<input id="call-search" placeholder="Rechercher un appel…" oninput="_callSearch=this.value.trim().toLowerCase();viewAppelList()"></div>
+      <div style="overflow:auto;padding:0 2px 14px;-webkit-overflow-scrolling:touch"><div class="seg" id="call-seg">${[['all','Tous'],['missed','Manqués'],['in','Entrants'],['out','Sortants']].map(([k,l])=>`<button data-k="${k}" class="${_callFilter===k?'on':''}" onclick="setCallFilter('${k}')">${l}</button>`).join('')}</div></div>
       ${meetHtml}
-      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:0 2px 8px;font-weight:700">Récents</div>
-      <div id="call-list"><p class="muted center">Chargement…</p></div>`;
+      <div id="call-list"><p class="muted center">Chargement…</p></div>
+      <button class="fab" onclick="newCall()" title="Nouvel appel">${ms('add_call',24)}</button>`;
     if(_meetTicker)clearInterval(_meetTicker); if(up.length) _meetTicker=setInterval(tickCountdowns,30000);
     try{
       const col=callsCol();
       const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
       const map={}; a.forEach(d=>map[d.id]={id:d.id,...d.data()}); b.forEach(d=>map[d.id]={id:d.id,...d.data()});
       const _cc=+(localStorage.getItem(callClearKey())||0);
-      const list=Object.values(map).filter(c=>tms(c.ts)>_cc).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
-      let html=''; list.forEach(c=>{ const out=c.from===ME.uid; const grp=(c.members||[]).length>1;
-        const who = grp ? ('Groupe ('+((c.memberNames||[]).length)+')') : (out? ((c.memberNames&&c.memberNames[0])||'Contact') : c.fromName);
-        const missed = c.status==='missed'||c.status==='declined'; const d=c.ts&&c.ts.toDate?c.ts.toDate():null;
-        const arrow = out?'<span style="color:var(--t3)">↗</span>':(missed?'<span style="color:#f87171">↙</span>':'<span style="color:#22c55e">↙</span>');
-        html+=`<div class="row" onclick="recall('${c.id}')"><div class="ava" style="${avatarStyle(who)}">${grp?ic('users',20):ini(who)}</div>
-          <div class="info"><div class="nm" style="${missed?'color:#f87171':''}">${esc(who)}</div>
-          <div class="ds">${arrow} ${out?'Sortant':(missed?'Manqué':'Entrant')} · ${c.type==='audio'?'audio':'vidéo'}</div></div>
-          <div style="display:flex;align-items:center;gap:10px"><span class="when" style="font-size:11px;color:var(--t3)">${d?fmtListTime(d.getTime()):''}</span>
-          <button class="ic" style="width:32px;height:32px;border-radius:50%;border:1px solid var(--brd2);background:transparent;color:var(--t2);font-size:14px;display:inline-flex;align-items:center;justify-content:center" onclick="event.stopPropagation();callInfo('${c.id}')">ⓘ</button></div></div>`; });
-      $('call-list').innerHTML=html||'<p class="muted center">Aucun appel. Touchez « Appeler ».</p>';
+      _callRecents=Object.values(map).filter(c=>tms(c.ts)>_cc).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
+      viewAppelList();
     }catch(e){ $('call-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+  }
+  function viewAppelList(){
+    const box=$('call-list'); if(!box) return;
+    const list=_callRecents.filter(c=>{ const out=c.from===ME.uid; const missed=c.status==='missed'||c.status==='declined';
+      if(_callFilter==='missed') return !out&&missed; if(_callFilter==='in') return !out&&!missed; if(_callFilter==='out') return out; return true; });
+    let html=''; list.forEach(c=>{ const out=c.from===ME.uid; const grp=(c.members||[]).length>1;
+      const who = grp ? ('Groupe ('+((c.memberNames||[]).length)+')') : (out? ((c.memberNames&&c.memberNames[0])||'Contact') : c.fromName);
+      if(_callSearch && !(who||'').toLowerCase().includes(_callSearch)) return;
+      const missed = c.status==='missed'||c.status==='declined'; const d=c.ts&&c.ts.toDate?c.ts.toDate():null;
+      const icn = out?ms('call_made',16):(missed?ms('call_missed',16):ms('call_received',16));
+      const icCol = out?'var(--t2)':(missed?'var(--red)':'var(--pres)');
+      const lbl = out?'Sortant':(missed?'Appel manqué':'Entrant');
+      html+=`<div class="lrow" onclick="callInfo('${c.id}')">
+        <div class="cava" style="${avatarStyle(who)}${grp?';border-radius:11px':''}">${grp?ms('group',20):ini(who)}</div>
+        <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${missed?';color:var(--red)':''}">${esc(who)}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;color:${missed?'var(--red)':'var(--t2)'};font-size:13px${missed?';font-weight:600':''}"><span style="color:${icCol};display:inline-flex">${icn}</span>${lbl} · ${c.type==='audio'?'audio':'vidéo'}</div></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="font-size:11.5px;font-weight:600;color:var(--t3)">${d?fmtListTime(d.getTime()):''}</span>
+        <button class="rbtn" title="Rappeler" onclick="event.stopPropagation();recall('${c.id}')">${ms('call',18)}</button></div></div>`; });
+    box.innerHTML = html?`<div class="listbox">${html}</div>`:'<p class="muted center">Aucun appel.</p>';
   }
   async function callInfo(id){ openSheet('<p class="muted center">Chargement…</p>');
     let c={}; try{ const d=await callsCol().doc(id).get(); if(d.exists) c=d.data(); }catch(e){}
@@ -1167,9 +1190,9 @@
     if(!isPro()){ toast('Les réunions sont réservées aux comptes entreprise.'); return; }
     openPage(`<div class="topbar">
         <button class="bk" onclick="closePage()">${ic('back',26)}</button>
-        <div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div>
+        <div class="ava" style="background:var(--blk-green);color:var(--blk-green-tx);border-radius:11px">${ms('videocam',20)}</div>
         <div class="ti"><b>Réunions</b><span>${esc(COMP.name)}</span></div>
-        <button class="ic" onclick="newRoom()" title="Nouvelle réunion">${ic('plus',22)}</button>
+        <button class="hbtn green" onclick="newRoom()" title="Planifier une réunion">${ms('event',18)}Planifier</button>
       </div>
       <div class="view" style="padding:14px 14px 30px" id="reun-body"><p class="muted center">Chargement…</p></div>`);
     let sched=[], perm=[];
@@ -1179,27 +1202,26 @@
     const now=Date.now();
     const upcoming=sched.filter(r=>r.scheduledAt>now-3600000), past=sched.filter(r=>r.scheduledAt<=now-3600000);
     const canDel=r=>(r.createdBy===ME.uid||IS_OWNER);
-    const roomRow=(r,extra)=>`<div class="row" style="margin-bottom:8px">
-        <div class="ava" style="background:rgba(34,177,76,.18);color:#5fcf80">${ic('video',20)}</div>
-        <div class="info" onclick="closePage();joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')"><div class="nm">${esc(r.name||'')}</div><div class="ds">${extra}</div></div>
-        <button class="btn sm" onclick="closePage();joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre</button>
-        ${canDel(r)?`<button class="btn ghost sm" style="color:#fca5a5;padding:8px 10px" onclick="delRoom('${r.id}')">🗑</button>`:''}
+    const dtile=t=>{ const d=new Date(t); const mo=d.toLocaleDateString('fr-FR',{month:'short'}).replace('.','').toUpperCase();
+      return `<div style="width:44px;height:44px;flex:none;border-radius:11px;background:var(--tile-bg);display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:17px;font-weight:800;line-height:1;color:var(--tile-tx)">${d.getDate()}</div><div style="font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--tile-tx);margin-top:2px">${esc(mo)}</div></div>`; };
+    const roomRow=(r,extra,next)=>`<div class="lrow">
+        ${r.scheduledAt?dtile(r.scheduledAt):`<div class="cava" style="border-radius:11px;background:var(--blk-green);color:var(--blk-green-tx)">${ms('videocam',20)}</div>`}
+        <div style="flex:1;min-width:0" onclick="closePage();joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div><div style="font-size:13px;color:var(--t2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${extra}</div></div>
+        ${next?`<button class="joinbtn" onclick="closePage();joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre</button>`:`<span style="font-size:11.5px;font-weight:600;color:var(--t3)">${r.scheduledAt?esc(fmtListTime(r.scheduledAt)):''}</span>`}
+        ${canDel(r)?`<button class="rbtn" style="color:var(--red)" title="Supprimer" onclick="event.stopPropagation();delRoom('${r.id}')">🗑</button>`:''}
       </div>`;
     let h=`
-      <div style="border:1px solid var(--brd);border-radius:16px;padding:18px 16px;margin-bottom:18px;background:linear-gradient(135deg,rgba(34,177,76,.12),rgba(94,130,255,.10))">
+      <div class="card" style="padding:18px 16px;margin-bottom:18px">
         <div style="font-size:17px;font-weight:800;margin-bottom:4px">Visioconférence d'équipe</div>
         <p class="muted" style="font-size:12.5px;margin-bottom:14px">HD · partage d'écran · sans limite de durée</p>
         <div style="display:flex;gap:8px">
-          <button class="btn" style="flex:1;background:#22b14c" onclick="instantMeeting()">${ic('video',17)}Démarrer maintenant</button>
-          <button class="btn ghost" style="flex:1" onclick="newRoom()">${ic('cal',17)}Planifier</button>
+          <button class="btn green" style="flex:1" onclick="instantMeeting()">${ms('videocam',17)}Démarrer maintenant</button>
+          <button class="btn ghost" style="flex:1" onclick="newRoom()">${ms('event',17)}Planifier</button>
         </div>
       </div>`;
-    if(upcoming.length){ h+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 8px;font-weight:700">À venir (${upcoming.length})</div>`;
-      h+=upcoming.map(r=>{ const mine=(r.members||[]).length; return roomRow(r, esc(fmtWhen(r.scheduledAt))+' · '+esc(fmtCountdown(r.scheduledAt-now))+(mine?' · '+mine+' invité'+(mine>1?'s':''):'')); }).join(''); h+='<div style="height:10px"></div>'; }
-    if(perm.length){ h+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 8px;font-weight:700">Salles permanentes (${perm.length})</div>`;
-      h+=perm.map(r=>roomRow(r,'Salle ouverte · partage d\'écran')).join(''); h+='<div style="height:10px"></div>'; }
-    if(past.length){ h+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:4px 2px 8px;font-weight:700">Passées</div>`;
-      h+=past.slice(0,8).map(r=>roomRow(r, esc(fmtWhen(r.scheduledAt)))).join(''); }
+    if(upcoming.length){ h+=`<div class="sec-lbl">À venir (${upcoming.length})</div><div class="listbox" style="margin-bottom:14px">`+upcoming.map((r,i)=>{ const mine=(r.members||[]).length; return roomRow(r, esc(fmtWhen(r.scheduledAt))+' · '+esc(fmtCountdown(r.scheduledAt-now))+(mine?' · '+mine+' invité'+(mine>1?'s':''):''), i===0); }).join('')+'</div>'; }
+    if(perm.length){ h+=`<div class="sec-lbl">Salles permanentes (${perm.length})</div><div class="listbox" style="margin-bottom:14px">`+perm.map(r=>roomRow(r,'Salle ouverte · partage d\'écran',true)).join('')+'</div>'; }
+    if(past.length){ h+=`<div class="sec-lbl">Passées</div><div class="listbox">`+past.slice(0,8).map(r=>roomRow(r, esc(fmtWhen(r.scheduledAt)),false)).join('')+'</div>'; }
     if(!upcoming.length&&!perm.length&&!past.length) h+=`<div style="text-align:center;padding:30px 10px;color:var(--t3)"><div style="font-size:38px;margin-bottom:8px">🎥</div>Aucune réunion pour l'instant.<br>Démarrez-en une ou planifiez-la.</div>`;
     const b=$('reun-body'); if(b) b.innerHTML=h;
   }
