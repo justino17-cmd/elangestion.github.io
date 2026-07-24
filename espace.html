@@ -591,12 +591,16 @@
         const b=d.status==='fourni'?'b-done':(d.status==='nouveau'?'b-new':'b-prog'); const bl=d.status==='fourni'?'Accès activé':(d.status==='nouveau'?'Nouvelle demande':(d.status==='compte'?'Compte créé':'En cours'));
         html+=`<div class="req"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><h4>${esc(d.company||d.email||'—')}</h4><div class="muted">${esc(d.name||'')} · ${esc(d.email||'')}${d.app?' · souhaite : '+esc(d.app):''}</div></div><span class="badge ${b}">${bl}</span></div>
           ${d.besoin?`<p style="font-size:13.5px;color:var(--t2);margin-top:8px">${esc(d.besoin)}</p>`:''}
+          ${Array.isArray(d.demandes)&&d.demandes.length?`<div style="margin-top:8px;font-size:12.5px;color:var(--t3);line-height:1.7">`+d.demandes.slice().sort((a,b)=>(b.date||0)-(a.date||0)).map(dm=>{ let s=''; try{ s=new Date(dm.date).toLocaleDateString('fr-FR')+' '+new Date(dm.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(e){}
+            return '📨 <b style="color:var(--t2)">'+esc(dm.app||'')+'</b>'+(dm.users?(' · '+esc(String(dm.users))+' utilisateur(s)'):'')+(dm.formule&&dm.formule!=='Je ne sais pas encore'?(' · '+esc(dm.formule)):'')+(s?(' · '+s):''); }).join('<br>')+`</div>`:''}
+          ${(()=>{ try{ const p=d.promo; if(!p||!p.until) return ''; const u=(p.until.toMillis?p.until.toMillis():p.until); const actif=u>Date.now();
+            return '<div style="margin-top:6px;font-size:12.5px;color:'+(actif?'var(--green,#34d399)':'var(--t3)')+'">🎁 Code « '+esc(p.code||'')+' » '+(actif?('actif — fin le '+new Date(u).toLocaleDateString('fr-FR')):'expiré')+'</div>'; }catch(e){ return ''; } })()}
           <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--brd)">
             <label class="chk"><input type="checkbox" id="gr-elan-${doc.id}" ${apps.includes('elan')?'checked':''}> 🌿 OP GESTION</label>
             <label class="chk"><input type="checkbox" id="gr-opmsg-${doc.id}" ${apps.includes('opmsg')?'checked':''}> 💬 OP MESSAGES</label>
             <button class="btn sm green" onclick="grantApps('${doc.id}')">✅ Activer les accès</button>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm ghost" onclick="openThread('${doc.id}','${esc((d.company||d.email||'').replace(/'/g,''))}')">💬 Messagerie</button><button class="btn sm ghost" onclick="provision('${doc.id}','${esc((d.company||'Entreprise').replace(/'/g,''))}')">🏢 Espace ELAN (code équipe)</button><button class="btn sm ghost" onclick="setPlan('${doc.id}')">💼 Offre</button><button class="btn sm ghost" onclick="addDoc('${doc.id}')">📎 Document</button></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm ghost" onclick="openThread('${doc.id}','${esc((d.company||d.email||'').replace(/'/g,''))}')">💬 Messagerie</button><button class="btn sm ghost" onclick="provision('${doc.id}','${esc((d.company||'Entreprise').replace(/'/g,''))}')">🏢 Espace OP GESTION (code équipe)</button><button class="btn sm ghost" onclick="setPlan('${doc.id}')">💼 Offre</button><button class="btn sm ghost" onclick="addDoc('${doc.id}')">📎 Document</button></div>
         </div>`;
       });
       list.innerHTML=html;
@@ -640,7 +644,7 @@
       const box=$('msgs'); if(!box) return; if(qs.empty){ box.innerHTML='<p class="muted center">Aucun message.</p>'; return; }
       let html=''; qs.forEach(doc=>{ const m=doc.data(); const mine=(role==='admin'&&m.from==='admin')||(role==='client'&&m.from==='client');
         html+=`<div class="msg ${mine?'me':'them'}">${esc(m.text||'')}`;
-        if(m.access&&role==='client'){ html+=`<div class="code">${esc(m.access)}</div><button class="btn green sm" style="margin-top:8px" onclick="activate('${esc(m.access)}')">🚀 Activer mon espace ELAN</button>`; }
+        if(m.access&&role==='client'){ html+=`<div class="code">${esc(m.access)}</div><button class="btn green sm" style="margin-top:8px" onclick="activate('${esc(m.access)}')">🚀 Activer mon espace OP GESTION</button>`; }
         else if(m.access&&role==='admin'){ html+=`<div class="code">${esc(m.access)}</div>`; }
         html+=`<div class="meta">${m.from==='admin'?'TeamOP':'Client'}</div></div>`;
       });
