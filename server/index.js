@@ -96,6 +96,18 @@ app.post('/api/checkcode', (req, res) => {
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
 app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
 
+// ── Stripe : liste des tarifs actifs (lecture seule — les prix sont publics sur le site)
+app.get('/api/stripe/prices', async (req, res) => {
+  try {
+    const sk = config.stripe && config.stripe.secretKey;
+    if (!sk) return res.status(501).json({ error: 'stripe non configuré' });
+    const r = await fetch('https://api.stripe.com/v1/prices?active=true&limit=100&expand[]=data.product', { headers: { Authorization: 'Bearer ' + sk } });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(502).json({ error: 'stripe erreur' });
+    res.json({ prices: (d.data || []).map(p => ({ id: p.id, montant: p.unit_amount, devise: p.currency, periode: p.recurring && p.recurring.interval, produit: p.product && p.product.name })) });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
+
 // ── Stripe : création d'une page de paiement avec la quantité déjà réglée + champ code promo
 //    Le site envoie { price, quantity, ref? } ; la clé secrète vit uniquement dans /opt/teamop/config.json (set-stripe.sh)
 app.post('/api/stripe/checkout', async (req, res) => {
