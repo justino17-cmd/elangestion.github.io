@@ -660,6 +660,9 @@ function rendrePaiement() {
   const f = FORMULES[formuleActive];
   const c = document.getElementById('cartePaiement');
   const gratuit = f.prixMensuel === 0;
+  // L'option annuelle n'apparaît que si son lien Stripe est configuré
+  const annuelDispo = !gratuit && CONFIG_STRIPE[formuleActive] && CONFIG_STRIPE[formuleActive].annuel && !CONFIG_STRIPE[formuleActive].annuel.includes('A_REMPLACER');
+  if (!annuelDispo) cycleAnnuel = false;
 
   const prixAffiche = cycleAnnuel && !gratuit
     ? f.prixMensuel * (12 - REMISE_ANNUELLE)
@@ -677,7 +680,7 @@ function rendrePaiement() {
       ${parUtilisateur ? `<br>soit ${parUtilisateur.toFixed(2).replace('.', ',').replace(',00','')} € / mois par utilisateur` : ''}
     </div>
 
-    ${!gratuit ? `
+    ${!gratuit && annuelDispo ? `
       <div class="choix-cycle">
         <button class="cycle ${!cycleAnnuel ? 'actif' : ''}" data-cycle="mensuel">
           Mensuel
@@ -687,7 +690,8 @@ function rendrePaiement() {
           Annuel
           <span class="eco">${REMISE_ANNUELLE} mois offerts</span>
         </button>
-      </div>
+      </div>` : ''}
+    ${!gratuit ? `
       <div class="ligne-prix">
         <span>Abonnement ${f.nom}</span>
         <span>${cycleAnnuel ? (f.prixMensuel * 12) + ' €' : f.prixMensuel + ' €'}</span>
@@ -752,7 +756,7 @@ function rendrePaiement() {
     }
     const lien = CONFIG_STRIPE[formuleActive][cycleAnnuel ? 'annuel' : 'mensuel'];
     if (!lien || lien.includes('A_REMPLACER')) {
-      alert('Ce lien de paiement n\'est pas encore configuré.\nOuvre le fichier et colle ton Payment Link Stripe dans CONFIG_STRIPE en haut du script.');
+      alert('Le paiement annuel arrive très bientôt.\nEn attendant, choisissez le paiement mensuel — sans engagement.');
       return;
     }
     window.location.href = lien;
