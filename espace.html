@@ -140,6 +140,102 @@
 </div>
 </div>
 
+<script>
+  /* ── 🗼 Tour de contrôle : sentinelle technique (bugs, lenteurs, réseau) — isolée, aucune donnée métier,
+        désactivable via localStorage 'top_monitor_off'. Ne doit JAMAIS faire planter l'application. ── */
+  (function(){
+  try{ if(localStorage.getItem('top_monitor_off')==='1') return; }catch(_){ }
+  var TM_APP='espace', TM_KEY='top_monitor_q', TM_URL='https://api.teamop.fr/api/monitor/report';
+  var tmLastSend=0, tmSending=false, tmT=Date.now();
+  function tmCat(){ return 'Espace client'; }
+  function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
+  function tmEnt(){ var nom='',email='';
+    try{ if(typeof auth!=='undefined'&&auth&&auth.currentUser&&auth.currentUser.email) email=String(auth.currentUser.email).trim(); }catch(_){ }
+    return {nom:nom||email||'inconnue',email:email}; }
+  function tmUA(){ try{ var u=navigator.userAgent||'', ap=/iPhone|iPad|iPod/i.test(u)?'iPhone':(/Android/i.test(u)?'Android':'PC'), nv=/Edg\//.test(u)?'Edge':(/OPR\//.test(u)?'Opera':(/Chrome\//.test(u)?'Chrome':(/Firefox\//.test(u)?'Firefox':(/Safari\//.test(u)?'Safari':'Navigateur')))); return ap+' · '+nv; }catch(_){ return '?'; } }
+  function tmLoad(){ try{ var q=JSON.parse(localStorage.getItem(TM_KEY)||'[]'); return Array.isArray(q)?q:[]; }catch(_){ return []; } }
+  function tmSaveQ(q){ try{ localStorage.setItem(TM_KEY,JSON.stringify(q.slice(-40))); }catch(_){ } }
+  function tmPush(type,message,stack,src,line){ try{
+    message=String(message||'').slice(0,300); if(!message) return;
+    if(/ResizeObserver|^Script error/i.test(message)) return;
+    if(/extension:\/\//.test(String(src||''))) return;
+    var sig=type+'|'+message.slice(0,120)+'|'+(line||0);
+    var q=tmLoad(), e=null;
+    for(var i=0;i<q.length;i++){ if(q[i].signature===sig){ e=q[i]; break; } }
+    if(e){ e.count=(e.count||1)+1; }
+    else{ var ent=tmEnt(); q.push({signature:sig,app:TM_APP,version:tmVer(),categorie:tmCat(),type:type,message:message,stack:String(stack||'').slice(0,600),src:String(src||'').slice(0,200),line:line||0,entreprise:ent.nom,email:ent.email,appareil:tmUA(),count:1,ts:Date.now()}); }
+    tmSaveQ(q); setTimeout(tmFlush,500);
+  }catch(_){ } }
+  function tmFlush(){ try{
+    if(tmSending) return;
+    var now=Date.now(); if(now-tmLastSend<30000) return;
+    var q=tmLoad(); if(!q.length) return;
+    tmLastSend=now;
+    var payload=JSON.stringify({reports:q.slice(0,40)}), ok=false;
+    try{ if(navigator.sendBeacon) ok=navigator.sendBeacon(TM_URL,new Blob([payload],{type:'text/plain'})); }catch(_){ ok=false; }
+    if(ok){ tmSaveQ([]); return; }
+    if(!window.fetch) return;
+    tmSending=true;
+    fetch(TM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:payload,keepalive:true}).then(function(r){ tmSending=false; if(r&&r.ok) tmSaveQ([]); },function(){ tmSending=false; });
+  }catch(_){ tmSending=false; } }
+  window.addEventListener('error',function(e){ try{ tmPush('erreur',e&&e.message,e&&e.error&&e.error.stack,e&&e.filename,e&&e.lineno); }catch(_){ } });
+  window.addEventListener('unhandledrejection',function(e){ try{ var r=(e&&e.reason)||{}; var m=String((r&&r.message)||r||''); if(/Failed to fetch|NetworkError|Load failed|network connection was lost|annulé/i.test(m)) return; tmPush('erreur','Promesse rejetée : '+m,r&&r.stack,'',0); }catch(_){ } });
+  try{
+    if(window.PerformanceObserver&&PerformanceObserver.supportedEntryTypes&&PerformanceObserver.supportedEntryTypes.indexOf('longtask')>=0){
+      new PerformanceObserver(function(l){ try{ l.getEntries().forEach(function(en){ if(en.duration>2000) tmPush('lenteur','Interface bloquée pendant '+Math.round(en.duration)+' ms','','',0); }); }catch(_){ } }).observe({entryTypes:['longtask']});
+    } else if(window.requestAnimationFrame){
+      var tmTick=function(){ try{ var n=Date.now(); if(n-tmT>2000&&document.visibilityState==='visible') tmPush('lenteur','Interface figée pendant '+(n-tmT)+' ms','','',0); tmT=n; }catch(_){ } requestAnimationFrame(tmTick); };
+      requestAnimationFrame(tmTick);
+    }
+  }catch(_){ }
+  try{
+    var tmF=window.fetch;
+    if(tmF) window.fetch=function(input){ var url=''; try{ url=(typeof input==='string')?input:((input&&input.url)||''); }catch(_){ }
+      var p=tmF.apply(window,arguments);
+      try{ if(/api\.teamop\.fr/.test(url)&&url.indexOf('/api/monitor/')<0){ var ep=url.replace(/^https?:\/\/[^\/]+/,'').split('?')[0];
+        p.then(function(r){ try{ if(r&&r.status>=500) tmPush('reseau','api.teamop.fr a répondu '+r.status+' sur '+ep,'','',0); }catch(_){ } },function(err){ try{ tmPush('reseau','api.teamop.fr injoignable sur '+ep+' ('+String((err&&err.message)||'échec').slice(0,80)+')','','',0); }catch(_){ } }); } }catch(_){ }
+      return p; };
+  }catch(_){ }
+  try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
+  try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
+  })();
+  /* ── Accès Équipe TeamOP (Tour de contrôle) : formulaire dans la page de connexion existante.
+        Comptes créés côté serveur uniquement (set-admin.sh / section Équipe de la Tour) —
+        un client sans compte Tour obtient simplement « Identifiants incorrects ». ── */
+  function renderTeamAuth(){
+    var host=document.getElementById('space'); if(!host) return;
+    host.innerHTML='<div class="panel">'+
+      '<div class="tabs"><div class="tab active">🛠 Équipe TeamOP</div></div>'+
+      '<div id="team-err"></div>'+
+      '<div class="field"><label>E-mail</label><input id="t-email" type="email" placeholder="prenom@teamop.fr" autocomplete="email"></div>'+
+      '<div class="field"><label>Mot de passe</label><input id="t-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')teamSubmit()"></div>'+
+      '<button class="btn block" id="t-submit" onclick="teamSubmit()">Entrer dans la Tour de contrôle</button>'+
+      '<div style="margin-top:14px;padding:11px 14px;border-radius:10px;background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.25);font-size:12.5px;line-height:1.5;color:var(--t2)">🔒 Accès réservé aux collaborateurs TEAM OP — comptes créés par le patron, tentatives journalisées.</div>'+
+      '<p class="muted center" style="margin-top:14px"><a href="#" onclick="try{renderAuth()}catch(e){location.reload()};return false" style="color:var(--t3)">← Retour à la connexion client</a></p>'+
+    '</div>';
+    try{ document.getElementById('t-email').focus(); }catch(_){ }
+  }
+  function teamSubmit(){
+    var email=(document.getElementById('t-email').value||'').trim(), pass=document.getElementById('t-pass').value||'';
+    var errBox=document.getElementById('team-err'), btn=document.getElementById('t-submit');
+    var err=function(t){ if(errBox) errBox.innerHTML='<div class="err">'+t+'</div>'; if(btn) btn.disabled=false; };
+    if(!email||!pass) return err('Renseignez e-mail et mot de passe.');
+    if(btn) btn.disabled=true;
+    fetch('https://api.teamop.fr/api/monitor/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,pass:pass})})
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+      .then(function(x){
+        if(!x.ok||!x.d.token) return err('Identifiants incorrects.');
+        try{
+          sessionStorage.setItem('tour_token',x.d.token);
+          sessionStorage.setItem('tour_nom',x.d.nom||'');
+          sessionStorage.setItem('tour_role',x.d.role||'');
+          sessionStorage.setItem('tour_email',email);
+        }catch(_){ }
+        location.href='tour.html';
+      })
+      .catch(function(){ err('Connexion impossible — réessaie dans un instant.'); });
+  }
+</script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -194,7 +290,8 @@
       <div id="signup-fields2" class="hide"><div class="field"><label>Confirmer le mot de passe</label><input id="a-pass2" type="password" placeholder="••••••••" autocomplete="new-password"></div></div>
       <button class="btn block" id="a-submit" onclick="authSubmit()">Se connecter</button>
       <p class="muted center" style="margin-top:14px">« Se connecter » = vous avez déjà un compte. « Créer un compte » = nouveau client.</p>
-    </div>`;
+    </div>
+    <p class="center" style="margin-top:12px"><a href="#" id="lnk-equipe" onclick="renderTeamAuth();return false" style="color:var(--t3);font-size:12.5px;text-decoration:none">🛠 Équipe TeamOP</a></p>`;
     if(RETOUR_PAIEMENT) authTab('signup');
   }
   let _authMode='login';

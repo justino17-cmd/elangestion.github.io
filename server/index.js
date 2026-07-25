@@ -47,7 +47,7 @@ app.use((req, res, next) => {
   if (o && ORIGINS.includes(o)) {
     res.setHeader('Access-Control-Allow-Origin', o);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -447,6 +447,231 @@ app.post('/api/email', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🗼 TOUR DE CONTRÔLE — surveillance technique des applications (bugs, lenteurs, réseau)
+//    Les sentinelles clientes envoient des lots anonymisés sur /api/monitor/report ;
+//    le tableau de bord privé tour.html consulte/administre via un token admin (set-admin.sh).
+// ═══════════════════════════════════════════════════════════════════════════
+const crypto = require('crypto');
+const MONITOR_PATH = path.join(path.dirname(CONFIG_PATH), 'monitor.json');
+
+let monIssues = [], monUsers = [], monJournal = [];
+try { const d = JSON.parse(fs.readFileSync(MONITOR_PATH, 'utf8')); monIssues = d.issues || []; monUsers = d.users || []; monJournal = d.journal || []; } catch (e) {}
+function monPurge() {
+  const lim = Date.now() - 90 * 86400000;
+  monIssues = monIssues.filter(i => !(i.statut === 'corrige' && (i.lastTs || 0) < lim));
+  if (monIssues.length > 500) {   // cap : on garde les plus récents, en sacrifiant d'abord les corrigés/ignorés
+    monIssues.sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+    const actifs = monIssues.filter(i => i.statut === 'nouveau' || i.statut === 'encours');
+    const autres = monIssues.filter(i => i.statut !== 'nouveau' && i.statut !== 'encours');
+    monIssues = actifs.slice(0, 500).concat(autres.slice(0, Math.max(0, 500 - actifs.length)));
+  }
+}
+let monSaveTimer = null;
+function monSave() {
+  clearTimeout(monSaveTimer);
+  monSaveTimer = setTimeout(() => {
+    try { monPurge(); fs.writeFileSync(MONITOR_PATH, JSON.stringify({ issues: monIssues, users: monUsers, journal: monJournal })); } catch (e) { console.error('monitor save:', e.message); }
+  }, 500);
+}
+monPurge();
+
+const MON_TYPES = ['erreur', 'lenteur', 'reseau'];
+const monStr = (v, n) => String(v == null ? '' : v).slice(0, n);
+// réception des rapports des sentinelles (public, quota par IP via le limiteur global)
+app.post('/api/monitor/report', express.text({ type: 'text/plain', limit: '200kb' }), (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = null; } }   // navigator.sendBeacon envoie en text/plain
+    const reports = body && Array.isArray(body.reports) ? body.reports.slice(0, 40) : null;
+    if (!reports || !reports.length) return res.status(400).json({ error: 'reports requis' });
+    for (const r of reports) {
+      if (!r || typeof r !== 'object') continue;
+      const type = MON_TYPES.includes(r.type) ? r.type : 'erreur';
+      const message = monStr(r.message, 300); if (!message) continue;
+      const appName = monStr(r.app, 20) || 'inconnue';
+      const signature = appName + '|' + (monStr(r.signature, 200) || (type + '|' + message.slice(0, 120)));
+      const entNom = monStr(r.entreprise, 80) || 'inconnue';
+      const entEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(monStr(r.email, 120)) ? monStr(r.email, 120).toLowerCase() : '';
+      const appareil = monStr(r.appareil, 60) || '?';
+      const count = Math.min(500, Math.max(1, parseInt(r.count, 10) || 1));
+      const now = Date.now();
+      let issue = monIssues.find(i => i.signature === signature);
+      if (!issue) {
+        issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: appName, version: monStr(r.version, 12), categorie: monStr(r.categorie, 40) || 'Général', type, message, stack: monStr(r.stack, 600), src: monStr(r.src, 200), line: parseInt(r.line, 10) || 0, entreprises: [], appareils: {}, count: 0, firstTs: now, lastTs: now, statut: 'nouveau', notes: '', mailEnvoye: false };
+        monIssues.push(issue);
+      }
+      issue.count += count; issue.lastTs = now;
+      if (monStr(r.version, 12)) issue.version = monStr(r.version, 12);
+      if (issue.statut === 'corrige' || issue.statut === 'ignore') { if (issue.statut === 'corrige') { issue.statut = 'nouveau'; issue.mailEnvoye = false; } }   // un « corrigé » qui revient redevient nouveau
+      let ent = issue.entreprises.find(e => e.nom === entNom);
+      if (!ent) { ent = { nom: entNom, email: entEmail, count: 0, lastTs: now }; if (issue.entreprises.length < 60) issue.entreprises.push(ent); }
+      ent.count += count; ent.lastTs = now; if (entEmail && !ent.email) ent.email = entEmail;
+      if (Object.keys(issue.appareils).length < 20 || issue.appareils[appareil]) issue.appareils[appareil] = (issue.appareils[appareil] || 0) + count;
+    }
+    monSave();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
+});
+
+// ── auth de la tour : comptes individuels {id, nom, hash, role:'patron'|'collaborateur', actif}
+//    stockés dans monitor.json (le premier compte patron est créé par server/set-admin.sh).
+//    POST /api/monitor/login {nom, pass} → token de session 24 h en mémoire, lié à l'utilisateur.
+const monTokens = new Map();          // token -> { exp, userId, nom, role }
+const monLoginTries = new Map();      // ip -> { count, reset }
+const monLock = new Map();            // ident -> { fails, until } : 5 échecs consécutifs = verrou 15 min
+const monHash = p => crypto.createHash('sha256').update(String(p)).digest('hex');
+setInterval(() => { const now = Date.now(); for (const [t, s] of monTokens) if (now > s.exp) monTokens.delete(t); }, 600000).unref();
+function monUA(req) {   // appareil simplifié pour le journal (jamais l'UA complet)
+  const u = String(req.headers['user-agent'] || '');
+  const ap = /iPhone|iPad|iPod/i.test(u) ? 'iPhone' : (/Android/i.test(u) ? 'Android' : 'PC');
+  const nv = /Edg\//.test(u) ? 'Edge' : (/OPR\//.test(u) ? 'Opera' : (/Chrome\//.test(u) ? 'Chrome' : (/Firefox\//.test(u) ? 'Firefox' : (/Safari\//.test(u) ? 'Safari' : (/curl/i.test(u) ? 'curl' : 'autre')))));
+  return ap + ' · ' + nv;
+}
+function monLog(ident, ok, req, motif) {   // journal des connexions (réussies ET échouées)
+  monJournal.push({ ts: Date.now(), qui: monStr(ident, 120), ok: !!ok, appareil: monUA(req), motif: monStr(motif, 60) });
+  if (monJournal.length > 300) monJournal = monJournal.slice(-300);
+  monSave();
+}
+app.post('/api/monitor/login', (req, res) => {
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
+  const q = monLoginTries.get(ip) || { count: 0, reset: Date.now() + 3600000 };
+  if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
+  if (q.count >= 10) return res.status(429).json({ error: 'trop d\'essais — réessaie dans une heure' });
+  q.count++; monLoginTries.set(ip, q);
+  const nom = monStr((req.body || {}).nom, 120).trim();
+  const ident = (monStr((req.body || {}).email, 120).trim() || nom).toLowerCase();   // connexion par nom OU par e-mail
+  const pass = monStr((req.body || {}).pass, 200);
+  // verrou anti force brute : 5 échecs consécutifs sur un identifiant = 15 minutes
+  const lk = monLock.get(ident);
+  if (lk && lk.until > Date.now()) { monLog(ident, false, req, 'verrouillé'); return res.status(429).json({ error: 'accès temporairement verrouillé (15 min) après plusieurs échecs' }); }
+  const echec = (motif) => { const l = monLock.get(ident) || { fails: 0, until: 0 }; l.fails++; if (l.fails >= 5) { l.until = Date.now() + 15 * 60000; l.fails = 0; } monLock.set(ident, l); monLog(ident, false, req, motif); };
+  let user = null;
+  if (monUsers.length) {
+    const u = monUsers.find(x => x.nom.toLowerCase() === ident || String(x.email || '').toLowerCase() === ident);
+    if (!u || !pass || monHash(pass) !== u.hash) { echec('identifiants'); return res.status(403).json({ error: 'nom ou mot de passe incorrect' }); }
+    if (!u.actif) { echec('compte désactivé'); return res.status(403).json({ error: 'accès désactivé — vois avec le patron' }); }
+    user = u;
+  } else {
+    // repli : ancien mot de passe unique (config.adminPassHash) tant qu'aucun compte n'existe
+    const hash = config.adminPassHash || (config.adminToken ? monHash(config.adminToken) : '');
+    if (!hash) return res.status(501).json({ error: 'accès non configuré (lance server/set-admin.sh sur le serveur)' });
+    if (!pass || monHash(pass) !== hash) { echec('identifiants'); return res.status(403).json({ error: 'nom ou mot de passe incorrect' }); }
+    user = { id: 'u0', nom: nom || 'Patron', role: 'patron' };
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  monTokens.set(token, { exp: Date.now() + 24 * 3600000, userId: user.id, nom: user.nom, role: user.role });
+  monLoginTries.delete(ip); monLock.delete(ident);
+  monLog(user.nom, true, req, '');
+  res.json({ ok: true, token, exp: 24 * 3600, nom: user.nom, role: user.role });
+});
+function monAdmin(req, res, next) {
+  const m = /^Bearer\s+([a-f0-9]{48})$/.exec(String(req.headers.authorization || ''));
+  const s = m && monTokens.get(m[1]);
+  if (!s || Date.now() > s.exp) return res.status(401).json({ error: 'session expirée — reconnecte-toi' });
+  const u = monUsers.length ? monUsers.find(x => x.id === s.userId) : null;
+  if (monUsers.length && (!u || !u.actif)) return res.status(401).json({ error: 'accès désactivé — reconnecte-toi' });
+  req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role) };
+  next();
+}
+function monPatron(req, res, next) {
+  if (!req.tourUser || req.tourUser.role !== 'patron') return res.status(403).json({ error: 'réservé au patron' });
+  next();
+}
+// Variante stricte pour la gestion des comptes : TOUTE tentative sans token patron valide → 403.
+// La création de comptes n'existe par AUCUNE autre voie (pas d'auto-inscription).
+function monPatronStrict(req, res, next) {
+  const m = /^Bearer\s+([a-f0-9]{48})$/.exec(String(req.headers.authorization || ''));
+  const s = m && monTokens.get(m[1]);
+  if (!s || Date.now() > s.exp) return res.status(403).json({ error: 'réservé au patron' });
+  const u = monUsers.length ? monUsers.find(x => x.id === s.userId) : null;
+  if (monUsers.length && (!u || !u.actif)) return res.status(403).json({ error: 'réservé au patron' });
+  req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role) };
+  if (req.tourUser.role !== 'patron') return res.status(403).json({ error: 'réservé au patron' });
+  next();
+}
+
+// ── gestion de l'équipe Tour (patron uniquement pour créer/désactiver/supprimer)
+app.get('/api/monitor/users', monPatronStrict, (req, res) => {
+  res.json({ users: monUsers.map(u => ({ id: u.id, nom: u.nom, email: u.email || '', role: u.role, actif: !!u.actif, ts: u.ts || 0, creePar: u.creePar || '' })) });
+});
+// journal des connexions (réussies et échouées) — visible par le patron dans la section Équipe
+app.get('/api/monitor/journal', monPatronStrict, (req, res) => {
+  res.json({ journal: monJournal.slice(-100).reverse() });
+});
+app.post('/api/monitor/users', monPatronStrict, (req, res) => {
+  const nom = monStr((req.body || {}).nom, 60).trim();
+  const email = monStr((req.body || {}).email, 120).trim().toLowerCase();
+  const pass = monStr((req.body || {}).pass, 200);
+  if (!nom || pass.length < 8) return res.status(400).json({ error: 'nom requis et mot de passe de 8 caractères minimum' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'e-mail invalide (celui de son compte espace TeamOP)' });
+  if (monUsers.some(u => u.nom.toLowerCase() === nom.toLowerCase() || String(u.email || '').toLowerCase() === email)) return res.status(409).json({ error: 'ce nom ou cet e-mail existe déjà' });
+  if (monUsers.length >= 30) return res.status(400).json({ error: 'trop de comptes (30 max)' });
+  const u = { id: 'u' + crypto.randomBytes(5).toString('hex'), nom, email, hash: monHash(pass), role: 'collaborateur', actif: true, ts: Date.now(), creePar: req.tourUser.nom };
+  monUsers.push(u); monSave();
+  res.json({ ok: true, user: { id: u.id, nom: u.nom, email: u.email, role: u.role, actif: true } });
+});
+app.post('/api/monitor/users/toggle', monPatronStrict, (req, res) => {
+  const u = monUsers.find(x => x.id === (req.body || {}).id);
+  if (!u) return res.status(404).json({ error: 'compte introuvable' });
+  if (u.role === 'patron') return res.status(400).json({ error: 'le compte patron ne peut pas être désactivé' });
+  u.actif = !u.actif; monSave();
+  res.json({ ok: true, actif: u.actif });
+});
+app.post('/api/monitor/users/delete', monPatronStrict, (req, res) => {
+  const id = (req.body || {}).id;
+  const u = monUsers.find(x => x.id === id);
+  if (!u) return res.status(404).json({ error: 'compte introuvable' });
+  if (u.role === 'patron') return res.status(400).json({ error: 'le compte patron ne peut pas être supprimé' });
+  monUsers = monUsers.filter(x => x.id !== id); monSave();
+  res.json({ ok: true });
+});
+
+// liste des problèmes + compteurs (admin)
+app.get('/api/monitor/issues', monAdmin, (req, res) => {
+  monPurge();
+  const compteurs = { nouveau: 0, encours: 0, corrige: 0, ignore: 0 };
+  const entSet = new Set();
+  for (const i of monIssues) { compteurs[i.statut] = (compteurs[i.statut] || 0) + 1; for (const e of i.entreprises || []) if (e.nom && e.nom !== 'inconnue') entSet.add(e.nom); }
+  res.json({ issues: monIssues.slice().sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0)), compteurs, entreprises: entSet.size });
+});
+
+// changement de statut (admin) — « corrige » déclenche l'e-mail automatique aux entreprises touchées
+app.post('/api/monitor/status', monAdmin, async (req, res) => {
+  const { id, statut, note } = req.body || {};
+  if (!['nouveau', 'encours', 'corrige', 'ignore'].includes(statut)) return res.status(400).json({ error: 'statut invalide' });
+  if (statut === 'ignore' && req.tourUser.role !== 'patron') return res.status(403).json({ error: '« Ignorer » est réservé au patron' });
+  const issue = monIssues.find(i => i.id === id);
+  if (!issue) return res.status(404).json({ error: 'problème introuvable' });
+  issue.statut = statut;
+  issue.par = req.tourUser.nom;   // qui a agi en dernier (affiché « En cours — Karim »)
+  if (note) issue.notes = ((issue.notes ? issue.notes + '\n' : '') + monStr(note, 300)).slice(-1000);
+  const ACTION = { nouveau: 'Remis en « nouveau »', encours: 'Prise en charge', corrige: 'Marqué corrigé', ignore: 'Ignoré' };
+  issue.historique = (issue.historique || []).concat([{ ts: Date.now(), par: req.tourUser.nom, action: ACTION[statut], note: monStr(note, 300) }]).slice(-30);
+  let mails = 0, mailsSimules = 0;
+  if (statut === 'corrige' && !issue.mailEnvoye) {
+    const dests = (issue.entreprises || []).filter(e => e.email);
+    const sujet = 'Votre application a été améliorée ✅';
+    const texte = 'Bonjour,\n\nNotre système de surveillance a détecté puis corrigé un dysfonctionnement mineur sur ' + (issue.categorie || 'votre application') + '. Votre application est déjà à jour — vous n\'avez rien à faire.\n\n— L\'équipe TEAM OP';
+    for (const d of dests) {
+      if (mailer) {
+        try { await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: d.email, subject: sujet, text: texte }); mails++; }
+        catch (e) { console.error('monitor mail', d.email + ':', e.message); }
+      } else { mailsSimules++; console.log('monitor mail (simulé, smtp non configuré) →', d.email, '·', sujet); }
+    }
+    issue.mailEnvoye = true;
+  }
+  monSave();
+  res.json({ ok: true, issue, mails, mailsSimules });
+});
+
+// santé globale (admin) : reprend /health + uptime + répartition des problèmes
+app.get('/api/monitor/sante', monAdmin, (req, res) => {
+  const compteurs = { nouveau: 0, encours: 0, corrige: 0, ignore: 0 };
+  for (const i of monIssues) compteurs[i.statut] = (compteurs[i.statut] || 0) + 1;
+  res.json({ ok: true, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, boite: !!(config.imap && config.imap.user), stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus, issues: compteurs, issuesTotal: monIssues.length });
 });
 
 const PORT = process.env.PORT || 8080;

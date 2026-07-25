@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v436';
+const CACHE = 'elan-gestion-v437';
 const ASSETS = [
   './',
   'index.html',
@@ -47,6 +47,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  // tour.html (Tour de contrôle, page privée) : jamais mise en cache, toujours fraîche
+  if (new URL(req.url).pathname.endsWith('/tour.html')) return;
   // Stratégie : réseau d'abord, repli sur le cache (utile hors-ligne)
   // Pour les pages HTML : on contourne aussi le cache HTTP du navigateur
   // afin que les mises à jour arrivent immédiatement.
