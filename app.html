@@ -702,6 +702,29 @@ table, .tbl, .list-row {
 .plt-blk.cf{outline:1.5px solid var(--red)}
 .plt-hl{height:48px;font-size:9.5px;color:var(--t3);text-align:right;padding:2px 6px 0 0;font-weight:700}
 .dot-on{width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0;display:inline-block}
+/* ── Refonte planning : jauges de charge, couleurs par type, indispos, propositions, journal ── */
+.plg-gauge{display:flex;align-items:center;gap:5px;margin-top:3px;min-width:0}
+.plg-gauge .bar{flex:1;height:4px;border-radius:3px;background:color-mix(in srgb,var(--t3) 22%,transparent);overflow:hidden;min-width:22px;max-width:70px}
+.plg-gauge .bar i{display:block;height:100%;border-radius:3px}
+.plg-gauge small{font-size:8.5px;color:var(--t3);font-weight:700;white-space:nowrap}
+.plg-mini{position:relative}
+.plg-mini .who,.plt-blk .who{position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:var(--acc);color:var(--on-acc);font-size:7px;font-weight:800;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1}
+.plg-mini.dim,.plt-blk.dim{opacity:.25}
+.plg-mini.prop,.plt-blk.prop{border:1.5px dashed var(--org);background:color-mix(in srgb,var(--org) 9%,transparent)}
+.plt-ind{position:absolute;left:4px;right:4px;border-radius:8px;background:repeating-linear-gradient(45deg,transparent,transparent 6px,color-mix(in srgb,var(--t3) 18%,transparent) 6px,color-mix(in srgb,var(--t3) 18%,transparent) 12px);border:1px dashed var(--brd);color:var(--t3);font-size:9.5px;font-weight:700;padding:3px 6px;overflow:hidden;z-index:2;cursor:pointer}
+.plt-gap{position:absolute;left:6px;right:6px;text-align:center;font-size:9px;font-weight:700;color:var(--t3);pointer-events:none;z-index:1;line-height:1}
+.plt-gap b{background:var(--card);border:1px solid var(--brd);border-radius:100px;padding:1px 7px;display:inline-block;font-weight:700}
+.plt-gap.hot b{color:var(--red);border-color:var(--red)}
+.plt-now{position:absolute;left:0;right:0;height:0;border-top:2px solid var(--red);z-index:3;pointer-events:none}
+.plt-now::before{content:'';position:absolute;left:-1px;top:-4px;width:7px;height:7px;border-radius:50%;background:var(--red)}
+.plg-note{font-size:8.5px;font-weight:600;color:var(--org);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;letter-spacing:0;text-transform:none}
+.plg-indb{display:inline-block;font-size:8.5px;font-weight:800;color:var(--t3);background:color-mix(in srgb,var(--t3) 14%,transparent);border-radius:6px;padding:0 4px;margin:1px 0}
+.plg-pin{cursor:pointer;opacity:.5;font-size:10px}
+.plg-pin.on{opacity:1}
+.plg-typechips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.plg-typechips .tchip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--t2);border:1px solid var(--brd);border-radius:100px;padding:3px 9px;cursor:pointer}
+.plg-typechips .tchip.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent);color:var(--t1)}
+.plg-typechips .tchip .sw{width:8px;height:8px;border-radius:3px;flex-shrink:0}
 @media print{ .sidebar,.topbar,#assistant,.fab,#update-banner,.filters{display:none!important} .content{padding:0!important} .plg-wrap{overflow:visible} }
 </style>
 </head>
@@ -806,7 +829,7 @@ const STORE_KEY = 'elan_gestion_v2';
   window.addEventListener('error',e=>rep(e.message,e.filename,e.lineno,e.error&&e.error.stack));
   window.addEventListener('unhandledrejection',e=>{ const r=e.reason||{}; rep('Promesse rejetée : '+(r.message||String(r)),'',0,r.stack); });
 })();
-const APP_VERSION = '404';
+const APP_VERSION = '405';
 /* Catalogue produits officiel OP GESTION : [nom, categorie, [fournisseurs], reference] */
 const CATALOGUE=[["ALTA 7000","TP18 — Insecticide",["ORCAD"],""],["ADVION GEL BLATTES 30G","TP18 — Insecticide",["ARMOSA","ENSYSTEX"],""],["AÉROSOL DE DÉTECTION DEBUSK 300 ML","TP18 — Insecticide",["ARMOSA"],""],["AÉROSOL EFFET GIVRANT TOUS INSECTES","TP18 — Insecticide",["ORCAD"],""],["AÉROSOL MEGASHOT GUÊPES FRELONS 750 ML","TP18 — Insecticide",["ARMOSA"],""],["AVIDUST PG 10KG","TP18 — Insecticide",["ARMOSA"],""],["CYTROL FORTE WP","TP18 — Insecticide",["ARMOSA"],""],["DOBOL FUMIGATEUR (20g)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["DOBOL FUMIGATEUR PROFESSIONNEL (20g)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["DOBOL FUMIGATEUR PROFESSIONNEL (100g)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["DOBOL GEL FOURMIS 35G","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["ECOREX ALFA SE SUSPO-EMULSION","TP18 — Insecticide",["ORCAD"],""],["FUMITHRINE 4.4 PLUS","TP18 — Insecticide",["ORCAD"],""],["HIBERNATUS INSECT 750 ML","TP18 — Insecticide",["ARMOSA"],""],["KIT POISSON D'ARGENT","TP18 — Insecticide",["ORCAD"],""],["MAGNUM GEL CAFARDS SERINGUE 40G","TP18 — Insecticide",["ORCAD"],""],["MAGNUM GEL FOURMIS SERINGUE 40G","TP18 — Insecticide",["ORCAD"],""],["MAGNUM GEL OPTIMUM SERINGUE 35G","TP18 — Insecticide",["ORCAD"],""],["NEBULOUS TURBO","TP18 — Insecticide",["ARMOSA"],""],["PIÈGE BLATTES GEOTRAP","TP18 — Insecticide",["ARMOSA"],""],["POUDRE FOURMIS","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["POUDRE À GUÊPES (Seau de 10kg)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["PROCEREX COLLIER PRO","TP18 — Insecticide",["ARMOSA"],""],["REMANEX POUDRE 10KG","TP18 — Insecticide",["ARMOSA"],""],["SPRAY INSECTICIDE FROID SANS BIOCIDE - KILL FREEZE","TP18 — Insecticide",["ARMOSA"],""],["SUPER CIMETROL","TP18 — Insecticide",["ARMOSA"],""],["TATHRIN NEXT - 500ML","TP18 — Insecticide",["ENSYSTEX"],""],["TATHRIN NEXT - 1L","TP18 — Insecticide",["ENSYSTEX"],""],["TEENOX EC","TP18 — Insecticide",["ARMOSA"],""],["TEENOX GEL BLATTES - ARMOSA","TP18 — Insecticide",["ARMOSA"],""],["GRANDE PLAQUE EN ISOREL ENGLUÉE RATS/SOURIS","TP14 — Rodenticide",["ORCAD","ARMOSA"],""],["MUSKIL BLOC - CARTON DE 10KG","TP14 — Rodenticide",["ARMOSA","ENSYSTEX"],""],["MUSKIL PÂTE - CARTON DE 10KG","TP14 — Rodenticide",["ARMOSA","ENSYSTEX"],""],["MUSKIL PÂTE - SEAU DE 5KG","TP14 — Rodenticide",["ARMOSA","ENSYSTEX"],""],["NOTRAC BLOC 28G SEAU DE 8KG","TP14 — Rodenticide",["ORCAD"],""],["PÂTE APPÂT BRODIFACOUM - ROBUST 25 SPÉCIAL 3D","TP14 — Rodenticide",["ARMOSA"],""],["PLACEDEX PÂTE","TP14 — Rodenticide",["ARMOSA"],""],["RACUMIN® FOAM 500ML","TP14 — Rodenticide",["ORCAD","ARMOSA"],""],["REPULSIF FOUINES ET MARTRES","TP14 — Rodenticide",["ARMOSA"],""],["ROBUST 25 CREME - 250G","TP14 — Rodenticide",["ARMOSA"],""],["CAGE À RAGONDINS ET À FAUVES 2 ENTRÉES","Piégeage",["ARMOSA"],""],["ECO-PIEGE CHENILLE PRO. DU PIN KIT DE 10","Piégeage",["ORCAD","ENSYSTEX"],""],["MASTER TRAP","Piégeage",["ORCAD"],""],["MASTER TRAP BOOKS","Piégeage",["ORCAD"],""],["MASTER TRAP SOURIS","Piégeage",["ORCAD"],""],["NASSE RONGEUR LEGERE","Piégeage",["ORCAD","ARMOSA"],""],["PIEGE A TAUPE PUTANGE (Unité)","Piégeage",["ARMOSA"],""],["PLAQUE ADHÉSIVE RAT BASE AGGLO.","Piégeage",["ARMOSA"],""],["PLAQUE ADHÉSIVE BOOK TRAP","Piégeage",["ARMOSA"],""],["POSTE PVC SECU RATS ORCABOX","Piégeage",["ORCAD"],""],["POSTE RAT COMPACT - ROTECH®","Piégeage",["ARMOSA"],""],["POSTE RAT CORAL","Piégeage",["ARMOSA"],""],["POSTE SOURIS ROTECH® NG","Piégeage",["ARMOSA"],""],["BIRCHMEIER DR5 POUDREUSE","Matériel",["ORCAD","ARMOSA","ENSYSTEX"],""],["CÂBLE DE FIXATION UNIVERSEL","Matériel",["ARMOSA"],""],["LANCE TÉLESCOPIQUE AR8 PRO","Matériel",["ARMOSA"],""],["PINCE DE RAMASSAGE 810MM","Matériel",["ARMOSA"],""],["PINCE RAMASSAGE RONGEURS","Matériel",["ORCAD"],""],["PISTOLET APLI-GEL","Matériel",["ORCAD"],""],["PISTOLET BAIT GUN PRO ECO","Matériel",["ARMOSA"],""],["POUDREUSE A PRESSION DR5 - Rallonge télescopique 1m/2m","Matériel",["ARMOSA"],""],["POUDREUSE À PRESSION DR5","Matériel",["ARMOSA","ENSYSTEX"],""],["PULVÉRISATEUR GLORIA PRO 5L","Matériel",["ARMOSA"],""],["CARTOUCHE POUR DEMI MASQUE","EPI",["ORCAD"],""],["COMBINAISON ARMOSA (XXL)","EPI",["ARMOSA"],""],["COMBINAISON ARMOSA L/XL","EPI",["ARMOSA"],""],["COMBINAISON JETABLE CAT 3 TYPE 5-6","EPI",["ORCAD","SODIF"],""],["DEMI MASQUE","EPI",["ORCAD","SODIF"],""],["GANTS JETABLES EN NITRILE - 100 GANTS","EPI",["ENSYSTEX"],""],["GANTS NITRILE JETABLES SUPER NITRO","EPI",["ARMOSA"],""],["GANTS NITRILE NOIR OU BLEU","EPI",["ORCAD"],""],["MASQUE COMPLET PANAREA TWIN","EPI",["ENSYSTEX"],""],["BARRIÈRE ANTI-RONGEURS XCLUDER","Proofing",["ARMOSA","ENSYSTEX","ORCAD"],""],["ECOPIC® TUILE TV AVEC CLIP DE FIXATION X 50 UNITÉ","Proofing",["ENSYSTEX"],""],["OBTURATEUR DE TUILE ACIER TILESTOP COULEUR BRIQUE","Proofing",["ORCAD"],""],["SILICONE FUTURE PROOF","Proofing",["ARMOSA"],""],["TISSU ACIER PROT. RONGEUR RLX 3M XCLUDER","Proofing",["ORCAD","ARMOSA","ENSYSTEX"],""],["TISSU REMPLISSAGE ACIER INOXIDABLE XCLUDER","Proofing",["ORCAD","ARMOSA","ENSYSTEX"],""],["ARMOCLEAN ODEUR","Désinfection",["ARMOSA"],""],["XILIX 3000 P – INSECTICIDE ANTI-TERMITES 20L","Xylophage",["MABI","SODIF"],""],["XILIX IFC 300 - INSECTICIDE CONCENTRÉ ANTI TERMITES 6L","Xylophage",["MABI","SODIF"],""],["STATION MURALE POUR TERMITES TERMIGARD","Xylophage",["MABI"],""],["PIÈGES ANTI-TERMITES MARRON STATIONS DE DÉTECTION TERRAIN","Xylophage",["MABI"],""],["POMPE AIRLESS MABI À MEMBRANE","Xylophage",["MABI"],""],["MÈCHE À BOIS POINTE VRILLE Ø 9,5 MM – 160/200/280 MM","Xylophage",["MABI","SODIF"],""],["INJECTEUR BOIS FEMELLE SANS TÊTE Ø9.5 MARRON","Xylophage",["MABI","SODIF"],""],["INJECTEUR BOIS FEMELLE SANS TÊTE Ø9.5 BLANC","Xylophage",["MABI","SODIF"],""],["INJECTEUR BOIS FEMELLE SANS TÊTE Ø9.5 BEIGE","Xylophage",["MABI","SODIF"],""],["EMBOUT MÂLE 7'8 X 14 POUR POMPE","Xylophage",["MABI"],""],["GANT SPÉCIAL SOLVANT EXTRA FORT","Xylophage",["MABI","SODIF"],""],["CARTOUCHE FILTRANTE A2B2P3 POUR MASQUE PANORAMIQUE","Xylophage",["MABI","SODIF"],""],["MASQUE PANORAMIQUE","Xylophage",["MABI","SODIF"],""],["POUDRE TERMICIDE SACHETS DE 50G","Xylophage",["MABI"],""],["POUDRE DÉTECTION SACHETS DE 75G","Xylophage",["MABI"],""],["RECHARGE BOIS POUR DÉTECTEUR ANTI TERMITE","Xylophage",["MABI"],""],["VISSEUSE À BATTERIE","Xylophage",["MABI","SODIF"],""],["PERCEUSE À FIL","Xylophage",["MABI","SODIF"],""],["POINÇON","Xylophage",["MABI","SODIF"],""],["TESTEUR D'HUMIDITÉ","Xylophage",["MABI","SODIF"],""],["MÈTRE LASER","Xylophage",["MABI","SODIF"],""],["CAMÉRA THERMIQUE TERMITE","Xylophage",["SODIF"],""],["BROSSE À BADIGEON","Xylophage",["MABI"],""],["BROSSE MÉTALLIQUE","Xylophage",["MABI"],""],["XILIX 1000","Xylophage",["SODIF"],"SG051"],["MIB 80","Xylophage",["SODIF"],""],["INOVBOIS IFNS","Xylophage",["SODIF"],""],["PISTOLET SODIF","Matériel",["SODIF"],"SC090"],["PORTE-BUSE GRACO RAC X 11/16","Matériel",["SODIF"],"SC190"],["ROTO CLEAN GRACO RAC X","Matériel",["SODIF"],"SC180"],["BOUCHONS POUR INJECTEURS","Matériel",["SODIF"],"SA020"]];
 /* Fiches fournisseurs ELAN — coordonnées officielles relevées sur leurs sites (modifiables dans Fournisseurs) */
@@ -1070,6 +1093,9 @@ function load(){
 function migrate(d){
   const cols = ['users','techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages','champsPerso','fournisseurs','messages','groupes','conducteurs','produitsDonnes','brouillons','telecollectes','taches','absences','chantiers'];
   cols.forEach(c => { d[c] = d[c] || []; });
+  // Refonte planning : indisponibilités, journal des déplacements, notes de journée
+  ['indispos','planJournal'].forEach(c=>{ d[c] = d[c] || []; });
+  d.planNotes = d.planNotes || {};
   if(!d.users.length) d.users = [{id:uid(),prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];
   d.users.forEach(u=>{ if(!u.login) u.login=(u.prenom||u.nom||'user').toLowerCase().replace(/\s+/g,''); });
   // Messagerie : les anciens messages directs (par technicien) deviennent des messages par compte utilisateur
@@ -1148,8 +1174,9 @@ function planSyncDiff(oldDb,newDb,by){ try{
   const o=new Map(((oldDb&&oldDb.interventions)||[]).map(i=>[i.id,i])); const chg=[];
   ((newDb&&newDb.interventions)||[]).forEach(n=>{ const p=o.get(n.id); if(!p) return;
     const pt=(p.techIds&&p.techIds.length)?p.techIds.join():(p.techId||''), nt=(n.techIds&&n.techIds.length)?n.techIds.join():(n.techId||'');
-    if(p.date!==n.date||((p.heure||'')!==(n.heure||''))||pt!==nt)
-      chg.push('« '+(n.titre||'Intervention')+' » → '+(n.date?fmtShort(n.date):'à planifier')+(n.heure?' '+n.heure:'')); });
+    if(p.date!==n.date||((p.heure||'')!==(n.heure||''))||pt!==nt){
+      const tn=nt?(techName(nt.split(',')[0])||''):'';
+      chg.push('« '+(n.titre||'Intervention')+' » → '+(n.date?planDayLbl(n.date):'à planifier')+(n.heure?' '+n.heure:'')+(tn&&tn!=='Non assigné'?' · '+tn:'')); } });
   if(!chg.length) return '';
   return '🔄 '+(by||'Un collègue')+' : '+chg.slice(0,2).join(' · ')+(chg.length>2?(' · +'+(chg.length-2)+' autres'):''); }catch(e){ return ''; } }
 /* Présence : chaque utilisateur signale qu'il est en ligne (point vert au planning) */
@@ -1541,12 +1568,12 @@ function canSee(item){ if(!currentUser) return false; if(item.aside && !showAsid
    technicien : remplit ses rapports, voit SES interventions ; ne crée/annule/supprime pas
    (chaque droit est réglable au cas par cas par utilisateur via l'écran Accès) */
 const CAPS = {
-  admin:      { supprimer:1, annuler:1, voirTout:1, creerIntervention:1 },
-  dr:         { supprimer:1, annuler:1, voirTout:1, creerIntervention:1 },
-  chefEquipe: { supprimer:1, annuler:1, voirTout:1, creerIntervention:1 },
-  commercial: { supprimer:0, annuler:1, voirTout:1, creerIntervention:1 },
-  compta:     { supprimer:0, annuler:0, voirTout:1, creerIntervention:0 },
-  technicien: { supprimer:0, annuler:0, voirTout:0, creerIntervention:0 },
+  admin:      { supprimer:1, annuler:1, voirTout:1, creerIntervention:1, planifDeplacer:1, planifObligerTravail:1 },
+  dr:         { supprimer:1, annuler:1, voirTout:1, creerIntervention:1, planifDeplacer:1, planifObligerTravail:0 },
+  chefEquipe: { supprimer:1, annuler:1, voirTout:1, creerIntervention:1, planifDeplacer:1, planifObligerTravail:1 },
+  commercial: { supprimer:0, annuler:1, voirTout:1, creerIntervention:1, planifDeplacer:0, planifObligerTravail:0 },
+  compta:     { supprimer:0, annuler:0, voirTout:1, creerIntervention:0, planifDeplacer:0, planifObligerTravail:0 },
+  technicien: { supprimer:0, annuler:0, voirTout:0, creerIntervention:0, planifDeplacer:0, planifObligerTravail:0 },
 };
 function userCap(u,cap){ if(!u) return false; if(u.role==='admin') return true;
   const ov=u.acces&&u.acces.caps; if(ov && Object.prototype.hasOwnProperty.call(ov,cap)) return !!ov[cap];
@@ -1734,44 +1761,80 @@ let planWeekRef=null;
 let planMode='semaine', planTech='all';
 function planIntCard(i,opts){ opts=opts||{}; const sc=INT_STCOLOR[i.statut]||'var(--t3)';
   const cf=i.date&&i.heure&&i.techId?intConflictOf(i,i.id):null;
-  return `<div class="pl-row" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${i.id}')" style="border-left:3px solid ${sc}" onclick="detailIntervention('${i.id}')">
+  return `<div class="pl-row" draggable="${can('planifDeplacer')?'true':'false'}" ondragstart="event.dataTransfer.setData('text/plain','${i.id}')" style="border-left:3px solid ${sc}" onclick="detailIntervention('${i.id}')">
     <div style="text-align:center;min-width:48px;flex-shrink:0"><div class="mono" style="font-weight:800;font-size:15px;color:var(--t1)">${esc(i.heure||'—')}</div><div style="font-size:10px;color:var(--t3)">${i.date?(opts.showDate?fmtShort(i.date):(i.duree||60)+' min'):'—'}</div></div>
     <div class="pl-info"><div class="pl-title">${esc(i.titre)} ${i.prio==='haute'?'<span class="tag hot" style="font-size:9px">Urgent</span>':''} ${cf?'<span class="tag hot" style="font-size:9px" title="Chevauchement avec une autre intervention">Conflit</span>':''}</div><div class="pl-meta">${i.num?`<span class="mono">${esc(i.num)}</span> · `:''}${i.type?esc(i.type)+' · ':''}${esc(clientName(i.clientId))}${(i.checklist&&i.checklist.length)?` · ☑ ${i.checklist.filter(x=>x.done).length}/${i.checklist.length}`:''}</div>${opts.hideTech?'':`<div style="font-size:11px;color:var(--t3);margin-top:2px">${esc(techNames(i))}${i.recurrence&&i.recurrence!=='aucune'?' · 🔁 '+(INT_RECUR[i.recurrence]||''):''}</div>`}</div>
     ${badge(STATUT_INT,i.statut)}</div>`; }
-function planFilterSrc(){ let SRC=visibleInts(db.interventions); if(planTech!=='all') SRC=SRC.filter(i=>planTech===''?!intTechIds(i).length:intTechIds(i).includes(planTech)); return SRC; }
+function planFilterSrc(){ let SRC=visibleInts(db.interventions); if(planTech!=='all') SRC=SRC.filter(i=>planTech===''?!intTechIds(i).length:intTechIds(i).includes(planTech)); if(planTypeF) SRC=SRC.filter(i=>(i.type||'')===planTypeF); return SRC; }
 /* ── Aides du planning grille / timeline ── */
 function planGroups(){ return [...db.techniciens.map(x=>({id:x.id,nom:x.nom})),{id:'',nom:'Non assigné'}].filter(g=>planTech==='all'||planTech===g.id); }
 function planTechsOf(i){ const known=new Set(db.techniciens.map(x=>x.id)); return intTechIds(i).filter(x=>known.has(x)); }
 function techOnline(nom){ try{ const u=(db.users||[]).find(x=>fullName(x).trim().toLowerCase()===String(nom||'').trim().toLowerCase()); return !!(u&&u.lastSeen&&Date.now()-u.lastSeen<5*60000); }catch(e){ return false; } }
 function fmtHmin(min){ return Math.floor(min/60)+'h'+(min%60?String(min%60).padStart(2,'0'):''); }
 function toMinH(h){ const m=/^(\d{1,2}):(\d{2})/.exec(h||''); return m?(+m[1])*60+(+m[2]):null; }
-function planMini(i){ const sc=INT_STCOLOR[i.statut]||'var(--acc)'; const cf=(i.date&&i.heure)?intConflictOf(i,i.id):null;
-  return `<div class="plg-mini" draggable="true" data-drag-int="${i.id}" ondragstart="planDragStart(event,'${i.id}')" onclick="event.stopPropagation();detailIntervention('${i.id}')" style="border-left-color:${sc};${cf?'outline:1.5px solid var(--red);':''}" title="${esc(i.titre||'')}${cf?' — chevauchement':''}">
-    <b>${i.heure?esc(i.heure)+' · ':''}${esc(i.titre||'Intervention')}${i.prio==='haute'?' 🔥':''}</b><small>${esc(clientName(i.clientId)||techNames(i)||'')}</small></div>`; }
-function planDragStart(e,id){ try{ e.dataTransfer.setData('text/plain',id); }catch(_){ } window._planDragging=true; }
+/* Droit « Déplacer / réassigner le planning » (admin & chef d'équipe par défaut) */
+function canPlan(){ return can('planifDeplacer'); }
+/* Couleur stable par TYPE d'intervention (le statut reste en badge) */
+const PLAN_TYPE_PAL=['var(--acc)','var(--org)','var(--purple)','var(--blue)','#DB2777','#0E9488','#B45309','#64748B'];
+function typeColor(t){ if(!t) return ''; let h=0; const s=String(t); for(let k=0;k<s.length;k++) h=(h*31+s.charCodeAt(k))>>>0; return PLAN_TYPE_PAL[h%PLAN_TYPE_PAL.length]; }
+function planCardColor(i){ return typeColor(i.type)||INT_STCOLOR[i.statut]||'var(--acc)'; }
+/* Capacité / jauge de charge (P16 : capMin sur la fiche technicien, défaut 7 h) */
+function techCap(id){ const t=db.techniciens.find(x=>x.id===id); return (t&&parseInt(t.capMin))||420; }
+function planGauge(min,cap,title){ if(!cap) return ''; const pc=Math.round(min/cap*100); const col=pc>=100?'var(--red)':pc>75?'var(--org)':'var(--acc)';
+  return `<span class="plg-gauge" title="${esc(title||'Charge : '+fmtHmin(min)+' sur '+fmtHmin(cap))}"><span class="bar"><i style="width:${Math.min(100,pc)}%;background:${col}"></i></span><small>${fmtHmin(min)} / ${fmtHmin(cap)}</small></span>`; }
+function planDayLbl(iso){ try{ return new Date(iso+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'short',day:'numeric'}); }catch(e){ return iso; } }
+/* Recherche (P14) : les cartes qui ne correspondent pas sont atténuées */
+let planTypeF='', planQ='';
+function planMatch(i){ if(!planQ) return true; const q=planQ.toLowerCase().trim(); if(!q) return true;
+  return ((i.titre||'')+' '+(clientName(i.clientId)||'')+' '+(i.num||'')).toLowerCase().includes(q); }
+function planSearchApply(){ document.querySelectorAll('.plg-mini[data-drag-int],.plt-blk[data-drag-int]').forEach(el=>{
+  const i=db.interventions.find(x=>x.id===el.getAttribute('data-drag-int')); el.classList.toggle('dim',!!(i&&!planMatch(i))); }); }
+function planHideWE(){ return localStorage.getItem('elan_plan_hidewe')==='1'; }
+/* Indisponibilités (P5) */
+function indisposOf(techId,iso){ if(!techId) return []; return (db.indispos||[]).filter(x=>x.techId===techId&&x.date===iso); }
+function indispoAt(techId,iso,m0,dur){ return indisposOf(techId,iso).find(x=>{ const a=toMin(x.debut||'00:00'), b=toMin(x.fin||'23:59'); return Math.max(m0,a)<Math.min(m0+(dur||60),b); })||null; }
+function planMini(i){ const sc=planCardColor(i); const cf=(i.date&&i.heure)?intConflictOf(i,i.id):null;
+  const by=(i.planBy&&i.planBy.nom)?`<span class="who" title="Dernier déplacement : ${esc(i.planBy.nom)}">${initials(i.planBy.nom)}</span>`:'';
+  const badges=(i.passageTotal>1?' 🔁'+(i.passageNum||'?')+'/'+i.passageTotal:'')+(i.sousGarantie?' 🛡️':'')+(i.obligation?' ⚠️':'');
+  return `<div class="plg-mini ${i.propose?'prop':''} ${planMatch(i)?'':'dim'}" draggable="${canPlan()?'true':'false'}" data-drag-int="${i.id}" ondragstart="planDragStart(event,'${i.id}')" onclick="event.stopPropagation();${i.propose?`planProposeModal('${i.id}')`:`detailIntervention('${i.id}')`}" style="border-left-color:${sc};${cf?'outline:1.5px solid var(--red);':''}" title="${esc(i.titre||'')}${cf?' — chevauchement':''}${i.propose?' — créneau proposé, à confirmer':''}${i.obligation?' — ⚠️ malgré congé ('+esc(i.obligation.par||'')+')':''}">
+    ${by}<b>${i.heure?esc(i.heure)+' · ':''}${esc(i.titre||'Intervention')}${i.prio==='haute'?' 🔥':''}${badges}</b><small>${esc(clientName(i.clientId)||techNames(i)||'')}${i.obligation?' · ⚠️ malgré congé':''}</small></div>`; }
+function planDragStart(e,id){ if(!canPlan()){ try{ e.preventDefault(); }catch(_){ } return; } try{ e.dataTransfer.setData('text/plain',id); }catch(_){ } window._planDragging=true; }
 document.addEventListener('dragend',()=>{ if(window._planDragging){ window._planDragging=false;
   if(window._planPending){ window._planPending=false; if(current==='planning'){ try{ views.planning(); }catch(e){} } } } });
 function planAPlanifier(SRC){ const pool=SRC.filter(i=>!i.date||i.statut==='aplanifier'); if(!pool.length) return '';
   return `<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--org);margin:16px 2px 8px;font-weight:700">📥 À planifier (${pool.length}) — glissez vers une case du planning</div>
     <div class="plg-trayrow">${pool.map(i=>planMini(i)).join('')}</div>`; }
+/* Légende cliquable des types présents (P3) → filtre */
+function planTypeToggle(t){ planTypeF=(planTypeF===t)?'':t; views.planning(); }
+function planTypeChips(){ const types=[...new Set(visibleInts(db.interventions).filter(i=>i.type).map(i=>i.type))].sort();
+  if(!types.length) return '';
+  return `<div class="plg-typechips">${types.map(t=>`<span class="tchip ${planTypeF===t?'on':''}" data-t="${esc(t)}" onclick="planTypeToggle(this.dataset.t)"><span class="sw" style="background:${typeColor(t)}"></span>${esc(t)}</span>`).join('')}${planTypeF?`<span class="tchip" onclick="planTypeF='';views.planning()">✕ Tout afficher</span>`:''}</div>`; }
 views.planning=function(){
   const SRC=planFilterSrc();
   if(!planSel) planSel=todayISO(); if(!planWeekRef) planWeekRef=planSel;
   setHeader('Planning', planMode==='jour'?'Vue jour par technicien':planMode==='mois'?'Vue mois':'Vue semaine',
-    `<button class="btn ghost" onclick="planSel=todayISO();planWeekRef=todayISO();views.planning()">Aujourd'hui</button> ${can('creerIntervention')?`<button class="btn" onclick="formIntervention('','${planSel}')">＋ Intervention</button>`:''}`);
+    `<button class="btn ghost" onclick="openPlanJournal()" title="Qui a placé / déplacé quoi">🗂️ Journal</button> <button class="btn ghost" onclick="planSel=todayISO();planWeekRef=todayISO();views.planning()">Aujourd'hui</button> ${can('creerIntervention')?`<button class="btn" onclick="formIntervention('','${planSel}')">＋ Intervention</button>`:''}`);
   // Sélecteur de vue + filtre technicien (style Organilog)
   const modeBar=`<div style="display:flex;gap:6px;margin-bottom:10px">${[['jour','Jour'],['semaine','Semaine'],['mois','Mois']].map(([k,l])=>`<button class="btn ${planMode===k?'':'ghost'} sm" style="flex:1" onclick="planMode='${k}';views.planning()">${l}</button>`).join('')}</div>`;
   const techChips=`<div class="filters" style="margin-bottom:10px"><div class="chip ${planTech==='all'?'active':''}" onclick="planTech='all';views.planning()">Tous</div>${db.techniciens.map(t=>`<div class="chip ${planTech===t.id?'active':''}" onclick="planTech='${t.id}';views.planning()">${esc(t.nom)}</div>`).join('')}<div class="chip ${planTech===''?'active':''}" onclick="planTech='';views.planning()">Non assigné</div></div>`;
+  // Recherche + réglages (P14) — uniquement pour les vues grille / timeline
+  const toolsBar=(planMode==='mois')?'':`<div class="card" style="padding:8px 10px;margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="plan-q" value="${esc(planQ)}" placeholder="🔎 Client, titre, n°…" oninput="planQ=this.value;planSearchApply()" style="flex:1;min-width:130px;background:var(--card2);border:1px solid var(--brd2);border-radius:9px;padding:7px 10px;color:var(--t1);font-family:inherit;font-size:12.5px">
+    <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--t2);cursor:pointer;font-weight:600;white-space:nowrap"><input type="checkbox" ${planHideWE()?'checked':''} onchange="localStorage.setItem('elan_plan_hidewe',this.checked?'1':'0');views.planning()" style="accent-color:var(--acc)">Masquer sam./dim.</label>
+    ${planMode==='jour'&&canPlan()?`<button class="btn ghost sm" onclick="planIndispoForm()">＋ Indispo</button>`:''}
+  </div>`;
   let body='';
   if(planMode==='mois') body=planMonthHtml(SRC);
   else if(planMode==='jour') body=planDayHtml(SRC);
   else body=planWeekHtml(SRC);
-  $('content').innerHTML=modeBar+techChips+body+planAPlanifier(SRC);
+  $('content').innerHTML=modeBar+techChips+toolsBar+(planMode==='mois'?'':planTypeChips())+body+planAPlanifier(SRC);
+  planNowLineInit();
 };
 /* ---- Vue SEMAINE : grille techniciens × jours (Organilog) ---- */
-function planWeekHtml(SRC){ if((window.innerWidth||1200)<860) return planWeekListHtml(SRC);
-  const days=weekDays(planWeekRef), WD=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
-  const d0=new Date(days[0]+'T00:00:00'), d6=new Date(days[6]+'T00:00:00');
+function planWeekHtml(SRC){ if((window.innerWidth||1200)<700) return planWeekListHtml(SRC);
+  const days7=weekDays(planWeekRef), WD7=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
+  const days=planHideWE()?days7.slice(0,5):days7, WD=planHideWE()?WD7.slice(0,5):WD7;
+  const d0=new Date(days7[0]+'T00:00:00'), d6=new Date(days7[6]+'T00:00:00');
   const label='Semaine du '+d0.getDate()+' '+d0.toLocaleDateString('fr-FR',{month:'short'})+' au '+d6.getDate()+' '+d6.toLocaleDateString('fr-FR',{month:'short'});
   const nav=`<div class="card" style="padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
     <button class="btn ghost sm" onclick="planWeekRef=shiftDay(planWeekRef,-7);views.planning()">‹</button>
@@ -1780,26 +1843,32 @@ function planWeekHtml(SRC){ if((window.innerWidth||1200)<860) return planWeekLis
     <button class="btn ghost sm" onclick="planWeekRef=shiftDay(planWeekRef,7);views.planning()">›</button></div>`;
   const groups=planGroups();
   let g='<div class="plg-h" style="border-left:none;text-align:left;padding-left:10px">Technicien</div>';
-  days.forEach((iso,k)=>{ const dd=new Date(iso+'T00:00:00'); g+=`<div class="plg-h ${iso===todayISO()?'today':''}">${WD[k]} ${dd.getDate()}${iso===todayISO()?' · auj.':''}</div>`; });
+  days.forEach((iso,k)=>{ const dd=new Date(iso+'T00:00:00'); const note=(db.planNotes||{})[iso];
+    g+=`<div class="plg-h ${iso===todayISO()?'today':''}">${WD[k]} ${dd.getDate()}${iso===todayISO()?' · auj.':''} <span class="plg-pin ${note?'on':''}" data-iso="${iso}" onclick="planNoteEdit(this.dataset.iso)" title="${note?esc(note.texte):'Note de journée'}">📌</span>${note?`<div class="plg-note" title="${esc(note.texte)}${note.par?' — '+esc(note.par):''}">${esc(note.texte)}</div>`:''}</div>`; });
   groups.forEach(gr=>{
     const online=gr.id?techOnline(gr.nom):false;
     const wk=SRC.filter(i=>days.includes(i.date)&&(gr.id?planTechsOf(i).includes(gr.id):!planTechsOf(i).length));
     const totW=wk.reduce((s,i)=>s+(parseInt(i.duree)||60),0);
-    g+=`<div class="plg-tech"><span class="avatar" style="width:24px;height:24px;font-size:10px;flex-shrink:0">${initials(gr.nom)}</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(gr.nom)}${online?' <span class="dot-on"></span>':''}<span class="sub">${wk.length?wk.length+' int. · '+fmtHmin(totW):'libre'}</span></span></div>`;
+    const capW=gr.id?techCap(gr.id)*5:0;   // capacité hebdo indicative : 5 jours ouvrés (P1/P16)
+    g+=`<div class="plg-tech"><span class="avatar" style="width:24px;height:24px;font-size:10px;flex-shrink:0">${initials(gr.nom)}</span><span style="min-width:0;overflow:hidden;flex:1">${esc(gr.nom)}${online?' <span class="dot-on"></span>':''}<span class="sub">${wk.length?wk.length+' int.':'libre'}</span>${gr.id?planGauge(totW,capW,'Charge de la semaine ('+fmtHmin(totW)+' / '+fmtHmin(capW)+' sur 5 jours)'):''}</span></div>`;
     days.forEach(iso=>{
       const ints=SRC.filter(i=>i.date===iso&&(gr.id?planTechsOf(i).includes(gr.id):!planTechsOf(i).length)).sort((a,b)=>(a.heure||'').localeCompare(b.heure||''));
       const tot=ints.reduce((s,i)=>s+(parseInt(i.duree)||60),0);
       const abs=gr.id?absentOn(gr.id,iso):null;
+      const inds=gr.id?indisposOf(gr.id,iso):[];
+      const cap=gr.id?techCap(gr.id):0;
+      const ratio=cap?tot/cap:0; const loadCol=ratio>=1?'var(--red)':ratio>.75?'var(--org)':'var(--t3)';
       g+=`<div class="plg-cell ${iso===todayISO()?'today':''} ${abs?'absx':''}" data-drop="cell:${iso}:${gr.id}"
         ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')"
         ondrop="this.classList.remove('drop');planDropCell(event,'${iso}','${gr.id}')"
         onclick="if(event.target===this&&${can('creerIntervention')?'true':'false'}) formIntervention('','${iso}')">
-        ${tot?`<span class="plg-load">${fmtHmin(tot)}</span>`:''}
-        ${abs?`<div class="plg-absl">🏖️ ${esc(ABS_TYPES[abs.type]||abs.type)}</div>`:ints.map(i=>planMini(i)).join('')}
+        ${tot?`<span class="plg-load" style="color:${loadCol}" title="Charge du jour : ${fmtHmin(tot)}${cap?' / '+fmtHmin(cap):''}">${fmtHmin(tot)}</span>`:''}
+        ${inds.map(x=>`<span class="plg-indb" title="Indisponible : ${esc(x.motif||'')}">⛔ ${esc(x.debut||'')}–${esc(x.fin||'')}</span>`).join('')}
+        ${abs?`<div class="plg-absl" style="min-height:${ints.length?'20px':'56px'};height:auto">🏖️ ${esc(ABS_TYPES[abs.type]||abs.type)}</div>`:''}${ints.map(i=>planMini(i)).join('')}
       </div>`; });
   });
-  return nav+`<div style="font-size:12px;color:var(--t3);margin:0 2px 8px">Glissez une carte sur une case pour changer <b>le jour et le technicien</b> d'un seul geste · Alt + glisser = dupliquer · cliquez une case vide pour créer</div>
-    <div class="card plg-wrap" style="padding:0"><div class="plg">${g}</div></div>`;
+  return nav+`<div style="font-size:12px;color:var(--t3);margin:0 2px 8px">${canPlan()?'Glissez une carte sur une case pour changer <b>le jour et le technicien</b> d\'un seul geste · Alt + glisser = dupliquer · ':''}cliquez une case vide pour créer</div>
+    <div class="card plg-wrap" style="padding:0"><div class="plg" style="grid-template-columns:138px repeat(${days.length},1fr);min-width:${138+days.length*103}px">${g}</div></div>`;
 }
 /* ---- Vue SEMAINE liste (mobile) ---- */
 function planWeekListHtml(SRC){
@@ -1823,40 +1892,68 @@ function planWeekListHtml(SRC){
     + list;
 }
 /* ---- Vue JOUR : timeline horaire par technicien (Organilog) ---- */
-function planDayHtml(SRC){ if((window.innerWidth||1200)<860) return planDayListHtml(SRC);
+function planDayHtml(SRC){ if((window.innerWidth||1200)<700) return planDayListHtml(SRC);
   const groups=planGroups(); const dayInts=SRC.filter(i=>i.date===planSel);
-  let h0=8,h1=18;
+  let h0=7,h1=19;   // plage 07:00 → 19:00, étendue automatiquement si besoin
   dayInts.forEach(i=>{ const m=toMinH(i.heure); if(m!==null){ h0=Math.min(h0,Math.floor(m/60)); h1=Math.max(h1,Math.ceil((m+(parseInt(i.duree)||60))/60)); } });
+  (db.indispos||[]).filter(x=>x.date===planSel).forEach(x=>{ const a=toMinH(x.debut), b=toMinH(x.fin); if(a!==null) h0=Math.min(h0,Math.floor(a/60)); if(b!==null) h1=Math.max(h1,Math.ceil(b/60)); });
   h0=Math.max(0,h0); h1=Math.min(23,Math.max(h1,h0+9));
   const PPH=48, H=(h1-h0)*PPH;
-  const nav=`<div class="card" style="padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
-    <button class="btn ghost sm" onclick="planSel=shiftDay(planSel,-1);views.planning()">‹</button>
-    <div style="flex:1;text-align:center;font-weight:700;text-transform:capitalize">${fmtLong(planSel)}${planSel===todayISO()?' · aujourd\u2019hui':''}</div>
-    <button class="btn ghost sm" onclick="window.print()" title="Imprimer">🖨️</button>
-    <button class="btn ghost sm" onclick="planSel=shiftDay(planSel,1);views.planning()">›</button></div>`;
+  const note=(db.planNotes||{})[planSel];
+  // Bandeau des 7 jours cliquables (dates affichées, jour actif en accent, sam/dim atténués)
+  const days=weekDays(planSel), WD=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
+  const strip=`<div style="display:flex;gap:3px;flex:1">${days.map((iso,k)=>{ const dd=new Date(iso+'T00:00:00'); const sel=iso===planSel, today=iso===todayISO(), we=k>=5;
+    return `<div onclick="planSel='${iso}';views.planning()" style="flex:1;text-align:center;cursor:pointer;padding:6px 0;border-radius:10px;background:${sel?'var(--acc)':(today?'color-mix(in srgb,var(--acc) 14%,transparent)':'transparent')};color:${sel?'var(--on-acc)':'var(--t2)'};${we&&!sel?'opacity:.55;':''}">
+      <div style="font-size:10px;font-weight:700">${WD[k]}</div><div style="font-weight:800;font-size:14px">${dd.getDate()}</div></div>`; }).join('')}</div>`;
+  const nav=`<div class="card" style="padding:10px 12px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <button class="btn ghost sm" onclick="planSel=shiftDay(planSel,-1);views.planning()">‹</button>
+      <div style="flex:1;text-align:center;font-weight:700;text-transform:capitalize">${fmtLong(planSel)}${planSel===todayISO()?' · aujourd\u2019hui':''} <span class="plg-pin ${note?'on':''}" data-iso="${planSel}" onclick="planNoteEdit(this.dataset.iso)" title="Note de journée">📌</span></div>
+      <button class="btn ghost sm" onclick="window.print()" title="Imprimer">🖨️</button>
+      <button class="btn ghost sm" onclick="planSel=shiftDay(planSel,1);views.planning()">›</button></div>
+    <div style="display:flex;align-items:center;gap:4px"><button class="btn ghost sm" onclick="planSel=shiftDay(planSel,-7);views.planning()">«</button>${strip}<button class="btn ghost sm" onclick="planSel=shiftDay(planSel,7);views.planning()">»</button></div>
+    ${note?`<div style="margin-top:8px;font-size:12px;color:var(--org);font-weight:600;border:1px dashed color-mix(in srgb,var(--org) 45%,transparent);border-radius:9px;padding:6px 10px">📌 ${esc(note.texte)} <span style="color:var(--t3);font-weight:400">— ${esc(note.par||'')}</span></div>`:''}</div>`;
   let head='<div></div>', cols='';
   let gutter='<div>'; for(let h=h0;h<h1;h++) gutter+=`<div class="plt-hl">${String(h).padStart(2,'0')}:00</div>`; gutter+='</div>';
   groups.forEach(gr=>{
     const ints=dayInts.filter(i=>gr.id?planTechsOf(i).includes(gr.id):!planTechsOf(i).length);
     const tot=ints.reduce((s,i)=>s+(parseInt(i.duree)||60),0);
     const abs=gr.id?absentOn(gr.id,planSel):null;
+    const inds=gr.id?indisposOf(gr.id,planSel):[];
     const online=gr.id?techOnline(gr.nom):false;
-    head+=`<div class="plt-h"><span class="avatar" style="width:24px;height:24px;font-size:10px;flex-shrink:0">${initials(gr.nom)}</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(gr.nom)}${online?' <span class="dot-on"></span>':''} <span style="color:var(--t3);font-weight:600;font-size:10.5px">· ${ints.length?fmtHmin(tot):(abs?'🏖️':'libre')}</span></span></div>`;
+    head+=`<div class="plt-h" style="flex-direction:column;gap:2px;padding:6px 4px"><span style="display:flex;gap:7px;align-items:center;justify-content:center;min-width:0;max-width:100%"><span class="avatar" style="width:24px;height:24px;font-size:10px;flex-shrink:0">${initials(gr.nom)}</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(gr.nom)}${online?' <span class="dot-on"></span>':''} <span style="color:var(--t3);font-weight:600;font-size:10.5px">· ${planDayLbl(planSel)}${abs?' · 🏖️':''}</span></span></span>${gr.id?planGauge(tot,techCap(gr.id)):`<span style="color:var(--t3);font-weight:600;font-size:10px">${ints.length?fmtHmin(tot):'libre'}</span>`}</div>`;
     let blocks=''; let sansHeure=0;
+    // Indisponibilités (P5) — blocs gris hachurés, drop refusé, suppression au clic
+    inds.forEach(x=>{ const a=toMinH(x.debut), b=toMinH(x.fin);
+      if(a===null) return; const top=Math.max(0,(a-h0*60)/60*PPH), hpx=Math.max(20,((b===null?a+60:b)-a)/60*PPH-2);
+      blocks+=`<div class="plt-ind" style="top:${top}px;height:${hpx}px" title="Indisponible — ${esc(x.motif||'')}" onclick="event.stopPropagation();planIndispoDel('${x.id}')">⛔ ${esc(x.debut||'')}–${esc(x.fin||'')} ${esc(x.motif||'Indisponible')}</div>`; });
+    const timed=ints.filter(i=>toMinH(i.heure)!==null).sort((a,b)=>toMinH(a.heure)-toMinH(b.heure));
     ints.sort((a,b)=>(a.heure||'').localeCompare(b.heure||'')).forEach(i=>{
       const m=toMinH(i.heure); const dur=Math.max(30,parseInt(i.duree)||60);
-      const sc=INT_STCOLOR[i.statut]||'var(--acc)';
+      const sc=planCardColor(i);
       const cf=i.heure?intConflictOf(i,i.id):null;
+      const by=(i.planBy&&i.planBy.nom)?`<span class="who" title="Dernier déplacement : ${esc(i.planBy.nom)}">${initials(i.planBy.nom)}</span>`:'';
+      const badges=(i.passageTotal>1?' 🔁'+(i.passageNum||'?')+'/'+i.passageTotal:'')+(i.sousGarantie?' 🛡️':'')+(i.obligation?' ⚠️':'');
       let top,hpx,dash='';
       if(m===null){ top=4+sansHeure*40; hpx=36; sansHeure++; dash='border-style:dashed;'; }
       else { top=Math.max(0,(m-h0*60)/60*PPH); hpx=Math.max(34,dur/60*PPH-4); }
-      blocks+=`<div class="plt-blk ${cf?'cf':''}" draggable="true" data-drag-int="${i.id}" ondragstart="planDragStart(event,'${i.id}')" onclick="event.stopPropagation();detailIntervention('${i.id}')" style="top:${top}px;height:${hpx}px;border-left-color:${sc};${dash}" title="${esc(i.titre||'')}${cf?' — chevauchement':''}">
-        <b>${i.heure?esc(i.heure):'— sans heure'} · ${esc(i.titre||'')}</b><small>${esc(clientName(i.clientId)||'')}</small></div>`; });
+      blocks+=`<div class="plt-blk ${cf?'cf':''} ${i.propose?'prop':''} ${planMatch(i)?'':'dim'}" draggable="${canPlan()?'true':'false'}" data-drag-int="${i.id}" ondragstart="planDragStart(event,'${i.id}')" onclick="event.stopPropagation();${i.propose?`planProposeModal('${i.id}')`:`detailIntervention('${i.id}')`}" style="top:${top}px;height:${hpx}px;border-left-color:${sc};${dash}" title="${esc(i.titre||'')}${cf?' — chevauchement':''}${i.propose?' — créneau proposé, à confirmer':''}${i.obligation?' — ⚠️ malgré congé ('+esc(i.obligation.par||'')+')':''}">
+        ${by}<b>${i.heure?esc(i.heure):'— sans heure'} · ${esc(i.titre||'')}${badges}</b><small>${esc(clientName(i.clientId)||'')}${i.obligation?' · ⚠️ malgré congé':''}</small></div>`; });
+    // Battement entre 2 interventions consécutives d'un même technicien (P4) — clients différents
+    for(let k=0;k<timed.length-1;k++){ const a=timed[k], b=timed[k+1];
+      if(!a.clientId||!b.clientId||a.clientId===b.clientId) continue;
+      const finA=toMinH(a.heure)+(parseInt(a.duree)||60), debB=toMinH(b.heure); const gap=debB-finA;
+      if(gap<=0||gap>240) continue;
+      const ca=db.clients.find(c=>c.id===a.clientId)||{}, cb=db.clients.find(c=>c.id===b.clientId)||{};
+      const adrA=(a.adresse||ca.adresse||'').trim().toLowerCase(), adrB=(b.adresse||cb.adresse||'').trim().toLowerCase();
+      const serre=gap<30 && adrA && adrB && adrA!==adrB;
+      const mid=(finA+debB)/2;
+      blocks+=`<div class="plt-gap ${serre?'hot':''}" style="top:${(mid-h0*60)/60*PPH-7}px"><b>${serre?'⚠️ enchaînement serré · ':''}${gap} min de battement</b></div>`; }
     cols+=`<div class="plt-col ${abs?'absx':''}" style="height:${H}px" data-drop="time:${gr.id}:${h0}"
       ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')"
-      ondrop="this.classList.remove('drop');planDropTime(event,'${gr.id}',${h0})">${blocks}</div>`;
+      ondrop="this.classList.remove('drop');planDropTime(event,'${gr.id}',${h0})">${abs?`<div style="position:sticky;top:0;text-align:center;font-size:10px;font-weight:800;color:var(--t3);padding:3px 0;z-index:2;pointer-events:none">🏖️ ${esc(ABS_TYPES[abs.type]||abs.type)}</div>`:''}${blocks}${planSel===todayISO()?`<div class="plt-now" data-h0="${h0}" style="display:none"></div>`:''}</div>`;
   });
-  return nav+`<div style="font-size:12px;color:var(--t3);margin:0 2px 8px">Glissez un bloc <b>verticalement</b> pour changer l'heure (¼ h) · <b>horizontalement</b> pour changer de technicien · Alt + glisser = dupliquer</div>
+  return nav+`<div style="font-size:12px;color:var(--t3);margin:0 2px 8px">${canPlan()?`Glissez un bloc <b>verticalement</b> pour changer l'heure (¼ h) · <b>horizontalement</b> pour changer de technicien · Alt + glisser = dupliquer`:'Lecture seule — le droit « Déplacer le planning » est requis pour réorganiser'}</div>
     <div class="card plg-wrap" style="padding:0"><div class="plt" style="grid-template-columns:52px repeat(${groups.length},1fr)">${head}${gutter}${cols}</div></div>`;
 }
 /* ---- Vue JOUR liste (mobile) ---- */
@@ -1903,44 +2000,70 @@ function planMonthHtml(SRC){
     ${dayInts.map(i=>planIntCard(i)).join('')}`;
 }
 function monthShift(iso,n){ const d=new Date(iso+'T00:00:00'); d.setMonth(d.getMonth()+n); return d.toISOString().slice(0,10); }
-function planDropDay(e,iso){ e.preventDefault(); const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i)return; if(i.date===iso)return;
+function planDropDay(e,iso){ e.preventDefault(); if(!canPlan()){ toast('Droit « Déplacer le planning » requis'); return; } const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i)return; if(i.date===iso)return;
+  const de=planSnap(i);
+  if(!planAbsGate(intTechIds(i)[0]||'',iso,i)) return;
   i.date=iso; if(i.statut==='aplanifier') i.statut='planifiee';
-  const cf=intConflictOf(i,i.id); save(); planSel=iso; views.planning();
+  planStamp(i,de);
+  const cf=intConflictOf(i,i.id); delete i._oblig; save(); planSel=iso; views.planning();
   toast(cf?('Déplacée au '+fmtShort(iso)+' — chevauche « '+(cf.titre||'')+' »'):('Intervention déplacée au '+fmtShort(iso))); }
-function planDropTech(e,techId){ e.preventDefault(); const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i)return;
+function planDropTech(e,techId){ e.preventDefault(); if(!canPlan()){ toast('Droit « Déplacer le planning » requis'); return; } const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i)return;
+  const de=planSnap(i);
+  if(!planAbsGate(techId,i.date||planSel,i)) return;
   i.techId=techId||''; i.techIds=techId?[techId]:[]; if(!i.date){ i.date=planSel; } if(i.statut==='aplanifier') i.statut='planifiee';
   intHisto(i,'Assignée à '+(techName(techId)||'Non assigné'));
-  const cf=intConflictOf(i,i.id); const ab=techId?absentOn(techId,i.date):null; save(); views.planning();
-  toast(ab?('🏖️ '+techName(techId)+' est absent ce jour-là ('+(ABS_TYPES[ab.type]||ab.type)+')'):cf?('Assignée à '+ (techName(techId)||'Non assigné')+' — chevauche « '+(cf.titre||'')+' »'):('Assignée à '+(techName(techId)||'Non assigné'))); }
+  planStamp(i,de);
+  const cf=intConflictOf(i,i.id); delete i._oblig; save(); views.planning();
+  toast(cf?('Assignée à '+ (techName(techId)||'Non assigné')+' — chevauche « '+(cf.titre||'')+' »'):('Assignée à '+(techName(techId)||'Non assigné'))); }
 /* ── Duplication (Alt + glisser) ── */
-function planDup(i,patch){ const c=JSON.parse(JSON.stringify(i)); c.id=uid(); c.num=''; c.statut='planifiee'; delete c.rapport; delete c.signature; delete c.sigTech; c.histo=[];
-  Object.assign(c,patch||{}); db.interventions.push(c); intHisto(c,'Créée par duplication (planning)'); save(); views.planning(); toast('Intervention dupliquée'); }
+function planDup(i,patch){ const c=JSON.parse(JSON.stringify(i)); c.id=uid(); c.num=''; c.statut='planifiee'; delete c.rapport; delete c.signature; delete c.sigTech; c.histo=[]; delete c.propose; delete c.obligation;
+  Object.assign(c,patch||{}); db.interventions.push(c); intHisto(c,'Créée par duplication (planning)'); planStamp(c,null); save(); views.planning(); toast('Intervention dupliquée'); }
+/* ── Absences BLOQUANTES : refus net, sauf droit « Obliger à travailler » (confirmation) ── */
+function planAbsGate(techId,iso,i){ if(!techId||!iso) return true; const ab=absentOn(techId,iso); if(!ab) return true;
+  const nom=techName(techId), typ=ABS_TYPES[ab.type]||ab.type||'absence';
+  if(!can('planifObligerTravail')){ toast('❌ Impossible : '+nom+' est en '+typ+' le '+fmtShort(iso)); return false; }
+  if(!confirm(nom+' est en '+typ+' le '+fmtShort(iso)+'. Appliquer l\u2019obligation de travailler ?')){ return false; }
+  if(i){ i.obligation={par:(currentUser&&fullName(currentUser))||'',ts:Date.now()}; i._oblig=true;
+    intHisto(i,'⚠️ Obligation de travailler appliquée ('+nom+' en '+typ+' le '+fmtShort(iso)+')'); }
+  return true; }
 /* ── Dépôt sur une case (jour + technicien d'un geste) ── */
-function planDropCell(e,iso,techId){ e.preventDefault(); const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i) return;
-  if(e.altKey){ planDup(i,{date:iso,techId:techId||'',techIds:techId?[techId]:[]}); return; }
+function planDropCell(e,iso,techId){ e.preventDefault(); if(!canPlan()){ toast('Droit « Déplacer le planning » requis'); return; } const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i) return;
+  if(e.altKey){ if(!planAbsGate(techId,iso,null)) return; planDup(i,{date:iso,techId:techId||'',techIds:techId?[techId]:[]}); return; }
+  const de=planSnap(i);
+  if(!planAbsGate(techId,iso,i)) return;
   const chg=[];
   if(i.date!==iso){ i.date=iso; chg.push('au '+fmtShort(iso)); }
   const cur=intTechIds(i);
   if((techId||'')!==(cur[0]||'') || cur.length!==(techId?1:0)){ i.techId=techId||''; i.techIds=techId?[techId]:[]; chg.push(techId?('→ '+techName(techId)):'→ non assigné'); intHisto(i,'Réassignée à '+(techName(techId)||'Non assigné')+' ('+fmtShort(iso)+')'); }
   if(i.statut==='aplanifier') i.statut='planifiee';
-  const cf=(i.heure)?intConflictOf(i,i.id):null; const ab=techId?absentOn(techId,iso):null;
+  planStamp(i,de);
+  const forced=!!i._oblig; delete i._oblig;
+  const cf=(i.heure)?intConflictOf(i,i.id):null;
   save(); planSel=iso; views.planning();
-  toast((chg.length?('Déplacée '+chg.join(' ')):'Aucun changement')+(ab?' · 🏖️ absent ce jour':'')+(cf?' · ⚠️ chevauchement':'')); }
+  toast((chg.length?('Déplacée '+chg.join(' ')):'Aucun changement')+(forced?' · ⚠️ malgré congé':'')+(cf?' · ⚠️ chevauchement':'')); }
 /* ── Dépôt sur la timeline (heure + technicien) ── */
-function planDropTime(e,techId,h0){ e.preventDefault(); const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i) return;
+function planDropTime(e,techId,h0){ e.preventDefault(); if(!canPlan()){ toast('Droit « Déplacer le planning » requis'); return; } const id=(e.dataTransfer.getData('text/plain')||'').trim(); const i=db.interventions.find(x=>x.id===id); if(!i) return;
   const col=e.currentTarget; const rect=col.getBoundingClientRect(); const y=Math.max(0,(e.clientY||0)-rect.top);
   let m=h0*60+Math.round(y/48*60/15)*15; m=Math.max(0,Math.min(23*60+45,m));
   const hh=String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
-  if(e.altKey){ planDup(i,{date:planSel,heure:hh,techId:techId||'',techIds:techId?[techId]:[]}); return; }
+  // Indisponibilité (P5) : impossible de planifier dessus
+  const ind=techId?indispoAt(techId,planSel,m,parseInt(i.duree)||60):null;
+  if(ind){ toast('⛔ '+techName(techId)+' est indisponible '+(ind.debut||'')+'–'+(ind.fin||'')+(ind.motif?' ('+ind.motif+')':'')); return; }
+  if(e.altKey){ if(!planAbsGate(techId,planSel,null)) return; planDup(i,{date:planSel,heure:hh,techId:techId||'',techIds:techId?[techId]:[]}); return; }
+  const de=planSnap(i);
+  if(!planAbsGate(techId,planSel,i)) return;
   i.date=planSel; i.heure=hh; i.techId=techId||''; i.techIds=techId?[techId]:[];
   if(i.statut==='aplanifier') i.statut='planifiee';
   intHisto(i,'Replanifiée à '+hh+' · '+(techName(techId)||'Non assigné'));
-  const cf=intConflictOf(i,i.id); const ab=techId?absentOn(techId,planSel):null;
+  planStamp(i,de);
+  const forced=!!i._oblig; delete i._oblig;
+  const cf=intConflictOf(i,i.id);
   save(); views.planning();
-  toast('→ '+hh+' · '+(techName(techId)||'Non assigné')+(ab?' · 🏖️ absent':'')+(cf?' · ⚠️ chevauchement':'')); }
+  toast('→ '+hh+' · '+(techName(techId)||'Non assigné')+(forced?' · ⚠️ malgré congé':'')+(cf?' · ⚠️ chevauchement':'')); }
 /* ── Glisser au doigt (iPhone/iPad) : appui long puis déplacement ── */
 let _tpDrag=null;
 document.addEventListener('pointerdown',e=>{ if(e.pointerType!=='touch'||current!=='planning') return;
+  if(!canPlan()) return;   // sans le droit « Déplacer le planning », pas de glisser tactile
   const c=e.target.closest('[data-drag-int]'); if(!c) return;
   const id=c.getAttribute('data-drag-int');
   _tpDrag={id,x:e.clientX,y:e.clientY,timer:setTimeout(()=>{ if(!_tpDrag) return; _tpDrag.on=true; window._planDragging=true;
@@ -1972,6 +2095,215 @@ document.addEventListener('pointerup',e=>{ const t=_tpDrag; _tpDrag=null; if(!t)
   }
   if(window._planPending){ window._planPending=false; if(current==='planning'){ try{ views.planning(); }catch(err){} } }
 });
+
+/* ═══════════════ PLANNING — traçabilité, indispos, notes, passages, garanties ═══════════════ */
+/* ── P9 : qui place / déplace — journal du planning (plafonné à 400 entrées) ── */
+function planSnap(i){ return i?{date:i.date||'',heure:i.heure||'',tech:techName(intTechIds(i)[0]||'')||'Non assigné'}:null; }
+function planStamp(i,de){ try{
+  const par=(currentUser&&fullName(currentUser))||'';
+  i.planBy={nom:par,ts:Date.now()};
+  const vers=planSnap(i);
+  if(de && de.date===vers.date && de.heure===vers.heure && de.tech===vers.tech) return;
+  db.planJournal=db.planJournal||[];
+  db.planJournal.push({ts:Date.now(),par,titre:i.titre||'Intervention',de,vers,oblig:i._oblig?('obligation de travailler appliquée par '+par):''});
+  if(db.planJournal.length>400) db.planJournal=db.planJournal.slice(-400);
+}catch(e){} }
+let planJrnFilter='';
+function openPlanJournal(){ const J=(db.planJournal||[]).slice().reverse();
+  const pers=[...new Set(J.map(x=>x.par).filter(Boolean))];
+  const list=J.filter(x=>!planJrnFilter||x.par===planJrnFilter);
+  const fmtS=o=>o?((o.date?planDayLbl(o.date):'à planifier')+(o.heure?' '+o.heure:'')+' · '+(o.tech||'—')):'—';
+  openModal(`<div class="modal-head"><h3>🗂️ Journal du planning</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p style="color:var(--t3);font-size:12.5px;margin-bottom:10px">Qui a placé, déplacé ou réassigné quoi — ${J.length} action(s) enregistrée(s) (400 max).</p>
+    ${pers.length?`<div class="filters" style="margin-bottom:10px"><div class="chip ${!planJrnFilter?'active':''}" onclick="planJrnFilter='';openPlanJournal()">Tous</div>${pers.map(pn=>`<div class="chip ${planJrnFilter===pn?'active':''}" data-p="${esc(pn)}" onclick="planJrnFilter=this.dataset.p;openPlanJournal()">${esc(pn)}</div>`).join('')}</div>`:''}
+    ${list.length?list.slice(0,120).map(x=>`<div style="display:flex;gap:10px;padding:7px 2px;border-bottom:1px solid var(--brd);font-size:12.5px;align-items:flex-start">
+      <span class="avatar" style="width:24px;height:24px;font-size:10px;flex-shrink:0">${initials(x.par||'?')}</span>
+      <div style="flex:1;min-width:0"><b>${esc(x.par||'—')}</b> <span style="color:var(--t3);font-size:11px">${new Date(x.ts).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})} ${new Date(x.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
+      <div>« ${esc(x.titre)} » : ${esc(fmtS(x.de))} → <b>${esc(fmtS(x.vers))}</b>${x.oblig?`<div style="color:var(--red);font-size:11.5px;font-weight:700">⚠️ ${esc(x.oblig)}</div>`:''}</div></div>
+    </div>`).join(''):emptyState('🗂️','Aucun déplacement enregistré pour l\u2019instant.','','')}`);
+}
+/* ── P15 : note de journée (📌), visible par toute l'équipe ── */
+function planNoteEdit(iso){ if(!canPlan()){ const n=(db.planNotes||{})[iso]; if(n) alert('📌 Note du '+fmtShort(iso)+' :\n\n'+n.texte+(n.par?'\n\n— '+n.par:'')); return; }
+  db.planNotes=db.planNotes||{};
+  const cur=db.planNotes[iso];
+  const v=prompt('Note de journée — '+fmtLong(iso)+'\n(vider le champ pour supprimer)',cur?cur.texte:'');
+  if(v===null) return;
+  const t=(v||'').trim();
+  if(!t){ if(cur){ delete db.planNotes[iso]; save(); toast('Note supprimée'); views.planning(); } return; }
+  db.planNotes[iso]={texte:t.slice(0,200),par:(currentUser&&fullName(currentUser))||'',ts:Date.now()};
+  save(); toast('📌 Note enregistrée — visible par toute l\u2019équipe'); views.planning(); }
+/* ── P5 : indisponibilités (révision fourgon, RDV…) ── */
+function planIndispoForm(){ if(!canPlan()){ toast('Droit « Déplacer le planning » requis'); return; }
+  openModal(`<div class="modal-head"><h3>⛔ Indisponibilité</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p style="color:var(--t3);font-size:12.5px;margin-bottom:10px">Bloque un créneau dans la timeline (garage, formation, RDV…). Impossible de planifier dessus.</p>
+    <div class="field"><label>Technicien *</label><select id="ind-tech">${db.techniciens.map(t=>`<option value="${t.id}">${esc(t.nom)}</option>`).join('')}</select></div>
+    <div class="field"><label>Date</label><input type="date" id="ind-date" value="${planSel||todayISO()}"></div>
+    <div class="field-row"><div class="field"><label>Début</label><input type="time" id="ind-debut" value="14:00"></div>
+      <div class="field"><label>Fin</label><input type="time" id="ind-fin" value="15:30"></div></div>
+    <div class="field"><label>Motif</label><input id="ind-motif" placeholder="Ex : garage — révision fourgon"></div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Annuler</button><button class="btn" onclick="planIndispoSave()">Bloquer le créneau</button></div>`); }
+function planIndispoSave(){ const techId=($('ind-tech')||{}).value, date=($('ind-date')||{}).value, debut=($('ind-debut')||{}).value, fin=($('ind-fin')||{}).value, motif=(($('ind-motif')||{}).value||'').trim();
+  if(!techId||!date||!debut||!fin){ toast('Technicien, date et heures obligatoires'); return; }
+  if(toMin(fin)<=toMin(debut)){ toast('L\u2019heure de fin doit être après le début'); return; }
+  db.indispos=db.indispos||[];
+  db.indispos.push({id:uid(),techId,date,debut,fin,motif});
+  save(); closeModal(); toast('⛔ Créneau bloqué pour '+techName(techId)); if(current==='planning') views.planning(); }
+function planIndispoDel(id){ const x=(db.indispos||[]).find(v=>v.id===id); if(!x) return;
+  if(!canPlan()){ toast('Indisponible : '+(x.motif||'créneau bloqué')+' ('+(x.debut||'')+'–'+(x.fin||'')+')'); return; }
+  if(!confirm('Supprimer l\u2019indisponibilité de '+techName(x.techId)+' ('+(x.debut||'')+'–'+(x.fin||'')+(x.motif?' · '+x.motif:'')+') ?')) return;
+  db.indispos=db.indispos.filter(v=>v.id!==id); save(); toast('Indisponibilité supprimée'); if(current==='planning') views.planning(); }
+/* ── P12 : ligne « maintenant » (vue Jour = aujourd'hui), mise à jour chaque minute ── */
+let _planNowTimer=null;
+function planNowLineTick(){ const els=document.querySelectorAll('.plt-now'); if(!els.length) return;
+  const now=new Date(); const m=now.getHours()*60+now.getMinutes();
+  els.forEach(el=>{ const h0=parseInt(el.getAttribute('data-h0'))||7; const top=(m-h0*60)/60*48;
+    if(top<0||top>(el.parentElement?el.parentElement.offsetHeight:0)){ el.style.display='none'; return; }
+    el.style.display='block'; el.style.top=top+'px'; }); }
+function planNowLineInit(){ clearInterval(_planNowTimer); _planNowTimer=null;
+  const els=document.querySelectorAll('.plt-now'); if(!els.length) return;
+  planNowLineTick();
+  _planNowTimer=setInterval(()=>{ if(current!=='planning'){ clearInterval(_planNowTimer); _planNowTimer=null; return; } planNowLineTick(); },60000);
+  try{ const first=document.querySelector('.plt-now[style*="block"]'); if(first&&!window._planNowScrolled){ window._planNowScrolled=true; setTimeout(()=>{ try{ first.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){} },150); setTimeout(()=>{ window._planNowScrolled=false; },4000); } }catch(e){} }
+/* ── P10 : passage suivant (proposition intelligente) ── */
+const PLAN_FREQ={hebdo:7,bimensuelle:14,mensuelle:30,trimestrielle:91,semestrielle:182,annuelle:365};
+function planPrefOf(clientId){ const c=db.clients.find(x=>x.id===clientId); return (c&&c.prefPassage)||null; }
+function planNextCompute(i){ if(!i||!i.date) return null;
+  const freq=PLAN_FREQ[i.recurrence]||30;
+  const pref=planPrefOf(i.clientId)||{};
+  const techId=pref.techId||intTechIds(i)[0]||'';
+  let heure=i.heure||'09:00';
+  if(!i.heure){ if(pref.creneau==='matin') heure='09:00'; else if(pref.creneau==='apresmidi') heure='14:00'; else if(pref.creneau==='fixe'&&pref.heureFixe) heure=pref.heureFixe; }
+  const base=shiftDay(i.date,freq);
+  const dur=parseInt(i.duree)||60;
+  for(let d=0; d<=14; d++){
+    const cand=shiftDay(base,d);
+    const dow=(new Date(cand+'T00:00:00').getDay()+6)%7;   // 0 = lundi
+    if(Array.isArray(pref.jours)&&pref.jours.length&&!pref.jours.includes(dow)) continue;
+    if(techId&&absentOn(techId,cand)) continue;
+    if(techId&&indispoAt(techId,cand,toMin(heure),dur)) continue;
+    if(techId&&intConflictOf({date:cand,heure,duree:dur,techIds:[techId]},i.id)) continue;
+    return {date:cand,heure,techId,freq};
+  }
+  return null; }
+function planNextModal(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
+  const pref=planPrefOf(i.clientId)||{};
+  const prop=planNextCompute(i);
+  const freq=PLAN_FREQ[i.recurrence]||30;
+  openModal(`<div class="modal-head"><h3>🔁 Passage suivant — ${esc(clientName(i.clientId))}</h3><button class="modal-close" onclick="closeModal();go(current)">✕</button></div>
+    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">« <b>${esc(i.titre)}</b> » est clôturée. Fréquence : <b>${freq} jours</b>${i.recurrence&&i.recurrence!=='aucune'?' ('+(INT_RECUR[i.recurrence]||i.recurrence)+')':''}. Comment placer le passage suivant ?</p>
+    ${prop?`<button class="btn" style="width:100%;justify-content:flex-start;gap:10px;margin-bottom:8px;padding:13px 16px;text-align:left" onclick="planNextCreate('${id}','auto')">✅ <span><b>Proposition auto</b> — ${esc(fmtLong(prop.date))} à ${esc(prop.heure)} · ${esc(techName(prop.techId)||'Non assigné')}<br><small style="font-weight:400;opacity:.85">respecte les jours acceptés du client, évite absences, indispos et conflits — en pointillé orange tant que non confirmé</small></span></button>`
+      :`<div style="border:1px dashed var(--org);border-radius:12px;padding:11px 14px;font-size:12.5px;color:var(--org);margin-bottom:8px">Aucun créneau valide trouvé sous 14 jours (absences / conflits / jours acceptés) — la proposition auto enverra la carte au bac « À planifier ».<br><button class="btn sm" style="margin-top:8px" onclick="planNextCreate('${id}','auto')">📥 Envoyer au bac « À planifier »</button></div>`}
+    <div class="fgroup" style="margin-bottom:8px"><div class="frow" style="display:block"><b style="font-size:13.5px">📅 Choisir manuellement</b>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+        <input type="date" id="pn-date" value="${prop?prop.date:shiftDay(i.date||todayISO(),freq)}"><input type="time" id="pn-heure" value="${prop?prop.heure:(i.heure||'09:00')}">
+        <select id="pn-tech"><option value="">Non assigné</option>${db.techniciens.map(t=>`<option value="${t.id}" ${(prop?prop.techId:intTechIds(i)[0])===t.id?'selected':''}>${esc(t.nom)}</option>`).join('')}</select>
+        <button class="btn sm" onclick="planNextCreate('${id}','manuel')">Planifier</button></div></div></div>
+    <button class="btn ghost" style="width:100%;justify-content:center;margin-bottom:4px" onclick="planNextCreate('${id}','later')">⏳ Plus tard — bac « À planifier »</button>
+    ${pref.jours&&pref.jours.length?`<p style="color:var(--t3);font-size:11.5px;margin-top:8px">Préférences client : jours ${pref.jours.map(j=>['L','M','M','J','V','S','D'][j]).join(' ')}${pref.creneau&&pref.creneau!=='indifferent'?' · '+(pref.creneau==='matin'?'matin':pref.creneau==='apresmidi'?'après-midi':'heure fixe '+(pref.heureFixe||'')):''}${pref.techId?' · technicien habituel : '+esc(techName(pref.techId)):''}${pref.prevenir48?' · prévenir 48 h avant':''}${pref.appelerAvant?' · appeler avant':''}</p>`:''}`); }
+function planNextCreate(id,mode){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
+  const gid=i.groupId||uid(); i.groupId=gid;
+  const tot=(db.interventions.filter(x=>x.groupId===gid).length||1)+1;
+  const n=_copieInt(i,{date:'',heure:i.heure,statut:'aplanifier',groupId:gid,passageNum:tot,passageTotal:Math.max(tot,i.passageTotal||0)});
+  db.interventions.forEach(x=>{ if(x.groupId===gid) x.passageTotal=Math.max(tot,x.passageTotal||0); });
+  n.passageTotal=Math.max(tot,i.passageTotal||0);
+  let msg='';
+  if(mode==='auto'){ const prop=planNextCompute(i);
+    if(prop){ n.date=prop.date; n.heure=prop.heure; n.techId=prop.techId||''; n.techIds=prop.techId?[prop.techId]:[]; n.statut='planifiee'; n.propose=true;
+      msg='Passage '+tot+' proposé le '+fmtShort(prop.date)+' à '+prop.heure+' · '+(techName(prop.techId)||'Non assigné')+' — à confirmer';
+      intHisto(n,'Créneau proposé automatiquement : '+fmtShort(prop.date)+' '+prop.heure+' · '+(techName(prop.techId)||'Non assigné')); }
+    else { msg='Aucun créneau valide — passage '+tot+' envoyé au bac « À planifier »'; intHisto(n,'Aucun créneau valide sous 14 jours → bac À planifier'); } }
+  else if(mode==='manuel'){ const d=($('pn-date')||{}).value, h=($('pn-heure')||{}).value, t=($('pn-tech')||{}).value||'';
+    if(!d){ toast('Choisis une date'); return; }
+    if(t&&!planAbsGate(t,d,n)) return;
+    n.date=d; n.heure=h||i.heure||'09:00'; n.techId=t; n.techIds=t?[t]:[]; n.statut='planifiee';
+    msg='Passage '+tot+' planifié le '+fmtShort(d)+(h?' à '+h:'');
+    intHisto(n,'Passage planifié manuellement : '+fmtShort(d)+' '+(h||'')); }
+  else { msg='Passage '+tot+' à planifier plus tard'; intHisto(n,'Mis de côté (bac À planifier)'); }
+  intHisto(i,'Prochain passage créé → '+(n.num||''));
+  db.interventions.push(n); planStamp(n,null); delete n._oblig; save(); closeModal(); toast('🔁 '+msg); go(current); }
+/* Carte « proposée » (pointillé orange) : confirmer / ajuster */
+function planProposeModal(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
+  if(!canPlan()){ detailIntervention(id); return; }
+  openModal(`<div class="modal-head"><h3>Créneau proposé</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:14px">« <b>${esc(i.titre)}</b> »${i.passageTotal>1?' (passage '+(i.passageNum||'?')+'/'+i.passageTotal+')':''}<br>${esc(fmtLong(i.date))} à <b>${esc(i.heure||'—')}</b> · ${esc(techNames(i))}<br><span style="color:var(--org);font-size:12px">Proposition automatique — glissez la carte pour ajuster, ou confirmez.</span></p>
+    <div class="modal-foot" style="flex-wrap:wrap"><button class="btn ghost" onclick="closeModal();detailIntervention('${id}')">Ouvrir la fiche</button>
+      <button class="btn" onclick="planProposeConfirm('${id}')">✅ Confirmer ce créneau</button></div>`); }
+function planProposeConfirm(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
+  delete i.propose; intHisto(i,'Créneau confirmé'); planStamp(i,planSnap(i)); save(); closeModal(); toast('✅ Créneau confirmé'); if(current==='planning') views.planning(); }
+/* ── P11 : garanties ── */
+function garMonthsAdd(iso,months){ const d=new Date((iso||todayISO())+'T00:00:00'); d.setMonth(d.getMonth()+months); return d.toISOString().slice(0,10); }
+function garActive(g){ return g&&g.fin&&g.fin>=todayISO(); }
+function garQuickHtml(id){ const i=db.interventions.find(x=>x.id===id)||{}; const cur=i.garantie&&i.garantie.mois;
+  const opts=[[0,'Aucune'],[3,'3 mois'],[6,'6 mois'],[12,'1 an'],[120,'10 ans'],['perso','Personnalisée…']];
+  return `<div id="gar-quick"><div class="dt-lbl" style="margin:4px 0 8px">🛡️ Garantie sur ce travail</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${opts.map(([m,l])=>`<span class="chip ${(m===0&&!i.garantie)||(cur===m)?'active':''}" onclick="setGarantie('${id}','${m}')">${l}</span>`).join('')}</div>
+    <div id="gar-quick-info" style="font-size:12px;color:var(--acc);font-weight:600;margin-top:8px">${i.garantie?'✓ Garantie jusqu\u2019au '+fmtLong(i.garantie.fin):''}</div></div>`; }
+function setGarantie(id,mois){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
+  if(mois==='perso'){ const v=prompt('Durée de la garantie en mois :','24'); if(!v) return; mois=parseInt(v)||0; }
+  mois=parseInt(mois)||0;
+  if(!mois){ delete i.garantie; intHisto(i,'Garantie retirée'); }
+  else { const debut=i.finReel?new Date(i.finReel).toISOString().slice(0,10):(i.date||todayISO());
+    i.garantie={mois,debut,fin:garMonthsAdd(debut,mois)};
+    intHisto(i,'🛡️ Garantie '+mois+' mois — jusqu\u2019au '+fmtShort(i.garantie.fin)); }
+  save();
+  const box=document.getElementById('gar-quick'); if(box){ box.outerHTML=garQuickHtml(id); }
+  toast(mois?('🛡️ Garantie enregistrée jusqu\u2019au '+fmtShort(i.garantie.fin)):'Garantie retirée'); }
+/* Garantie ACTIVE de même type chez un client (pour l'avertissement à la création) */
+function garActiveOfClient(clientId,type){ if(!clientId) return null;
+  return (db.interventions||[]).find(x=>x.clientId===clientId && garActive(x.garantie) && (!type||(x.type||'')===type))||null; }
+function garListOfClient(clientId){ return (db.interventions||[]).filter(x=>x.clientId===clientId&&x.garantie&&x.garantie.fin).sort((a,b)=>(b.garantie.fin||'').localeCompare(a.garantie.fin||'')); }
+function garSectionHtml(clientId){ const list=garListOfClient(clientId); if(!list.length) return '';
+  const today=todayISO();
+  return `<div class="dt-lbl" style="margin:16px 0 8px">🛡️ Garanties</div>${list.map(x=>{ const g=x.garantie;
+    const active=g.fin>=today; const expSoon=active&&g.fin<=garMonthsAdd(today,1);
+    const total=Math.max(1,(new Date(g.fin+'T00:00:00')-new Date(g.debut+'T00:00:00'))); const done=Math.min(total,Math.max(0,(new Date(today+'T00:00:00')-new Date(g.debut+'T00:00:00'))));
+    const rest=Math.max(0,Math.round((new Date(g.fin+'T00:00:00')-new Date(today+'T00:00:00'))/86400000));
+    const col=active?(expSoon?'var(--org)':'var(--acc)'):'var(--red)';
+    const st=active?(expSoon?'⏳ Expire dans '+rest+' j':'✅ Active · reste '+(rest>60?Math.round(rest/30)+' mois':rest+' j')):'✕ Expirée le '+fmtShort(g.fin);
+    return `<div class="pl-row" onclick="closeModal();detailIntervention('${x.id}')" style="border-left:3px solid ${col}">
+      <div class="pl-info"><div class="pl-title">🛡️ ${esc(x.titre)}</div>
+      <div class="pl-meta">posée le ${fmtShort(g.debut)} · ${g.mois} mois${x.num?' · '+esc(x.num):''}</div>
+      ${active?`<div style="height:4px;border-radius:3px;background:color-mix(in srgb,var(--t3) 20%,transparent);margin-top:5px;overflow:hidden"><div style="height:100%;width:${Math.round(done/total*100)}%;background:${col}"></div></div>`:''}</div>
+      <span style="font-size:11px;font-weight:800;color:${col};white-space:nowrap">${st}</span></div>`; }).join('')}`; }
+/* Bandeau « sous garantie » dans le formulaire d'intervention */
+function garCheckBanner(){ const box=document.getElementById('int-gar-warn'); if(!box) return;
+  const cid=(document.getElementById('cli-id')||{}).value;
+  const typeSel=document.querySelector('#intform [name=type]'); const type=typeSel?typeSel.value:'';
+  const g=cid&&type?garActiveOfClient(cid,type):null;
+  if(!g){ box.innerHTML=''; return; }
+  const prev=box.querySelector('[name=sousGarantie]'); const checked=prev?prev.checked:!!window._intSousGar;
+  box.innerHTML=`<div class="fgroup" style="border:1px solid var(--org);background:color-mix(in srgb,var(--org) 8%,transparent);padding:12px;margin-bottom:12px">
+    <div style="font-size:13px;font-weight:700;color:var(--org)">⚠️ Ce traitement est encore sous garantie !</div>
+    <div style="font-size:12px;color:var(--t2);margin:4px 0 8px">« ${esc(g.titre)} » (${esc(g.num||'')}) garanti jusqu\u2019au <b>${fmtLong(g.garantie.fin)}</b> — ce passage devrait être gratuit.</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;font-weight:600"><input type="checkbox" name="sousGarantie" ${checked?'checked':''} style="width:20px;height:20px;accent-color:var(--org)">Passage sous garantie (non facturable)</label></div>`; }
+/* Alerte garanties qui expirent sous 30 jours (admin, 1 fois par jour) */
+function garAlertCheck(){ try{ if(!currentUser||currentUser.role!=='admin') return;
+  const key='elan_gar_alert_'+todayISO(); if(localStorage.getItem(key)) return;
+  const today=todayISO(), lim=garMonthsAdd(today,1);
+  const exp=(db.interventions||[]).filter(x=>garActive(x.garantie)&&x.garantie.fin<=lim);
+  if(!exp.length) return;
+  localStorage.setItem(key,'1');
+  const msg='🛡️ '+exp.length+' garantie(s) expire(nt) sous 30 jours : '+exp.slice(0,2).map(x=>clientName(x.clientId)+' ('+fmtShort(x.garantie.fin)+')').join(' · ')+(exp.length>2?' · +'+(exp.length-2):'');
+  toast(msg);
+  if(typeof Notification!=='undefined'&&Notification.permission==='granted'){ try{ new Notification('OP GESTION — Garanties',{body:msg}); }catch(e){} }
+}catch(e){} }
+/* ── P7 : feuille de route du matin (techniciens, 1 fois par jour) ── */
+function planFdrCheck(){ try{ if(!currentUser) return;
+  const tid=myTechId(); if(!tid) return;
+  const key='elan_fdr_'+todayISO()+'_'+currentUser.id; if(localStorage.getItem(key)) return;
+  const mine=(db.interventions||[]).filter(i=>i.date===todayISO()&&intTechIds(i).includes(tid)&&i.statut!=='annulee').sort((a,b)=>(a.heure||'').localeCompare(b.heure||''));
+  if(!mine.length) return;
+  localStorage.setItem(key,'1');
+  const first=mine[0];
+  const msg='📋 Ta journée : '+mine.length+' intervention'+(mine.length>1?'s':'')+(first.heure?' · 1\u02b3\u1d49 : '+first.heure+' '+(clientName(first.clientId)||first.titre||''):'');
+  if(typeof Notification!=='undefined'&&Notification.permission==='granted'){ try{ new Notification('OP GESTION — Feuille de route',{body:msg}); }catch(e){} }
+  const b=document.createElement('div');
+  b.id='fdr-banner';
+  b.style.cssText='position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:400;background:var(--card);color:var(--t1);border:1px solid var(--brd);border-radius:14px;padding:12px 16px;box-shadow:0 10px 30px rgba(0,0,0,.3);display:flex;gap:12px;align-items:center;max-width:92vw;font-size:13px';
+  b.innerHTML='<span style="min-width:0">'+esc(msg)+'</span><button class="btn sm" style="flex-shrink:0" onclick="document.getElementById(\'fdr-banner\').remove();go(\'feuilleRoute\')">Feuille de route</button><button class="btn ghost sm" style="flex-shrink:0" onclick="document.getElementById(\'fdr-banner\').remove()">✕</button>';
+  document.body.appendChild(b);
+  setTimeout(()=>{ try{ const el=document.getElementById('fdr-banner'); if(el) el.remove(); }catch(e){} },15000);
+}catch(e){} }
 
 /* ═══════════════ TÂCHES · ABSENCES · FEUILLE DE ROUTE · EXPORTS (Organilog) ═══════════════ */
 const ABS_TYPES={conge:'Congés',maladie:'Maladie',formation:'Formation',autre:'Autre'};
@@ -2388,7 +2720,7 @@ views.interventions=function(){
   const att=SRC.filter(i=>i.statut==='planifiee'||i.statut==='encours').length;
   setHeader('Interventions',`${SRC.length} au total · ${att} à venir`,`${can('voirTout')?`<button class="btn ghost" onclick="exportInterventionsCsv()">CSV</button> `:''}<button class="btn ghost" onclick="intView='${intView==='semaine'?'liste':'semaine'}';views.interventions()">${intView==='semaine'?'Liste':'Semaine'}</button> ${can('creerIntervention')?`<button class="btn" onclick="formIntervention('',${intView==='semaine'?`'${intSelDay||todayISO()}'`:'undefined'})">＋ Intervention</button>`:''}`);
   const card=i=>{ const sc=INT_STCOLOR[i.statut]||'var(--t3)'; const fin=i.statut==='terminee';
-    return `<div class="pl-row" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${i.id}')" style="border-left:3px solid ${sc}" onclick="detailIntervention('${i.id}')">
+    return `<div class="pl-row" draggable="${can('planifDeplacer')?'true':'false'}" ondragstart="event.dataTransfer.setData('text/plain','${i.id}')" style="border-left:3px solid ${sc}" onclick="detailIntervention('${i.id}')">
       <div style="text-align:center;min-width:46px;flex-shrink:0"><div class="mono" style="font-weight:800;font-size:15px;color:var(--t1)">${esc(i.heure||'—')}</div><div style="font-size:10px;color:var(--t3)">${fmtShort(i.date)}</div></div>
       <div class="pl-info">
         <div class="pl-title">${esc(i.titre)} ${i.prio==='haute'?'<span class="tag hot" style="font-size:9px">Urgent</span>':''}</div>
@@ -2478,6 +2810,7 @@ function formIntervention(id,presetDate){
   const opt=(arr,sel)=>arr.map(o=>`<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.nom)}</option>`).join('');
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>${id?'Modifier':'Intervention'}</h3><button type="submit" form="intform" class="btn sm">${id?'OK':'Créer'}</button></div>
     <form id="intform" onsubmit="saveIntervention(event,'${id||''}')">
+      <div id="int-gar-warn"></div>
       <div class="int-form-cols">
         <div class="fsec"><div class="form-sec">Client & lieu</div>
         <div class="fgroup">
@@ -2556,10 +2889,12 @@ ${!id?`
         </div></div>
       </div>
     </form>`,'full');
+  window._intSousGar=!!i.sousGarantie;
   renderIntNuis(); renderIntMeth(); renderIntCliInfo(i.clientId);
 }
 function renderIntCliInfo(cid){ const c=db.clients.find(x=>x.id===cid)||{}; const t=document.getElementById('cli-tel'), e=document.getElementById('cli-email');
   if(t) t.value=c.tel||''; if(e) e.value=c.email||'';
+  try{ garCheckBanner(); }catch(err){}
 }
 function pill(label,on,onclick){ return `<button type="button" onclick="${onclick}" style="cursor:pointer;font-size:12px;font-weight:600;padding:7px 12px;border-radius:14px;color:${on?'#fff':'var(--t2)'};background:${on?'var(--org)':'var(--bg2)'};border:1px solid ${on?'var(--org)':'var(--brd)'}">${on?'✓ ':''}${esc(label)}</button>`; }
 function renderIntNuis(){ const el=$('int-nuis'); if(!el)return;
@@ -2638,6 +2973,7 @@ function toggleIntMeth(n){ intMeth.has(n)?intMeth.delete(n):intMeth.add(n); rend
 function intOnCat(sel){ const cat=sel.value; const a=CAT_AUTO[cat];
   if(a){ if(a.nuis&&a.nuis.length){ intNuis=new Set(a.nuis); renderIntNuis(); } if(a.meth&&a.meth.length){ intMeth=new Set(a.meth); renderIntMeth(); } }
   const t=document.querySelector('#intform [name=titre]'); if(t && !t.value.trim() && cat){ t.value=cat; }
+  try{ garCheckBanner(); }catch(err){}
 }
 function intOnClient(sel){ const c=db.clients.find(x=>x.id===sel.value); const a=document.querySelector('#intform [name=adresse]');
   if(c && a && !a.value.trim()){ a.value=c.adresse||c.adresseComplete||''; }
@@ -2737,6 +3073,15 @@ function saveIntervention(e,id){ e.preventDefault(); const data=Object.fromEntri
   // Affectation automatique du technicien selon le département du client
   let autoMsg='';
   if(!data.techId && data.clientId){ const t=techForClient(data.clientId); if(t){ data.techId=t.id; data.techIds=[t.id]; autoMsg='Affecté automatiquement à '+t.nom; } }
+  // Passage sous garantie (P11) : case cochée dans le bandeau d'avertissement
+  data.sousGarantie = data.sousGarantie!==undefined;
+  // Absence BLOQUANTE : refus net, sauf droit « Obliger à travailler » (avec confirmation)
+  let _forceAbs=false;
+  if(data.date && data.techId){ const _abx=absentOn(data.techId,data.date);
+    if(_abx){ const _nom=techName(data.techId), _typ=ABS_TYPES[_abx.type]||_abx.type||'absence';
+      if(!can('planifObligerTravail')){ toast('❌ Impossible : '+_nom+' est en '+_typ+' le '+fmtShort(data.date)); return; }
+      if(!confirm(_nom+' est en '+_typ+' le '+fmtShort(data.date)+'. Appliquer l’obligation de travailler ?')) return;
+      data.obligation={par:(currentUser&&fullName(currentUser))||'',ts:Date.now()}; _forceAbs=true; } }
   // Passages multiples : crée un rendez-vous par passage, titre « k/n passage »
   const nbP=parseInt(data.nbPassages)||1;
   if(!id && nbP>1){
@@ -2748,16 +3093,18 @@ function saveIntervention(e,id){ e.preventDefault(); const data=Object.fromEntri
     logEvent('Interventions (passages)',base+' ×'+nbP,'crud');
     save(); closeModal(); toast(nbP+' passages créés'); go(current); return;
   }
-  if(id){ const ix=db.interventions.findIndex(x=>x.id===id); db.interventions[ix]={...db.interventions[ix],...data}; intHisto(db.interventions[ix],'Fiche modifiée'); syncFactureFromIntervention(db.interventions[ix]); logEvent('Modif intervention',data.titre,'crud'); }
-  else{ const obj={id:uid(),num:intNum(),compteRendu:'',...data}; intHisto(obj,'Intervention créée'); db.interventions.push(obj); syncFactureFromIntervention(obj); logEvent('Nouvelle intervention',data.titre,'crud'); notifyTechNewInt(obj); }
+  let _saved=null;
+  if(id){ const ix=db.interventions.findIndex(x=>x.id===id); db.interventions[ix]={...db.interventions[ix],...data}; _saved=db.interventions[ix]; intHisto(db.interventions[ix],'Fiche modifiée'); syncFactureFromIntervention(db.interventions[ix]); logEvent('Modif intervention',data.titre,'crud'); }
+  else{ const obj={id:uid(),num:intNum(),compteRendu:'',...data}; _saved=obj; intHisto(obj,'Intervention créée'); db.interventions.push(obj); syncFactureFromIntervention(obj); logEvent('Nouvelle intervention',data.titre,'crud'); notifyTechNewInt(obj); }
+  // Traçabilité de l'obligation de travailler (journal du planning P9)
+  if(_forceAbs && _saved){ intHisto(_saved,'⚠️ Obligation de travailler appliquée ('+techName(data.techId)+' absent le '+fmtShort(data.date)+')'); _saved._oblig=true; planStamp(_saved,null); delete _saved._oblig; }
   // Alerte si le département n'est couvert par aucun technicien
   const key=keyForClient(data.clientId);
   if(data.clientId && key && !techForKey(key)) autoMsg='Département '+keyLabel(key)+' non couvert par un technicien';
   // Détection de conflit de planning (même technicien, créneaux qui se chevauchent)
   const cf=intConflictOf(data,id);
   if(cf) autoMsg='Chevauchement : '+techName(data.techId)+' a déjà « '+(cf.titre||'')+' » à '+(cf.heure||'')+' ce jour-là';
-  const _ab=(data.techId&&data.date)?absentOn(data.techId,data.date):null;
-  if(_ab) autoMsg='Attention : '+techName(data.techId)+' est absent ce jour-là ('+(ABS_TYPES[_ab.type]||_ab.type)+')';
+  if(_forceAbs) autoMsg='⚠️ Obligation de travailler appliquée — '+techName(data.techId)+' est en absence le '+fmtShort(data.date);
   save(); closeModal(); toast(autoMsg || (id?'Mise à jour':'Intervention créée')); go(current);
 }
 let intTab='general', intBackView='interventions', infTab='plan', fsTab='medias', _effTick=null, intEdit=false;
@@ -2986,6 +3333,7 @@ function renderIntDetail(id){
     const abtn=(icn,lbl,fn,dis)=>dis?`<div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:15px;border-radius:100px;background:var(--card2);color:var(--t3);font-weight:800;font-size:15px">${icn} ${lbl}</div>`
       :`<button class="btn" onclick="${fn}" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:15px;border-radius:100px;font-weight:800;font-size:15px">${icn} ${lbl}</button>`;
     body=`<div style="max-width:470px;margin:0 auto 16px;display:flex;flex-direction:column;gap:12px;padding-top:6px">
+      ${(i.propose&&canPlan())?abtn('✅','Confirmer ce créneau (proposition auto)',`planProposeConfirm('${id}');renderIntDetail('${id}')`):''}
       ${abtn(fic('clock',18),"Consulter l'historique",`intHistoriquePassages('${id}')`)}
       ${abtn(fic('cal',18),'Créer le prochain passage',`creerProchainPassage('${id}')`)}
       ${abtn(fic('copy',18),"Dupliquer l'intervention",`dupliquerIntervention('${id}')`)}
@@ -3381,6 +3729,9 @@ function ficheClient(id){ const c=db.clients.find(x=>x.id===id); if(!c) return;
       ${k('💶','rgba(74,222,128,.16)',eur(caFact),'CA encaissé')}
       ${k('💰','rgba(167,139,250,.14)',devis.length,'Devis')}
       ${k('📑','rgba(251,146,60,.14)',ctrs.length,'Contrats actifs')}</div>
+    ${(()=>{ const pp=c.prefPassage||{}; const hasPref=(pp.jours&&pp.jours.length)||pp.techId||(pp.creneau&&pp.creneau!=='indifferent')||pp.prevenir48||pp.appelerAvant;
+      return hasPref?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:11px">${pp.jours&&pp.jours.length?`<span class="tag">📅 ${pp.jours.map(j=>['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'][j]).join(' · ')}</span>`:''}${pp.creneau&&pp.creneau!=='indifferent'?`<span class="tag">🕘 ${pp.creneau==='matin'?'Matin':pp.creneau==='apresmidi'?'Après-midi':'Heure fixe '+(pp.heureFixe||'')}</span>`:''}${pp.techId?`<span class="tag">👷 ${esc(techName(pp.techId))}</span>`:''}${pp.prevenir48?'<span class="tag">📧 Prévenir 48 h avant</span>':''}${pp.appelerAvant?'<span class="tag">📞 Appeler avant</span>':''}</div>`:''; })()}
+    ${garSectionHtml(c.id)}
     ${sec('Dernières interventions',ints,i=>`<div class="pl-row" onclick="closeModal();detailIntervention('${i.id}')"><div class="pl-info"><div class="pl-title">${esc(i.titre)}</div><div class="pl-meta">${fmtShort(i.date)} · ${esc(techName(i.techId))}</div></div>${badge(STATUT_INT,i.statut)}</div>`)}
     ${sec('Factures',facts,f=>`<div class="pl-row" onclick="closeModal();go('factures')"><div class="pl-info"><div class="pl-title">${esc(f.num)} · ${eur(docTot(f).ttc)}</div><div class="pl-meta">${fmtShort(f.date)}</div></div>${badge(FACT_ST,f.statut)}</div>`)}
     <div class="modal-foot" style="flex-wrap:wrap"><button class="btn ghost" onclick="closeModal();formClient('${c.id}')">Modifier</button>
@@ -3390,14 +3741,39 @@ function ficheClient(id){ const c=db.clients.find(x=>x.id===id); if(!c) return;
       <button class="btn" onclick="closeModal();formDoc('devis')">＋ Devis</button></div>`);
 }
 function formClient(id){ const c=id?db.clients.find(x=>x.id===id):{};
+  const pp=c.prefPassage||{};
+  const JN=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} client</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <form onsubmit="saveSimple(event,'clients','${id||''}',['x','y'])">
+    <form onsubmit="saveClientForm(event,'${id||''}')">
       <div class="field"><label>Nom / Raison sociale *</label><input name="nom" required value="${esc(c.nom)}"></div>
       <div class="field-row"><div class="field"><label>Contact</label><input name="contact" value="${esc(c.contact)}"></div>
         <div class="field"><label>Téléphone</label><input name="tel" value="${esc(c.tel)}"></div></div>
       <div class="field"><label>Email</label><input type="email" name="email" value="${esc(c.email)}"></div>
       <div class="field"><label>Adresse</label><input name="adresse" value="${esc(c.adresse)}"></div>
+      <div class="form-sec" style="margin-top:6px">Préférences de passage <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--t3)">— respectées pour proposer les passages suivants</span></div>
+      <div class="field"><label>Jours acceptés (aucun coché = tous)</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${JN.map((l,k)=>`<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;border:1px solid var(--brd);border-radius:100px;padding:5px 10px;cursor:pointer"><input type="checkbox" name="pp_j${k}" ${Array.isArray(pp.jours)&&pp.jours.includes(k)?'checked':''} style="accent-color:var(--acc)">${l}</label>`).join('')}</div></div>
+      <div class="field-row"><div class="field"><label>Créneau préféré</label><select name="pp_creneau" onchange="const f=this.form.querySelector('[name=pp_heureFixe]'); if(f) f.style.display=this.value==='fixe'?'':'none'">
+          <option value="indifferent" ${(!pp.creneau||pp.creneau==='indifferent')?'selected':''}>Indifférent</option>
+          <option value="matin" ${pp.creneau==='matin'?'selected':''}>Matin</option>
+          <option value="apresmidi" ${pp.creneau==='apresmidi'?'selected':''}>Après-midi</option>
+          <option value="fixe" ${pp.creneau==='fixe'?'selected':''}>Heure fixe</option></select></div>
+        <div class="field"><label>Heure fixe</label><input type="time" name="pp_heureFixe" value="${esc(pp.heureFixe||'09:00')}" style="display:${pp.creneau==='fixe'?'':'none'}"></div></div>
+      <div class="field"><label>Technicien habituel</label><select name="pp_techId"><option value="">Aucun (au choix)</option>${db.techniciens.map(t=>`<option value="${t.id}" ${pp.techId===t.id?'selected':''}>${esc(t.nom)}</option>`).join('')}</select></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer"><input type="checkbox" name="pp_prevenir48" ${pp.prevenir48?'checked':''} style="width:19px;height:19px;accent-color:var(--acc)">📧 Prévenir 48 h avant</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer"><input type="checkbox" name="pp_appelerAvant" ${pp.appelerAvant?'checked':''} style="width:19px;height:19px;accent-color:var(--acc)">📞 Appeler avant de venir</label></div>
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
+}
+/* Enregistrement du client + préférences de passage (P10a : db.clients[x].prefPassage) */
+function saveClientForm(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target));
+  const jours=[]; for(let k=0;k<7;k++){ if(d['pp_j'+k]!==undefined) jours.push(k); delete d['pp_j'+k]; }
+  const prefPassage={jours,creneau:d.pp_creneau||'indifferent',heureFixe:d.pp_heureFixe||'',techId:d.pp_techId||'',prevenir48:d.pp_prevenir48!==undefined,appelerAvant:d.pp_appelerAvant!==undefined};
+  ['pp_creneau','pp_heureFixe','pp_techId','pp_prevenir48','pp_appelerAvant'].forEach(k=>delete d[k]);
+  d.prefPassage=prefPassage;
+  if(id){ const ix=db.clients.findIndex(x=>x.id===id); if(ix<0) return; db.clients[ix]={...db.clients[ix],...d}; toast('Mis à jour'); }
+  else { d.x=10+Math.random()*80; d.y=10+Math.random()*80; db.clients.push({id:uid(),...d}); logEvent('Création',`clients : ${d.nom||''}`,'crud'); toast('Créé'); }
+  save(); closeModal(); go(current);
 }
 
 /* ═══════════════ RAPPORTS ═══════════════ */
@@ -3776,17 +4152,20 @@ function saveRapport(e,id){ e.preventDefault(); const f=e.target; const data=Obj
   if(effectuee){ it.finReel=Date.now(); if(it.debutReel) data.dureeReelle=Math.round((it.finReel-it.debutReel)/60000)||it.duree; }
   db.interventions[ix]={...db.interventions[ix],...data,constat,prestation,traitement,nuisibles,nuisible:nuisibles[0]||'—',traitementNuis,photos:rapPhotos.slice(),signature:sig,signatureTech:sigT,champs:JSON.parse(JSON.stringify(rapChamps))};
   syncFactureFromIntervention(db.interventions[ix]);
-  // Récurrence (Organilog) : à la clôture, planifie automatiquement la prochaine occurrence
+  // Récurrence / passages (P10) : à la clôture, on propose le passage suivant (modale « Passage suivant »)
   let recurMsg='';
   const cur=db.interventions[ix];
-  if(effectuee){ const nd=intRecurNext(cur); if(nd) recurMsg=' · Prochaine le '+fmtShort(nd); }
+  const askNext = effectuee && cur.date && !cur.nextCreated && ((cur.recurrence&&cur.recurrence!=='aucune') || cur.passageTotal>1 || cur.groupId);
+  if(askNext) cur.nextCreated=true;   // évite la double création par l'automatisme historique
+  else if(effectuee){ const nd=intRecurNext(cur); if(nd) recurMsg=' · Prochaine le '+fmtShort(nd); }
   intHisto(db.interventions[ix],effectuee?'Rapport rédigé — intervention effectuée':'Rapport enregistré');
   logEvent('Rapport rédigé',db.interventions[ix].titre+(effectuee?' (effectuée)':''),'intervention'); save();
   if(effectuee){ closeModal(); toast('Intervention effectuée ✓'+recurMsg);
     openModal(`<div class="modal-head"><h3>Intervention effectuée</h3><button class="modal-close" onclick="closeModal();go('interventions')">✕</button></div>
       <div style="padding:2px">
         <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:14px">Le rapport de <b>${esc(it.titre)}</b> est enregistré. Veux-tu l'<b>envoyer au client</b> maintenant (le PDF inclut les photos) ?</p>
-        <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal();go('interventions')">Plus tard</button><button type="button" class="btn" onclick="closeModal();envoiRapportClient('${id}')">Envoyer au client</button></div>
+        ${garQuickHtml(id)}
+        <div class="modal-foot" style="flex-wrap:wrap">${askNext?`<button type="button" class="btn" style="background:var(--org);border-color:var(--org)" onclick="planNextModal('${id}')">🔁 Passage suivant…</button>`:''}<button type="button" class="btn ghost" onclick="closeModal();go('interventions')">Plus tard</button><button type="button" class="btn" onclick="closeModal();envoiRapportClient('${id}')">Envoyer au client</button></div>
       </div>`);
   } else { closeModal(); toast('Rapport enregistré'); go(current); } }
 
@@ -6362,7 +6741,7 @@ function ficheTech(id){ const t=db.techniciens.find(x=>x.id===id); if(!t) return
 }
 async function saveTech(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target));
   if(!id && !planPlaceLibre()){ proposerAbonnement(); return; }
-  const obj={nom:d.nom,metier:d.metier||'Technicien',tel:d.tel,email:d.email,departements:d.departements,couleur:d.couleur,certibiocide:d.certibiocide||'',certibiocideExp:d.certibiocideExp||''};
+  const obj={nom:d.nom,metier:d.metier||'Technicien',tel:d.tel,email:d.email,departements:d.departements,couleur:d.couleur,certibiocide:d.certibiocide||'',certibiocideExp:d.certibiocideExp||'',capMin:Math.round((parseFloat(String(d.capH||'').replace(',','.'))||7)*60)};
   const role = d.metier==="Chef d'équipe" ? 'chefEquipe' : 'technicien';
   if(id){ const ix=db.techniciens.findIndex(x=>x.id===id); db.techniciens[ix]={...db.techniciens[ix],...obj};
     const u=db.users.find(x=>x.techId===id); if(u){ u.role=role; } // garde le rôle du compte aligné
@@ -6392,6 +6771,7 @@ function formTech(id){ const t=id?db.techniciens.find(x=>x.id===id):{};
       <div class="field-row"><div class="field"><label>Téléphone</label><input name="tel" value="${esc(t.tel)}"></div><div class="field"><label>Email</label><input type="email" name="email" value="${esc(t.email)}"></div></div>
       <div class="field"><label>Secteur — départements</label><input name="departements" value="${esc(t.departements)}" placeholder="Ex : 85 Vendée, 44, Paris 75011"><div style="font-size:11px;color:var(--t3);margin-top:4px">Un département entier (n° ou nom). Grandes villes : par arrondissement (ex. 75011).</div></div>
       <div class="field"><label>Couleur (carte)</label><select name="couleur"><option value="" ${!t.couleur?'selected':''}>Auto (couleur unique)</option>${TECH_PALETTE.map((c,i)=>`<option value="${c}" ${t.couleur===c?'selected':''} style="background:${c}">${['Vert','Bleu','Violet','Orange','Rouge','Cyan','Jaune','Rose'][i]}</option>`).join('')}</select></div>
+      <div class="field"><label>Capacité par jour (heures)</label><input name="capH" type="number" min="1" max="14" step="0.5" value="${t.capMin?(t.capMin/60):7}" style="text-align:right"><div style="font-size:11px;color:var(--t3);margin-top:4px">Sert à la jauge de charge du planning (vert ≤ 75 %, orange 76-99 %, rouge ≥ 100 %). Défaut : 7 h.</div></div>
       <div class="field-row"><div class="field"><label>Certibiocide n°</label><input name="certibiocide" value="${esc(t.certibiocide)}" placeholder="N° du certificat" class="mono"></div>
         <div class="field"><label>Valide jusqu'au</label><input type="date" name="certibiocideExp" value="${t.certibiocideExp||''}"></div></div>
       <div style="font-size:11px;color:var(--t3);margin:-6px 2px 10px">Certibiocide : obligatoire pour appliquer des produits biocides professionnels (validité 5 ans). Une alerte apparaît 60 jours avant l'expiration.</div>
@@ -6409,6 +6789,8 @@ views.utilisateurs=function(){
 };
 const USER_CAPS=[
   ['creerIntervention','Créer / planifier des interventions',''],
+  ['planifDeplacer','Déplacer / réassigner le planning','Glisser-déposer les interventions, gérer indispos et notes de journée'],
+  ['planifObligerTravail','Obliger à travailler (planifier sur une absence)','Autorise à poser une intervention sur un jour de congé / absence, après confirmation'],
   ['annuler','Annuler une intervention',''],
   ['supprimer','Supprimer des éléments','Box, clients, factures…'],
   ['voirTout','Tout voir','Toutes les interventions et tous les box (sinon, seulement les siens)'],
@@ -6482,7 +6864,7 @@ function delUser(id){ if(id===currentUser.id){toast('Impossible de supprimer vot
 /* ── Accès au cas par cas (par utilisateur) ── */
 function formAccess(id){ const u=db.users.find(x=>x.id===id); if(!u)return; if(currentUser.role!=='admin'){ toast('Réservé à l\'administrateur'); return; }
   if(u.role==='admin'){ toast('L\'administrateur a déjà tous les accès'); return; }
-  const caps=[['creerIntervention','Créer / planifier des interventions'],['annuler','Annuler une intervention'],['supprimer','Supprimer des éléments'],['voirTout','Voir TOUTES les interventions (sinon seulement les siennes)']];
+  const caps=[['creerIntervention','Créer / planifier des interventions'],['planifDeplacer','Déplacer / réassigner le planning'],['planifObligerTravail','Obliger à travailler (planifier sur une absence)'],['annuler','Annuler une intervention'],['supprimer','Supprimer des éléments'],['voirTout','Voir TOUTES les interventions (sinon seulement les siennes)']];
   const mods=NAV.flatMap(s=>s.items).filter(it=>it.k!=='dashboard');
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal();views.utilisateurs()">Fermer</button><h3>Accès — ${esc(fullName(u))}</h3><button type="button" class="btn sm" onclick="closeModal();views.utilisateurs()">OK</button></div>
     <div style="padding:2px">
@@ -8406,6 +8788,8 @@ function enterApp(u){ currentUser=u; try{ gpsAutoChrono(); }catch(e){} $('login'
   maybeDemoTelecollecte();
   if(typeof syncInit==='function') syncInit();
   if(!maybeWelcome()) maybeRappels();
+  setTimeout(()=>{ try{ planFdrCheck(); }catch(e){} },1200);       // P7 : feuille de route du matin (techniciens)
+  setTimeout(()=>{ try{ garAlertCheck(); }catch(e){} },2600);      // P11 : garanties qui expirent sous 30 j (admin)
   setTimeout(maybeProfilePhoto,900); setTimeout(avatarAccentSync,1600);
   setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') pushSubscribe(true); else setTimeout(pushPropose,1800); }catch(e){} },2400); }
 /* TEST/DÉMO — ajoute une fois une télécollecte d'exemple si aucune n'existe, pour voir le rendu en Comptabilité. À retirer plus tard. */
