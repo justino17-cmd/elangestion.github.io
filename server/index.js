@@ -606,8 +606,9 @@ app.post('/api/monitor/users', monPatronStrict, (req, res) => {
   const email = monStr((req.body || {}).email, 120).trim().toLowerCase();
   const pass = monStr((req.body || {}).pass, 200);
   if (!nom || pass.length < 8) return res.status(400).json({ error: 'nom requis et mot de passe de 8 caractères minimum' });
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'e-mail invalide (celui de son compte espace TeamOP)' });
-  if (monUsers.some(u => u.nom.toLowerCase() === nom.toLowerCase() || String(u.email || '').toLowerCase() === email)) return res.status(409).json({ error: 'ce nom ou cet e-mail existe déjà' });
+  // e-mail FACULTATIF : les collaborateurs se connectent avec leur nom d'utilisateur seul (décision patron)
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'e-mail invalide (ou laisse le champ vide)' });
+  if (monUsers.some(u => u.nom.toLowerCase() === nom.toLowerCase() || (email && String(u.email || '').toLowerCase() === email))) return res.status(409).json({ error: 'ce nom (ou cet e-mail) existe déjà' });
   if (monUsers.length >= 30) return res.status(400).json({ error: 'trop de comptes (30 max)' });
   const u = { id: 'u' + crypto.randomBytes(5).toString('hex'), nom, email, hash: monHash(pass), role: 'collaborateur', actif: true, ts: Date.now(), creePar: req.tourUser.nom };
   monUsers.push(u); monSave();
