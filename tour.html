@@ -190,6 +190,10 @@ details.avance summary:hover{ color:var(--t1); }
   .lst{ max-height:520px; }
 }
 
+/* corps d'un vrai e-mail (HTML) affiché dans un cadre isolé */
+.corps-html{ width:100%; height:340px; border:1px solid var(--line); border-radius:10px; background:#fff; display:block; }
+@media(max-width:640px){ .corps-html{ height:280px; } }
+
 /* ── mobile (≤640px) : onglets utilisables, tableau en cartes empilées ── */
 @media(max-width:640px){
   /* en-tête sur UNE seule ligne (57 px) : sinon il grandit et recouvre la barre d'onglets au défilement */
@@ -346,6 +350,7 @@ details.avance summary:hover{ color:var(--t1); }
           <option value="traite">Traités</option>
           <option value="archive">Archivés</option>
         </select>
+        <span id="sup-bar-plus" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"></span>
         <span class="sp" id="sup-maj"></span>
       </div>
       <div class="grid2">
@@ -749,7 +754,13 @@ function loadSupport(silent){
     return apiGet('/api/monitor/support/mails').then(function(m){
       SUP.busy=false;
       if(m){
-        SUP.mails=(m.mails||[]).slice().sort(function(x,y){ return (y.ts||0)-(x.ts||0); });
+        /* le serveur envoie text/fromName ; l'interface parle texte/fromNom — on aligne ici (c'est ce qui affichait « message vide ») */
+        SUP.mails=(m.mails||[]).map(function(x){
+          x.texte=(x.texte!==undefined?x.texte:(x.text||''));
+          x.extrait=(x.extrait!==undefined?x.extrait:String(x.texte||'').slice(0,160));
+          x.fromNom=(x.fromNom!==undefined?x.fromNom:(x.fromName||''));
+          return x;
+        }).sort(function(x,y){ return (y.ts||0)-(x.ts||0); });
         SUP.nonTraites=Number(m.nonTraites)||0;
         if(m.email) SUP.box.email=m.email;
         if(m.connected===false) SUP.box.connected=false;
@@ -768,10 +779,26 @@ function renderSup(){
   }
   if(!SUP.box||!SUP.box.connected){ on.style.display='none'; off.style.display=''; renderSupAccueil(); return; }
   off.style.display='none'; off.removeAttribute('data-mode'); off.innerHTML=''; on.style.display='';
-  $('sup-titre').textContent='📬 '+(SUP.box.email||'boîte support')+' · connectée';
+  $('sup-titre').innerHTML='📬 '+esc(SUP.box.email||'boîte support')+' · connectée'
+    +(MYROLE==='patron'?' <button class="btn ghost" style="font-size:11.5px;padding:4px 10px;margin-left:8px;vertical-align:2px" onclick="supChangerBoite()">⚙️ Changer de boîte</button>':'');
   $('sup-maj').textContent=SUP.err||heureMaj();
+  var bar=$('sup-bar-plus');
+  if(bar && bar.getAttribute('data-pret')!=='1'){
+    bar.setAttribute('data-pret','1');
+    bar.innerHTML='<button class="btn sm" onclick="supEcrire()">✉️ Écrire un message</button>'+
+      '<input id="sup-q" placeholder="Rechercher un message…" spellcheck="false" style="min-width:200px" oninput="SUP.q=this.value;renderSupList()">';
+    if(SUP.q) $('sup-q').value=SUP.q;
+  }
   if($('sup-filtre').value!==SUP.filtre) $('sup-filtre').value=SUP.filtre;
   renderSupList(); renderSupRead();
+}
+/* changer la boîte reliée (patron) — réaffiche le formulaire pré-rempli avec l'adresse actuelle */
+function supChangerBoite(){
+  if(MYROLE!=='patron') return;
+  SUP.changer=(SUP.box&&SUP.box.email)||'';
+  SUP.box={connected:false};
+  $('sup-off').removeAttribute('data-mode');
+  renderSup();
 }
 /* carte d'accueil : on ne la redessine QUE si son contenu change (sinon le patron perdrait sa saisie) */
 function renderSupAccueil(){
@@ -780,9 +807,11 @@ function renderSupAccueil(){
   var h='<div class="card accueil"><h2>📬 Boîte support</h2>'+
     '<p>Ici arrivent les e-mails que vos clients envoient à votre adresse support. Vous les lisez et vous leur répondez directement depuis cette page, sans ouvrir de logiciel de messagerie.</p>';
   if(MYROLE==='patron'){
-    h+='<p><b>La boîte n\'est pas encore reliée.</b> Indiquez son adresse et son mot de passe pour la connecter.</p>'+
+    h+=(SUP.changer
+        ? '<p><b>Changer de boîte.</b> La boîte reliée est <b>'+esc(SUP.changer)+'</b>. Indiquez l\'adresse et le mot de passe de la nouvelle boîte — les messages de l\'ancienne seront retirés de cette page (ils restent dans votre messagerie).</p>'
+        : '<p><b>La boîte n\'est pas encore reliée.</b> Indiquez son adresse et son mot de passe pour la connecter.</p>')+
       '<div class="fl">'+
-        '<div><label>ADRESSE E-MAIL</label><input id="sup-cx-email" placeholder="support@teamop.fr" autocomplete="off" spellcheck="false"></div>'+
+        '<div><label>ADRESSE E-MAIL</label><input id="sup-cx-email" value="'+esc(SUP.changer||'')+'" placeholder="support@teamop.fr" autocomplete="off" spellcheck="false"></div>'+
         '<div><label>MOT DE PASSE DE LA BOÎTE</label><input id="sup-cx-pass" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key===\'Enter\')supConnect()"></div>'+
       '</div>'+
       '<details class="avance"><summary>⚙️ Réglages avancés (à ne changer que si votre e-mail n\'est pas chez OVH)</summary><div class="fl">'+
@@ -822,6 +851,9 @@ function supFiltres(){ return SUP.mails.filter(function(m){ return SUP.filtre===
 function renderSupList(){
   var el=$('sup-list'); if(!el) return;
   var sc=el.scrollTop, list=supFiltres();
+  var q=(SUP.q||'').trim().toLowerCase();
+  if(q) list=list.filter(function(m){
+    return ((m.subject||'')+' '+(m.from||'')+' '+(m.fromNom||'')+' '+(m.texte||m.extrait||'')).toLowerCase().indexOf(q)>=0; });
   el.innerHTML=list.map(function(m){
     var neuf=(m.statut||'nouveau')==='nouveau', qui=m.fromNom||m.from||'expéditeur inconnu';
     return '<div class="li-row'+(neuf?' neuf':'')+(SUP.sel===m.id?' sel':'')+'" onclick="supSel(\''+jsq(m.id)+'\')">'+
@@ -853,7 +885,8 @@ function renderSupRead(force){
     '<div class="kv"><span class="tag m-'+esc(st)+'">'+(MAIL_TXT[st]||esc(st))+'</span></div>'+
     '<div class="kv">👤 <b>'+esc(m.fromNom||m.from||'—')+'</b>'+(m.from&&m.fromNom?' · '+esc(m.from):'')+'</div>'+
     '<div class="kv">🕐 '+fmtDate(m.ts)+' · '+fmtAgo(m.ts)+'</div>'+
-    '<div class="corps">'+esc(m.texte||m.extrait||'(message vide)')+'</div>'+
+    supCorpsHtml(m)+
+    ((m.pieces&&m.pieces.length)?'<div class="kv" style="margin-top:8px">📎 '+m.pieces.map(function(p){ return '<span class="tag">'+esc(p.nom)+(p.taille?' · '+Math.max(1,Math.round(p.taille/1024))+' Ko':'')+'</span>'; }).join(' ')+'</div>':'')+
     (reps?'<div class="histo"><div class="h1">Réponses déjà envoyées</div>'+reps+'</div>':'')+
     '<div style="margin-top:12px"><div class="sub" style="margin-bottom:5px">Votre réponse</div>'+
       '<textarea id="sup-rep" rows="5" placeholder="Écrivez votre réponse ici…" oninput="supDraft(this.value)"></textarea></div>'+
@@ -862,8 +895,63 @@ function renderSupRead(force){
       (st!=='traite'?'<button class="btn ghost sm" onclick="supMark(\'traite\')">✓ Marquer traité</button>':'')+
       (st!=='archive'?'<button class="btn ghost sm" onclick="supMark(\'archive\')">📦 Archiver</button>':'')+
       (st!=='nouveau'?'<button class="btn ghost sm" onclick="supMark(\'nouveau\')">↩︎ Rouvrir</button>':'')+
+      '<button class="btn ghost sm" style="color:var(--red)" onclick="supRetirer()">🗑 Retirer de la page</button>'+
     '</div>';
   $('sup-rep').value=SUP.drafts[m.id]||'';
+}
+/* corps du message : le HTML des vrais e-mails est affiché dans un cadre ISOLÉ (rien de ce mail ne peut agir sur la page) */
+function supCorpsHtml(m){
+  var txt=String(m.texte||m.extrait||'').trim();
+  if(m.html){
+    var doc='<!doctype html><meta charset="utf-8"><base target="_blank">'
+      +'<style>html,body{margin:0;padding:10px;background:#fff;color:#1a2233;font:13.5px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;word-wrap:break-word}'
+      +'img{max-width:100%;height:auto}table{max-width:100%}a{color:#2563eb}</style>'+m.html;
+    return '<iframe class="corps-html" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" srcdoc="'+esc(doc)+'"></iframe>'
+      +(txt?'<details class="avance" style="margin-top:6px"><summary>Voir la version texte</summary><div class="corps">'+esc(txt)+'</div></details>':'');
+  }
+  return '<div class="corps">'+esc(txt||'(message vide)')+'</div>';
+}
+/* écrire un nouveau message (vraie boîte : on n'est pas obligé de répondre à un mail reçu) */
+function supEcrire(){
+  SUP.compose=SUP.compose||{to:'',subject:'',text:''};
+  SUP.composeOuvert=true;
+  var el=$('sup-read'); if(!el) return;
+  SUP.selRendu='__compose__';
+  el.innerHTML='<h3>✉️ Nouveau message</h3>'+
+    '<div style="margin-top:10px"><div class="sub" style="margin-bottom:5px">Destinataire</div>'+
+      '<input id="sup-c-to" placeholder="client@exemple.fr" spellcheck="false" oninput="SUP.compose.to=this.value"></div>'+
+    '<div style="margin-top:10px"><div class="sub" style="margin-bottom:5px">Objet</div>'+
+      '<input id="sup-c-obj" placeholder="Objet du message" oninput="SUP.compose.subject=this.value"></div>'+
+    '<div style="margin-top:10px"><div class="sub" style="margin-bottom:5px">Message</div>'+
+      '<textarea id="sup-c-txt" rows="8" placeholder="Écrivez votre message ici…" oninput="SUP.compose.text=this.value"></textarea></div>'+
+    '<div class="d-actions">'+
+      '<button class="btn sm" id="sup-c-send" onclick="supEnvoyer()">✉️ Envoyer</button>'+
+      '<button class="btn ghost sm" onclick="SUP.composeOuvert=false;SUP.selRendu=null;renderSupRead(true)">Annuler</button>'+
+    '</div><div class="sub" style="margin-top:8px">Envoyé au nom de '+esc((SUP.box&&SUP.box.email)||'la boîte support')+'.</div>';
+  $('sup-c-to').value=SUP.compose.to||''; $('sup-c-obj').value=SUP.compose.subject||''; $('sup-c-txt').value=SUP.compose.text||'';
+}
+function supEnvoyer(){
+  var c=SUP.compose||{}, b=$('sup-c-send');
+  if(!(c.to||'').trim()){ toast('⚠️ Indiquez le destinataire'); return; }
+  if(!(c.text||'').trim()){ toast('⚠️ Écrivez d\'abord votre message'); return; }
+  b.disabled=true; b.textContent='Envoi en cours…';
+  fetch(API+'/api/monitor/support/envoyer',{method:'POST',headers:hAuth(),body:JSON.stringify({to:c.to,subject:c.subject,text:c.text})})
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+    .then(function(x){
+      b.disabled=false; b.textContent='✉️ Envoyer';
+      if(!x.ok){ toast('⚠️ '+((x.d&&x.d.error)||'envoi refusé')); return; }
+      toast('✉️ Message envoyé à '+c.to);
+      SUP.compose={to:'',subject:'',text:''}; SUP.composeOuvert=false; SUP.selRendu=null; renderSupRead(true);
+    })
+    .catch(function(){ b.disabled=false; b.textContent='✉️ Envoyer'; toast('⚠️ Serveur injoignable'); });
+}
+/* retirer un message de la page (il reste dans la messagerie) */
+function supRetirer(){
+  var m=supMail(); if(!m) return;
+  if(!confirm('Retirer « '+(m.subject||'ce message')+' » de cette page ?\n\nLe message reste dans votre messagerie.')) return;
+  fetch(API+'/api/monitor/support/retirer',{method:'POST',headers:hAuth(),body:JSON.stringify({id:m.id})})
+    .then(function(){ SUP.sel=null; SUP.selRendu=null; loadSupport(true); toast('🗑 Message retiré de la page'); })
+    .catch(function(){ toast('⚠️ Serveur injoignable'); });
 }
 function supReply(){
   var m=supMail(); if(!m) return;

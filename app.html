@@ -827,7 +827,7 @@ const STORE_KEY = 'elan_gestion_v2';
     const k=msg.slice(0,120); if(sent[k]) return; sent[k]=1;
     let team='inconnu'; try{ team=localStorage.getItem('elan_sync_team')||'demo'; }catch(_){}
     let ver=''; try{ ver=String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){}
-    fetch('https://api.teamop.fr/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:team,app:'elan',version:ver,msg:msg.slice(0,300),src:src.slice(0,200),line:line||0,stack:String(stack||'').slice(0,800),ua:navigator.userAgent.slice(0,150)})}).catch(()=>{});
+    fetch('https://api.teamop.fr/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:team,app:'opgestion',version:ver,msg:msg.slice(0,300),src:src.slice(0,200),line:line||0,stack:String(stack||'').slice(0,800),ua:navigator.userAgent.slice(0,150)})}).catch(()=>{});
   }catch(_){}}
   window.addEventListener('error',e=>rep(e.message,e.filename,e.lineno,e.error&&e.error.stack));
   window.addEventListener('unhandledrejection',e=>{ const r=e.reason||{}; rep('Promesse rejetée : '+(r.message||String(r)),'',0,r.stack); });
@@ -2829,7 +2829,7 @@ async function srvMail(to,subject,body,okMsg,cat,boxOverride,opts){
     const d=await r.json().catch(()=>({}));
     _srvMailErr=d.error||('erreur serveur HTTP '+r.status);
     toast('Envoi refusé ('+_srvMailErr+') — e-mail préparé dans Mail');
-    try{ fetch(PUSH_API+'/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:syncTeam(),app:'elan',version:String(typeof APP_VERSION!=='undefined'?APP_VERSION:''),msg:'Envoi e-mail refusé par le serveur : '+_srvMailErr,src:'srvMail',line:0,stack:'destinataire '+to,ua:navigator.userAgent.slice(0,150)})}).catch(()=>{}); }catch(_){}
+    try{ fetch(PUSH_API+'/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:syncTeam(),app:'opgestion',version:String(typeof APP_VERSION!=='undefined'?APP_VERSION:''),msg:'Envoi e-mail refusé par le serveur : '+_srvMailErr,src:'srvMail',line:0,stack:'destinataire '+to,ua:navigator.userAgent.slice(0,150)})}).catch(()=>{}); }catch(_){}
   }catch(e){ _srvMailErr='serveur d\'envoi injoignable'; toast('Serveur injoignable — e-mail préparé dans Mail'); }
   location.href='mailto:'+encodeURIComponent(to)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent((opts&&opts.mailtoBody)||body);
   return false;
@@ -8325,7 +8325,7 @@ async function envoiBonEmail(id,quiet,mbId){ const b=db.bons.find(x=>x.id===id);
   // Le PDF est TOUJOURS joint. Si sa génération échoue, on le signale (vigie + message) et le détail part en texte.
   try{ opts.atts=[{filename:(bonNum(b)||'bon-de-commande').replace(/[^\w-]/g,'_')+'.pdf',content:btoa(bonPdfStr(b))}]; }
   catch(e){ console.error('pdf',e);
-    try{ fetch(PUSH_API+'/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:(localStorage.getItem('elan_sync_team')||'inconnu'),app:'elan',version:String(typeof APP_VERSION!=='undefined'?APP_VERSION:''),msg:'Génération du PDF de bon impossible : '+((e&&e.message)||e),src:'bonPdfStr',line:0,stack:String((e&&e.stack)||'').slice(0,800),ua:navigator.userAgent.slice(0,150)})}).catch(()=>{}); }catch(_){}
+    try{ fetch(PUSH_API+'/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:(localStorage.getItem('elan_sync_team')||'inconnu'),app:'opgestion',version:String(typeof APP_VERSION!=='undefined'?APP_VERSION:''),msg:'Génération du PDF de bon impossible : '+((e&&e.message)||e),src:'bonPdfStr',line:0,stack:String((e&&e.stack)||'').slice(0,800),ua:navigator.userAgent.slice(0,150)})}).catch(()=>{}); }catch(_){}
     toast('⚠️ PDF non joint (erreur de génération signalée) — le détail part dans le texte du mail'); }
   if(opts.atts) body=`Bonjour,${nl}${nl}Veuillez trouver ci-joint notre bon de commande ${bonNum(b)} (${(b.lignes||[]).length} article(s) — ${bonQteTotTxt(b)}).${nl}Voir le PDF joint pour le détail de la commande.${nl}${nl}${liv}Cordialement,${nl}${fullName(currentUser)}${nl}${ent}`;
   const ok=await srvMail(f.email,subject,body,'✉️ Bon '+bonNum(b)+' envoyé à '+f.email+(opts.atts?' (PDF joint)':''),'bon',null,opts);

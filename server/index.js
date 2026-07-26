@@ -151,6 +151,11 @@ try { // recharge les dernières 24 h au démarrage
 } catch (e) {}
 const bugSeen = new Map();   // hash d'erreur -> date du dernier e-mail (anti-spam)
 const bugQuota = new Map();  // espace -> quota horaire
+// noms d'applications lisibles pour les e-mails et le contrôle (les anciennes versions envoient encore « elan »)
+const APPS_NOM = { elan: 'OP GESTION', 'elan-gestion': 'OP GESTION', elangestion: 'OP GESTION', opgestion: 'OP GESTION',
+  opmessages: 'OP MESSAGES', opmsg: 'OP MESSAGES', messages: 'OP MESSAGES', espace: 'ESPACE CLIENT', site: 'SITE TEAM OP' };
+function appLisible(a) { const k = String(a || '').toLowerCase().trim(); return APPS_NOM[k] || (k ? k.toUpperCase() : 'APPLICATION'); }
+
 app.post('/api/bug', (req, res) => {
   const { teamId, app: appName, version, msg, src, line, stack, ua } = req.body || {};
   if (!msg) return res.status(400).json({ error: 'msg requis' });
@@ -168,8 +173,8 @@ app.post('/api/bug', (req, res) => {
     const to = config.alertEmail || config.contactEmail || 'contact@teamop.fr';
     mailer.sendMail({
       from: config.smtp.from || config.smtp.user, to,
-      subject: '🐛 Bug ' + entry.app.toUpperCase() + (entry.version !== '?' ? ' v' + entry.version : '') + ' — espace « ' + team + ' »',
-      text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + entry.app + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».'
+      subject: '🐛 Bug ' + appLisible(entry.app) + (entry.version !== '?' ? ' v' + entry.version : '') + ' — espace « ' + team + ' »',
+      text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + appLisible(entry.app) + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».'
     }).catch(e => console.error('bug mail:', e.message));
   }
   res.json({ ok: true });
@@ -693,20 +698,50 @@ let supportBox = null;    // { email, pass, imapHost, imapPort, smtpHost, smtpPo
 let supportMails = [];    // [{ id, mid, from, fromName, subject, text, ts, statut:'nouveau'|'traite'|'archive', reponses:[{ts,par,text}] }]
 try { supportBox = JSON.parse(fs.readFileSync(SUPPORT_BOX_PATH, 'utf8')); } catch (e) {}
 try { supportMails = JSON.parse(fs.readFileSync(SUPPORT_MAILS_PATH, 'utf8')); } catch (e) {}
+const SUPPORT_ENVOYES_PATH = path.join(DATA_DIR, 'support-envoyes.json');
+let supportEnvoyes = [];   // [{ id, to, subject, text, ts, par }] — les messages écrits depuis le contrôle
+try { supportEnvoyes = JSON.parse(fs.readFileSync(SUPPORT_ENVOYES_PATH, 'utf8')); } catch (e) {}
 let supSaveTimer = null;
 function supSave() {
   clearTimeout(supSaveTimer);
   supSaveTimer = setTimeout(() => {
     try { if (supportMails.length > 300) supportMails = supportMails.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 300); fs.writeFileSync(SUPPORT_MAILS_PATH, JSON.stringify(supportMails)); } catch (e) { console.error('support save:', e.message); }
+    try { fs.writeFileSync(SUPPORT_ENVOYES_PATH, JSON.stringify(supportEnvoyes)); } catch (e) {}
   }, 400);
 }
 const supMids = new Set(supportMails.map(m => m.mid).filter(Boolean));
-function supEntry(env, text, histo) {
+// HTML → texte lisible (beaucoup de mails n'ont AUCUNE version texte : sans ça le message paraissait vide)
+function htmlEnTexte(h) {
+  if (!h) return '';
+  return String(h)
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ').replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&[a-z#0-9]{2,8};/gi, ' ')
+    .replace(/[ \t\u00a0]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function supEntry(env, corps, histo) {
   const from = ((env.from || [])[0] || {});
+  const c = (corps && typeof corps === 'object') ? corps : { text: corps };
+  const texte = String(c.text || '').trim() || htmlEnTexte(c.html);
   return { id: 'm' + crypto.randomBytes(6).toString('hex'), mid: String(env.messageId || '').slice(0, 200),
     from: String(from.address || '').toLowerCase().slice(0, 120), fromName: String(from.name || '').slice(0, 80),
-    subject: String(env.subject || '(sans objet)').slice(0, 200), text: String(text || '').slice(0, 4000),
+    subject: String(env.subject || '(sans objet)').slice(0, 200),
+    text: texte.slice(0, 12000),
+    html: String(c.html || '').slice(0, 120000),                      // affiché dans un cadre isolé côté contrôle
+    pieces: (Array.isArray(c.pieces) ? c.pieces : []).slice(0, 12),   // nom + taille des pièces jointes
     ts: env.date ? new Date(env.date).getTime() : Date.now(), statut: 'nouveau', reponses: [], histo: histo ? 1 : 0 };
+}
+// extraction complète d'un message (texte + HTML + pièces jointes)
+async function supCorps(source) {
+  try {
+    const { simpleParser } = require('mailparser');
+    const p = await simpleParser(source);
+    return { text: String(p.text || ''), html: typeof p.html === 'string' ? p.html : '',
+      pieces: (p.attachments || []).filter(a => a.filename).map(a => ({ nom: String(a.filename).slice(0, 120), taille: a.size || 0 })) };
+  } catch (e) { return { text: '', html: '', pieces: [] }; }
 }
 let supportBusy = false;
 async function releveSupport(importHisto) {   // même mécanique que la relève des boîtes commandes
@@ -720,21 +755,19 @@ async function releveSupport(importHisto) {   // même mécanique que la relève
       if (importHisto) {   // à la connexion : les ~30 derniers mails arrivent (sans toucher aux drapeaux)
         const total = (client.mailbox && client.mailbox.exists) || 0;
         if (total) {
-          for await (const msg of client.fetch(Math.max(1, total - 29) + ':*', { envelope: true, source: { maxLength: 150000 } })) {
+          for await (const msg of client.fetch(Math.max(1, total - 29) + ':*', { envelope: true, source: { maxLength: 600000 } })) {
             const env = msg.envelope || {}; const mid = String(env.messageId || '').slice(0, 200);
             if (mid && supMids.has(mid)) continue;
-            let text = ''; try { const p = await simpleParser(msg.source); text = String(p.text || ''); } catch (e) {}
-            supportMails.push(supEntry(env, text, true)); if (mid) supMids.add(mid);
+            supportMails.push(supEntry(env, await supCorps(msg.source), true)); if (mid) supMids.add(mid);
           }
         }
       }
       const nouveaux = [];
-      for await (const msg of client.fetch({ seen: false }, { envelope: true, source: { maxLength: 150000 } })) nouveaux.push(msg);
+      for await (const msg of client.fetch({ seen: false }, { envelope: true, source: { maxLength: 600000 } })) nouveaux.push(msg);
       for (const msg of nouveaux) {
         const env = msg.envelope || {}; const mid = String(env.messageId || '').slice(0, 200);
         if (mid && supMids.has(mid)) { try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {} continue; }
-        let text = ''; try { const { simpleParser: sp } = require('mailparser'); const p = await sp(msg.source); text = String(p.text || ''); } catch (e) {}
-        supportMails.push(supEntry(env, text));
+        supportMails.push(supEntry(env, await supCorps(msg.source)));
         if (mid) supMids.add(mid);
         try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {}
       }
@@ -765,6 +798,11 @@ app.post('/api/monitor/support/connect', monPatronStrict, async (req, res) => {
     const c = new ImapFlow({ host: box.imapHost, port: box.imapPort, secure: true, auth: { user: box.email, pass: box.pass }, logger: false });
     await c.connect(); await c.logout();
   } catch (e) { return res.status(400).json({ error: 'Connexion réception (IMAP) refusée : ' + String(e.message || e).slice(0, 140) }); }
+  // changement d'adresse : on retire les messages de l'ancienne boîte (ils restent dans la messagerie)
+  if (supportBox && supportBox.email && supportBox.email.toLowerCase() !== box.email.toLowerCase()) {
+    supportMails.length = 0;
+    try { supSave(); } catch (e) {}
+  }
   supportBox = box;
   try { fs.writeFileSync(SUPPORT_BOX_PATH, JSON.stringify(box)); } catch (e) {}
   res.json({ ok: true, email: box.email });
@@ -796,6 +834,34 @@ app.post('/api/monitor/support/reply', monAdmin, async (req, res) => {
   mail.statut = 'traite';
   supSave();
   res.json({ ok: true, mail });
+});
+// écrire un NOUVEAU message depuis le contrôle (vraie boîte mail : on n'est pas obligé de répondre à un mail reçu)
+app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
+  if (!supportBox) return res.status(503).json({ error: 'boîte support non connectée' });
+  const { to, subject, text } = req.body || {};
+  const dest = monStr(to, 200).trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(dest.replace(/^.*</, '').replace(/>.*$/, ''))) return res.status(400).json({ error: 'adresse du destinataire invalide' });
+  const obj = monStr(subject, 200).trim() || '(sans objet)';
+  const corps = String(text || '').slice(0, 8000);
+  if (!corps.trim()) return res.status(400).json({ error: 'message vide' });
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({ host: supportBox.smtpHost, port: supportBox.smtpPort, secure: supportBox.smtpPort === 465, auth: { user: supportBox.email, pass: supportBox.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
+    await t.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps });
+  } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
+  supportEnvoyes.unshift({ id: 'e' + crypto.randomBytes(5).toString('hex'), to: dest, subject: obj, text: corps.slice(0, 2000), ts: Date.now(), par: req.tourUser.nom });
+  if (supportEnvoyes.length > 100) supportEnvoyes.length = 100;
+  supSave();
+  res.json({ ok: true });
+});
+// messages envoyés depuis le contrôle
+app.get('/api/monitor/support/envoyes', monAdmin, (req, res) => res.json({ envoyes: supportEnvoyes.slice(0, 60) }));
+// retirer un message de la page (il reste dans la messagerie)
+app.post('/api/monitor/support/retirer', monAdmin, (req, res) => {
+  const i = supportMails.findIndex(m => m.id === (req.body || {}).id);
+  if (i < 0) return res.status(404).json({ error: 'mail introuvable' });
+  supportMails.splice(i, 1); supSave();
+  res.json({ ok: true });
 });
 // marquer traité / archiver / rouvrir
 app.post('/api/monitor/support/marquer', monAdmin, (req, res) => {
