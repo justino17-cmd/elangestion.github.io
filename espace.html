@@ -190,9 +190,11 @@
   }catch(_){ }
   try{
     var tmF=window.fetch;
+    // (la synchro silencieuse /api/clients/sync est exclue : partant à chaque visite, elle remplirait
+    //  la tour de contrôle d'incidents réseau identiques pendant une panne de l'API)
     if(tmF) window.fetch=function(input){ var url=''; try{ url=(typeof input==='string')?input:((input&&input.url)||''); }catch(_){ }
       var p=tmF.apply(window,arguments);
-      try{ if(/api\.teamop\.fr/.test(url)&&url.indexOf('/api/monitor/')<0){ var ep=url.replace(/^https?:\/\/[^\/]+/,'').split('?')[0];
+      try{ if(/api\.teamop\.fr/.test(url)&&url.indexOf('/api/monitor/')<0&&url.indexOf('/api/clients/sync')<0){ var ep=url.replace(/^https?:\/\/[^\/]+/,'').split('?')[0];
         p.then(function(r){ try{ if(r&&r.status>=500) tmPush('reseau','api.teamop.fr a répondu '+r.status+' sur '+ep,'','',0); }catch(_){ } },function(err){ try{ tmPush('reseau','api.teamop.fr injoignable sur '+ep+' ('+String((err&&err.message)||'échec').slice(0,80)+')','','',0); }catch(_){ } }); } }catch(_){ }
       return p; };
   }catch(_){ }
@@ -334,10 +336,50 @@
     }, ()=>{ paintClient(user,{}); });
   }
   function paintClient(user,d){ _meUser=user; _meDoc=d;
+    try{ cliSync(user,d); }catch(e){}
     try{ promoAlerteJ2(user.uid,d); }catch(e){}
     if(_curView && _curView!=='menu') return;   // ne pas quitter une sous-page lors d'une mise à jour
     renderMenu();
   }
+
+  /* ═══════════ 🏢 Fiche client envoyée à la Tour de contrôle ═══════════
+     Résumé minimal (nom, entreprise, applications, demandes, formule, code promo) envoyé
+     une seule fois par visite — et de nouveau si le client change quelque chose.
+     Jamais de mot de passe ni de contenu privé. Totalement invisible et non bloquant :
+     si le serveur ne répond pas, l'espace client fonctionne exactement comme avant. */
+  const CLI_SYNC_URL='https://api.teamop.fr/api/clients/sync', CLI_SYNC_KEY='top_client_sync', CLI_SYNC_DELAI=600000;
+  function cliSigne(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h*33)^s.charCodeAt(i))>>>0; } return h.toString(36); }
+  function cliResume(user,d){
+    d=d||{};
+    const nom=((d.name||((d.prenom||'')+' '+(d.nom||'')))+'').trim();
+    let inscrit=0;
+    try{ const c=d.createdAt; inscrit=(c&&c.toMillis)?c.toMillis():(parseInt(c,10)||0); }catch(e){ inscrit=0; }
+    if(!inscrit){ try{ inscrit=Date.parse((user.metadata&&user.metadata.creationTime)||'')||0; }catch(e){ inscrit=0; } }
+    let apps=[]; try{ apps=clientApps(user,d).map(k=>(APPS[k]&&APPS[k].name)||k); }catch(e){ apps=[]; }
+    const demandes=(Array.isArray(d.demandes)?d.demandes:[]).slice(0,20).map(x=>({
+      app:String((x&&x.app)||''), formule:String((x&&x.formule)||''),
+      statut:String((x&&x.statut)||'nouveau'), date:parseInt(x&&x.date,10)||0,
+      besoin:String((x&&x.besoin)||'').slice(0,200) }));
+    let promo=''; try{ const pi=promoInfo(d); if(pi) promo=(pi.code+' — '+pi.label+' (reste '+pi.jours+' j)').slice(0,60); }catch(e){ promo=''; }
+    return { email:String((user&&user.email)||''), nom, entreprise:String(d.company||''), inscrit, apps, demandes,
+      plan:String(d.plan||'Découverte'),
+      planStatus:String(d.planStatus||'actif'),
+      promo };
+  }
+  function cliSync(user,d){ try{
+    if(!user||!user.email||!window.fetch||!user.getIdToken) return;
+    const corps=JSON.stringify(cliResume(user,d)), sig=cliSigne(corps);
+    let prec=null; try{ prec=JSON.parse(sessionStorage.getItem(CLI_SYNC_KEY)||'null'); }catch(e){ prec=null; }
+    if(prec&&prec.sig===sig&&(Date.now()-(prec.ts||0))<CLI_SYNC_DELAI) return;   // rien de nouveau : on n'envoie rien
+    // le jeton de connexion prouve au serveur qui est ce client : personne ne peut envoyer une fiche à sa place
+    user.getIdToken().then(function(jeton){
+      return fetch(CLI_SYNC_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+jeton},body:corps})
+        .then(function(r){   // la signature n'est mémorisée qu'une fois la fiche bien arrivée : sinon on retentera
+          if(r&&r.ok){ try{ sessionStorage.setItem(CLI_SYNC_KEY,JSON.stringify({sig:sig,ts:Date.now()})); }catch(e){} }
+        });
+    }).catch(function(){});
+  }catch(e){} }
+
   /* 🎁 Codes promo : accès aux applications pendant N mois */
   const PROMO_CODES={ 'TEAMOP3MOIS': {mois:3, apps:['elan','opmsg'], label:'3 mois offerts'} };
   function promoInfo(d){ try{ const p=d&&d.promo; if(!p||!p.until) return null; const until=(p.until&&p.until.toMillis)?p.until.toMillis():p.until; const rest=until-Date.now(); if(rest<=0) return null;

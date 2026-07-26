@@ -53,6 +53,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Les chiffres de la tour de contrôle ne sont JAMAIS gardés par le navigateur ──
+//    Express ne pose qu'un ETag : sans cet en-tête, le navigateur s'autorise à réafficher
+//    d'anciens chiffres sans même rappeler le serveur (revenu mensuel, impayés, e-mails
+//    support, fiches clients…). Après un rechargement de page, la tour montrerait alors un
+//    état périmé — par exemple « Stripe non configuré » alors que Stripe vient d'être relié.
+//    Cela évite aussi de laisser des données privées de clients dans le cache disque.
+app.use('/api/monitor', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+
 // anti-abus très simple : 120 requêtes / minute / IP
 const hits = new Map();
 setInterval(() => hits.clear(), 60000).unref();
@@ -674,6 +682,458 @@ app.get('/api/monitor/sante', monAdmin, (req, res) => {
   for (const i of monIssues) compteurs[i.statut] = (compteurs[i.statut] || 0) + 1;
   res.json({ ok: true, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, boite: !!(config.imap && config.imap.user), stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus, issues: compteurs, issuesTotal: monIssues.length });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📬 SUPPORT — boîte e-mail support gérée depuis le contrôle (réutilise ImapFlow/nodemailer).
+//    Identifiants stockés côté serveur uniquement (jamais renvoyés au navigateur).
+// ═══════════════════════════════════════════════════════════════════════════
+const SUPPORT_BOX_PATH = path.join(DATA_DIR, 'support-box.json');
+const SUPPORT_MAILS_PATH = path.join(DATA_DIR, 'support-mails.json');
+let supportBox = null;    // { email, pass, imapHost, imapPort, smtpHost, smtpPort }
+let supportMails = [];    // [{ id, mid, from, fromName, subject, text, ts, statut:'nouveau'|'traite'|'archive', reponses:[{ts,par,text}] }]
+try { supportBox = JSON.parse(fs.readFileSync(SUPPORT_BOX_PATH, 'utf8')); } catch (e) {}
+try { supportMails = JSON.parse(fs.readFileSync(SUPPORT_MAILS_PATH, 'utf8')); } catch (e) {}
+let supSaveTimer = null;
+function supSave() {
+  clearTimeout(supSaveTimer);
+  supSaveTimer = setTimeout(() => {
+    try { if (supportMails.length > 300) supportMails = supportMails.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 300); fs.writeFileSync(SUPPORT_MAILS_PATH, JSON.stringify(supportMails)); } catch (e) { console.error('support save:', e.message); }
+  }, 400);
+}
+const supMids = new Set(supportMails.map(m => m.mid).filter(Boolean));
+function supEntry(env, text, histo) {
+  const from = ((env.from || [])[0] || {});
+  return { id: 'm' + crypto.randomBytes(6).toString('hex'), mid: String(env.messageId || '').slice(0, 200),
+    from: String(from.address || '').toLowerCase().slice(0, 120), fromName: String(from.name || '').slice(0, 80),
+    subject: String(env.subject || '(sans objet)').slice(0, 200), text: String(text || '').slice(0, 4000),
+    ts: env.date ? new Date(env.date).getTime() : Date.now(), statut: 'nouveau', reponses: [], histo: histo ? 1 : 0 };
+}
+let supportBusy = false;
+async function releveSupport(importHisto) {   // même mécanique que la relève des boîtes commandes
+  if (!supportBox || supportBusy) return; supportBusy = true;
+  const { ImapFlow } = require('imapflow'); const { simpleParser } = require('mailparser'); let client;
+  try {
+    client = new ImapFlow({ host: supportBox.imapHost, port: supportBox.imapPort || 993, secure: true, auth: { user: supportBox.email, pass: supportBox.pass }, logger: false });
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      if (importHisto) {   // à la connexion : les ~30 derniers mails arrivent (sans toucher aux drapeaux)
+        const total = (client.mailbox && client.mailbox.exists) || 0;
+        if (total) {
+          for await (const msg of client.fetch(Math.max(1, total - 29) + ':*', { envelope: true, source: { maxLength: 150000 } })) {
+            const env = msg.envelope || {}; const mid = String(env.messageId || '').slice(0, 200);
+            if (mid && supMids.has(mid)) continue;
+            let text = ''; try { const p = await simpleParser(msg.source); text = String(p.text || ''); } catch (e) {}
+            supportMails.push(supEntry(env, text, true)); if (mid) supMids.add(mid);
+          }
+        }
+      }
+      const nouveaux = [];
+      for await (const msg of client.fetch({ seen: false }, { envelope: true, source: { maxLength: 150000 } })) nouveaux.push(msg);
+      for (const msg of nouveaux) {
+        const env = msg.envelope || {}; const mid = String(env.messageId || '').slice(0, 200);
+        if (mid && supMids.has(mid)) { try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {} continue; }
+        let text = ''; try { const { simpleParser: sp } = require('mailparser'); const p = await sp(msg.source); text = String(p.text || ''); } catch (e) {}
+        supportMails.push(supEntry(env, text));
+        if (mid) supMids.add(mid);
+        try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {}
+      }
+      supSave();
+    } finally { lock.release(); }
+    await client.logout();
+  } catch (e) { console.error('support releve:', e.message); try { if (client) client.close(); } catch (_) {} }
+  supportBusy = false;
+}
+setInterval(() => { releveSupport().catch(() => {}); }, 120000);
+setTimeout(() => { releveSupport().catch(() => {}); }, 12000);
+
+// connexion de la boîte support (patron uniquement) — Zimbra OVH par défaut
+app.post('/api/monitor/support/connect', monPatronStrict, async (req, res) => {
+  const { email, pass, imapHost, imapPort, smtpHost, smtpPort } = req.body || {};
+  if (!email || !pass) return res.status(400).json({ error: 'adresse et mot de passe requis' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email))) return res.status(400).json({ error: 'adresse invalide' });
+  const box = { email: monStr(email, 120), pass: String(pass).slice(0, 200),
+    imapHost: monStr(imapHost, 100) || 'imap.mail.ovh.net', imapPort: parseInt(imapPort, 10) || 993,
+    smtpHost: monStr(smtpHost, 100) || 'smtp.mail.ovh.net', smtpPort: parseInt(smtpPort, 10) || 465, ts: Date.now() };
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({ host: box.smtpHost, port: box.smtpPort, secure: box.smtpPort === 465, auth: { user: box.email, pass: box.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
+    await t.verify();
+  } catch (e) { return res.status(400).json({ error: 'Connexion envoi (SMTP) refusée : ' + String(e.message || e).slice(0, 140) }); }
+  try {
+    const { ImapFlow } = require('imapflow');
+    const c = new ImapFlow({ host: box.imapHost, port: box.imapPort, secure: true, auth: { user: box.email, pass: box.pass }, logger: false });
+    await c.connect(); await c.logout();
+  } catch (e) { return res.status(400).json({ error: 'Connexion réception (IMAP) refusée : ' + String(e.message || e).slice(0, 140) }); }
+  supportBox = box;
+  try { fs.writeFileSync(SUPPORT_BOX_PATH, JSON.stringify(box)); } catch (e) {}
+  res.json({ ok: true, email: box.email });
+  releveSupport(true).catch(() => {});   // import de l'historique en arrière-plan
+});
+// état de la boîte (sans mot de passe, jamais)
+app.get('/api/monitor/support/box', monAdmin, (req, res) => {
+  res.json(supportBox ? { connected: true, email: supportBox.email, imapHost: supportBox.imapHost, smtpHost: supportBox.smtpHost } : { connected: false });
+});
+// liste des mails support
+app.get('/api/monitor/support/mails', monAdmin, (req, res) => {
+  const list = supportMails.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 200);
+  res.json({ mails: list, nonTraites: supportMails.filter(m => m.statut === 'nouveau').length, connected: !!supportBox, email: supportBox ? supportBox.email : '' });
+});
+// réponse directe depuis le contrôle — envoyée par SMTP au nom de la boîte, tracée au nom de l'agent
+app.post('/api/monitor/support/reply', monAdmin, async (req, res) => {
+  if (!supportBox) return res.status(503).json({ error: 'boîte support non connectée' });
+  const { id, text } = req.body || {};
+  const mail = supportMails.find(m => m.id === id);
+  if (!mail) return res.status(404).json({ error: 'mail introuvable' });
+  const corps = String(text || '').slice(0, 8000);
+  if (!corps.trim()) return res.status(400).json({ error: 'réponse vide' });
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({ host: supportBox.smtpHost, port: supportBox.smtpPort, secure: supportBox.smtpPort === 465, auth: { user: supportBox.email, pass: supportBox.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
+    await t.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: mail.from, subject: (/^re\s*:/i.test(mail.subject) ? mail.subject : 'Re: ' + mail.subject).slice(0, 200), text: corps, inReplyTo: mail.mid || undefined, references: mail.mid || undefined });
+  } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
+  mail.reponses = (mail.reponses || []).concat([{ ts: Date.now(), par: req.tourUser.nom, text: corps.slice(0, 2000) }]).slice(-20);
+  mail.statut = 'traite';
+  supSave();
+  res.json({ ok: true, mail });
+});
+// marquer traité / archiver / rouvrir
+app.post('/api/monitor/support/marquer', monAdmin, (req, res) => {
+  const { id, statut } = req.body || {};
+  if (!['nouveau', 'traite', 'archive'].includes(statut)) return res.status(400).json({ error: 'statut invalide' });
+  const mail = supportMails.find(m => m.id === id);
+  if (!mail) return res.status(404).json({ error: 'mail introuvable' });
+  mail.statut = statut; supSave();
+  res.json({ ok: true, mail });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🏢 CLIENTS — les comptes clients vivent dans Firebase (espace.html) : le serveur ne les voit pas.
+//    Synchronisation légère : espace.html pousse un résumé minimal à chaque visite du client
+//    (email, entreprise, applications, demandes, abonnement, promo — JAMAIS de mot de passe).
+//    Les données d'un client n'apparaissent donc qu'à partir de sa prochaine visite.
+// ═══════════════════════════════════════════════════════════════════════════
+const CLIENTS_PATH = path.join(DATA_DIR, 'clients.json');
+let clientsData = {};   // email -> { email, nom, entreprise, inscrit, apps, demandes, plan, planStatus, promo, majTs, noteInterne, demandesTraitees }
+try { clientsData = JSON.parse(fs.readFileSync(CLIENTS_PATH, 'utf8')); } catch (e) {}
+let cliSaveTimer = null;
+function cliSave() {
+  clearTimeout(cliSaveTimer);
+  cliSaveTimer = setTimeout(() => { try { fs.writeFileSync(CLIENTS_PATH, JSON.stringify(clientsData)); } catch (e) { console.error('clients save:', e.message); } }, 400);
+}
+// ── Preuve d'identité du client : le jeton de connexion Firebase envoyé par espace.html ──
+//    Sans cette vérification, n'importe qui pourrait écraser la fiche d'un vrai client en
+//    connaissant simplement son adresse e-mail. Le jeton est signé par Google : on contrôle
+//    la signature avec les certificats publics de Google, puis on ne retient QUE l'e-mail
+//    contenu dans le jeton — jamais celui envoyé dans le corps de la requête.
+const FB_PROJET = (config.firebase && config.firebase.projectId) || 'elan-gestion';
+const FB_CERTS_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+const fbCerts = { data: null, exp: 0, encours: null };
+function fbCertificats() {
+  if (fbCerts.data && Date.now() < fbCerts.exp) return Promise.resolve(fbCerts.data);
+  if (!fbCerts.encours) {
+    fbCerts.encours = (async () => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const r = await fetch(FB_CERTS_URL, { signal: ctrl.signal });
+        if (!r.ok) throw new Error('certificats google HTTP ' + r.status);
+        const d = await r.json();
+        const m = String(r.headers.get('cache-control') || '').match(/max-age=(\d+)/);
+        fbCerts.data = d; fbCerts.exp = Date.now() + (m ? parseInt(m[1], 10) * 1000 : 3600000);
+        return d;
+      } finally { clearTimeout(t); fbCerts.encours = null; }
+    })();
+  }
+  return fbCerts.encours;
+}
+const fbB64 = s => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+async function fbVerifie(jeton) {
+  const p = String(jeton || '').split('.');
+  if (p.length !== 3) return null;
+  let ent, corps;
+  try { ent = JSON.parse(fbB64(p[0]).toString('utf8')); corps = JSON.parse(fbB64(p[1]).toString('utf8')); } catch (e) { return null; }
+  if (!ent || ent.alg !== 'RS256' || !ent.kid || !corps) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (!(parseInt(corps.exp, 10) > now)) return null;                                              // jeton périmé
+  if (parseInt(corps.iat, 10) > now + 300) return null;                                           // daté du futur
+  if (corps.aud !== FB_PROJET || corps.iss !== 'https://securetoken.google.com/' + FB_PROJET) return null;
+  if (!corps.sub) return null;
+  const certs = await fbCertificats();
+  const cert = certs && certs[ent.kid];
+  if (!cert) return null;
+  let cle = cert;
+  try { if (crypto.X509Certificate) cle = new crypto.X509Certificate(cert).publicKey; } catch (e) { cle = cert; }
+  if (!crypto.createVerify('RSA-SHA256').update(p[0] + '.' + p[1]).verify(cle, fbB64(p[2]))) return null;
+  return corps;
+}
+// réception du résumé poussé par espace.html (signé par le client connecté ; données minimales validées)
+app.post('/api/clients/sync', async (req, res) => {
+  const b = req.body || {};
+  let ident = null;
+  try { ident = await fbVerifie(String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()); }
+  catch (e) { console.error('clients sync jeton:', String(e && e.message || e).slice(0, 200)); ident = null; }
+  if (!ident) return res.status(401).json({ error: 'connexion non vérifiée' });
+  const email = monStr(ident.email, 120).trim().toLowerCase();   // l'e-mail vient du jeton signé, jamais du corps
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(401).json({ error: 'compte sans e-mail' });
+  if (Object.keys(clientsData).length >= 2000 && !clientsData[email]) return res.json({ ok: true });   // cap silencieux
+  const prev = clientsData[email] || {};
+  const demandes = (Array.isArray(b.demandes) ? b.demandes.slice(0, 20) : []).map(d => ({
+    app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200) }));
+  clientsData[email] = {
+    email, nom: monStr(b.nom, 80), entreprise: monStr(b.entreprise, 80),
+    inscrit: parseInt(b.inscrit, 10) || prev.inscrit || Date.now(),
+    apps: (Array.isArray(b.apps) ? b.apps.slice(0, 6) : []).map(a => monStr(a, 20)),
+    demandes, plan: monStr(b.plan, 40), planStatus: monStr(b.planStatus, 20), promo: monStr(b.promo, 60),
+    majTs: Date.now(),
+    noteInterne: prev.noteInterne || '',            // les annotations internes du contrôle survivent aux synchros
+    demandesTraitees: prev.demandesTraitees || {}
+  };
+  cliSave();
+  res.json({ ok: true });
+});
+// lecture depuis le contrôle (patron ET collaborateurs)
+app.get('/api/monitor/clients', monAdmin, (req, res) => {
+  const list = Object.values(clientsData).sort((a, b) => (b.majTs || 0) - (a.majTs || 0));
+  res.json({ clients: list, total: list.length });
+});
+// note interne sur un client (tracée)
+app.post('/api/monitor/clients/note', monAdmin, (req, res) => {
+  const email = monStr((req.body || {}).email, 120).toLowerCase();
+  const c = clientsData[email];
+  if (!c) return res.status(404).json({ error: 'client introuvable' });
+  const note = monStr((req.body || {}).note, 500);
+  c.noteInterne = note ? (note + '\n— ' + req.tourUser.nom + ', ' + new Date().toLocaleDateString('fr-FR')) : '';
+  cliSave();
+  res.json({ ok: true, client: c });
+});
+// marquer une demande d'accès traitée côté contrôle (suivi interne, tracé)
+app.post('/api/monitor/clients/demande', monAdmin, (req, res) => {
+  const email = monStr((req.body || {}).email, 120).toLowerCase();
+  const c = clientsData[email];
+  if (!c) return res.status(404).json({ error: 'client introuvable' });
+  const idx = parseInt((req.body || {}).idx, 10);
+  if (!(idx >= 0 && idx < (c.demandes || []).length)) return res.status(400).json({ error: 'demande introuvable' });
+  c.demandesTraitees = c.demandesTraitees || {};
+  if ((req.body || {}).traite === false) delete c.demandesTraitees[idx];
+  else c.demandesTraitees[idx] = { par: req.tourUser.nom, ts: Date.now() };
+  cliSave();
+  res.json({ ok: true, client: c });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💳 STRIPE — lecture seule des abonnements et des paiements pour la tour de contrôle.
+//    La clé secrète reste dans /opt/teamop/config.json (set-stripe.sh) : elle ne sort JAMAIS du serveur.
+//    Résultats gardés 5 minutes en mémoire pour ne pas interroger Stripe à chaque ouverture de page.
+//    Si Stripe ne répond pas : on renvoie le dernier résultat connu, sinon une liste vide + un message.
+// ═══════════════════════════════════════════════════════════════════════════
+const STRIPE_MON_TTL = 5 * 60000;   // fraîcheur du cache : 5 minutes
+const STRIPE_MON_PAUSE = 60000;     // après un échec Stripe : on attend 1 minute avant de retenter
+//   ts = date des chiffres en cache · echec = date du dernier échec · encours = appel déjà en route (deux
+//   onglets ouverts n'interrogent Stripe qu'une seule fois)
+const stripeMonCache = { abos: { ts: 0, data: null, echec: 0, encours: null }, paiements: { ts: 0, data: null, echec: 0, encours: null } };
+const stripeEur = n => Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100;
+const STRIPE_INDISPO = 'Connexion à Stripe impossible pour le moment — réessaie dans quelques minutes.';
+// journalisation sans jamais recopier un morceau de la clé Stripe dans les journaux du serveur
+const stripeLog = e => String((e && e.message) || e).replace(/\b(sk|rk|pk)_[A-Za-z0-9_*]+/g, '[clé]').slice(0, 200);
+// chiffres périmés : on les renvoie plutôt que rien, mais clairement marqués (la tour affiche leur date)
+function stripeVieux(c, vide) {
+  if (c.data) return Object.assign({}, c.data, { perime: true, majTs: c.ts, erreur: STRIPE_INDISPO });
+  return Object.assign({}, vide, { erreur: STRIPE_INDISPO });
+}
+// un seul appel Stripe à la fois par jeu de données, et pas de nouvelle tentative pendant 1 minute après un échec
+function stripeCache(c, vide, calcul, quoi) {
+  if (c.data && !c.echec && Date.now() - c.ts < STRIPE_MON_TTL) return Promise.resolve(c.data);
+  if (c.echec && Date.now() - c.echec < STRIPE_MON_PAUSE) return Promise.resolve(stripeVieux(c, vide));
+  if (!c.encours) {
+    c.encours = calcul()
+      .then(out => { c.data = out; c.ts = Date.now(); c.echec = 0; return out; })
+      .catch(e => { console.error(quoi + ':', stripeLog(e)); c.echec = Date.now(); return stripeVieux(c, vide); })
+      .then(d => { c.encours = null; return d; }, e => { c.encours = null; throw e; });
+  }
+  return c.encours;
+}
+
+// appel GET vers l'API Stripe (même principe que /api/stripe/prices : Authorization Bearer + clé serveur)
+async function stripeMonGet(url, sk) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 12000);   // pas d'attente infinie si Stripe ne répond pas
+  try {
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + sk }, signal: ctrl.signal });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || ('stripe HTTP ' + r.status));
+    return d;
+  } finally { clearTimeout(t); }
+}
+// le client peut arriver sous forme d'objet (expand) ou d'identifiant seul, et peut avoir été supprimé
+function stripeClient(c) {
+  if (!c || typeof c !== 'object' || c.deleted) return { nom: '', email: '' };
+  return { nom: monStr(c.name, 120), email: monStr(c.email, 120) };
+}
+
+// ── Abonnements en cours + revenu mensuel récurrent
+const STRIPE_ABOS_VIDE = { ok: true, configured: true, abos: [], mrr: 0, actifs: 0, impayes: 0 };
+// Stripe ne renvoie que 100 abonnements par appel : on tourne les pages tant qu'il en reste
+// (sinon, dès qu'une centaine d'abonnements auront existé, des abonnés actifs disparaîtraient sans bruit).
+let stripeAbosDetail = null;   // niveau de détail accepté par ce compte Stripe (retenu pour ne pas retâtonner)
+async function stripeAbosBruts(sk) {
+  const base = 'https://api.stripe.com/v1/subscriptions?limit=100&status=all&expand[]=data.customer';
+  // on demande le maximum de détails ; si le compte Stripe refuse une expansion, on redemande en dégradant
+  const details = ['&expand[]=data.items.data.price.product&expand[]=data.discounts.coupon',
+                   '&expand[]=data.items.data.price.product', ''];
+  if (stripeAbosDetail !== null) details.unshift(stripeAbosDetail);
+  let sfx = null, prem = null, dernErr = null;
+  for (const o of details) {
+    try { prem = await stripeMonGet(base + o, sk); sfx = o; break; } catch (e) { dernErr = e; }
+  }
+  if (sfx === null) throw dernErr || new Error('stripe abonnements');
+  stripeAbosDetail = sfx;
+  let tous = (prem.data || []).slice();
+  let apres = tous.length ? tous[tous.length - 1].id : '';
+  let encore = !!prem.has_more, pages = 0;
+  while (encore && apres && ++pages < 10) {   // plafond de sécurité : 10 pages = 1000 abonnements
+    const d2 = await stripeMonGet(base + sfx + '&starting_after=' + encodeURIComponent(apres), sk);
+    const lot = d2.data || [];
+    tous = tous.concat(lot);
+    apres = lot.length ? lot[lot.length - 1].id : '';
+    encore = !!d2.has_more;
+  }
+  return tous;
+}
+// périodicité lisible : « mois », « an », « 3 mois »… (interval_count > 1 : tarif trimestriel, semestriel, etc.)
+function stripePeriode(inter, n) {
+  const un = { month: 'mois', year: 'an', week: 'semaine', day: 'jour' }[inter];
+  if (!un) return '';
+  if (n <= 1) return un;
+  return n + ' ' + (inter === 'month' ? 'mois' : inter === 'year' ? 'ans' : inter === 'week' ? 'semaines' : 'jours');
+}
+async function stripeAbosCalc(sk) {
+  const bruts = await stripeAbosBruts(sk);
+  let mrr = 0, actifs = 0, impayes = 0;
+  const abos = bruts.map(s => {
+    const items = (s.items && Array.isArray(s.items.data)) ? s.items.data : [];
+    let montant = 0, mensuel = 0, periodicite = '', libelles = [];
+    for (const it of items) {
+      const px = it && it.price;
+      if (!px) continue;
+      const qte = Math.max(1, parseInt(it.quantity, 10) || 1);
+      const ligne = ((parseInt(px.unit_amount, 10) || 0) / 100) * qte;
+      montant += ligne;
+      const inter = px.recurring && px.recurring.interval;
+      const n = Math.max(1, parseInt(px.recurring && px.recurring.interval_count, 10) || 1);   // « tous les 3 mois » = 3
+      // tout est ramené au mois pour le compteur « revenu mensuel »
+      if (inter === 'month') mensuel += ligne / n;
+      else if (inter === 'year') mensuel += ligne / (12 * n);
+      else if (inter === 'week') mensuel += ligne * 52 / (12 * n);
+      else if (inter === 'day') mensuel += ligne * 365 / (12 * n);
+      if (!periodicite) periodicite = stripePeriode(inter, n);
+      const nom = (px.product && typeof px.product === 'object' ? monStr(px.product.name, 80) : '') || monStr(px.nickname, 80);
+      if (nom && libelles.indexOf(nom) === -1) libelles.push(nom);
+    }
+    // remises et codes promo (le paiement en ligne accepte les codes promo) : le montant affiché doit être celui payé
+    const plein = montant;
+    const rems = (Array.isArray(s.discounts) ? s.discounts : (s.discount ? [s.discount] : [])).map(x => x && x.coupon).filter(Boolean);
+    for (const co of rems) {
+      if (co.percent_off) montant *= (1 - co.percent_off / 100);
+      else if (co.amount_off) montant = Math.max(0, montant - co.amount_off / 100);
+    }
+    if (plein > 0 && montant !== plein) mensuel *= (montant / plein);   // la remise vaut aussi pour le revenu mensuel
+    const st = String(s.status || '');
+    const statut = st === 'active' ? 'actif' : st === 'trialing' ? 'essai'
+      : (st === 'past_due' || st === 'unpaid') ? 'impaye'
+      : st === 'canceled' ? 'annule'
+      : st.indexOf('incomplete') === 0 ? 'incomplet' : 'autre';
+    if (statut === 'actif' || statut === 'essai') { actifs++; mrr += mensuel; }
+    if (statut === 'impaye') impayes++;
+    const cli = stripeClient(s.customer);
+    // selon la version d'API, la fin de période est portée par l'abonnement ou par sa première ligne
+    const fin = parseInt(s.current_period_end, 10) || parseInt(items[0] && items[0].current_period_end, 10) || 0;
+    return { id: monStr(s.id, 60), clientNom: cli.nom, clientEmail: cli.email,
+      formule: libelles.join(' + '), montant: stripeEur(montant), periodicite, statut,
+      debut: (parseInt(s.start_date, 10) || 0) * 1000, prochaine: fin * 1000 };
+  });
+  return { ok: true, configured: true, abos, mrr: stripeEur(mrr), actifs, impayes };
+}
+app.get('/api/monitor/stripe/abos', monAdmin, async (req, res) => {
+  const sk = config.stripe && config.stripe.secretKey;
+  if (!sk) return res.json({ ok: true, configured: false, abos: [], mrr: 0, actifs: 0, impayes: 0 });
+  try { res.json(await stripeCache(stripeMonCache.abos, STRIPE_ABOS_VIDE, () => stripeAbosCalc(sk), 'stripe abos')); }
+  catch (e) { console.error('stripe abos:', stripeLog(e)); res.json(Object.assign({}, STRIPE_ABOS_VIDE, { erreur: STRIPE_INDISPO })); }
+});
+
+// ── Alerte automatique : un paiement en échec des 7 derniers jours devient un problème dans la tour
+//    (même structure d'objet et même sauvegarde que /api/monitor/report, dédoublonnage par signature)
+function stripeAlerteImpaye(paiements) {
+  const lim = Date.now() - 7 * 86400000;
+  let change = false;
+  for (const p of paiements) {
+    if (p.statut !== 'echec' || !(p.date > lim)) continue;
+    const signature = 'stripe|paiement-echec|' + p.id;   // une entrée par facture : jamais de doublon
+    const nom = p.clientNom || p.clientEmail || 'client inconnu';
+    const quand = p.date || Date.now();
+    let issue = monIssues.find(i => i.signature === signature);
+    if (!issue) {
+      issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: 'stripe', version: '',
+        categorie: 'Paiements', type: 'reseau', message: monStr('Paiement en échec — ' + nom, 300),
+        stack: '', src: '', line: 0, entreprises: [], appareils: {}, count: 1,
+        firstTs: quand, lastTs: quand, statut: 'nouveau', notes: '', mailEnvoye: false };
+      if (nom !== 'client inconnu') issue.entreprises.push({ nom: monStr(nom, 80), email: monStr(p.clientEmail, 120), count: 1, lastTs: quand });
+      monIssues.push(issue); change = true;
+    } else if ((issue.lastTs || 0) < quand) { issue.lastTs = quand; change = true; }
+  }
+  if (change) monSave();
+}
+
+// ── Derniers paiements (factures) + nombre d'échecs
+const STRIPE_PAY_VIDE = { ok: true, configured: true, paiements: [], echecs: 0 };
+const STRIPE_PAY_URL = 'https://api.stripe.com/v1/invoices?limit=50&expand[]=data.customer';
+// une facture Stripe → une ligne de paiement (renvoie null pour ce qui n'est pas un paiement)
+function stripePaiement(f) {
+  if (!f || typeof f !== 'object') return null;
+  const st = String(f.status || '');
+  if (st === 'draft') return null;   // brouillon jamais envoyé : ce n'est pas un paiement
+  let statut = st === 'paid' ? 'paye' : st === 'open' ? 'ouvert'
+    : st === 'uncollectible' ? 'echec' : st === 'void' ? 'annule' : 'autre';   // « annulée » par vous ≠ échec de paiement
+  if (f.attempted && !f.paid && statut !== 'paye' && statut !== 'annule') statut = 'echec';   // tentative de prélèvement refusée
+  const cli = stripeClient(f.customer);
+  const cents = parseInt(f.amount_paid, 10) || parseInt(f.amount_due, 10) || 0;
+  const paidAt = parseInt(f.status_transitions && f.status_transitions.paid_at, 10) || 0;
+  const lien = String(f.hosted_invoice_url || '');
+  return { id: monStr(f.id, 60),
+    clientNom: cli.nom || monStr(f.customer_name, 120), clientEmail: cli.email || monStr(f.customer_email, 120),
+    montant: stripeEur(cents / 100), date: (paidAt || parseInt(f.created, 10) || 0) * 1000,
+    statut, url: /^https:\/\//.test(lien) ? monStr(lien, 400) : '' };   // seule une vraie adresse Stripe est transmise
+}
+function stripePaiements(d) { return ((d && d.data) || []).map(stripePaiement).filter(Boolean); }
+// factures encore impayées des 30 derniers jours : c'est là-dessus que se comptent les échecs et les alertes,
+// pour qu'un impayé ne sorte pas du compteur simplement parce que 50 factures récentes sont passées devant.
+function stripeImpayesUrl() {
+  return 'https://api.stripe.com/v1/invoices?status=open&limit=100&expand[]=data.customer&created[gte]=' + Math.floor((Date.now() - 30 * 86400000) / 1000);
+}
+async function stripePaiementsCalc(sk) {
+  const paiements = stripePaiements(await stripeMonGet(STRIPE_PAY_URL, sk));
+  const parId = {};
+  paiements.filter(p => p.statut === 'echec').forEach(p => { parId[p.id] = p; });
+  try { stripePaiements(await stripeMonGet(stripeImpayesUrl(), sk)).forEach(p => { if (p.statut === 'echec') parId[p.id] = p; }); }
+  catch (e) { console.error('stripe impayés:', stripeLog(e)); }   // liste affichée quand même : on garde les échecs déjà vus
+  const echecs = Object.keys(parId);
+  try { stripeAlerteImpaye(echecs.map(k => parId[k])); } catch (e) { console.error('stripe alerte:', stripeLog(e)); }
+  return { ok: true, configured: true, paiements, echecs: echecs.length };
+}
+app.get('/api/monitor/stripe/paiements', monAdmin, async (req, res) => {
+  const sk = config.stripe && config.stripe.secretKey;
+  if (!sk) return res.json({ ok: true, configured: false, paiements: [], echecs: 0 });
+  try { res.json(await stripeCache(stripeMonCache.paiements, STRIPE_PAY_VIDE, () => stripePaiementsCalc(sk), 'stripe paiements')); }
+  catch (e) { console.error('stripe paiements:', stripeLog(e)); res.json(Object.assign({}, STRIPE_PAY_VIDE, { erreur: STRIPE_INDISPO })); }
+});
+// ── Veille : les impayés remontent tout seuls, même si personne n'ouvre la tour de contrôle du week-end
+if (config.stripe && config.stripe.secretKey) {
+  setInterval(() => {
+    stripeMonGet(stripeImpayesUrl(), config.stripe.secretKey)
+      .then(d => stripeAlerteImpaye(stripePaiements(d)))
+      .catch(e => console.error('stripe veille:', stripeLog(e)));
+  }, 15 * 60000).unref();
+}
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '127.0.0.1', () => console.log('TeamOP API sur 127.0.0.1:' + PORT));
