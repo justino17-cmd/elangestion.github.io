@@ -17,8 +17,59 @@ const MAX_PIECES_OCTETS = 12 * 1024 * 1024;   // 12 Mo au total pour un envoi
 const PAR_PAGE = 30;
 
 module.exports = function monterMessagerie(app, ctx) {
-  const { DATA_DIR, monAdmin, monPatronStrict, monStr } = ctx;
+  const { DATA_DIR, monAdmin, monPatronStrict, monStr, pousseNotif } = ctx;
   const BOITES_PATH = path.join(DATA_DIR, 'mail-boites.json');
+  const SUIVI_PATH = path.join(DATA_DIR, 'mail-suivi.json');
+  const REGLAGES_PATH = path.join(DATA_DIR, 'mail-reglages.json');
+  const VU_PATH = path.join(DATA_DIR, 'mail-vu.json');
+
+  /* ── suivi des demandes : un état par conversation, repéré par l'identifiant du message ── */
+  let suivi = {};   // mid -> { statut:'aTraiter'|'enCours'|'resolu', assigne, par, ts, recuTs, repTs, de, objet }
+  try { suivi = JSON.parse(fs.readFileSync(SUIVI_PATH, 'utf8')) || {}; } catch (e) {}
+  let tSuivi = null;
+  function suiviSauve() {
+    clearTimeout(tSuivi);
+    tSuivi = setTimeout(() => {
+      try {
+        const cles = Object.keys(suivi);
+        if (cles.length > 3000) {   // on garde les 3000 plus récents
+          const gardes = cles.map(k => [k, suivi[k].ts || suivi[k].recuTs || 0]).sort((a, b) => b[1] - a[1]).slice(0, 3000);
+          const neuf = {}; gardes.forEach(([k]) => { neuf[k] = suivi[k]; }); suivi = neuf;
+        }
+        fs.writeFileSync(SUIVI_PATH, JSON.stringify(suivi));
+      } catch (e) { console.error('mail suivi:', e.message); }
+    }, 500);
+  }
+
+  /* ── réglages partagés : signature et réponses toutes prêtes ── */
+  const MODELES_DEFAUT = [
+    { id: 'm1', titre: '✅ Nous avons corrigé', objet: '', texte: 'Bonjour {prenom},\n\nNous avons corrigé le problème que vous nous avez signalé. Votre application est déjà à jour : vous n\'avez rien à faire de votre côté.\n\nN\'hésitez pas à nous écrire si quelque chose vous semble encore anormal.' },
+    { id: 'm2', titre: '👀 Nous regardons', objet: '', texte: 'Bonjour {prenom},\n\nMerci pour votre message, nous prenons votre demande en compte. Nous regardons cela et nous revenons vers vous très vite.' },
+    { id: 'm3', titre: '📄 Votre facture', objet: 'Votre facture — {entreprise}', texte: 'Bonjour {prenom},\n\nVous trouverez votre facture dans votre espace client, rubrique « Mes documents » : https://teamop.fr/espace.html\n\nBonne journée,' },
+    { id: 'm4', titre: '💡 Comment faire', objet: '', texte: 'Bonjour {prenom},\n\nVoici comment procéder :\n\n1. \n2. \n3. \n\nDites-moi si cela fonctionne de votre côté.' },
+    { id: 'm5', titre: '🎁 Offre 3 mois', objet: 'Votre offre — 3 mois offerts', texte: 'Bonjour {prenom},\n\nComme convenu, votre code {promo} vous offre 3 mois d\'abonnement. Il s\'applique directement au moment du paiement.\n\nBonne découverte de {formule} !' }
+  ];
+  let reglages = { signature: 'L\'équipe TEAM OP\nsupport@teamop.fr · teamop.fr', modeles: MODELES_DEFAUT };
+  try {
+    const r = JSON.parse(fs.readFileSync(REGLAGES_PATH, 'utf8'));
+    if (r && typeof r === 'object') reglages = { signature: String(r.signature || reglages.signature), modeles: Array.isArray(r.modeles) && r.modeles.length ? r.modeles : MODELES_DEFAUT };
+  } catch (e) {}
+  function reglagesSauve() { try { fs.writeFileSync(REGLAGES_PATH, JSON.stringify(reglages)); } catch (e) { console.error('mail reglages:', e.message); } }
+
+  /* ── tri automatique : un vrai client ou une notification de service ? ── */
+  const EXP_AUTO = /(^|[.@])(noreply|no-reply|donotreply|ne-pas-repondre|notifications?|mailer|postmaster|bounce|alerte?s?|info|newsletter)([.@]|$)/i;
+  const DOM_AUTO = /(stripe|inpi|ovh|ionos|google|github|apple|microsoft|paypal|urssaf|impots|gouv|sendgrid|mailchimp|zimbra)\./i;
+  function estNotification(de, objet) {
+    const a = String(de || '').toLowerCase();
+    if (EXP_AUTO.test(a) || DOM_AUTO.test(a)) return true;
+    if (/^(🐛|\[alerte\]|automatic|automated)/i.test(String(objet || ''))) return true;
+    return false;
+  }
+
+  /* ── dernier message vu par boîte (pour la veille et les notifications) ── */
+  let vus = {};
+  try { vus = JSON.parse(fs.readFileSync(VU_PATH, 'utf8')) || {}; } catch (e) {}
+  function vusSauve() { try { fs.writeFileSync(VU_PATH, JSON.stringify(vus)); } catch (e) {} }
 
   /* ── les boîtes connectées ─────────────────────────────────────────────── */
   let boites = [];   // [{ id, email, pass, imapHost, imapPort, smtpHost, smtpPort, nom, ts, par }]
@@ -212,7 +263,10 @@ module.exports = function monterMessagerie(app, ctx) {
               ts: env.date ? new Date(env.date).getTime() : 0,
               lu: fl.has ? fl.has('\\Seen') : false, marque: fl.has ? fl.has('\\Flagged') : false,
               repondu: fl.has ? fl.has('\\Answered') : false,
-              pieces: comptePieces(m.bodyStructure), taille: m.size || 0 });
+              pieces: comptePieces(m.bodyStructure), taille: m.size || 0,
+              mid: String(env.messageId || '').slice(0, 300),
+              auto: estNotification(de.adr, env.subject),
+              suivi: (function () { const sv = suivi[String(env.messageId || '')]; return sv ? { statut: sv.statut, assigne: sv.assigne || '' } : null; })() });
           }
         }
         messages.sort((x, y) => (y.ts || 0) - (x.ts || 0));
@@ -268,7 +322,17 @@ module.exports = function monterMessagerie(app, ctx) {
             .filter(a => a.nom).slice(0, MAX_PIECES);
           // à l'ouverture, le message est marqué lu (comme dans une vraie messagerie)
           if (!(msg.flags && msg.flags.has && msg.flags.has('\\Seen'))) { try { await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true }); } catch (_) {} }
+          const midCle = String(env.messageId || '');
+          if (midCle && !suivi[midCle] && roleDe({ path: chemin }) === 'inbox') {
+            const deAdr = de.adr;
+            suivi[midCle] = { statut: estNotification(deAdr, env.subject) ? 'resolu' : 'aTraiter', assigne: '', par: '',
+              ts: Date.now(), recuTs: env.date ? new Date(env.date).getTime() : Date.now(), repTs: 0,
+              de: deAdr, objet: String(env.subject || '').slice(0, 160), auto: estNotification(deAdr, env.subject) ? 1 : 0 };
+            suiviSauve();
+          }
           return { uid, dossier: chemin, boite: b.id, boiteEmail: b.email,
+            suivi: suivi[midCle] ? { statut: suivi[midCle].statut, assigne: suivi[midCle].assigne || '' } : null,
+            auto: estNotification(de.adr, env.subject),
             de: de.adr, deNom: de.nom, pour: pers(env.to), copie: pers(env.cc),
             objet: String(env.subject || '(sans objet)').slice(0, 300),
             ts: env.date ? new Date(env.date).getTime() : 0,
@@ -429,6 +493,15 @@ module.exports = function monterMessagerie(app, ctx) {
       const envoyes = await cheminRole(b, 'envoyes');
       if (envoyes && brut) await avecImap(b, async client => { await client.append(envoyes, brut, ['\\Seen']); copieOk = true; });
     } catch (e) {}
+    if (rep && rep.mid) {
+      const sv = suivi[String(rep.mid)];
+      if (sv) {
+        if (!sv.repTs) sv.repTs = Date.now();
+        if (sv.statut === 'aTraiter') sv.statut = 'enCours';
+        sv.assigne = sv.assigne || req.tourUser.nom;
+        suiviSauve();
+      }
+    }
     if (rep && rep.dossier && rep.uid) {
       try { await avecImap(b, async client => { const l = await client.getMailboxLock(rep.dossier); try { await client.messageFlagsAdd(String(parseInt(rep.uid, 10)), ['\\Answered'], { uid: true }); } finally { l.release(); } }); } catch (e) {}
     }
@@ -452,6 +525,105 @@ module.exports = function monterMessagerie(app, ctx) {
       res.json({ ok: true });
     } catch (e) { res.status(502).json({ error: 'brouillon non enregistré : ' + String(e.message || e).slice(0, 140) }); }
   });
+
+  /* ═════════════════════ RÉGLAGES : signature et réponses toutes prêtes ═════════════════════ */
+  app.get('/api/monitor/mail/reglages', monAdmin, (req, res) => res.json({ signature: reglages.signature, modeles: reglages.modeles }));
+  app.post('/api/monitor/mail/reglages', monPatronStrict, (req, res) => {
+    const b = req.body || {};
+    if (typeof b.signature === 'string') reglages.signature = b.signature.slice(0, 1200);
+    if (Array.isArray(b.modeles)) {
+      reglages.modeles = b.modeles.slice(0, 24).map((m, i) => ({
+        id: monStr(m && m.id, 12) || ('m' + (i + 1)),
+        titre: monStr(m && m.titre, 60) || 'Modèle',
+        objet: monStr(m && m.objet, 200),
+        texte: String((m && m.texte) || '').slice(0, 4000)
+      })).filter(m => m.texte.trim());
+    }
+    reglagesSauve();
+    res.json({ ok: true, signature: reglages.signature, modeles: reglages.modeles });
+  });
+
+  /* ═════════════════════ SUIVI D'UNE DEMANDE ═════════════════════ */
+  app.post('/api/monitor/mail/suivi', monAdmin, (req, res) => {
+    const mid = String((req.body || {}).mid || '').slice(0, 300);
+    if (!mid) return res.status(400).json({ error: 'message introuvable' });
+    const st = monStr((req.body || {}).statut, 12);
+    const sv = suivi[mid] || (suivi[mid] = { statut: 'aTraiter', assigne: '', par: '', ts: Date.now(), recuTs: Date.now(), repTs: 0, de: '', objet: '' });
+    if (['aTraiter', 'enCours', 'resolu'].includes(st)) sv.statut = st;
+    if ((req.body || {}).assigne !== undefined) sv.assigne = monStr((req.body || {}).assigne, 60);
+    sv.par = req.tourUser.nom; sv.ts = Date.now();
+    suiviSauve();
+    res.json({ ok: true, suivi: { statut: sv.statut, assigne: sv.assigne, par: sv.par } });
+  });
+
+  /* ═════════════════════ STATISTIQUES DU SUPPORT ═════════════════════ */
+  app.get('/api/monitor/mail/stats', monAdmin, (req, res) => {
+    const now = Date.now(), SEM = 7 * 86400000;
+    const tous = Object.values(suivi);
+    const clients = tous.filter(x => !x.auto);
+    const dans = (l, d) => l.filter(x => (x.recuTs || 0) > now - d);
+    const delais = clients.filter(x => x.repTs && x.recuTs && x.repTs > x.recuTs).map(x => x.repTs - x.recuTs);
+    const moyenne = delais.length ? Math.round(delais.reduce((a, b) => a + b, 0) / delais.length / 60000) : 0;
+    // les sujets qui reviennent : on regroupe sur les mots significatifs de l'objet
+    const mots = {};
+    clients.forEach(x => String(x.objet || '').toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüç' ]/g, ' ').split(/\s+/)
+      .filter(m => m.length > 4 && !['bonjour', 'merci', 'demande', 'question', 'probleme', 'problème', 'nouvelle', 'pouvez', 'votre', 'notre'].includes(m))
+      .forEach(m => { mots[m] = (mots[m] || 0) + 1; }));
+    const sujets = Object.entries(mots).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([mot, n]) => ({ mot, n }));
+    // par semaine sur 8 semaines
+    const semaines = [];
+    for (let i = 7; i >= 0; i--) {
+      const deb = now - (i + 1) * SEM, fin = now - i * SEM;
+      semaines.push({ n: clients.filter(x => (x.recuTs || 0) >= deb && (x.recuTs || 0) < fin).length });
+    }
+    res.json({
+      total: clients.length, notifications: tous.length - clients.length,
+      semaine: dans(clients, SEM).length, mois: dans(clients, 30 * 86400000).length,
+      aTraiter: clients.filter(x => x.statut === 'aTraiter').length,
+      enCours: clients.filter(x => x.statut === 'enCours').length,
+      resolus: clients.filter(x => x.statut === 'resolu').length,
+      reponseMoyenneMin: moyenne, repondus: delais.length, sujets, semaines
+    });
+  });
+
+  /* ═════════════════════ VEILLE : nouveau message → notification téléphone ═════════════════════ */
+  let veilleEnCours = false;
+  async function veille() {
+    if (veilleEnCours || !boites.length) return;
+    veilleEnCours = true;
+    try {
+      for (const b of boites) {
+        try {
+          const inbox = (await cheminRole(b, 'inbox')) || 'INBOX';
+          const nouveaux = await avecImap(b, async client => {
+            const lock = await client.getMailboxLock(inbox);
+            try {
+              const uids = (await client.search({ seen: false }, { uid: true })) || [];
+              const dernier = Number(vus[b.id] || 0);
+              const frais = uids.filter(u => u > dernier);
+              if (!frais.length) { if (uids.length) vus[b.id] = Math.max(dernier, Math.max.apply(null, uids)); return []; }
+              const out = [];
+              for await (const m of client.fetch({ uid: frais.slice(-10).join(',') }, { uid: true, envelope: true }, { uid: true })) {
+                const env = m.envelope || {}; const de = adr1(env.from);
+                out.push({ uid: m.uid, de: de.adr, deNom: de.nom, objet: String(env.subject || '(sans objet)').slice(0, 120), auto: estNotification(de.adr, env.subject) });
+              }
+              vus[b.id] = Math.max(dernier, Math.max.apply(null, uids));
+              return out;
+            } finally { lock.release(); }
+          });
+          vusSauve();
+          const vrais = (nouveaux || []).filter(m => !m.auto);
+          if (vrais.length && typeof pousseNotif === 'function') {
+            const m = vrais[vrais.length - 1];
+            const titre = vrais.length > 1 ? ('📬 ' + vrais.length + ' nouveaux messages') : '📬 Nouveau message support';
+            await pousseNotif(titre, (m.deNom || m.de) + ' — ' + m.objet, '/tour.html#support');
+          }
+        } catch (e) { /* boîte injoignable : on réessaie au tour suivant */ }
+      }
+    } finally { veilleEnCours = false; }
+  }
+  setInterval(() => { veille().catch(() => {}); }, 120000);
+  setTimeout(() => { veille().catch(() => {}); }, 20000);
 
   return { boites: () => boites.map(publique) };
 };

@@ -1203,7 +1203,16 @@ if (config.stripe && config.stripe.secretKey) {
 
 // ═══ MESSAGERIE COMPLÈTE (plusieurs boîtes : réception, envoi, dossiers, pièces jointes) ═══
 try {
-  require('./mail')(app, { DATA_DIR, monAdmin, monPatronStrict, monStr });
+  const pousseNotif = async (titre, corps, url) => {
+    const payload = JSON.stringify({ title: String(titre).slice(0, 120), body: String(corps || '').slice(0, 300), url: url || '/tour.html#support' });
+    const cibles = Object.values(subs).filter(x => /^teamop-controle/.test(x.teamId || ''));
+    for (const t of cibles) {
+      try { await webpush.sendNotification(t.sub, payload); }
+      catch (e) { if (e.statusCode === 404 || e.statusCode === 410) { delete subs[t.sub.endpoint]; saveSubs(); } }
+    }
+    return cibles.length;
+  };
+  require('./mail')(app, { DATA_DIR, monAdmin, monPatronStrict, monStr, pousseNotif });
   console.log('messagerie : module chargé');
 } catch (e) { console.error('messagerie indisponible :', e.message); }
 

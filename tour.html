@@ -218,6 +218,36 @@ details.avance summary:hover{ color:var(--t1); }
 .corps-html{ width:100%; height:340px; border:1px solid var(--line); border-radius:10px; background:#fff; display:block; }
 @media(max-width:640px){ .corps-html{ height:280px; } }
 
+.note-bloc{ background:rgba(59,130,246,.05); border:1px solid var(--line); border-radius:11px; padding:10px 12px; margin-top:10px; }
+.note-bloc textarea{ width:100%; }
+
+/* ── messagerie : tri, fiche client, suivi, statistiques ── */
+.msg-tri{ display:flex; gap:6px; flex-wrap:wrap; padding:0 0 8px; }
+.msg-t{ background:transparent; border:1px solid var(--line); color:var(--t2); font-size:11.5px; font-weight:700; padding:5px 10px; border-radius:100px; }
+.msg-t:hover{ color:var(--t1); border-color:var(--t3); }
+.msg-t.sel{ background:rgba(59,130,246,.16); border-color:rgba(59,130,246,.6); color:#fff; }
+.msg-t b{ color:var(--accent); margin-left:2px; }
+.msg-cli{ background:rgba(59,130,246,.07); border:1px solid rgba(59,130,246,.28); border-radius:11px; padding:10px 12px; margin:10px 0; }
+.msg-cli .l1{ font-size:13.5px; margin-bottom:4px; }
+.msg-cli .l2{ font-size:12px; color:var(--t2); margin-top:4px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.msg-cli .l2.alerte{ color:var(--orange); }
+.msg-cli .orange{ color:var(--orange); }
+.lien{ background:transparent; border:none; color:var(--accent); font:inherit; font-size:12px; cursor:pointer; padding:0; text-decoration:underline; }
+.msg-auto{ background:rgba(108,127,163,.10); border:1px solid var(--line); border-radius:11px; padding:8px 12px; margin:10px 0; font-size:12px; color:var(--t2); }
+.msg-suivi{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }
+.msg-s{ background:transparent; border:1px solid var(--line); color:var(--t2); font-size:11.5px; font-weight:700; padding:5px 11px; border-radius:100px; }
+.msg-s:hover{ color:var(--t1); }
+.msg-s.sel.orange{ background:rgba(255,179,71,.16); border-color:rgba(255,179,71,.6); color:var(--orange); }
+.msg-s.sel.bleu{ background:rgba(90,169,255,.16); border-color:rgba(90,169,255,.6); color:var(--blue); }
+.msg-s.sel.vert{ background:rgba(46,184,114,.16); border-color:rgba(46,184,114,.6); color:var(--green); }
+.p-aTraiter{ font-size:10px; font-weight:800; color:var(--orange); }
+.p-enCours{ font-size:10px; font-weight:800; color:var(--blue); }
+.p-actif{ color:var(--green); border-color:rgba(46,184,114,.45); }
+.msg-st{ font-size:11.5px; color:var(--t2); padding:2px 2px 3px; }
+.msg-st b{ color:var(--t1); }
+.msg-bars{ display:flex; align-items:flex-end; gap:3px; height:32px; padding:6px 2px 2px; }
+.msg-bars i{ flex:1; background:var(--accent); opacity:.6; border-radius:2px 2px 0 0; }
+
 /* ── mobile (≤640px) : onglets utilisables, tableau en cartes empilées ── */
 @media(max-width:640px){
   /* en-tête sur UNE seule ligne (57 px) : sinon il grandit et recouvre la barre d'onglets au défilement */
@@ -371,6 +401,7 @@ details.avance summary:hover{ color:var(--t1); }
         <div class="card msg-col1">
           <button class="btn" style="width:100%;margin-bottom:10px" onclick="msgEcrire()">✉️ Écrire un message</button>
           <div id="msg-dossiers"><div class="vide">Chargement…</div></div>
+          <div id="msg-stats"></div>
           <div id="msg-ajout"></div>
         </div>
         <!-- colonne 2 : liste des messages -->
@@ -380,6 +411,7 @@ details.avance summary:hover{ color:var(--t1); }
             <button class="btn ghost sm" onclick="msgChercher()">Chercher</button>
             <button class="btn ghost sm" title="Actualiser" onclick="msgActualiser()">↻</button>
           </div>
+          <div class="msg-tri" id="msg-tri"></div>
           <div id="msg-titre" class="msg-titre"></div>
           <div class="lst" id="msg-list"><div class="vide">Chargement…</div></div>
           <div id="msg-pages" class="msg-pages"></div>
@@ -682,10 +714,27 @@ function renderDetail(){
       (i.statut!=='encours'?'<button class="btn warn sm" onclick="setStatut(\''+esc(i.id)+'\',\'encours\')">🔧 Prendre en charge</button>':'')+
       (i.statut!=='corrige'?'<button class="btn sm" onclick="setStatut(\''+esc(i.id)+'\',\'corrige\')">✓ Marquer corrigé</button>':'')+
       (MYROLE==='patron'&&i.statut!=='ignore'?'<button class="btn ghost sm" onclick="setStatut(\''+esc(i.id)+'\',\'ignore\')">Ignorer</button>':'')+
-      '<button class="btn ghost sm" onclick="addNote(\''+esc(i.id)+'\')">📝 Note</button>'+
+    '</div>'+
+    '<div class="note-bloc">'+
+      '<div class="sub" style="margin-bottom:5px">📝 Ajouter une note au dossier'+(i.par?' (visible par toute l\'équipe)':'')+'</div>'+
+      '<textarea id="note-'+esc(i.id)+'" rows="2" placeholder="Ce que tu as constaté, la piste à suivre, ce qui reste à faire…" oninput="NOTES[\''+esc(i.id)+'\']=this.value"></textarea>'+
+      '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">'+
+        '<button class="btn sm" onclick="noteEnvoyer(\''+esc(i.id)+'\')">Enregistrer la note</button>'+
+        '<button class="btn ghost sm" onclick="noteEnvoyer(\''+esc(i.id)+'\',\'encours\')">🔧 Je m\'en occupe + note</button>'+
+      '</div>'+
     '</div>'+
     (i.statut!=='corrige'?mailPrev:(i.mailEnvoye?mailPrev:''))+
     (histo?'<div class="histo"><div class="h1">Historique</div>'+histo+'</div>':'');
+  var tn=$('note-'+i.id); if(tn&&NOTES[i.id]) tn.value=NOTES[i.id];
+}
+var NOTES={};
+function noteEnvoyer(id,statut){
+  var t=$('note-'+id), n=(t&&t.value||'').trim();
+  if(!n){ toast('⚠️ Écris d\'abord ta note'); return; }
+  var i=ISSUES.find(function(x){ return x.id===id; });
+  setStatut(id,statut||(i&&i.statut)||'nouveau',n);
+  delete NOTES[id]; if(t) t.value='';
+  toast('📝 Note enregistrée');
 }
 function setStatut(id,statut,note){
   if(statut==='corrige'&&!note){ var i=ISSUES.find(function(x){ return x.id===id; }); if(i&&!i.mailEnvoye&&(i.entreprises||[]).some(function(e){ return e.email; })&&!confirm('Marquer corrigé ?\nL\'e-mail automatique « Votre application a été améliorée ✅ » partira aux entreprises touchées.')) return; }
@@ -703,7 +752,9 @@ function addNote(id){ var n=prompt('Note à ajouter au dossier :'); if(!n) retur
    📬 MESSAGERIE TEAM OP — plusieurs boîtes connectées, réception et envoi
    Rien n'est perdu en changeant d'onglet : la rédaction en cours est mémorisée.
    ══════════════════════════════════════════════════════════════════════════ */
+var MSG_STAT={aTraiter:{l:'🎫 À traiter',c:'orange'},enCours:{l:'⏳ En cours',c:'bleu'},resolu:{l:'✓ Résolu',c:'vert'}};
 var MSG = { boites:[], sel:{boite:'toutes',dossier:'',nom:'Toutes les réceptions',role:'inbox'},
+  tri:'clients', reglages:{signature:'',modeles:[]}, stats:null, reglagesOuvert:false,
   messages:[], page:0, pages:1, total:0, q:'', ouvert:null, lu:null, mode:'lecture',
   brouillon:{a:'',copie:'',copieCachee:'',objet:'',texte:'',pieces:[],enReponseA:null,boite:''},
   loaded:false, busy:false, err:'', nonLus:0, ajoutOuvert:false };
@@ -722,6 +773,8 @@ function msgChargerBoites(frais){
     setBdg('bdg-support',MSG.nonLus);
     msgRender();
     if(MSG.boites.length&&!MSG.messages.length) msgCharger();
+    if(!MSG.reglages.modeles.length) msgApi('/api/monitor/mail/reglages').then(function(r){ if(r&&!r.error){ MSG.reglages=r; } }).catch(function(){});
+    msgApi('/api/monitor/mail/stats').then(function(st){ if(st&&!st.error){ MSG.stats=st; msgRenderStats(); } }).catch(function(){});
   }).catch(function(){ MSG.busy=false; MSG.loaded=true; MSG.err=INJOIGNABLE; msgRender(); });
 }
 
@@ -832,6 +885,7 @@ function msgRenderDossiers(){
     });
   });
   el.innerHTML=h;
+  msgRenderStats();
   var aj=$('msg-ajout'); if(!aj) return;
   if(MYROLE!=='patron'){ aj.innerHTML=''; return; }
   aj.innerHTML=MSG.ajoutOuvert
@@ -840,19 +894,45 @@ function msgRenderDossiers(){
 }
 
 /* ── colonne 2 : la liste ────────────────────────────────────────────── */
+function msgTri(v){ MSG.tri=v; msgRenderListe(); }
+function msgRenderTri(){
+  var el=$('msg-tri'); if(!el) return;
+  var n=msgCompteTri();
+  el.innerHTML=[['clients','👤 Clients',n.clients],['aTraiter','🎫 À traiter',n.aTraiter],['auto','🤖 Notifications',n.auto],['tous','Tous',n.tous]]
+    .map(function(x){ return '<button class="msg-t'+(MSG.tri===x[0]?' sel':'')+'" onclick="msgTri(\''+x[0]+'\')">'+x[1]+(x[2]?' <b>'+x[2]+'</b>':'')+'</button>'; }).join('');
+}
+var MSG_AUTO=/(^|[.@])(noreply|no-reply|donotreply|ne-pas-repondre|notifications?|mailer|postmaster|bounce|newsletter)([.@]|$)|(stripe|inpi|ovh|ionos|google|github|apple|microsoft|paypal|urssaf|gouv)\./i;
+function msgEstAuto(m){ return !!(m.auto||MSG_AUTO.test(String(m.de||''))); }
+function msgCompteTri(){
+  var l=MSG.messages||[];
+  return { tous:l.length, auto:l.filter(msgEstAuto).length,
+    clients:l.filter(function(m){ return !msgEstAuto(m); }).length,
+    aTraiter:l.filter(function(m){ return !msgEstAuto(m)&&(!m.suivi||m.suivi.statut==='aTraiter'); }).length };
+}
+function msgFiltres(){
+  var l=(MSG.messages||[]).slice();
+  if(MSG.sel.role!=='inbox') return l;                       // le tri ne concerne que les réceptions
+  if(MSG.tri==='clients') return l.filter(function(m){ return !msgEstAuto(m); });
+  if(MSG.tri==='auto') return l.filter(msgEstAuto);
+  if(MSG.tri==='aTraiter') return l.filter(function(m){ return !msgEstAuto(m)&&(!m.suivi||m.suivi.statut==='aTraiter'); });
+  return l;
+}
 function msgRenderListe(){
   var el=$('msg-list'); if(!el) return;
+  msgRenderTri();
   var t=$('msg-titre');
   if(t) t.innerHTML='<b>'+esc(MSG.sel.nom||'Messages')+'</b> · '+MSG.total+' message'+(MSG.total>1?'s':'')+(MSG.q?' · recherche « '+esc(MSG.q)+' »':'');
-  if(!MSG.messages.length){ el.innerHTML='<div class="vide">'+(MSG.q?'Aucun message ne correspond à cette recherche.':'Aucun message dans ce dossier.')+'</div>'; msgRenderPages(); return; }
-  el.innerHTML=MSG.messages.map(function(m){
+  var liste=msgFiltres();
+  if(!liste.length){ el.innerHTML='<div class="vide">'+(MSG.q?'Aucun message ne correspond à cette recherche.':(MSG.tri==='clients'?'Aucun message de client ici — regardez « 🤖 Notifications ».':'Aucun message dans ce dossier.'))+'</div>'; msgRenderPages(); return; }
+  el.innerHTML=liste.map(function(m){
     var qui=(MSG.sel.role==='envoyes'||MSG.sel.role==='brouillons')
       ? ('À '+((m.pour&&m.pour.length)?m.pour.join(', '):'—'))
       : (m.deNom||m.de||'expéditeur inconnu');
     var cle=m.boite+'|'+m.dossier+'|'+m.uid;
     return '<div class="li-row'+(m.lu?'':' neuf')+(MSG.lu===cle?' sel':'')+'" onclick="msgLire(\''+jsq(m.boite)+'\',\''+jsq(m.dossier)+'\','+m.uid+')">'+
       '<span class="pt"></span><span class="cx">'+
-        '<span class="t1">'+(m.marque?'★ ':'')+esc(m.objet||'(sans objet)')+'</span>'+
+        '<span class="t1">'+(m.marque?'★ ':'')+esc(m.objet||'(sans objet)')+
+          ((m.suivi&&m.suivi.statut&&m.suivi.statut!=='resolu'&&!msgEstAuto(m))?' <span class="p-'+m.suivi.statut+'">'+(MSG_STAT[m.suivi.statut]||{}).l+'</span>':'')+'</span>'+
         '<span class="t2">'+esc(qui)+(m.deNom&&m.de&&MSG.sel.role!=='envoyes'?' · '+esc(m.de):'')+'</span>'+
       '</span>'+
       '<span class="t3">'+(m.pieces?'📎 ':'')+(m.repondu?'↩︎ ':'')+fmtAgo(m.ts)+'</span>'+
@@ -895,6 +975,8 @@ function msgRenderVue(){
   }).join(' ');
   el.innerHTML=
     '<h3>'+esc(m.objet||'(sans objet)')+'</h3>'+
+    msgFicheClient(m)+
+    msgSuiviHtml(m)+
     '<div class="kv">👤 <b>'+esc(m.deNom||m.de||'—')+'</b>'+(m.de&&m.deNom?' · '+esc(m.de):'')+'</div>'+
     '<div class="kv">📨 à '+esc((m.pour||[]).map(function(p){ return p.nom?(p.nom+' <'+p.adr+'>'):p.adr; }).join(', ')||'—')+
       ((m.copie&&m.copie.length)?' · copie : '+esc(m.copie.map(function(p){ return p.adr; }).join(', ')):'')+'</div>'+
@@ -911,6 +993,132 @@ function msgRenderVue(){
       '<button class="btn ghost sm" style="color:var(--red)" onclick="msgSupprimer()">🗑 Supprimer</button>'+
     '</div>';
 }
+/* ── 🏢 le client reconnu automatiquement (fiche + abonnement + demandes) ── */
+function msgClientDe(adr){
+  var a=String(adr||'').toLowerCase(); if(!a) return null;
+  var dom=a.split('@')[1]||'';
+  var l=(CLI&&CLI.list)||[];
+  return l.find(function(c){ return String(c.email||'').toLowerCase()===a; })
+      || (dom?l.find(function(c){ return String(c.email||'').toLowerCase().split('@')[1]===dom; }):null)
+      || null;
+}
+function msgAboDe(adr){
+  var a=String(adr||'').toLowerCase();
+  return ((ABO&&ABO.abos)||[]).find(function(x){ return String(x.clientEmail||'').toLowerCase()===a; })||null;
+}
+function msgErreursDe(c,adr){
+  var nom=String((c&&c.entreprise)||(c&&c.nom)||'').toLowerCase(), a=String(adr||'').toLowerCase();
+  if(!nom&&!a) return [];
+  return ((typeof ISSUES!=='undefined'&&ISSUES)||[]).filter(function(i){
+    return (i.entreprises||[]).some(function(e){
+      var en=String(e.nom||'').toLowerCase(), em=String(e.email||'').toLowerCase();
+      return (nom&&en&&en===nom)||(a&&em&&em===a);
+    });
+  });
+}
+function msgFicheClient(m){
+  if(msgEstAuto(m)) return '<div class="msg-auto">🤖 Message automatique d\'un service (pas un client) — aucune réponse attendue.</div>';
+  var c=msgClientDe(m.de), abo=msgAboDe(m.de), errs=msgErreursDe(c,m.de);
+  if(!c&&!abo&&!errs.length) return '';
+  var h='<div class="msg-cli">';
+  if(c){
+    h+='<div class="l1">🏢 <b>'+esc(c.entreprise||c.nom||c.email)+'</b>'+
+      (c.plan?' · <span class="tag">'+esc(c.plan)+'</span>':'')+
+      (c.planStatus?' <span class="tag '+(c.planStatus==='actif'?'p-actif':'')+'">'+esc(c.planStatus)+'</span>':'')+
+      (c.promo?' 🎁 <span class="tag">'+esc(c.promo)+'</span>':'')+'</div>';
+    var att=(c.demandes||[]).filter(function(d,i){ return !((c.demandesTraitees||{})[i]); }).length;
+    h+='<div class="l2">'+((c.apps||[]).map(function(a){ return '<span class="tag">'+esc(a)+'</span>'; }).join(' ')||'')+
+      (att?' · <b class="orange">'+att+' demande'+(att>1?'s':'')+' en attente</b>':'')+
+      ' · <button class="lien" onclick="msgVoirClient(\''+jsq(c.email)+'\')">voir sa fiche →</button></div>';
+  }
+  if(abo) h+='<div class="l2">💳 '+esc(abo.formule||'abonnement')+' · <b>'+(Number(abo.montant)||0).toFixed(2).replace('.',',')+' €</b>/'+esc(abo.periodicite||'mois')+
+    ' · <span class="tag p-'+esc(abo.statut)+'">'+esc((ABO_TXT&&ABO_TXT[abo.statut])||abo.statut)+'</span>'+
+    (abo.prochaine?' · prochaine échéance '+fmtDate(abo.prochaine).split(' ')[0]:'')+'</div>';
+  if(errs.length) h+='<div class="l2 alerte">⚠️ <b>'+errs.length+' problème'+(errs.length>1?'s':'')+' signalé'+(errs.length>1?'s':'')+
+    '</b> chez ce client — '+esc((errs[0].message||'').slice(0,70))+' <button class="lien" onclick="msgVoirSurveillance(\''+jsq(errs[0].id)+'\')">voir →</button></div>';
+  return h+'</div>';
+}
+function msgVoirClient(email){ setTab('clients'); setTimeout(function(){ try{ cliQ(email); var c=(CLI.list||[]).find(function(x){ return x.email===email; }); if(c) cliSel(email); }catch(_){ } },250); }
+function msgVoirSurveillance(id){ setTab('surveillance'); setTimeout(function(){ try{ selIssue(id); }catch(_){ } },250); }
+
+/* ── 🎫 suivi de la demande ── */
+function msgSuiviHtml(m){
+  if(msgEstAuto(m)) return '';
+  var st=(m.suivi&&m.suivi.statut)||'aTraiter', asg=(m.suivi&&m.suivi.assigne)||'';
+  return '<div class="msg-suivi">'+
+    ['aTraiter','enCours','resolu'].map(function(k){
+      return '<button class="msg-s'+(st===k?' sel '+MSG_STAT[k].c:'')+'" onclick="msgSuivi(\''+k+'\')">'+MSG_STAT[k].l+'</button>';
+    }).join('')+
+    '<span class="sub" style="margin-left:auto">'+(asg?'suivi par <b>'+esc(asg)+'</b>':'<button class="lien" onclick="msgSuivi(null,MYNOM)">je m\'en occupe</button>')+'</span></div>';
+}
+function msgSuivi(statut,assigne){
+  var m=MSG.ouvert; if(!m||!m.mid) return;
+  var body={mid:m.mid}; if(statut) body.statut=statut; if(assigne!==undefined&&assigne!==null) body.assigne=assigne;
+  fetch(API+'/api/monitor/mail/suivi',{method:'POST',headers:hAuth(),body:JSON.stringify(body)})
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(!d||d.error){ toast('⚠️ '+((d&&d.error)||'action impossible')); return; }
+      m.suivi=d.suivi;
+      var i=(MSG.messages||[]).findIndex(function(x){ return x.mid===m.mid; }); if(i>=0) MSG.messages[i].suivi=d.suivi;
+      msgRenderVue(); msgRenderListe();
+      msgApi('/api/monitor/mail/stats').then(function(st){ if(st&&!st.error){ MSG.stats=st; msgRenderStats(); } }).catch(function(){});
+    })
+    .catch(function(){ toast('⚠️ '+INJOIGNABLE); });
+}
+
+/* ── 📊 statistiques du support ── */
+function msgRenderStats(){
+  var el=$('msg-stats'); if(!el) return;
+  var s=MSG.stats; if(!s){ el.innerHTML=''; return; }
+  var maxi=Math.max.apply(null,(s.semaines||[{n:0}]).map(function(x){ return x.n; }).concat([1]));
+  el.innerHTML='<div class="msg-bt" style="border-top:1px solid var(--line)">📊 support</div>'+
+    '<div class="msg-st"><b>'+s.semaine+'</b> cette semaine · <b>'+s.mois+'</b> ce mois</div>'+
+    '<div class="msg-st">🎫 '+s.aTraiter+' à traiter · ⏳ '+s.enCours+' en cours · ✓ '+s.resolus+' résolus</div>'+
+    (s.repondus?'<div class="msg-st">⏱ réponse en <b>'+msgDuree(s.reponseMoyenneMin)+'</b> en moyenne</div>':'')+
+    '<div class="msg-bars">'+(s.semaines||[]).map(function(x){ return '<i style="height:'+Math.max(3,Math.round(x.n/maxi*30))+'px" title="'+x.n+' message(s)"></i>'; }).join('')+'</div>'+
+    '<div class="msg-st sub">8 dernières semaines</div>'+
+    ((s.sujets&&s.sujets.length)?'<div class="msg-st" style="margin-top:6px">Sujets fréquents : '+s.sujets.slice(0,4).map(function(x){ return '<span class="tag">'+esc(x.mot)+' ×'+x.n+'</span>'; }).join(' ')+'</div>':'');
+}
+function msgDuree(min){
+  if(!min) return '—';
+  if(min<60) return min+' min';
+  if(min<1440) return Math.round(min/60)+' h';
+  return Math.round(min/1440)+' j';
+}
+
+/* ── ⚡ réponses toutes prêtes + ✍️ signature ── */
+function msgRemplace(t,m){
+  var c=msgClientDe(m&&m.de)||{}, abo=msgAboDe(m&&m.de)||{};
+  var nom=String((m&&(m.deNom||''))||'').trim();
+  var prenom=nom?nom.split(/\s+/)[0]:'';
+  return String(t||'')
+    .replace(/\{prenom\}/g,prenom||'')
+    .replace(/\{nom\}/g,nom||c.nom||'')
+    .replace(/\{entreprise\}/g,c.entreprise||c.nom||'')
+    .replace(/\{formule\}/g,abo.formule||c.plan||'votre formule')
+    .replace(/\{promo\}/g,c.promo||'TEAMOP3MOIS')
+    .replace(/\s{2,}/g,' ').replace(/^ | $/g,'');
+}
+function msgAppliquerModele(id){
+  var mo=(MSG.reglages.modeles||[]).find(function(x){ return x.id===id; }); if(!mo) return;
+  var m=MSG.ouvert;
+  var txt=msgRemplace(mo.texte,m);
+  var t=$('msg-txt'); if(!t) return;
+  var sig=MSG.reglages.signature?('\n\n'+MSG.reglages.signature):'';
+  var reste=(MSG.brouillon.enReponseA&&/^\n\n----- Message/.test(t.value))?t.value:'';
+  t.value=txt+sig+reste; MSG.brouillon.texte=t.value;
+  if(mo.objet&&!(MSG.brouillon.objet||'').trim()){ var o=$('msg-obj'); if(o){ o.value=msgRemplace(mo.objet,m); MSG.brouillon.objet=o.value; } }
+  try{ t.focus(); t.setSelectionRange(txt.length,txt.length); }catch(_){ }
+  toast('⚡ '+mo.titre);
+}
+function msgSignerBrouillon(){
+  if(!MSG.reglages.signature) return;
+  var t=$('msg-txt'); if(!t) return;
+  if(t.value.indexOf(MSG.reglages.signature)>=0) return;
+  var pos=t.value.search(/\n\n----- Message/);
+  t.value=(pos>0? t.value.slice(0,pos)+'\n\n'+MSG.reglages.signature+t.value.slice(pos) : t.value+'\n\n'+MSG.reglages.signature);
+  MSG.brouillon.texte=t.value;
+}
+
 function msgCorps(m){
   var txt=String(m.texte||'').trim();
   if(m.html){
@@ -1025,12 +1233,25 @@ function msgRenderRedaction(curseurDebut){
     '<div class="d-actions">'+
       '<button class="btn sm" id="msg-env" onclick="msgEnvoyer()">✉️ Envoyer</button>'+
       '<label class="btn ghost sm" style="cursor:pointer">📎 Joindre un fichier<input type="file" multiple style="display:none" onchange="msgJoindre(this)"></label>'+
+      ((MSG.reglages.modeles||[]).length?'<select class="sm" style="max-width:210px" onchange="if(this.value){msgAppliquerModele(this.value);this.value=\'\';}"><option value="">⚡ Réponse toute prête…</option>'+
+        (MSG.reglages.modeles||[]).map(function(x){ return '<option value="'+esc(x.id)+'">'+esc(x.titre)+'</option>'; }).join('')+'</select>':'')+
+      (MSG.reglages.signature?'<button class="btn ghost sm" onclick="msgSignerBrouillon()">✍️ Signature</button>':'')+
       '<button class="btn ghost sm" onclick="msgBrouillon()">💾 Enregistrer en brouillon</button>'+
       '<button class="btn ghost sm" onclick="msgAnnulerRedaction()">Annuler</button>'+
     '</div>';
   $('msg-a').value=b.a||''; $('msg-cc').value=b.copie||''; $('msg-cci').value=b.copieCachee||'';
   $('msg-obj').value=b.objet||''; $('msg-txt').value=b.texte||'';
   msgRenderPJ();
+  if(MSG.reglages.signature){
+    var t0=$('msg-txt');
+    if(t0&&t0.value.indexOf(MSG.reglages.signature)<0){
+      var cit=t0.value.search(/\n\n----- Message/);
+      t0.value = cit>=0 ? (t0.value.slice(0,cit)+'\n\n'+MSG.reglages.signature+t0.value.slice(cit))
+                        : (t0.value+'\n\n'+MSG.reglages.signature);
+      MSG.brouillon.texte=t0.value;
+      try{ t0.setSelectionRange(0,0); t0.scrollTop=0; }catch(_){ }
+    }
+  }
   try{ if(curseurDebut){ var t=$('msg-txt'); t.focus(); t.setSelectionRange(0,0); t.scrollTop=0; } else if(!b.a) $('msg-a').focus(); }catch(_){ }
 }
 function msgRenderPJ(){
