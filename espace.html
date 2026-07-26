@@ -194,8 +194,23 @@
     //  la tour de contrôle d'incidents réseau identiques pendant une panne de l'API)
     if(tmF) window.fetch=function(input){ var url=''; try{ url=(typeof input==='string')?input:((input&&input.url)||''); }catch(_){ }
       var p=tmF.apply(window,arguments);
-      try{ if(/api\.teamop\.fr/.test(url)&&url.indexOf('/api/monitor/')<0&&url.indexOf('/api/clients/sync')<0){ var ep=url.replace(/^https?:\/\/[^\/]+/,'').split('?')[0];
-        p.then(function(r){ try{ if(r&&r.status>=500) tmPush('reseau','api.teamop.fr a répondu '+r.status+' sur '+ep,'','',0); }catch(_){ } },function(err){ try{ tmPush('reseau','api.teamop.fr injoignable sur '+ep+' ('+String((err&&err.message)||'échec').slice(0,80)+')','','',0); }catch(_){ } }); } }catch(_){ }
+      try{
+        /* on ne surveille QUE les appels dont l'échec gêne vraiment l'utilisateur.
+           Les appels « au mieux » (notifications, synchro, vigie) échouent sans conséquence
+           — typiquement pendant un redémarrage du serveur — et ne doivent pas polluer la surveillance. */
+        var TM_HORS=/\/api\/(monitor|subscribe|unsubscribe|notify|bug|vapid|clients\/sync)/;
+        if(/api\.teamop\.fr/.test(url)&&!TM_HORS.test(url)){ var ep=url.replace(/^https?:\/\/[^\/]+/,'').split('?')[0];
+          /* un échec isolé (serveur qui redémarre, wifi qui saute) n'est pas un incident :
+             on ne le signale qu'à la 2e fois en moins de 3 minutes sur le même appel. */
+          var tmRet=function(msg){ try{
+            window.__tmNet=window.__tmNet||{};
+            var n=Date.now(), pre=window.__tmNet[ep]||0;
+            window.__tmNet[ep]=n;
+            if(n-pre<180000) tmPush('reseau',msg,'','',0);
+          }catch(_){ } };
+          p.then(function(r){ try{ if(r&&r.status>=500) tmRet('api.teamop.fr a répondu '+r.status+' sur '+ep); }catch(_){ } },
+                 function(err){ try{ tmRet('api.teamop.fr injoignable sur '+ep+' ('+String((err&&err.message)||'échec').slice(0,80)+')'); }catch(_){ } });
+        } }catch(_){ }
       return p; };
   }catch(_){ }
   try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }

@@ -224,6 +224,9 @@ details.avance summary:hover{ color:var(--t1); }
 .tag.r{ color:var(--red); border-color:rgba(255,107,107,.45); }
 .tag.p{ color:#b79bea; border-color:rgba(155,123,222,.45); }
 
+.main-grid.solo, .grid2.solo{ grid-template-columns:minmax(0,1fr); }
+.msg-grid.msolo{ grid-template-columns:232px minmax(0,1fr); }
+
 /* ── modale (dossier de correction) ── */
 #modale{ position:fixed; inset:0; background:rgba(4,9,18,.78); z-index:60; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(3px); }
 #modale .mod-carte{ background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; width:760px; max-width:100%; max-height:88vh; overflow:auto; box-shadow:0 26px 70px rgba(0,0,0,.6); }
@@ -568,6 +571,11 @@ var ONGLETS=['surveillance','support','clients','abos','equipe','journal'];
 function setTab(t){
   if((t==='equipe'||t==='journal')&&MYROLE!=='patron') t='surveillance';
   msgGarderBrouillon(); cliSaveNote();   // changer d'onglet ne perd jamais une rédaction en cours
+  if(TAB!==t){
+    /* on change d'écran : tous les panneaux de détail se ferment (rien ne reste ouvert par erreur) */
+    SEL=null; SELS={}; CLI.sel=null;
+    if(MSG.mode!=='redaction'){ MSG.ouvert=null; MSG.lu=null; }
+  }
   TAB=t;
   if(('#'+t)!==location.hash){ try{ history.replaceState(null,'','#'+t); }catch(_){ location.hash=t; } }
   ONGLETS.forEach(function(k){
@@ -578,8 +586,9 @@ function setTab(t){
   // sur petit écran la barre d'onglets défile : on ramène toujours l'onglet ouvert sous les yeux
   try{ var _b=$('tabb-'+t); if(_b) _b.scrollIntoView({inline:'nearest',block:'nearest'}); }catch(_){ }
   // chargement à la première ouverture seulement — ensuite on ne fait que rafraîchir
-  if(t==='support') msgOuvrir();
-  if(t==='clients'&&!CLI.loaded&&!CLI.busy) loadClients();
+  if(t==='surveillance') renderApps();
+  if(t==='support'){ msgOuvrir(); if(MSG.loaded) msgRender(); }
+  if(t==='clients'){ if(!CLI.loaded&&!CLI.busy) loadClients(); else renderCli(); }
   if(t==='abos'&&!ABO.loaded&&!ABO.busy) loadAbos();
 }
 function applyHash(){
@@ -800,8 +809,10 @@ function groupAction(statut,app){
 }
 
 function renderDetail(){
-  var i=ISSUES.find(function(x){ return x.id===SEL; });
-  if(!i){ $('detail').innerHTML='<div class="vide">Sélectionne un problème dans la liste pour voir le détail.</div>'; return; }
+  var i=ISSUES.find(function(x){ return x.id===SEL; }), d=$('detail'), gr=d&&d.parentNode;
+  /* rien de sélectionné → le panneau est masqué et la liste occupe toute la largeur */
+  if(!i){ if(d){ d.style.display='none'; d.innerHTML=''; } if(gr) gr.classList.add('solo'); return; }
+  if(d) d.style.display=''; if(gr) gr.classList.remove('solo');
   var ents=(i.entreprises||[]).map(function(e){ return '<div class="kv">🏢 <b>'+esc(e.nom)+'</b>'+(e.email?' · '+esc(e.email):'')+' · '+e.count+'× · '+fmtAgo(e.lastTs)+'</div>'; }).join('')||'<div class="kv">—</div>';
   var apps=Object.keys(i.appareils||{}).map(function(k){ return esc(k)+' ('+i.appareils[k]+'×)'; }).join(' · ')||'—';
   var histo=(i.historique||[]).slice().reverse().map(function(h){ return '<div class="li">'+fmtDate(h.ts)+' — <b>'+esc(h.par)+'</b> : '+esc(h.action)+(h.note?' · «&nbsp;'+esc(h.note)+'&nbsp;»':'')+'</div>'; }).join('');
@@ -1140,7 +1151,9 @@ function msgRenderVue(){
   var el=$('msg-vue'); if(!el) return;
   if(MSG.mode==='redaction'){ msgRenderRedaction(); return; }
   var m=MSG.ouvert;
-  if(!m){ el.innerHTML='<div class="vide">Choisis un message pour le lire, ou touche « Écrire un message ».</div>'; return; }
+  var g3=el.parentNode;
+  if(!m){ el.style.display='none'; el.innerHTML=''; if(g3) g3.classList.add('msolo'); return; }
+  el.style.display=''; if(g3) g3.classList.remove('msolo');
   var pj=(m.pieces||[]).map(function(p){
     var u=API+'/api/monitor/mail/piece?boite='+encodeURIComponent(m.boite)+'&dossier='+encodeURIComponent(m.dossier)+'&uid='+m.uid+'&idx='+p.idx;
     return '<button class="tag" style="cursor:pointer" onclick="msgTelecharger(\''+jsq(u)+'\',\''+jsq(p.nom)+'\')">📎 '+esc(p.nom)+(p.taille?' · '+Math.max(1,Math.round(p.taille/1024))+' Ko':'')+'</button>';
@@ -1387,6 +1400,7 @@ function msgTransferer(){
 }
 function msgRenderRedaction(curseurDebut){
   var el=$('msg-vue'); if(!el) return;
+  el.style.display=''; if(el.parentNode) el.parentNode.classList.remove('msolo');
   var b=MSG.brouillon;
   var choixBoite=MSG.boites.length>1
     ? '<div class="kv">De : <select class="sm" onchange="MSG.brouillon.boite=this.value">'+
@@ -1679,7 +1693,9 @@ function renderCliFiche(force){
   var a=document.activeElement;
   if(!force&&a&&a.id==='cli-note') return;   // une note en cours de saisie n'est jamais écrasée
   var c=cliClient();
-  if(!c){ CLI.selRendu=null; el.innerHTML='<div class="vide">Choisis un client dans la liste pour voir sa fiche.</div>'; return; }
+  var g2=el.parentNode;
+  if(!c){ CLI.selRendu=null; el.style.display='none'; el.innerHTML=''; if(g2) g2.classList.add('solo'); return; }
+  el.style.display=''; if(g2) g2.classList.remove('solo');
   CLI.selRendu=c.email;   // la note tapée ci-dessous appartient à CE client-là
   var tr=c.demandesTraitees||{};
   var dem=(c.demandes||[]).map(function(d,ix){
