@@ -352,6 +352,23 @@ details.avance summary:hover{ color:var(--t1); }
 #login-box .verrou{ margin-top:16px; font-size:11px; color:var(--t3); line-height:1.6; background:rgba(59,130,246,.06); border:1px solid rgba(59,130,246,.2); border-radius:11px; padding:9px 12px; }
 #login-box .verrou b{ color:var(--t2); }
 #login-err{ color:var(--red); font-size:13px; min-height:20px; margin-top:10px; }
+
+/* ── métier du client : étiquette, filtre et sélecteur ── */
+.met-tag{ display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; border-radius:100px; padding:1px 8px; white-space:nowrap; }
+.met-tag.pret{ background:color-mix(in srgb,var(--acc) 20%,transparent); color:var(--acc); border:1px solid color-mix(in srgb,var(--acc) 45%,transparent); }
+.met-tag.surmesure{ background:color-mix(in srgb,var(--org) 20%,transparent); color:var(--org); border:1px solid color-mix(in srgb,var(--org) 45%,transparent); }
+.met-tag.vide{ background:transparent; color:var(--t3); border:1px dashed var(--brd2); }
+.met-tag.gros{ font-size:12px; padding:3px 11px; }
+.met-bar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+.met-lbl{ font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--t3); margin-right:2px; }
+.met-f{ font-size:11.5px; font-weight:700; border-radius:100px; padding:4px 11px; background:var(--card2); border:1px solid var(--brd); color:var(--t2); cursor:pointer; white-space:nowrap; }
+.met-f:hover{ border-color:color-mix(in srgb,var(--acc) 55%,transparent); }
+.met-f.on{ background:var(--acc); border-color:var(--acc); color:#fff; }
+.met-f b{ opacity:.75; margin-left:2px; }
+.met-f.sm{ border-style:dashed; color:var(--t3); }
+.met-f.x{ border-style:dashed; color:var(--red); }
+.met-box{ margin-top:10px; background:var(--card2); border:1px solid var(--brd); border-radius:12px; padding:11px 12px; }
+.met-pick{ display:flex; flex-wrap:wrap; gap:6px; }
 </style>
 </head>
 <body>
@@ -1558,7 +1575,7 @@ function delUser(id,nom){ if(!confirm('Supprimer définitivement l\'accès de '+
 /* selRendu = client (ou message) réellement affiché à l'écran : c'est SOUS CE NOM-LÀ que le brouillon
    en cours de saisie est enregistré, jamais sous la nouvelle sélection — sinon une note interne
    pourrait atterrir sur la fiche d'un autre client. */
-var CLI={ loaded:false, busy:false, list:[], total:0, sel:null, selRendu:null, q:'', notes:{}, err:'' };
+var CLI={ loaded:false, busy:false, list:[], total:0, sel:null, selRendu:null, q:'', met:'', notes:{}, err:'' };
 var ABO={ loaded:false, busy:false, configured:null, abos:[], paiements:[], mrr:0, actifs:0, impayes:0, echecs:0, q:'', fst:'', err:'', perime:false, majTs:0 };
 var ABO_TXT={ actif:'Actif', essai:'Essai', impaye:'Impayé', annule:'Annulé', incomplet:'Incomplet', autre:'Autre' };
 var PAY_TXT={ paye:'Payé', echec:'Échec', ouvert:'En attente', annule:'Annulée', autre:'Autre' };
@@ -1620,8 +1637,58 @@ function cliAppsDe(c){
   });
   return out.filter(function(x,i){ return out.indexOf(x)===i; });
 }
+/* Les métiers : ils décident du pack livré au client et séparent les évolutions.
+   « prêt » = pack déjà livré dans l'application · sinon : à construire avec le client. */
+var METIERS_TOUR=[
+  ['3d','🐀','3D — Anti-nuisibles',1],
+  ['plomberie','🔧','Plomberie',1],
+  ['electricite','⚡','Électricité',1],
+  ['chauffage','🔥','Chauffage / Clim.',1],
+  ['serrurerie','🔑','Serrurerie',1],
+  ['nettoyage','🧽','Nettoyage / Propreté',1],
+  ['maconnerie','🧱','Maçonnerie',0],
+  ['menuiserie','🪚','Menuiserie',0],
+  ['peinture','🎨','Peinture',0],
+  ['paysagiste','🌿','Paysagiste',0],
+  ['couverture','🏠','Couverture',0],
+  ['multiservices','🧰','Multiservices',0]
+];
+function metTour(k){ for(var i=0;i<METIERS_TOUR.length;i++) if(METIERS_TOUR[i][0]===k) return METIERS_TOUR[i]; return null; }
+function metEtq(k,gros){
+  var m=metTour(k);
+  if(!m) return '<span class="met-tag vide">métier à définir</span>';
+  return '<span class="met-tag'+(m[3]?' pret':' surmesure')+(gros?' gros':'')+'" title="'+(m[3]?'Pack livré dans l\'application':'Pack à construire avec ce client')+'">'+m[1]+' '+esc(m[2])+'</span>';
+}
+function cliMetierSet(k){
+  var c=cliClient(); if(!c) return;
+  apiPost('/api/monitor/clients/metier',{email:c.email,metier:k}).then(function(x){
+    if(!x.ok){ toast('⚠️ '+(x.d.error||'métier non enregistré')); return; }
+    c.metier=k; c.metierPar=(x.d.client&&x.d.client.metierPar)||'';
+    var m=metTour(k);
+    toast(k?('🧰 Métier « '+m[2]+' » enregistré'):'Métier retiré');
+    renderCliList(); renderCliFiche(true);
+  }).catch(function(){ toast('⚠️ Serveur injoignable'); });
+}
+/* filtre par métier : on ne mélange jamais deux métiers quand on prépare une évolution */
+function cliMetFiltre(k){ CLI.met=(CLI.met===k)?'':k; renderCliList(); }
+function cliBarreMetiers(){
+  var list=(CLI.clients||[]);
+  var cnt={}, sans=0;
+  list.forEach(function(c){ var k=String(c.metier||''); if(!k){ sans++; return; } cnt[k]=(cnt[k]||0)+1; });
+  var vus=METIERS_TOUR.filter(function(m){ return cnt[m[0]]; });
+  if(!vus.length&&!sans) return '';
+  return '<div class="met-bar">'+
+    '<span class="met-lbl">Métier :</span>'+
+    '<span class="met-f'+(CLI.met?'':' on')+'" onclick="cliMetFiltre(\'\')">Tous</span>'+
+    vus.map(function(m){ return '<span class="met-f'+(CLI.met===m[0]?' on':'')+'" onclick="cliMetFiltre(\''+jsq(m[0])+'\')">'+m[1]+' '+esc(m[2])+' <b>'+cnt[m[0]]+'</b></span>'; }).join('')+
+    (sans?'<span class="met-f'+(CLI.met==='_sans'?' on':'')+'" onclick="cliMetFiltre(\'_sans\')">⚠️ Métier à définir <b>'+sans+'</b></span>':'')+
+  '</div>';
+}
 function cliParApplication(){
-  var list=cliFiltres(), g={opgestion:[],opmessages:[],aucune:[]};
+  var list=cliFiltres();
+  if(CLI.met==='_sans') list=list.filter(function(c){ return !c.metier; });
+  else if(CLI.met) list=list.filter(function(c){ return String(c.metier||'')===CLI.met; });
+  var g={opgestion:[],opmessages:[],aucune:[]};
   list.forEach(function(c){
     var apps=cliAppsDe(c);
     if(!apps.length){ g.aucune.push(c); return; }
@@ -1667,7 +1734,7 @@ function renderCliList(){
       (plie?'':'<div class="corps">'+(list.length?list.map(function(c){ return cliLigne(c,a); }).join(''):'<div class="vide">Aucune entreprise dans cette application.</div>')+'</div>')+
     '</div>';
   });
-  el.innerHTML=rien?'<div class="card"><div class="vide">'+(CLI.q?'Aucun client ne correspond à cette recherche.':'Aucun client pour l\'instant. Les comptes clients vivent dans l\'espace client : chaque entreprise apparaît ici dès sa prochaine visite sur teamop.fr.')+'</div></div>':h;
+  el.innerHTML=cliBarreMetiers()+(rien?'<div class="card"><div class="vide">'+(CLI.q?'Aucun client ne correspond à cette recherche.':(CLI.met?'Aucun client dans ce métier.':'Aucun client pour l\'instant. Les comptes clients vivent dans l\'espace client : chaque entreprise apparaît ici dès sa prochaine visite sur teamop.fr.'))+'</div></div>':h);
   el.scrollTop=sc;
 }
 var CLISEC={};
@@ -1681,7 +1748,7 @@ function cliLigne(c,section){
   return '<div class="li-row'+(n?' neuf':'')+(CLI.sel===c.email?' sel':'')+'" onclick="cliSel(\''+jsq(c.email)+'\')">'+
     '<span class="pt"></span><span class="cx">'+
       '<span class="t1">'+esc(c.entreprise||c.nom||c.email||'—')+(n?' <span class="tag nouveau">⏳ '+n+' demande'+(n>1?'s':'')+'</span>':'')+'</span>'+
-      '<span class="t2">'+esc(c.email||'—')+' · '+etatAbo+(c.promo?' <span class="tag p">🎁 '+esc(c.promo)+'</span>':'')+esc(autres)+'</span>'+
+      '<span class="t2">'+esc(c.email||'—')+' · '+etatAbo+' '+metEtq(c.metier)+(c.promo?' <span class="tag p">🎁 '+esc(c.promo)+'</span>':'')+esc(autres)+'</span>'+
     '</span><span class="dt">inscrit '+fmtJour(c.inscrit)+'<br>vu '+fmtAgo(c.majTs)+'</span></div>';
 }
 function aboDuClient(email){
@@ -1725,6 +1792,15 @@ function renderCliFiche(force){
     '<div class="kv">📅 Inscrit le <b>'+fmtJour(c.inscrit)+'</b> · dernière visite '+fmtAgo(c.majTs)+'</div>'+
     '<div class="kv" style="margin-top:8px">📦 Applications : '+apps+'</div>'+
     '<div class="kv">💼 Formule : <b>'+esc(c.plan||'—')+'</b>'+(c.planStatus?' · '+esc(c.planStatus):'')+(c.promo?' · 🎁 <b>'+esc(c.promo)+'</b>':'')+'</div>'+
+    '<div class="met-box">'+
+      '<div class="sub" style="margin-bottom:6px">🧰 <b style="color:var(--t1)">Métier</b> — il décide du pack livré et sépare les évolutions'+
+        (c.metierPar?' <span class="sub">· fixé par '+esc(c.metierPar)+'</span>':'')+'</div>'+
+      '<div class="met-pick">'+METIERS_TOUR.map(function(m){
+        return '<span class="met-f'+(String(c.metier||'')===m[0]?' on':'')+(m[3]?'':' sm')+'" onclick="cliMetierSet(\''+jsq(m[0])+'\')" title="'+(m[3]?'Pack livré':'Pack à construire')+'">'+m[1]+' '+esc(m[2])+(m[3]?'':' ·')+'</span>'; }).join('')+
+        (c.metier?'<span class="met-f x" onclick="cliMetierSet(\'\')">✕ retirer</span>':'')+
+      '</div>'+
+      (c.metier&&!(metTour(c.metier)||[])[3]?'<div class="sub" style="margin-top:7px;color:var(--org)">⚠️ Pack non livré : à construire avec ce client avant de lui ouvrir l\'application.</div>':'')+
+    '</div>'+
     enc+
     '<div class="histo"><div class="h1">Demandes d\'accès</div>'+dem+'</div>'+
     '<div style="margin-top:14px"><div class="sub" style="margin-bottom:5px">📝 Note interne (visible par l\'équipe uniquement)</div>'+

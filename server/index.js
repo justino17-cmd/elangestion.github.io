@@ -953,6 +953,8 @@ app.post('/api/clients/sync', async (req, res) => {
     demandes, plan: monStr(b.plan, 40), planStatus: monStr(b.planStatus, 20), promo: monStr(b.promo, 60),
     majTs: Date.now(),
     noteInterne: prev.noteInterne || '',            // les annotations internes du contrôle survivent aux synchros
+    metier: prev.metier || '',                      // le métier est fixé depuis le contrôle, jamais par le client
+    metierPar: prev.metierPar || '',
     demandesTraitees: prev.demandesTraitees || {}
   };
   cliSave();
@@ -962,6 +964,17 @@ app.post('/api/clients/sync', async (req, res) => {
 app.get('/api/monitor/clients', monAdmin, (req, res) => {
   const list = Object.values(clientsData).sort((a, b) => (b.majTs || 0) - (a.majTs || 0));
   res.json({ clients: list, total: list.length });
+});
+// métier du client : c'est lui qui décide du pack livré, et qui sépare les évolutions par métier
+app.post('/api/monitor/clients/metier', monAdmin, (req, res) => {
+  const email = monStr((req.body || {}).email, 120).toLowerCase();
+  const c = clientsData[email];
+  if (!c) return res.status(404).json({ error: 'client introuvable' });
+  const met = monStr((req.body || {}).metier, 30);
+  c.metier = met;
+  c.metierPar = met ? (req.tourUser.nom + ' · ' + new Date().toLocaleDateString('fr-FR')) : '';
+  cliSave();
+  res.json({ ok: true, client: c });
 });
 // note interne sur un client (tracée)
 app.post('/api/monitor/clients/note', monAdmin, (req, res) => {
