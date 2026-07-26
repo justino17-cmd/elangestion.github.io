@@ -1201,5 +1201,11 @@ if (config.stripe && config.stripe.secretKey) {
   }, 15 * 60000).unref();
 }
 
+// ═══ MESSAGERIE COMPLÈTE (plusieurs boîtes : réception, envoi, dossiers, pièces jointes) ═══
+try {
+  require('./mail')(app, { DATA_DIR, monAdmin, monPatronStrict, monStr });
+  console.log('messagerie : module chargé');
+} catch (e) { console.error('messagerie indisponible :', e.message); }
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '127.0.0.1', () => console.log('TeamOP API sur 127.0.0.1:' + PORT));
