@@ -470,23 +470,34 @@ app.post('/api/email', async (req, res) => {
 const crypto = require('crypto');
 const MONITOR_PATH = path.join(path.dirname(CONFIG_PATH), 'monitor.json');
 
-let monIssues = [], monUsers = [], monJournal = [];
-try { const d = JSON.parse(fs.readFileSync(MONITOR_PATH, 'utf8')); monIssues = d.issues || []; monUsers = d.users || []; monJournal = d.journal || []; } catch (e) {}
+let monIssues = [], monUsers = [], monJournal = [], monArchive = [];
+try { const d = JSON.parse(fs.readFileSync(MONITOR_PATH, 'utf8')); monIssues = d.issues || []; monUsers = d.users || []; monJournal = d.journal || []; monArchive = d.archive || []; } catch (e) {}
+// Rien n'est jamais perdu : ce qui sort de la liste vivante part dans l'archive.
+function monArchiver(list) {
+  if (!list.length) return;
+  const vus = new Set(monArchive.map(i => i.id));
+  list.forEach(i => { if (!vus.has(i.id)) monArchive.push(i); });
+  monArchive.sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+  if (monArchive.length > 5000) monArchive = monArchive.slice(0, 5000);
+}
 function monPurge() {
   const lim = Date.now() - 90 * 86400000;
-  monIssues = monIssues.filter(i => !(i.statut === 'corrige' && (i.lastTs || 0) < lim));
-  if (monIssues.length > 500) {   // cap : on garde les plus récents, en sacrifiant d'abord les corrigés/ignorés
+  const vieux = monIssues.filter(i => i.statut === 'corrige' && (i.lastTs || 0) < lim);
+  if (vieux.length) { monArchiver(vieux); monIssues = monIssues.filter(i => vieux.indexOf(i) < 0); }
+  if (monIssues.length > 500) {   // cap de la liste vivante : le reste rejoint l'archive
     monIssues.sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
     const actifs = monIssues.filter(i => i.statut === 'nouveau' || i.statut === 'encours');
     const autres = monIssues.filter(i => i.statut !== 'nouveau' && i.statut !== 'encours');
-    monIssues = actifs.slice(0, 500).concat(autres.slice(0, Math.max(0, 500 - actifs.length)));
+    const garde = actifs.slice(0, 500).concat(autres.slice(0, Math.max(0, 500 - actifs.length)));
+    monArchiver(monIssues.filter(i => garde.indexOf(i) < 0));
+    monIssues = garde;
   }
 }
 let monSaveTimer = null;
 function monSave() {
   clearTimeout(monSaveTimer);
   monSaveTimer = setTimeout(() => {
-    try { monPurge(); fs.writeFileSync(MONITOR_PATH, JSON.stringify({ issues: monIssues, users: monUsers, journal: monJournal })); } catch (e) { console.error('monitor save:', e.message); }
+    try { monPurge(); fs.writeFileSync(MONITOR_PATH, JSON.stringify({ issues: monIssues, users: monUsers, journal: monJournal, archive: monArchive })); } catch (e) { console.error('monitor save:', e.message); }
   }, 500);
 }
 monPurge();
@@ -975,6 +986,10 @@ app.post('/api/monitor/clients/metier', monAdmin, (req, res) => {
   c.metierPar = met ? (req.tourUser.nom + ' · ' + new Date().toLocaleDateString('fr-FR')) : '';
   cliSave();
   res.json({ ok: true, client: c });
+});
+// historique complet : tout ce qui est sorti de la liste vivante, jamais supprimé
+app.get('/api/monitor/issues/archive', monAdmin, (req, res) => {
+  res.json({ archive: monArchive, total: monArchive.length, vivants: monIssues.length });
 });
 // note interne sur un client (tracée)
 app.post('/api/monitor/clients/note', monAdmin, (req, res) => {

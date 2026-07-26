@@ -369,6 +369,18 @@ details.avance summary:hover{ color:var(--t1); }
 .met-f.x{ border-style:dashed; color:var(--red); }
 .met-box{ margin-top:10px; background:var(--card2); border:1px solid var(--brd); border-radius:12px; padding:11px 12px; }
 .met-pick{ display:flex; flex-wrap:wrap; gap:6px; }
+
+/* cases du haut cliquables */
+.cnt.clic{ cursor:pointer; transition:transform .1s, border-color .1s; }
+.cnt.clic:hover{ transform:translateY(-2px); border-color:color-mix(in srgb,var(--acc) 55%,transparent); }
+.cnt.sel{ border-color:var(--acc); box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 30%,transparent); }
+.li-row .arch{ font-size:9px; font-weight:800; border-radius:100px; padding:1px 7px; background:var(--card2); border:1px solid var(--brd2); color:var(--t3); }
+
+.cnt-band{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:color-mix(in srgb,var(--acc) 12%,var(--card)); border:1px solid color-mix(in srgb,var(--acc) 42%,transparent); border-radius:12px; padding:9px 12px; margin-bottom:10px; font-size:13px; }
+.cnt-band b{ color:var(--t1); }
+.cnt-band .sub{ color:var(--t3); font-size:11.5px; }
+.cnt-band .sp{ flex:1; }
+.cnt-band .x{ font-size:11.5px; font-weight:700; color:var(--org); border:1px dashed color-mix(in srgb,var(--org) 50%,transparent); border-radius:100px; padding:4px 11px; cursor:pointer; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -663,12 +675,41 @@ function renderCompteurs(){
   for(var k=6;k>=0;k--){ var d0=new Date(); d0.setHours(0,0,0,0); d0.setDate(d0.getDate()-k); var d1=d0.getTime()+86400000;
     var n=ISSUES.filter(function(i){ return (i.lastTs||0)>=d0.getTime()&&(i.lastTs||0)<d1; }).length; j7.push(n); if(n>max)max=n; }
   for(var b=0;b<7;b++) bars+='<i style="height:'+Math.max(6,Math.round(j7[b]/max*100))+'%;opacity:'+(j7[b]?'':'0.18')+'" title="'+j7[b]+' incident(s)"></i>';
+  var st=(($('f-statut')||{}).value!==undefined?$('f-statut').value:'actifs');
   $('cnt-row').innerHTML=
-    '<div class="card cnt rouge"><div class="n">'+(COMPTEURS.nouveau||0)+'</div><div class="l">Nouveaux problèmes</div></div>'+
-    '<div class="card cnt orange"><div class="n">'+(COMPTEURS.encours||0)+'</div><div class="l">En cours de correction</div></div>'+
-    '<div class="card cnt vert"><div class="n">'+corrigesMois+'</div><div class="l">Corrigés ce mois-ci</div></div>'+
-    '<div class="card cnt bleu"><div class="n">'+NBENT+'</div><div class="l">Entreprises surveillées</div></div>'+
-    '<div class="card cnt"><div class="l">Incidents · 7 derniers jours</div><div class="bars">'+bars+'</div></div>';
+    '<div class="card cnt rouge clic'+(st==='nouveau'?' sel':'')+'" onclick="cntFiltre(\'nouveau\')" title="Voir les nouveaux problèmes"><div class="n">'+(COMPTEURS.nouveau||0)+'</div><div class="l">Nouveaux problèmes</div></div>'+
+    '<div class="card cnt orange clic'+(st==='encours'?' sel':'')+'" onclick="cntFiltre(\'encours\')" title="Voir ce qui est en cours de correction"><div class="n">'+(COMPTEURS.encours||0)+'</div><div class="l">En cours de correction</div></div>'+
+    '<div class="card cnt vert clic'+(st==='corrige'?' sel':'')+'" onclick="cntFiltre(\'corrige\')" title="Voir tout ce qui a été corrigé"><div class="n">'+corrigesMois+'</div><div class="l">Corrigés ce mois-ci</div></div>'+
+    '<div class="card cnt bleu clic" onclick="setTab(\'clients\')" title="Ouvrir la liste des entreprises"><div class="n">'+NBENT+'</div><div class="l">Entreprises surveillées</div></div>'+
+    '<div class="card cnt clic'+(st===''?' sel':'')+'" onclick="cntFiltre(\'\')" title="Tout l\'historique, corrigés compris"><div class="l">Incidents · 7 derniers jours</div><div class="bars">'+bars+'</div>'+
+      '<div class="l" style="margin-top:4px;color:var(--acc)">📜 Tout l\'historique</div></div>';
+}
+/* clic sur une case du haut : le filtre de statut suit */
+function cntFiltre(st){
+  var sel=$('f-statut'); if(!sel) return;
+  if(sel.value===st&&st!=='') sel.value='actifs'; else sel.value=st;
+  if(sel.value===''||sel.value==='corrige') archCharger();
+  renderApps(); renderCompteurs();   // la case choisie se met en évidence
+  try{ var l=$('cli-list')||$('iss-list'); if(l) l.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){}
+}
+/* ── archive : tout ce qui est sorti de la liste vivante, jamais supprimé ── */
+var ARCH={charge:false,list:[],busy:false};
+function archCharger(){
+  if(ARCH.charge||ARCH.busy) return;
+  ARCH.busy=true;
+  apiGet('/api/monitor/issues/archive').then(function(d){
+    ARCH.busy=false; ARCH.charge=true;
+    if(!d) return;
+    ARCH.list=(d.archive||[]).map(function(i){ i._arch=true; return i; });
+    if(ARCH.list.length) renderApps();
+  }).catch(function(){ ARCH.busy=false; ARCH.charge=true; });
+}
+function issuesToutes(){
+  var st=(($('f-statut')||{}).value!==undefined?$('f-statut').value:'actifs');
+  if(st!==''&&st!=='corrige') return ISSUES;
+  if(!ARCH.list.length) return ISSUES;
+  var vus={}; ISSUES.forEach(function(i){ vus[i.id]=1; });
+  return ISSUES.concat(ARCH.list.filter(function(i){ return !vus[i.id]; }));
 }
 function renderFiltres(){
   var cats={},ents={};
@@ -704,7 +745,7 @@ function passeFiltres(i,f){
   if(f.q&&((i.message||'')+' '+(i.categorie||'')+' '+(i.src||'')).toLowerCase().indexOf(f.q)<0) return false;
   return true;
 }
-function filtered(){ var f=filtresActifs(); return ISSUES.filter(function(i){ return passeFiltres(i,f); }); }
+function filtered(){ var f=filtresActifs(); return issuesToutes().filter(function(i){ return passeFiltres(i,f); }); }
 
 /* regroupement par application (les applications sans problème apparaissent quand même : « ciel dégagé ») */
 function parApplication(){
@@ -722,9 +763,19 @@ function parApplication(){
       ents:(function(){ var n={}; tous.forEach(function(i){ (i.entreprises||[]).forEach(function(e){ if(e.nom) n[e.nom]=1; }); }); return Object.keys(n).length; })() };
   });
 }
+var CNT_TXT={nouveau:'Nouveaux problèmes',encours:'En cours de correction',corrige:'Corrigés',ignore:'Ignorés','':'Tout l’historique — archives comprises',actifs:''};
+function cntBandeau(){
+  var st=(($('f-statut')||{}).value!==undefined?$('f-statut').value:'actifs');
+  if(st==='actifs') return '';
+  var n=filtered().length, arch=(st===''||st==='corrige')?ARCH.list.length:0;
+  return '<div class="cnt-band"><b>'+esc(CNT_TXT[st]||st)+'</b>'+
+    '<span class="sub">'+n+' erreur'+(n>1?'s':'')+' affichée'+(n>1?'s':'')+
+      (arch?(' · dont '+arch+' venant de l\'archive'):'')+'</span>'+
+    '<span class="sp"></span><span class="x" onclick="cntFiltre(\'\');document.getElementById(\'f-statut\').value=\'actifs\';renderApps();renderCompteurs()">✕ Revenir aux problèmes actifs</span></div>';
+}
 function renderApps(){
   var col=$('apps-col'); if(!col) return;
-  var groupes=parApplication(), h='', rien=true;
+  var groupes=parApplication(), h=cntBandeau(), rien=true;
   groupes.forEach(function(gr){
     var a=gr.app, l=gr.visibles.slice(), ordre={haute:0,moyenne:1,faible:2};
     l.sort(function(x,y){ return (ordre[gravite(x)]-ordre[gravite(y)])||((y.lastTs||0)-(x.lastTs||0)); });
