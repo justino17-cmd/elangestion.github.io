@@ -595,23 +595,42 @@ function doLogin(){
     })
     .catch(function(){ $('login-err').textContent='Serveur injoignable — réessaie dans un instant.'; });
 }
-/* ── Mode jour / nuit — le choix est retenu sur cet appareil ── */
-function themeLu(){ try{ return localStorage.getItem('teamop_tour_theme')||'nuit'; }catch(_){ return 'nuit'; } }
+/* ── Mode jour / nuit / automatique — le choix est retenu sur cet appareil ──
+   « automatique » suit le réglage clair-sombre du téléphone ou de l'ordinateur. */
+var THEMES=['auto','jour','nuit'];
+function themeLu(){ try{ var v=localStorage.getItem('teamop_tour_theme')||'auto';
+  return THEMES.indexOf(v)>=0?v:'auto'; }catch(_){ return 'auto'; } }
+function themeSysSombre(){
+  try{ return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }catch(_){ return true; }
+}
+function themeEffectif(t){ t=t||themeLu(); return (t==='auto') ? (themeSysSombre()?'nuit':'jour') : t; }
 function themeApplique(t){
   try{
-    document.documentElement.setAttribute('data-theme', t==='jour'?'jour':'nuit');
-    const b=document.getElementById('th-btn');
-    if(b){ b.textContent = (t==='jour')?'☀️':'🌙';
-      b.title = (t==='jour')?'Passer en mode nuit':'Passer en mode jour'; }
-    const m=document.querySelector('meta[name="theme-color"]');
-    if(m) m.setAttribute('content', t==='jour'?'#FFFFFF':'#0D1624');
+    t=t||themeLu();
+    var eff=themeEffectif(t);
+    document.documentElement.setAttribute('data-theme', eff==='jour'?'jour':'nuit');
+    var b=document.getElementById('th-btn');
+    if(b){
+      b.textContent = (t==='auto')?'🌗':((t==='jour')?'☀️':'🌙');
+      b.title = (t==='auto')?('Automatique — suit ton appareil (actuellement '+(eff==='jour'?'jour':'nuit')+') · cliquer pour forcer le mode jour')
+              : (t==='jour')?'Mode jour · cliquer pour le mode nuit'
+              : 'Mode nuit · cliquer pour revenir en automatique';
+    }
+    var m=document.querySelector('meta[name="theme-color"]');
+    if(m) m.setAttribute('content', eff==='jour'?'#FFFFFF':'#0D1624');
   }catch(_){ }
 }
 function themeBascule(){
-  const t = themeLu()==='jour' ? 'nuit' : 'jour';
+  var t=THEMES[(THEMES.indexOf(themeLu())+1)%THEMES.length];
   try{ localStorage.setItem('teamop_tour_theme',t); }catch(_){ }
   themeApplique(t);
 }
+/* en mode automatique, on suit le changement de réglage sans recharger la page */
+try{
+  var mq=window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+  if(mq){ var maj=function(){ if(themeLu()==='auto') themeApplique('auto'); };
+    if(mq.addEventListener) mq.addEventListener('change',maj); else if(mq.addListener) mq.addListener(maj); }
+}catch(_){ }
 themeApplique(themeLu());
 function doLogout(){ try{ sessionStorage.removeItem('tour_token'); }catch(_){ } location.hash=''; location.reload(); }
 function enterDash(){
