@@ -1199,6 +1199,51 @@
       ${(r.createdBy===ME.uid&&o.sans>0)?`<button class="btn ghost block" style="margin-top:12px" onclick="rsvpRelanceTous('${id}')">${o.sans>1?'Relancer les '+o.sans+' personnes sans réponse':'Relancer la personne sans réponse'}</button>`:''}
       <button class="btn block" style="margin-top:10px;font-weight:800" onclick="closeSheet();joinRoom('${id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre la réunion</button>`);
   }
+  /* ── Notre calendrier de choix de date : celui du navigateur est minuscule
+     et rien ne permet de l'agrandir. Celui-ci est à nous. ── */
+  let _dcMois='';
+  function dcOuvre(){
+    const z=$('dp-cal'); if(!z) return;
+    if(z.style.display==='block'){ z.style.display='none'; return; }
+    const v=(($('dp-date')||{}).value)||_dstr(new Date());
+    _dcMois=v.slice(0,7)+'-01';
+    z.style.display='block'; dcRender();
+  }
+  function dcMois(n){ const d=new Date(_dcMois+'T00:00:00'); d.setMonth(d.getMonth()+n); _dcMois=_dstr(d).slice(0,7)+'-01'; dcRender(); }
+  function dcChoisir(iso){ const i=$('dp-date'); if(i) i.value=iso; const z=$('dp-cal'); if(z) z.style.display='none'; dcLabel(); }
+  function dcLabel(){ const b=$('dp-datelbl'), v=(($('dp-date')||{}).value)||'';
+    if(!b) return; if(!v){ b.textContent='Choisir une date'; return; }
+    const d=new Date(v+'T00:00:00');
+    b.textContent=d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  }
+  function dcRender(){
+    const z=$('dp-cal'); if(!z) return;
+    const prem=new Date(_dcMois+'T00:00:00');
+    const sel=(($('dp-date')||{}).value)||'', auj=_dstr(new Date());
+    const dec=(prem.getDay()+6)%7;
+    const nb=new Date(prem.getFullYear(),prem.getMonth()+1,0).getDate();
+    const DN=['L','M','M','J','V','S','D'];
+    let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span onclick="dcMois(-1)" style="width:30px;height:30px;border-radius:9px;border:1px solid var(--sep);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2)">‹</span>
+      <b style="flex:1;text-align:center;font-size:13.5px;font-weight:800;text-transform:capitalize">${esc(prem.toLocaleDateString('fr-FR',{month:'long',year:'numeric'}))}</b>
+      <span onclick="dcMois(1)" style="width:30px;height:30px;border-radius:9px;border:1px solid var(--sep);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2)">›</span></div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`;
+    DN.forEach(n=>{ h+=`<div style="text-align:center;font-size:10px;font-weight:800;color:var(--t3);padding-bottom:4px">${n}</div>`; });
+    for(let k=0;k<dec;k++) h+='<div></div>';
+    for(let j=1;j<=nb;j++){
+      const iso=_dstr(new Date(prem.getFullYear(),prem.getMonth(),j));
+      const on=iso===sel, es=iso===auj, we=[0,6].indexOf(new Date(iso+'T00:00:00').getDay())>=0;
+      h+=`<div onclick="dcChoisir('${iso}')" style="height:38px;display:flex;align-items:center;justify-content:center;
+        border-radius:10px;cursor:pointer;font-size:13.5px;font-weight:${on?'800':'600'};
+        ${on?'background:var(--op);color:#fff':(es?'background:var(--tint2);color:var(--tile-tx);font-weight:800':(we?'color:var(--t3)':'color:var(--t1)'))}">${j}</div>`;
+    }
+    h+='</div>';
+    const dm=new Date(); const j2=new Date(Date.now()+86400000);
+    h+=`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+      <span onclick="dcChoisir('${_dstr(dm)}')" style="font-size:11px;font-weight:700;padding:6px 11px;border-radius:20px;border:1px solid var(--sep);color:var(--t2);cursor:pointer">Aujourd’hui</span>
+      <span onclick="dcChoisir('${_dstr(j2)}')" style="font-size:11px;font-weight:700;padding:6px 11px;border-radius:20px;border:1px solid var(--sep);color:var(--t2);cursor:pointer">Demain</span></div>`;
+    z.innerHTML=h;
+  }
   /* ── « Organiser une réunion » : une fenêtre, plus une colonne du tableau ── */
   async function dashForm(dateISO,heure){
     _dashSel=new Set([ME.uid]); _dashAlert=true;
@@ -1210,9 +1255,16 @@
       <input id="dp-name" placeholder="Titre de la réunion…" style="width:100%;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:13px;color:var(--t1);font-family:inherit;outline:none">
       <textarea id="dp-desc" rows="2" maxlength="400" placeholder="De quoi va-t-on parler ? (facultatif)" style="width:100%;margin-top:8px;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none;resize:vertical;line-height:1.5"></textarea>
       <div style="display:flex;gap:8px;margin-top:8px">
-        <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">calendar_today</span><input id="dp-date" type="date" value="${_dstr(d)}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
+        <div style="flex:1;min-width:0">
+          <div onclick="dcOuvre()" style="display:flex;align-items:center;gap:7px;padding:10px 12px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:700;cursor:pointer">
+            <span class="ms" style="font-size:16px;color:var(--tile-tx)">calendar_today</span>
+            <span id="dp-datelbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize">—</span>
+            <span style="color:var(--t3);font-size:11px">▾</span></div>
+          <input id="dp-date" type="hidden" value="${_dstr(d)}">
+        </div>
         <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${hh}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
       </div>
+      <div id="dp-cal" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">PARTICIPANTS</div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">${parts||'<span class="muted" style="font-size:11.5px">Aucun autre membre</span>'}<span id="dp-count" style="font-size:11.5px;color:var(--t2);margin-left:4px">0 sélectionné</span></div>
       <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
@@ -1221,7 +1273,7 @@
       </div>
       <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
       <button class="btn block" style="margin-top:12px;font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">Planifier la réunion</button>`);
-    setTimeout(()=>{ const n=$('dp-name'); if(n) n.focus(); },80);
+    setTimeout(()=>{ dcLabel(); const n=$('dp-name'); if(n) n.focus(); },80);
   }
   function dashTogglePart(el){ const uid=el.dataset.uid; if(_dashSel.has(uid)){ _dashSel.delete(uid); el.classList.remove('sel'); } else { _dashSel.add(uid); el.classList.add('sel'); }
     const c=$('dp-count'); if(c){ const n=Math.max(0,_dashSel.size-1); c.textContent=n+' sélectionné'+(n>1?'s':''); } }
