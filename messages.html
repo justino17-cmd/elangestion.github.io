@@ -41,6 +41,8 @@
     --addbtn-bg:oklch(0.945 0.028 262); --addbtn-tx:oklch(0.45 0.17 262);
     --fab-sh:0 10px 24px oklch(0.50 0.17 262 / 0.35);
     --today-hd:oklch(0.955 0.02 262); --today-col:oklch(0.985 0.008 262);
+    --cal-bg:#ffffff; --cal-line:oklch(0.855 0.008 250); --cal-line2:oklch(0.80 0.010 250);
+    --cal-we:oklch(0.965 0.012 262); --cal-today:oklch(0.975 0.014 262); --cal-todayhd:oklch(0.94 0.03 262);
     --blk-blue:oklch(0.93 0.04 262); --blk-blue-tx:oklch(0.40 0.15 262); --blk-blue-sub:oklch(0.48 0.13 262);
     --blk-green:oklch(0.93 0.05 155); --blk-green-tx:oklch(0.35 0.10 152); --blk-green-sub:oklch(0.45 0.09 152);
     --imminent-sh:0 4px 10px oklch(0.50 0.17 262 / 0.30);
@@ -67,6 +69,8 @@
     --addbtn-bg:oklch(0.55 0.15 262); --addbtn-tx:#ffffff;
     --fab-sh:0 10px 24px rgba(0,0,0,.45);
     --today-hd:oklch(0.30 0.04 262); --today-col:oklch(0.27 0.02 262);
+    --cal-bg:oklch(0.335 0.014 262); --cal-line:oklch(0.47 0.020 262); --cal-line2:oklch(0.55 0.025 262);
+    --cal-we:oklch(0.305 0.018 261); --cal-today:oklch(0.375 0.030 262); --cal-todayhd:oklch(0.435 0.050 262);
     --blk-blue:oklch(0.35 0.06 262); --blk-blue-tx:oklch(0.90 0.04 262); --blk-blue-sub:oklch(0.78 0.06 262);
     --blk-green:oklch(0.38 0.06 152); --blk-green-tx:oklch(0.93 0.05 155); --blk-green-sub:oklch(0.85 0.07 152);
     --imminent-sh:0 4px 12px rgba(0,0,0,.35);
@@ -110,10 +114,18 @@
   .appbar .ic{width:40px;height:40px;border-radius:12px;border:none;background:var(--inp);color:var(--t1);font-size:17px;cursor:pointer;flex-shrink:0}
   .appbar .ic:hover{background:var(--inp-h)}
   .appbar .ic.accent{background:var(--addbtn-bg);color:var(--addbtn-tx);font-size:22px}
-  /* la croix bleue, telle qu'elle etait en haut de l'ecran */
-  .dashplus{width:40px;height:40px;border-radius:12px;border:none;background:var(--addbtn-bg);color:var(--addbtn-tx);
-    font-size:22px;cursor:pointer;flex-shrink:0;font-family:inherit;display:inline-flex;align-items:center;justify-content:center}
-  .dashplus:hover{filter:brightness(1.08)}
+  /* la barre de recherche du tableau de bord : longue, transparente, centree */
+  .dashrech{flex:0 1 620px;min-width:220px;max-width:620px;margin:0 auto;display:flex;align-items:center;gap:11px;
+    padding:13px 20px;border-radius:14px;background:transparent;border:1px solid var(--brd2);
+    color:var(--t3);font-size:14px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s}
+  .dashrech:hover{border-color:var(--op);color:var(--t2)}
+  /* la carte d'information qui suit la souris sur une reunion */
+  #dashhov{position:fixed;left:0;top:0;z-index:58;width:286px;max-width:calc(100vw - 20px);
+    padding:13px 15px;border-radius:14px;background:var(--card);border:1px solid var(--brd2);
+    box-shadow:0 14px 38px rgba(0,0,0,.30);opacity:0;pointer-events:none;transition:opacity .12s;display:none}
+  #dashhov.on{opacity:1;display:block}
+  .dstat{cursor:pointer;transition:border-color .15s,transform .12s}
+  .dstat:hover{border-color:var(--op);transform:translateY(-1px)}
   .sptab{padding:11px;border-radius:12px;border:none;background:var(--inp);color:var(--t2);font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s}
   .sptab:hover{background:var(--inp-h)}
   .sptab.on-perso{background:var(--op);color:#fff;font-weight:800}
@@ -896,20 +908,18 @@
       : d1.getDate()+' '+moC(d1)+' — '+d2.getDate()+' '+moC(d2);
     try{ view.classList.add('wide'); }catch(e){}
     view.innerHTML=`<div style="width:100%;margin:0 auto;display:flex;flex-direction:column;gap:14px">
-      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap">
-        <div><h2 style="font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1;margin:0">Tableau de bord</h2>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="flex:1 1 0;min-width:190px"><h2 style="font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1;margin:0">Tableau de bord</h2>
         <div style="font-size:13px;color:var(--t2);margin-top:5px">${esc(lib)} · ${esc(COMP.name)}</div></div>
-        <div style="display:flex;align-items:center;gap:9px">
-          <button class="hbtn" onclick="rechOuvre()" title="Chercher dans tous les messages">${ms('search',18)}Rechercher</button>
-          <button class="hbtn green" onclick="dashForm()">${ms('event',18)}Nouvelle réunion</button>
-          <button class="dashplus" onclick="quickNew()" title="Nouveau : message, groupe, appel">＋</button>
+        <div onclick="rechOuvre()" class="dashrech" title="Chercher dans tous les messages">
+          <span class="ms" style="font-size:19px">search</span><span>Rechercher dans les messages…</span>
         </div>
+        <div style="flex:1 1 0;min-width:0"></div>
       </div>
       <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
       <div style="display:grid;grid-template-columns:${window.innerWidth>=1180?'minmax(0,1fr) 330px':'minmax(0,1fr)'};gap:14px;align-items:start">
         <div style="min-width:0;display:flex;flex-direction:column;gap:14px">
           <div id="dash-cal"><p class="muted center">Chargement…</p></div>
-          <div id="dash-al"></div>
         </div>
         <div id="dash-msg" style="min-width:0"></div>
       </div>
@@ -925,38 +935,54 @@
     const upcoming=rooms.filter(r=>r.scheduledAt>nowMs-3600000);
     const todayList=rooms.filter(r=>new Date(r.scheduledAt).toDateString()===now.toDateString());
     const convoked=new Set(); upcoming.forEach(r=>(r.members||[]).forEach(u=>convoked.add(u)));
-    const stat=(icn,val,lbl,amber)=>`<div class="card" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:13px">
+    /* on garde tout sous la main : les cartes du haut s'ouvrent au clic */
+    _dashData={rooms:rooms,jour:todayList,avenir:upcoming,convoques:Array.from(convoked)};
+    _dashRooms={}; rooms.forEach(r=>{ _dashRooms[r.id]=r; });
+    const stat=(cle,icn,val,lbl,amber,pied)=>`<div class="card dstat" onclick="dashStat('${cle}')" title="Clique pour voir le détail"
+      style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:13px">
       <div style="width:38px;height:38px;flex:none;border-radius:10px;background:${amber?'var(--amber-bg)':'var(--tile-bg)'};color:${amber?'var(--amber)':'var(--tile-tx)'};display:flex;align-items:center;justify-content:center">${ms(icn,20)}</div>
-      <div><div style="font-size:17px;font-weight:800;line-height:1">${val}</div><div style="font-size:11.5px;color:var(--t2);margin-top:3px">${lbl}</div></div></div>`;
+      <div style="min-width:0;flex:1"><div style="font-size:17px;font-weight:800;line-height:1">${val}</div>
+        <div style="font-size:11.5px;color:var(--t2);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lbl}</div>
+        ${pied?`<div style="font-size:10.5px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pied}</div>`:''}</div>
+      <span class="ms" style="font-size:18px;color:var(--t3);flex:none">chevron_right</span></div>`;
+    /* la carte des alertes reprend ce qui était affiché en dessous : la prochaine alerte */
+    const proch=upcoming[0];
+    const piedAl=proch?('prochaine : '+esc(reunionQuand(proch.scheduledAt))):'aucune à venir';
     const st=$('dash-stats'); if(st) st.innerHTML=
-      stat('videocam',todayList.length,'Réunion'+(todayList.length>1?'s':'')+" aujourd'hui")
-     +stat('group',convoked.size,'Participant'+(convoked.size>1?'s':'')+' convoqué'+(convoked.size>1?'s':''))
-     +stat('notifications_active',upcoming.length,'Alerte'+(upcoming.length>1?'s':'')+' programmée'+(upcoming.length>1?'s':''),true);
+      stat('jour','videocam',todayList.length,'Réunion'+(todayList.length>1?'s':'')+" aujourd'hui")
+     +stat('pers','group',convoked.size,'Participant'+(convoked.size>1?'s':'')+' convoqué'+(convoked.size>1?'s':''))
+     +stat('alerte','notifications_active',upcoming.length,'Alerte'+(upcoming.length>1?'s':'')+' programmée'+(upcoming.length>1?'s':''),true,piedAl);
 
     /* ── la grille ── */
     const dansPeriode=r=>{ const d=new Date(r.scheduledAt);
       return jours.some(j=>j.toDateString()===d.toDateString()); };
     const duJour=d=>rooms.filter(r=>new Date(r.scheduledAt).toDateString()===d.toDateString())
                         .sort((a,b)=>a.scheduledAt-b.scheduledAt);
-    const bloc=(r,soon)=>{ const stD=new Date(r.scheduledAt);
+    /* le bloc d'une réunion. `pos` sert dans la vue semaine : la réunion est
+       posée à la minute exacte (9h15 tombe à 9h15, pas sur la ligne des 9h). */
+    const bloc=(r,soon,pos)=>{ const stD=new Date(r.scheduledAt);
       const h=stD.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-      const n=(r.members||[]).length, nm=esc((r.name||'').replace(/'/g,''));
+      const n=(r.members||[]).length;
       const bg=soon?'var(--amber-bg)':'var(--blk-blue)', tx=soon?'var(--amber)':'var(--blk-blue-tx)',
             sub=soon?'var(--amber)':'var(--blk-blue-sub)';
-      return `<div onclick="event.stopPropagation();rsvpOuvre('${r.id}')" title="${esc(r.name||'')}${r.desc?' — '+esc(String(r.desc).slice(0,120)):''} — voir les réponses"
-        style="border-radius:8px;background:${bg};padding:6px 9px;cursor:pointer;margin-bottom:3px;min-width:0;overflow:hidden${soon?';box-shadow:var(--imminent-sh)':''}">
+      const geo=pos?`position:absolute;top:${pos.top}px;left:calc(${pos.left}% + 3px);width:calc(${pos.width}% - 6px);height:${pos.h}px;pointer-events:auto;`
+                  :'margin-bottom:3px;';
+      return `<div onclick="event.stopPropagation();rsvpOuvre('${r.id}')"
+        onmouseenter="dashHovShow(event,'${r.id}')" onmousemove="dashHovMove(event)" onmouseleave="dashHovHide()"
+        style="${geo}border-radius:8px;background:${bg};padding:5px 8px;cursor:pointer;min-width:0;overflow:hidden${soon?';box-shadow:var(--imminent-sh)':''}">
         <div style="font-size:11px;font-weight:800;color:${tx};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div>
         <div style="font-size:9.5px;font-weight:600;color:${sub};margin-top:1px;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${soon?'dans '+Math.max(1,Math.round((r.scheduledAt-nowMs)/60000))+' min':h}${n?' · '+n+' pers.':''}${rsvpPastille(r)}</div></div>`; };
     let grid='';
     if(_dashPortee==='mois'){
       const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
       const moisRef=new Date(_dashMonday()); moisRef.setDate(1); moisRef.setMonth(moisRef.getMonth()+_dashDec);
-      grid=`<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr))">`;
-      DN.forEach(n=>{ grid+=`<div style="padding:9px 4px;text-align:center;border-bottom:1px solid var(--sep);border-left:1px solid var(--sep);font-size:10px;font-weight:800;letter-spacing:.07em;color:var(--t2)">${n}</div>`; });
+      grid=`<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));background:var(--cal-bg)">`;
+      DN.forEach(n=>{ grid+=`<div style="padding:9px 4px;text-align:center;border-bottom:1.5px solid var(--cal-line2);border-left:1px solid var(--cal-line);font-size:10px;font-weight:800;letter-spacing:.07em;color:var(--t2)">${n}</div>`; });
       jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString();
         const hors=d.getMonth()!==moisRef.getMonth();
         const l=duJour(d);
-        grid+=`<div onclick="dashForm('${_dstr(d)}','09:00')" style="border-left:1px solid var(--sep);border-top:1px solid var(--sep);min-height:92px;min-width:0;overflow:hidden;padding:5px;cursor:pointer;${isT?'background:var(--today-col);':''}${hors?'opacity:.42;':''}">
+        const weM=(d.getDay()===0||d.getDay()===6);
+        grid+=`<div onclick="dashForm('${_dstr(d)}','09:00')" style="border-left:1px solid var(--cal-line);border-top:1px solid var(--cal-line);min-height:92px;min-width:0;overflow:hidden;padding:5px;cursor:pointer;${isT?'background:var(--cal-today);':(weM?'background:var(--cal-we);':'')}${hors?'opacity:.42;':''}">
           <div style="font-size:11.5px;font-weight:800;margin-bottom:4px;${isT?'color:var(--op-tx)':'color:var(--t2)'}">${d.getDate()}</div>
           ${l.slice(0,3).map(r=>bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000)).join('')}
           ${l.length>3?`<div style="font-size:9.5px;color:var(--t3);text-align:center">+${l.length-3}</div>`:''}</div>`; });
@@ -969,28 +995,42 @@
       let h0=(a===null)?8:Math.min(8,Math.max(0,a-1));
       let h1=(b===null)?18:Math.max(18,Math.min(23,b+1));
       const HEURES=[]; for(let h=h0;h<=h1;h++) HEURES.push(h);
-      const cols=jours.length;
+      const cols=jours.length, ROWH=56, HEADH=50, BLOCH=46;
       const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
       const estWE=d=>{ const j=d.getDay(); return j===0||j===6; };
-      grid=`<div style="display:grid;grid-template-columns:48px repeat(${cols},minmax(88px,1fr));min-width:${48+cols*88}px">`;
-      grid+=`<div style="border-bottom:1px solid var(--sep)"></div>`;
+      const totalH=HEURES.length*ROWH;
+      /* le fond : les lignes des heures et les colonnes des jours */
+      grid=`<div style="position:relative;min-width:${48+cols*88}px;background:var(--cal-bg)">
+        <div style="display:grid;grid-template-columns:48px repeat(${cols},minmax(88px,1fr))">`;
+      grid+=`<div style="border-bottom:1.5px solid var(--cal-line2);height:${HEADH}px"></div>`;
       jours.forEach((d,i)=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
-        grid+=`<div style="padding:9px 6px;text-align:center;border-bottom:1px solid var(--sep);border-left:1px solid var(--sep);${isT?'background:var(--today-hd)':(we?'background:var(--tint2)':'')}">
-          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:${isT?'var(--tile-tx)':'var(--t2)'};${we&&!isT?'opacity:.6':''}">${DN[d.getDay()===0?6:d.getDay()-1]}</div>
-          <div style="font-size:15px;font-weight:800;margin-top:1px;${isT?'color:var(--op-tx)':(we?'opacity:.6':'')}">${d.getDate()}</div></div>`; });
+        grid+=`<div style="height:${HEADH}px;padding:8px 6px 0;text-align:center;border-bottom:1.5px solid var(--cal-line2);border-left:1px solid var(--cal-line);${isT?'background:var(--cal-todayhd)':(we?'background:var(--cal-we)':'')}">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:${isT?'var(--tile-tx)':'var(--t2)'};${we&&!isT?'opacity:.7':''}">${DN[d.getDay()===0?6:d.getDay()-1]}</div>
+          <div style="font-size:15px;font-weight:800;margin-top:1px;${isT?'color:var(--op-tx)':(we?'opacity:.7':'')}">${d.getDate()}</div></div>`; });
       HEURES.forEach((h,hi)=>{
-        grid+=`<div style="padding:6px 9px 0 0;text-align:right;font-size:10px;font-weight:700;color:var(--t3);${hi?'border-top:1px solid var(--sep)':''}">${String(h).padStart(2,'0')}:00</div>`;
-        jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=(d.getDay()===0||d.getDay()===6);
-          const l=duJour(d).filter(r=>new Date(r.scheduledAt).getHours()===h);
-          const inner=l.length
-            ? l.map(r=>bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000)).join('')
-            : `<div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;display:flex;align-items:center;justify-content:center;color:transparent"
-                 onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'"
-                 onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div>`;
+        grid+=`<div style="height:${ROWH}px;padding:5px 9px 0 0;text-align:right;font-size:10px;font-weight:700;color:var(--t2);${hi?'border-top:1px solid var(--cal-line)':''}">${String(h).padStart(2,'0')}:00</div>`;
+        jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
           grid+=`<div onclick="dashForm('${_dstr(d)}','${String(h).padStart(2,'0')}:00')" title="Poser une réunion ici"
-            style="border-left:1px solid var(--sep);${hi?'border-top:1px solid var(--sep);':''}${isT?'background:var(--today-col);':(we?'background:var(--tint2);':'')}padding:3px;cursor:pointer;min-width:0;overflow:hidden;height:46px">${inner}</div>`; });
+            style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background:var(--cal-today);':(we?'background:var(--cal-we);':'')}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
+            <div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;display:flex;align-items:center;justify-content:center;color:transparent"
+              onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'"
+              onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div></div>`; });
       });
       grid+=`</div>`;
+      /* la couche des réunions : chacune tombe à sa minute exacte */
+      grid+=`<div style="position:absolute;left:48px;right:0;top:${HEADH}px;height:${totalH}px;pointer-events:none;display:grid;grid-template-columns:repeat(${cols},minmax(88px,1fr))">`;
+      jours.forEach(d=>{
+        const l=duJour(d).filter(r=>{ const hh=new Date(r.scheduledAt).getHours(); return hh>=h0&&hh<=h1; });
+        const ct=dashCotes(l);
+        grid+=`<div style="position:relative;min-width:0">`+l.map((r,i)=>{
+          const dd=new Date(r.scheduledAt);
+          const top=Math.max(0,Math.min(totalH-BLOCH,Math.round(((dd.getHours()-h0)+dd.getMinutes()/60)*ROWH)));
+          const nb=ct.n[i]||1;
+          return bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000,
+                      {top:top,left:(100/nb)*(ct.lane[i]||0),width:100/nb,h:BLOCH});
+        }).join('')+`</div>`;
+      });
+      grid+=`</div></div>`;
     }
     const seg=[['sem','Semaine'],['2sem','2 semaines'],['mois','Le mois']]
       .map(([k,l])=>`<span onclick="dashPorteeSet('${k}')" style="font-size:11.5px;font-weight:700;padding:6px 12px;border-radius:8px;cursor:pointer;${_dashPortee===k?'background:var(--op);color:#fff':'color:var(--t2)'}">${l}</span>`).join('');
@@ -1009,19 +1049,6 @@
       </div>
       <div style="overflow-x:auto">${grid}</div></div>`;
 
-    /* ── alertes envoyées, pleine largeur ── */
-    const alerts=upcoming.slice(0,6).map(r=>{ const diff=r.scheduledAt-nowMs; const soon=diff>0&&diff<=15*60000; const started=diff<=0;
-      const icn=started?ms('check_circle',17):(soon?ms('notifications_active',17,1):ms('schedule',17));
-      const bg=started?'var(--blk-green)':(soon?'var(--amber-bg)':'var(--tile-bg)'), col=started?'var(--blk-green-tx)':(soon?'var(--amber)':'var(--tile-tx)');
-      const n=(r.members||[]).length;
-      const when=started?'en cours':(soon?('dans '+Math.max(1,Math.round(diff/60000))+' min'):esc(fmtWhen(r.scheduledAt)));
-      const o=rsvpResume(r);
-      const detail=n?[o.oui?o.oui+' présent'+(o.oui>1?'s':''):'',o.retard?o.retard+' en retard':'',o.non?o.non+' absent'+(o.non>1?'s':''):'',o.sans?o.sans+' sans réponse':''].filter(Boolean).join(' · ')
-                   :'Alerte 15 min avant dans OP Messages';
-      return `<div style="display:flex;gap:11px;padding:11px 15px;border-top:1px solid var(--sep);cursor:pointer" onclick="rsvpOuvre('${r.id}')">
-        <div style="width:34px;height:34px;flex:none;border-radius:10px;background:${bg};color:${col};display:flex;align-items:center;justify-content:center">${icn}</div>
-        <div style="min-width:0;flex:1"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')} — ${when}</div>
-        <div style="font-size:11px;color:var(--t2);margin-top:2px">${esc(detail)}</div></div></div>`; }).join('');
     /* ── colonne : les nouveaux messages ── */
     (async()=>{
       const r=await dashNouveaux(); const zone=$('dash-msg'); if(!zone||_curView!=='dash') return;
@@ -1052,11 +1079,155 @@
         ${lignes}
         ${r.liste.length>8?`<div style="padding:9px 15px;font-size:11px;color:var(--t3);text-align:center;border-top:1px solid var(--sep)">+ ${r.liste.length-8} autre${r.liste.length-8>1?'s':''}</div>`:''}</div>`;
     })();
-    const dal=$('dash-al'); if(dal) dal.innerHTML=`<div class="card" style="padding:0;overflow:hidden">
-      <div style="display:flex;align-items:center;padding:12px 15px;${alerts?'border-bottom:1px solid var(--sep)':''}">
-        <b style="font-size:14.5px;font-weight:800">Alertes envoyées</b><span style="flex:1"></span>
-        <span style="font-size:11px;font-weight:700;color:var(--tile-tx);cursor:pointer" onclick="openReunions()">Tout voir</span></div>
-      ${alerts||'<p class="muted" style="font-size:12px;padding:0 15px 14px">Aucune réunion planifiée à venir.</p>'}</div>`;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     DEUX RÉUNIONS À LA MÊME HEURE SE RANGENT CÔTE À CÔTE
+     ══════════════════════════════════════════════════════════════════════ */
+  function dashCotes(list){
+    const SPAN=50*60000, lane=[], n=[];
+    let i=0;
+    while(i<list.length){
+      let j=i, fin=list[i].scheduledAt+SPAN;
+      while(j+1<list.length && list[j+1].scheduledAt<fin){ j++; fin=Math.max(fin,list[j].scheduledAt+SPAN); }
+      const nb=j-i+1;
+      for(let k=i;k<=j;k++){ lane[k]=k-i; n[k]=nb; }
+      i=j+1;
+    }
+    return {lane:lane,n:n};
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     LA CARTE D'INFORMATION AU SURVOL D'UNE RÉUNION
+     ══════════════════════════════════════════════════════════════════════ */
+  let _dashRooms={};
+  /* en un mot : à venir, imminente, en cours, ou déjà passée */
+  function dashEtat(diff){
+    if(diff>15*60000) return 'à venir';
+    if(diff>0) return 'dans '+Math.max(1,Math.round(diff/60000))+' min';
+    if(diff>-2*3600000) return 'en cours';
+    return 'passée';
+  }
+  function dashHovEl(){
+    let el=$('dashhov');
+    if(!el){ el=document.createElement('div'); el.id='dashhov'; document.body.appendChild(el); }
+    return el;
+  }
+  function dashHovShow(ev,id){
+    const r=_dashRooms[id]; if(!r) return;
+    const el=dashHovEl();
+    const n=(r.members||[]).length, o=rsvpResume(r);
+    const diff=r.scheduledAt-Date.now();
+    const etat=dashEtat(diff);
+    const lg=(c,l,v)=>v?`<div style="display:flex;align-items:center;gap:7px;font-size:11.5px;margin-top:4px">
+        <i style="width:7px;height:7px;border-radius:50%;background:${c};display:inline-block;flex:none"></i>
+        <span style="color:var(--t2)">${l}</span><b style="margin-left:auto">${v}</b></div>`:'';
+    const rep=(REPETS.find(x=>x[0]===r.repet)||[])[1];
+    el.innerHTML=`<div style="font-size:13.5px;font-weight:800;line-height:1.3">${esc(r.name||'Réunion')}</div>
+      <div style="font-size:11.5px;color:var(--t2);margin-top:3px">${esc(fmtWhen(r.scheduledAt))} · ${etat}</div>
+      ${r.desc?`<div style="font-size:11.5px;color:var(--t1);margin-top:7px;line-height:1.45">${esc(String(r.desc).slice(0,200))}${String(r.desc).length>200?'…':''}</div>`:''}
+      ${(r.serie&&rep)?`<div style="font-size:11px;color:var(--t3);margin-top:5px">${esc(rep)}</div>`:''}
+      <div style="height:1px;background:var(--sep);margin:9px 0"></div>
+      <div style="font-size:11.5px;font-weight:700">${n} participant${n>1?'s':''}</div>
+      ${n>1?lg('var(--pres)','Présent',o.oui)+lg('var(--amber)','En retard',o.retard)+lg('var(--red)','Absent',o.non)+lg('var(--off)','Sans réponse',o.sans):''}
+      <div style="font-size:10.5px;color:var(--t3);margin-top:9px">Clique pour répondre ou voir le détail</div>`;
+    el.classList.add('on');
+    dashHovMove(ev);
+  }
+  function dashHovMove(ev){
+    const el=$('dashhov'); if(!el||!el.classList.contains('on')) return;
+    const w=el.offsetWidth||286, h=el.offsetHeight||140;
+    let x=(ev.clientX||0)+16, y=(ev.clientY||0)+14;
+    if(x+w>window.innerWidth-10) x=Math.max(10,(ev.clientX||0)-w-16);
+    if(y+h>window.innerHeight-10) y=Math.max(10,window.innerHeight-h-10);
+    el.style.left=x+'px'; el.style.top=y+'px';
+  }
+  function dashHovHide(){ const el=$('dashhov'); if(el) el.classList.remove('on'); }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     LES TROIS CARTES DU HAUT S'OUVRENT SUR LEUR DÉTAIL
+     ══════════════════════════════════════════════════════════════════════ */
+  let _dashData={rooms:[],jour:[],avenir:[],convoques:[]};
+  async function dashNoms(){
+    const m={};
+    try{
+      if(MODE==='perso'){ (await listMembers()).forEach(x=>{ m[x.uid]=x.name||''; }); }
+      else { const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
+             qs.forEach(d=>{ m[d.id]=(d.data()||{}).name||''; }); }
+    }catch(e){}
+    return m;
+  }
+  function dashLigneReunion(r){
+    const n=(r.members||[]).length, o=rsvpResume(r);
+    const diff=r.scheduledAt-Date.now(), soon=diff>0&&diff<=15*60000, passe=diff<=0;
+    const bg=passe?'var(--blk-green)':(soon?'var(--amber-bg)':'var(--tile-bg)');
+    const col=passe?'var(--blk-green-tx)':(soon?'var(--amber)':'var(--tile-tx)');
+    const icn=passe?ms('check_circle',17):(soon?ms('notifications_active',17,1):ms('schedule',17));
+    const when=passe?dashEtat(diff):(soon?('dans '+Math.max(1,Math.round(diff/60000))+' min'):esc(reunionQuand(r.scheduledAt)));
+    const det=n>1?[o.oui?o.oui+' présent'+(o.oui>1?'s':''):'',o.retard?o.retard+' en retard':'',
+                   o.non?o.non+' absent'+(o.non>1?'s':''):'',o.sans?o.sans+' sans réponse':''].filter(Boolean).join(' · ')
+                :'Alerte 15 min avant dans OP Messages';
+    return `<div onclick="closeSheet();setTimeout(function(){rsvpOuvre('${r.id}')},120)"
+        style="display:flex;gap:11px;padding:11px 2px;border-top:1px solid var(--sep);cursor:pointer">
+      <div style="width:34px;height:34px;flex:none;border-radius:10px;background:${bg};color:${col};display:flex;align-items:center;justify-content:center">${icn}</div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'Réunion')} — ${when}</div>
+        <div style="font-size:11px;color:var(--t2);margin-top:2px">${esc(det)}</div>
+        ${r.desc?`<div style="font-size:11px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(r.desc).slice(0,90))}</div>`:''}
+      </div>
+      <span class="ms" style="font-size:18px;color:var(--t3);flex:none;align-self:center">chevron_right</span></div>`;
+  }
+  async function dashStat(cle){
+    dashHovHide();
+    const D=_dashData, titre=$_titreStat(cle);
+    const vide=t=>`<p class="muted" style="font-size:12.5px;padding:14px 0 2px;text-align:center">${t}</p>`;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:4px">${titre}</h3>
+      <div id="dstat-c"><p class="muted" style="font-size:12.5px">Un instant…</p></div>`);
+    const z=()=>$('dstat-c');
+    if(cle==='jour'){
+      const l=(D.jour||[]).slice().sort((a,b)=>a.scheduledAt-b.scheduledAt);
+      if(!z()) return;
+      z().innerHTML=`<div style="font-size:11.5px;color:var(--t2);margin-bottom:6px">${l.length?(l.length+' réunion'+(l.length>1?'s':'')+' aujourd’hui'):''}</div>`
+        +(l.length?l.map(dashLigneReunion).join(''):vide('Rien de prévu aujourd’hui.'));
+      return;
+    }
+    if(cle==='alerte'){
+      const l=(D.avenir||[]).slice(0,12);
+      if(!z()) return;
+      z().innerHTML=`<div style="font-size:11.5px;color:var(--t2);margin-bottom:6px">Chacun reçoit une alerte 15 minutes avant, dans OP Messages.</div>`
+        +(l.length?l.map(dashLigneReunion).join('')
+          +((D.avenir||[]).length>12?`<div style="font-size:11px;color:var(--t3);text-align:center;padding:9px 0;border-top:1px solid var(--sep)">+ ${(D.avenir||[]).length-12} autre${(D.avenir||[]).length-12>1?'s':''}</div>`:'')
+          :vide('Aucune réunion planifiée à venir.'));
+      return;
+    }
+    /* les participants convoqués */
+    const noms=await dashNoms();
+    if(!z()) return;
+    const av=(D.avenir||[]).slice().sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    const lignes=(D.convoques||[]).map(u=>{
+      const mes=av.filter(r=>(r.members||[]).indexOf(u)>=0);
+      const proch=mes[0];
+      const rep=proch?((proch.reponses||{})[u]||null):null;
+      const et=rep&&RSVP[rep.etat]?RSVP[rep.etat]:null;
+      const nm=noms[u]||(u===ME.uid?((USER&&USER.name)||'Moi'):'Participant');
+      return {u:u,nm:nm,n:mes.length,proch:proch,et:et,rep:rep};
+    }).sort((a,b)=>b.n-a.n||a.nm.localeCompare(b.nm));
+    z().innerHTML=`<div style="font-size:11.5px;color:var(--t2);margin-bottom:6px">${lignes.length} personne${lignes.length>1?'s':''} attendue${lignes.length>1?'s':''} sur les réunions à venir.</div>`
+      +(lignes.length?lignes.map(x=>`<div style="display:flex;align-items:center;gap:11px;padding:10px 2px;border-top:1px solid var(--sep)">
+          <div class="ava" style="width:36px;height:36px;border-radius:50%;font-size:12px;flex:none;${avatarStyle(x.nm)}">${ini(x.nm)}</div>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:12.8px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.nm)}${x.u===ME.uid?' <span style="font-weight:600;color:var(--t3)">(moi)</span>':''}</div>
+            <div style="font-size:11px;color:var(--t2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.n} réunion${x.n>1?'s':''}${x.proch?' · '+esc(reunionQuand(x.proch.scheduledAt)):''}</div>
+          </div>
+          ${x.et?`<span style="flex:none;font-size:10.5px;font-weight:800;padding:4px 9px;border-radius:999px;background:${x.et.bg};color:${x.et.c}">${x.et.l}${(x.rep&&x.rep.etat==='retard'&&x.rep.min)?' '+x.rep.min+'′':''}</span>`
+                :`<span style="flex:none;font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:999px;border:1px solid var(--sep);color:var(--t3)">sans réponse</span>`}
+        </div>`).join('')
+        :vide('Personne n’est convoqué pour le moment.'));
+  }
+  function $_titreStat(cle){
+    if(cle==='jour') return 'Les réunions d’aujourd’hui';
+    if(cle==='alerte') return 'Les alertes programmées';
+    return 'Les participants convoqués';
   }
   /* ── Chercher dans tous les messages, pas seulement dans la discussion ouverte ── */
   let _rechQ='';
@@ -2666,7 +2837,7 @@
   function copyCreds(btn){ const t=credsText(); if(!t) return; if(navigator.clipboard){ navigator.clipboard.writeText(t).then(()=>{ if(btn){ const o=btn.textContent; btn.textContent='✅ Copié'; setTimeout(()=>btn.textContent=o,1600);} }); } else alert(t); }
 
   function openSheet(html){ const wasOpen=$('sheet').classList.contains('open'); $('sheet-c').innerHTML=html+'<p class="center" style="margin-top:14px"><a class="link" onclick="closeSheet()">Fermer</a></p>'; $('sheet').classList.add('open'); if(!wasOpen) pushBack(); }
-  function closeSheet(){ $('sheet').classList.remove('open'); }
+  function closeSheet(){ $('sheet').classList.remove('open'); try{ dashHovHide(); }catch(e){} }
   $('sheet').addEventListener('click',e=>{ if(e.target.id==='sheet') closeSheet(); });
 
   // ===== Bouton « retour » du téléphone : ferme l'écran ouvert au lieu de quitter l'app =====
