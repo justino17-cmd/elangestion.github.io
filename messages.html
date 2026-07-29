@@ -998,7 +998,7 @@
       const n=(r.members||[]).length;
       const bg=soon?'var(--amber-bg)':'var(--blk-blue)', tx=soon?'var(--amber)':'var(--blk-blue-tx)',
             sub=soon?'var(--amber)':'var(--blk-blue-sub)';
-      const geo=pos?`position:absolute;top:${pos.top}px;left:calc(${pos.left}% + 3px);width:calc(${pos.width}% - 6px);height:${pos.h}px;pointer-events:auto;`
+      const geo=pos?`position:absolute;top:min(${pos.top}%,calc(100% - ${pos.h}px));left:calc(${pos.left}% + 3px);width:calc(${pos.width}% - 6px);height:${pos.h}px;pointer-events:auto;`
                   :'margin-bottom:3px;';
       return `<div onclick="event.stopPropagation();rsvpOuvre('${r.id}')"
         onmouseenter="dashHovShow(event,'${r.id}')" onmousemove="dashHovMove(event)" onmouseleave="dashHovHide()"
@@ -1028,7 +1028,10 @@
       let h0=(a===null)?8:Math.min(8,Math.max(0,a-1));
       let h1=(b===null)?18:Math.max(18,Math.min(23,b+1));
       const HEURES=[]; for(let h=h0;h<=h1;h++) HEURES.push(h);
-      const cols=jours.length, ROWH=56, HEADH=50, BLOCH=46, GUT=54;
+      /* BLOCH = 45 minutes : une réunion de 9h15 se termine pile sur la
+         ligne des 10h. Plus de hauteur d'en-tête écrite en dur : la couche
+         des réunions est posée DANS la grille, elle ne peut plus se décaler. */
+      const cols=jours.length, ROWH=56, BLOCH=Math.round(ROWH*0.75), GUT=54;
       /* les heures (et les demies) où il y a une réunion : on les met en couleur */
       const hPleine=new Set(), hDemi=new Set();
       rooms.filter(dansPeriode).forEach(r=>{ const d=new Date(r.scheduledAt);
@@ -1037,15 +1040,23 @@
       const demi=`background-image:repeating-linear-gradient(to right,var(--cal-line) 0 5px,transparent 5px 11px);background-size:100% 1px;background-repeat:no-repeat;background-position:0 ${ROWH/2-1}px;`;
       const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
       const estWE=d=>{ const j=d.getDay(); return j===0||j===6; };
-      const totalH=HEURES.length*ROWH;
-      /* le fond : les lignes des heures et les colonnes des jours */
-      grid=`<div style="position:relative;min-width:${GUT+cols*88}px;background:var(--cal-bg)">
-        <div style="display:grid;grid-template-columns:${GUT}px repeat(${cols},minmax(88px,1fr))">`;
-      grid+=`<div style="border-bottom:1.5px solid var(--cal-line2);height:${HEADH}px"></div>`;
-      jours.forEach((d,i)=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
-        grid+=`<div style="height:${HEADH}px;padding:8px 6px 0;text-align:center;border-bottom:1.5px solid var(--cal-line2);border-left:1px solid var(--cal-line);${isT?'background:var(--cal-todayhd)':(we?'background:var(--cal-we)':'')}">
+      /* Deux grilles empilées qui partagent les mêmes colonnes :
+         l'en-tête des jours, puis le corps. La couche des réunions est posée
+         SUR le corps (top:0 = la ligne de la première heure), donc elle ne
+         peut plus se décaler d'un pixel, quelle que soit la hauteur de l'en-tête. */
+      const COLS=`${GUT}px repeat(${cols},minmax(88px,1fr))`;
+      grid=`<div style="min-width:${GUT+cols*88}px;background:var(--cal-bg)">`;
+      /* ── l'en-tête des jours ── */
+      grid+=`<div style="display:grid;grid-template-columns:${COLS};border-bottom:1.5px solid var(--cal-line2)">`;
+      grid+=`<div></div>`;
+      jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
+        grid+=`<div style="padding:8px 6px;text-align:center;border-left:1px solid var(--cal-line);${isT?'background:var(--cal-todayhd)':(we?'background:var(--cal-we)':'')}">
           <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:${isT?'var(--tile-tx)':'var(--t2)'};${we&&!isT?'opacity:.7':''}">${DN[d.getDay()===0?6:d.getDay()-1]}</div>
           <div style="font-size:15px;font-weight:800;margin-top:1px;${isT?'color:var(--op-tx)':(we?'opacity:.7':'')}">${d.getDate()}</div></div>`; });
+      grid+=`</div>`;
+      /* ── le corps : les heures, puis les réunions par-dessus ── */
+      grid+=`<div style="position:relative">
+        <div style="display:grid;grid-template-columns:${COLS}">`;
       HEURES.forEach((h,hi)=>{
         const HH=String(h).padStart(2,'0'), aPlein=hPleine.has(h), aDemi=hDemi.has(h);
         grid+=`<div style="height:${ROWH}px;position:relative;${hi?'border-top:1px solid var(--cal-line)':''}">
@@ -1062,19 +1073,20 @@
       });
       grid+=`</div>`;
       /* la couche des réunions : chacune tombe à sa minute exacte */
-      grid+=`<div style="position:absolute;left:${GUT}px;right:0;top:${HEADH}px;height:${totalH}px;pointer-events:none;display:grid;grid-template-columns:repeat(${cols},minmax(88px,1fr))">`;
+      grid+=`<div style="position:absolute;left:${GUT}px;right:0;top:0;bottom:0;pointer-events:none;display:grid;grid-template-columns:repeat(${cols},minmax(88px,1fr))">`;
       jours.forEach(d=>{
         const l=duJour(d).filter(r=>{ const hh=new Date(r.scheduledAt).getHours(); return hh>=h0&&hh<=h1; });
         const ct=dashCotes(l);
         grid+=`<div style="position:relative;min-width:0">`+l.map((r,i)=>{
           const dd=new Date(r.scheduledAt);
-          const top=Math.max(0,Math.min(totalH-BLOCH,Math.round(((dd.getHours()-h0)+dd.getMinutes()/60)*ROWH)));
+          /* en pourcentage de la hauteur du corps : toujours juste */
+          const pct=(((dd.getHours()-h0)+dd.getMinutes()/60)/HEURES.length*100).toFixed(3);
           const nb=ct.n[i]||1;
           return bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000,
-                      {top:top,left:(100/nb)*(ct.lane[i]||0),width:100/nb,h:BLOCH});
+                      {top:pct,left:(100/nb)*(ct.lane[i]||0),width:100/nb,h:BLOCH});
         }).join('')+`</div>`;
       });
-      grid+=`</div></div>`;
+      grid+=`</div></div></div>`;
     }
     const seg=[['sem','Semaine'],['2sem','2 semaines'],['mois','Le mois']]
       .map(([k,l])=>`<span onclick="dashPorteeSet('${k}')" style="font-size:11.5px;font-weight:700;padding:6px 12px;border-radius:8px;cursor:pointer;${_dashPortee===k?'background:var(--op);color:#fff':'color:var(--t2)'}">${l}</span>`).join('');
