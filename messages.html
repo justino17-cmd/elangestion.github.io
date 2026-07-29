@@ -891,6 +891,9 @@
       qs.forEach(d=>{ const r={id:d.id,...d.data()}; if(r.scheduledAt) rooms.push(r); }); }catch(e){}
     if(_curView!=='dash') return;
     rooms.sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    /* on ne charge les réponses que des réunions à plusieurs, et seulement celles affichées */
+    try{ const utiles=rooms.filter(x=>((x.members||[]).length>1));
+      await Promise.all(utiles.map(async x=>{ x.reponses=await rsvpCharge(x.id); })); }catch(e){}
     const nowMs=Date.now();
     const upcoming=rooms.filter(r=>r.scheduledAt>nowMs-3600000);
     const todayList=rooms.filter(r=>new Date(r.scheduledAt).toDateString()===now.toDateString());
@@ -1095,17 +1098,25 @@
     return ' ·'+t+(o.sans?`<span style="opacity:.7"> · ${o.sans} sans rép.</span>`:'');
   }
   /* enregistre ma réponse, puis prévient l'organisateur */
+  function rsvpCol(id){ return fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).collection('reponses'); }
+  /* on lit les réponses d'une réunion (une par personne, chacune dans son document) */
+  async function rsvpCharge(id){
+    const out={}; try{ const qs=await rsvpCol(id).get(); qs.forEach(d=>{ out[d.id]=d.data(); }); }catch(e){}
+    return out;
+  }
   async function rsvpRepond(id,etat,min){
-    const ref=fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id);
-    let r=null; try{ const d=await ref.get(); r=d.data()||{}; }catch(e){ toast('Réunion introuvable'); return; }
-    const anc=rsvpDe(r,ME.uid);
+    let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r=d.data()||{}; }
+    catch(e){ toast('Réunion introuvable'); return; }
+    const dejaLa=await rsvpCharge(id);
+    const anc=dejaLa[ME.uid];
     const mot=(($('rsvp-mot')||{}).value||'').trim().slice(0,140);
-    const rep=Object.assign({},r.reponses||{});
-    rep[ME.uid]={etat:etat,min:(etat==='retard'?(parseInt(min,10)||15):0),mot:mot,
-                 nom:(USER&&USER.name)||'',le:Date.now()};
-    try{ await ref.set({reponses:rep},{merge:true}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
+    const ma={etat:etat,min:(etat==='retard'?(parseInt(min,10)||15):0),mot:mot,
+              nom:(USER&&USER.name)||'',le:Date.now()};
+    try{ await rsvpCol(id).doc(ME.uid).set(ma); }
+    catch(e){ alert('Ta réponse n’a pas pu être enregistrée : '+(e.message||e)+'\n\nSi le message parle de permissions, il faut autoriser l’écriture des réponses dans les règles Firebase — je peux te donner la ligne exacte.'); return; }
     toast(anc?'Réponse modifiée':'Réponse enregistrée');
-    rsvpPrevenir(id,Object.assign({},r,{reponses:rep}),etat,rep[ME.uid],!!anc);
+    const rep=Object.assign({},dejaLa); rep[ME.uid]=ma;
+    rsvpPrevenir(id,Object.assign({},r,{reponses:rep}),etat,ma,!!anc);
     rsvpOuvre(id);
     if(_curView==='dash') viewDash();
   }
@@ -1144,7 +1155,7 @@
   }
   async function rsvpRelanceTous(id){
     let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r=d.data()||{}; }catch(e){ return; }
-    const rep=r.reponses||{}; const sans=(r.members||[]).filter(u=>u!==ME.uid&&!rep[u]);
+    const rep=await rsvpCharge(id); const sans=(r.members||[]).filter(u=>u!==ME.uid&&!rep[u]);
     if(!sans.length){ toast('Tout le monde a répondu'); return; }
     for(const u of sans){ await rsvpRelance(id,u); }
     toast(sans.length+' relance'+(sans.length>1?'s':'')+' envoyée'+(sans.length>1?'s':''));
@@ -1162,6 +1173,7 @@
     openSheet('<p class="muted center">Chargement…</p>');
     let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r={id:d.id,...(d.data()||{})}; }
     catch(e){ openSheet('<p class="muted center">Réunion introuvable.</p>'); return; }
+    r.reponses=await rsvpCharge(id);
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
     const nomDe=u=>{ const m=mem.find(x=>x.uid===u); return (m&&m.name)||(rsvpDe(r,u)||{}).nom||'—'; };
     const membres=(r.members||[]);
