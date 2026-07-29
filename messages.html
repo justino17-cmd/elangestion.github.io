@@ -1222,7 +1222,7 @@
     z.style.display='block'; dcRender();
   }
   function dcMois(n){ const d=new Date(_dcMois+'T00:00:00'); d.setMonth(d.getMonth()+n); _dcMois=_dstr(d).slice(0,7)+'-01'; dcRender(); }
-  function dcChoisir(iso){ const i=$('dp-date'); if(i) i.value=iso; const z=$('dp-cal'); if(z) z.style.display='none'; dcLabel(); }
+  function dcChoisir(iso){ const i=$('dp-date'); if(i) i.value=iso; const z=$('dp-cal'); if(z) z.style.display='none'; dcLabel(); try{ dashRepetMaj(); }catch(e){} }
   function dcLabel(){ const b=$('dp-datelbl'), v=(($('dp-date')||{}).value)||'';
     if(!b) return; if(!v){ b.textContent='Choisir une date'; return; }
     const d=new Date(v+'T00:00:00');
@@ -1257,8 +1257,45 @@
     z.innerHTML=h;
   }
   /* ── « Organiser une réunion » : une fenêtre, plus une colonne du tableau ── */
+  let _dashRepet='une', _dashRepetN=8;
+  const REPETS=[['une','Une fois'],['sem','Chaque semaine'],['2sem','Une semaine sur deux'],['mois','Chaque mois']];
+  function dashRepetSet(k){ _dashRepet=k; dashRepetMaj(); }
+  function dashRepetNSet(n){ _dashRepetN=n; dashRepetMaj(); }
+  function dashRepetMaj(){
+    const z=$('dp-rep'); if(!z) return;
+    z.innerHTML=REPETS.map(([k,l])=>`<span onclick="dashRepetSet('${k}')" style="font-size:11.5px;font-weight:700;padding:8px 13px;border-radius:10px;cursor:pointer;
+      border:1.5px solid ${_dashRepet===k?'var(--op)':'var(--brd2)'};color:${_dashRepet===k?'var(--op-tx)':'var(--t2)'};${_dashRepet===k?'background:var(--tint2)':''}">${l}</span>`).join('');
+    const n=$('dp-repn'); if(!n) return;
+    if(_dashRepet==='une'){ n.style.display='none'; n.innerHTML=''; return; }
+    const mot=_dashRepet==='mois'?'mois':(_dashRepet==='2sem'?'fois':'semaines');
+    n.style.display='flex';
+    n.innerHTML=`<span style="font-size:11.5px;color:var(--t2);font-weight:600">pendant</span>`
+      +[4,8,12,26].map(v=>`<span onclick="dashRepetNSet(${v})" style="font-size:11.5px;font-weight:700;padding:6px 11px;border-radius:9px;cursor:pointer;
+        border:1px solid ${_dashRepetN===v?'var(--op)':'var(--brd2)'};color:${_dashRepetN===v?'var(--op-tx)':'var(--t2)'}">${v}</span>`).join('')
+      +`<span style="font-size:11.5px;color:var(--t2);font-weight:600">${mot}</span>`
+      +`<span style="flex-basis:100%;font-size:10.7px;color:var(--t3);margin-top:2px">${dashRepetApercu()}</span>`;
+  }
+  function dashRepetApercu(){
+    const dates=dashRepetDates(); if(dates.length<2) return '';
+    const f=d=>new Date(d).toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
+    return dates.length+' réunions — de la première le '+f(dates[0])+' à la dernière le '+f(dates[dates.length-1]);
+  }
+  /* toutes les dates de la série, à partir de la date et de l'heure choisies */
+  function dashRepetDates(){
+    const dv=(($('dp-date')||{}).value||''), tv=(($('dp-time')||{}).value||'');
+    if(!dv||!tv) return [];
+    const t0=new Date(dv+'T'+tv).getTime(); if(!t0||isNaN(t0)) return [];
+    if(_dashRepet==='une') return [t0];
+    const n=Math.max(1,Math.min(52,_dashRepetN)), out=[];
+    for(let k=0;k<n;k++){ const d=new Date(t0);
+      if(_dashRepet==='sem') d.setDate(d.getDate()+7*k);
+      else if(_dashRepet==='2sem') d.setDate(d.getDate()+14*k);
+      else d.setMonth(d.getMonth()+k);
+      out.push(d.getTime()); }
+    return out;
+  }
   async function dashForm(dateISO,heure){
-    _dashSel=new Set([ME.uid]); _dashAlert=true;
+    _dashSel=new Set([ME.uid]); _dashAlert=true; _dashRepet='une'; _dashRepetN=8;
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
     const d=dateISO?new Date(dateISO+'T00:00:00'):new Date(Date.now()+3600000);
     const hh=heure||(String(new Date(Date.now()+3600000).getHours()).padStart(2,'0')+':00');
@@ -1277,6 +1314,9 @@
         <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${hh}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
       </div>
       <div id="dp-cal" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">RÉPÉTITION</div>
+      <div id="dp-rep" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
+      <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">PARTICIPANTS</div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">${parts||'<span class="muted" style="font-size:11.5px">Aucun autre membre</span>'}<span id="dp-count" style="font-size:11.5px;color:var(--t2);margin-left:4px">0 sélectionné</span></div>
       <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
@@ -1285,7 +1325,7 @@
       </div>
       <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
       <button class="btn block" style="margin-top:12px;font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">Planifier la réunion</button>`);
-    setTimeout(()=>{ dcLabel(); const n=$('dp-name'); if(n) n.focus(); },80);
+    setTimeout(()=>{ dcLabel(); dashRepetMaj(); const n=$('dp-name'); if(n) n.focus(); },80);
   }
   function dashTogglePart(el){ const uid=el.dataset.uid; if(_dashSel.has(uid)){ _dashSel.delete(uid); el.classList.remove('sel'); } else { _dashSel.add(uid); el.classList.add('sel'); }
     const c=$('dp-count'); if(c){ const n=Math.max(0,_dashSel.size-1); c.textContent=n+' sélectionné'+(n>1?'s':''); } }
@@ -1300,9 +1340,18 @@
     const scheduledAt=new Date(dv+'T'+tv).getTime(); if(!scheduledAt||isNaN(scheduledAt)){ toast('Date invalide.'); return; }
     const desc=((($('dp-desc')||{}).value)||'').trim().slice(0,400);
     const members=Array.from(new Set([ME.uid,..._dashSel]));
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,desc,createdBy:ME.uid,members,createdAt:FV(),scheduledAt});
+    const dates=dashRepetDates(); const serie=(dates.length>1)?('s'+Date.now()):'';
+    try{
+      const col=fs.collection('op_companies').doc(COMP.id).collection('rooms');
+      for(const t of (dates.length?dates:[scheduledAt])){
+        const d={name,desc,createdBy:ME.uid,members,createdAt:FV(),scheduledAt:t};
+        if(serie){ d.serie=serie; d.repet=_dashRepet; }
+        await col.add(d);
+      }
       try{ closeSheet(); }catch(e){}
-      toast(_dashAlert?'Réunion planifiée — les participants seront prévenus.':'Réunion planifiée.'); if(_curView==='dash') viewDash();
+      toast(dates.length>1?(dates.length+' réunions planifiées — les participants seront prévenus.')
+                          :(_dashAlert?'Réunion planifiée — les participants seront prévenus.':'Réunion planifiée.'));
+      if(_curView==='dash') viewDash();
     }catch(e){ alert('Erreur : '+(e.message||e)); }
   }
 
