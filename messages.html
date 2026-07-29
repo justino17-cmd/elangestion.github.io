@@ -838,21 +838,45 @@
   let _dashSel=new Set(), _dashAlert=true;
   function _dstr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
   function _dashMonday(){ const now=new Date(); const mon=new Date(now); mon.setHours(0,0,0,0); mon.setDate(mon.getDate()-((mon.getDay()+6)%7)); return mon; }
+  /* ── Le calendrier des réunions : pleine largeur, vraies heures, navigation ──
+     « Organiser une réunion » n'est plus une colonne du tableau de bord :
+     c'est une fenêtre, ouverte par le bouton vert ou par un clic sur une case. */
+  let _dashPortee='sem', _dashDec=0;
+  function dashPorteeSet(p){ _dashPortee=p; _dashDec=0; viewDash(); }
+  function dashDecale(n){ _dashDec+=n; viewDash(); }
+  function dashAuj(){ _dashDec=0; viewDash(); }
+  function _dashDebut(){
+    const mon=_dashMonday();
+    if(_dashPortee==='mois'){ const d=new Date(mon); d.setDate(1); d.setMonth(d.getMonth()+_dashDec);
+      const p=new Date(d); p.setDate(1); p.setDate(p.getDate()-((p.getDay()+6)%7)); return p; }
+    const d=new Date(mon); d.setDate(mon.getDate()+_dashDec*(_dashPortee==='2sem'?14:7)); return d;
+  }
+  function _dashJours(){
+    const d0=_dashDebut(), out=[];
+    const n=_dashPortee==='mois'?42:(_dashPortee==='2sem'?14:7);
+    for(let k=0;k<n;k++){ const d=new Date(d0); d.setDate(d0.getDate()+k); out.push(d); }
+    return out;
+  }
   async function viewDash(){
     if(MODE!=='company'||!HAS_COMPANY){ showView('disc'); return; }
     const view=$('view'); if(!view) return;
-    const now=new Date(); const mon=_dashMonday();
-    const days=[0,1,2,3,4].map(i=>{ const d=new Date(mon); d.setDate(mon.getDate()+i); return d; });
-    const fri=days[4]; const moLbl=d=>d.toLocaleDateString('fr-FR',{month:'long'});
-    const weekLbl='Semaine du '+days[0].getDate()+(moLbl(days[0])===moLbl(fri)?'':' '+moLbl(days[0]))+' au '+fri.getDate()+' '+moLbl(fri);
-    view.innerHTML=`<div style="width:min(1020px,100%);margin:0 auto;display:flex;flex-direction:column;gap:14px">
+    const now=new Date();
+    const jours=_dashJours(), d1=jours[0], d2=jours[jours.length-1];
+    const moL=d=>d.toLocaleDateString('fr-FR',{month:'long'});
+    const moC=d=>d.toLocaleDateString('fr-FR',{month:'short'});
+    const lib=_dashPortee==='mois'
+      ? (function(){ const m=new Date(_dashMonday()); m.setDate(1); m.setMonth(m.getMonth()+_dashDec);
+          return m.toLocaleDateString('fr-FR',{month:'long',year:'numeric'}); })()
+      : d1.getDate()+' '+moC(d1)+' — '+d2.getDate()+' '+moC(d2);
+    view.innerHTML=`<div style="width:min(1180px,100%);margin:0 auto;display:flex;flex-direction:column;gap:14px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <div><h2 style="font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1;margin:0">Tableau de bord</h2>
-        <div style="font-size:13px;color:var(--t2);margin-top:5px">${esc(weekLbl)} · ${esc(COMP.name)}</div></div>
-        <button class="hbtn green" onclick="newRoom()">${ms('event',18)}Nouvelle réunion</button>
+        <div style="font-size:13px;color:var(--t2);margin-top:5px">${esc(lib)} · ${esc(COMP.name)}</div></div>
+        <button class="hbtn green" onclick="dashForm()">${ms('event',18)}Nouvelle réunion</button>
       </div>
       <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
-      <div id="dash-grid" style="display:grid;grid-template-columns:${window.innerWidth>=1024?'1fr 330px':'1fr'};gap:14px;align-items:start"><p class="muted center">Chargement…</p></div>
+      <div id="dash-cal"><p class="muted center">Chargement…</p></div>
+      <div id="dash-al"></div>
     </div>`;
     let rooms=[]; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').get();
       qs.forEach(d=>{ const r={id:d.id,...d.data()}; if(r.scheduledAt) rooms.push(r); }); }catch(e){}
@@ -865,83 +889,264 @@
     const stat=(icn,val,lbl,amber)=>`<div class="card" style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:13px">
       <div style="width:38px;height:38px;flex:none;border-radius:10px;background:${amber?'var(--amber-bg)':'var(--tile-bg)'};color:${amber?'var(--amber)':'var(--tile-tx)'};display:flex;align-items:center;justify-content:center">${ms(icn,20)}</div>
       <div><div style="font-size:17px;font-weight:800;line-height:1">${val}</div><div style="font-size:11.5px;color:var(--t2);margin-top:3px">${lbl}</div></div></div>`;
-    const st=$('dash-stats'); if(st) st.innerHTML=stat('videocam',todayList.length,"Réunions aujourd'hui")+stat('group',convoked.size,'Participants convoqués')+stat('notifications_active',upcoming.length,'Alertes programmées',true);
-    // Planning de la semaine (LUN → VEN, lignes 09:00 / 11:00 / 14:00 / 15:00)
-    const HOURS=[9,11,14,15];
-    const cellMeet={};
-    rooms.forEach(r=>{ const d=new Date(r.scheduledAt); const d0=new Date(d.getFullYear(),d.getMonth(),d.getDate());
-      const di=Math.round((d0-mon)/86400000); if(di<0||di>4) return;
-      const hh=d.getHours(); let hi; if(hh<11) hi=0; else if(hh<14) hi=1; else if(hh<15) hi=2; else hi=3;
-      (cellMeet[di+'_'+hi]=cellMeet[di+'_'+hi]||[]).push(r); });
-    const DN=['LUN','MAR','MER','JEU','VEN'];
-    let grid=`<div style="display:grid;grid-template-columns:48px repeat(5,1fr)">`;
-    grid+=`<div style="border-bottom:1px solid var(--sep)"></div>`;
-    days.forEach((d,i)=>{ const isT=d.toDateString()===now.toDateString();
-      grid+=`<div style="padding:9px 6px;text-align:center;border-bottom:1px solid var(--sep);border-left:1px solid var(--sep);${isT?'background:var(--today-hd)':''}"><div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:${isT?'var(--tile-tx)':'var(--t2)'}">${DN[i]}</div><div style="font-size:14px;font-weight:800;margin-top:1px;${isT?'color:var(--op-tx)':''}">${d.getDate()}</div></div>`; });
-    HOURS.forEach((h,hi)=>{
-      grid+=`<div style="padding:6px 8px 0 0;text-align:right;font-size:10px;font-weight:600;color:var(--t3);height:72px;${hi?'border-top:1px solid var(--sep)':''}">${String(h).padStart(2,'0')}:00</div>`;
-      days.forEach((d,di)=>{ const isT=d.toDateString()===now.toDateString();
-        const arr=cellMeet[di+'_'+hi]||[];
-        let inner='';
-        if(arr.length){ const r=arr[0]; const stD=new Date(r.scheduledAt); const soon=r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000;
-          const hstr=stD.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-          const nmr=esc((r.name||'').replace(/'/g,''));
-          if(soon) inner=`<div onclick="joinRoom('${r.id}','${nmr}')" style="border-radius:8px;background:var(--op);padding:6px 8px;cursor:pointer;box-shadow:var(--imminent-sh)"><div style="display:flex;align-items:center;gap:4px"><span class="ms f1" style="font-size:12px;color:#fff">notifications_active</span><div style="font-size:11px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div></div><div style="font-size:9.5px;font-weight:600;color:rgba(255,255,255,.8);margin-top:1px">${hstr}${(r.members||[]).length?' · '+(r.members||[]).length+' pers.':''}</div></div>`;
-          else inner=`<div onclick="joinRoom('${r.id}','${nmr}')" style="border-radius:8px;background:var(--blk-blue);padding:6px 8px;cursor:pointer"><div style="font-size:11px;font-weight:800;color:var(--blk-blue-tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div><div style="font-size:9.5px;font-weight:600;color:var(--blk-blue-sub);margin-top:1px">${hstr}</div></div>`;
-          if(arr.length>1) inner+=`<div style="font-size:9px;color:var(--t3);margin-top:2px;text-align:center">+${arr.length-1} autre${arr.length>2?'s':''}</div>`;
-        } else {
-          inner=`<div class="dash-cell" onclick="dashPrefill(${di},${h})" title="Placer une réunion ici" style="border:1.5px dashed transparent;border-radius:8px;height:calc(100% - 3px);display:flex;align-items:center;justify-content:center;color:transparent;cursor:pointer" onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'" onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div>`;
-        }
-        grid+=`<div style="border-left:1px solid var(--sep);${hi?'border-top:1px solid var(--sep);':''}${isT?'background:var(--today-col);':''}padding:3px">${inner}</div>`;
+    const st=$('dash-stats'); if(st) st.innerHTML=
+      stat('videocam',todayList.length,'Réunion'+(todayList.length>1?'s':'')+" aujourd'hui")
+     +stat('group',convoked.size,'Participant'+(convoked.size>1?'s':'')+' convoqué'+(convoked.size>1?'s':''))
+     +stat('notifications_active',upcoming.length,'Alerte'+(upcoming.length>1?'s':'')+' programmée'+(upcoming.length>1?'s':''),true);
+
+    /* ── la grille ── */
+    const dansPeriode=r=>{ const d=new Date(r.scheduledAt);
+      return jours.some(j=>j.toDateString()===d.toDateString()); };
+    const duJour=d=>rooms.filter(r=>new Date(r.scheduledAt).toDateString()===d.toDateString())
+                        .sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    const bloc=(r,soon)=>{ const stD=new Date(r.scheduledAt);
+      const h=stD.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      const n=(r.members||[]).length, nm=esc((r.name||'').replace(/'/g,''));
+      const bg=soon?'var(--amber-bg)':'var(--blk-blue)', tx=soon?'var(--amber)':'var(--blk-blue-tx)',
+            sub=soon?'var(--amber)':'var(--blk-blue-sub)';
+      return `<div onclick="event.stopPropagation();rsvpOuvre('${r.id}')" title="${esc(r.name||'')} — voir les réponses"
+        style="border-radius:8px;background:${bg};padding:6px 9px;cursor:pointer;margin-bottom:3px;min-width:0;overflow:hidden${soon?';box-shadow:var(--imminent-sh)':''}">
+        <div style="font-size:11.5px;font-weight:800;color:${tx};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div>
+        <div style="font-size:9.5px;font-weight:600;color:${sub};margin-top:1px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${soon?'dans '+Math.max(1,Math.round((r.scheduledAt-nowMs)/60000))+' min':h}${n?' · '+n+' pers.':''}</div>
+        ${rsvpPastille(r,soon)}</div>`; };
+    let grid='';
+    if(_dashPortee==='mois'){
+      const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
+      const moisRef=new Date(_dashMonday()); moisRef.setDate(1); moisRef.setMonth(moisRef.getMonth()+_dashDec);
+      grid=`<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr))">`;
+      DN.forEach(n=>{ grid+=`<div style="padding:9px 4px;text-align:center;border-bottom:1px solid var(--sep);border-left:1px solid var(--sep);font-size:10px;font-weight:800;letter-spacing:.07em;color:var(--t2)">${n}</div>`; });
+      jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString();
+        const hors=d.getMonth()!==moisRef.getMonth();
+        const l=duJour(d);
+        grid+=`<div onclick="dashForm('${_dstr(d)}','09:00')" style="border-left:1px solid var(--sep);border-top:1px solid var(--sep);min-height:92px;min-width:0;overflow:hidden;padding:5px;cursor:pointer;${isT?'background:var(--today-col);':''}${hors?'opacity:.42;':''}">
+          <div style="font-size:11.5px;font-weight:800;margin-bottom:4px;${isT?'color:var(--op-tx)':'color:var(--t2)'}">${d.getDate()}</div>
+          ${l.slice(0,3).map(r=>bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000)).join('')}
+          ${l.length>3?`<div style="font-size:9.5px;color:var(--t3);text-align:center">+${l.length-3}</div>`:''}</div>`; });
+      grid+=`</div>`;
+    } else {
+      /* heures réellement utilisées, une heure avant et une heure après */
+      let a=null,b=null;
+      rooms.filter(dansPeriode).forEach(r=>{ const d=new Date(r.scheduledAt), h=d.getHours();
+        a=(a===null)?h:Math.min(a,h); b=(b===null)?h:Math.max(b,h); });
+      let h0=(a===null)?8:Math.max(0,a-1), h1=(b===null)?18:Math.min(23,b+1);
+      if(h1-h0<8){ h1=Math.min(23,h0+8); if(h1-h0<8) h0=Math.max(0,h1-8); }
+      const HEURES=[]; for(let h=h0;h<=h1;h++) HEURES.push(h);
+      const cols=jours.length;
+      const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
+      const estWE=d=>{ const j=d.getDay(); return j===0||j===6; };
+      grid=`<div style="display:grid;grid-template-columns:56px repeat(${cols},minmax(96px,1fr));min-width:${56+cols*96}px">`;
+      grid+=`<div style="border-bottom:1px solid var(--sep)"></div>`;
+      jours.forEach((d,i)=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
+        grid+=`<div style="padding:9px 6px;text-align:center;border-bottom:1px solid var(--sep);border-left:1px solid var(--sep);${isT?'background:var(--today-hd)':(we?'background:var(--tint2)':'')}">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:${isT?'var(--tile-tx)':'var(--t2)'};${we&&!isT?'opacity:.6':''}">${DN[d.getDay()===0?6:d.getDay()-1]}</div>
+          <div style="font-size:15px;font-weight:800;margin-top:1px;${isT?'color:var(--op-tx)':(we?'opacity:.6':'')}">${d.getDate()}</div></div>`; });
+      HEURES.forEach((h,hi)=>{
+        grid+=`<div style="padding:6px 9px 0 0;text-align:right;font-size:10px;font-weight:700;color:var(--t3);${hi?'border-top:1px solid var(--sep)':''}">${String(h).padStart(2,'0')}:00</div>`;
+        jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=(d.getDay()===0||d.getDay()===6);
+          const l=duJour(d).filter(r=>new Date(r.scheduledAt).getHours()===h);
+          const inner=l.length
+            ? l.map(r=>bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000)).join('')
+            : `<div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;min-height:44px;display:flex;align-items:center;justify-content:center;color:transparent"
+                 onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'"
+                 onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:17px">add</span></div>`;
+          grid+=`<div onclick="dashForm('${_dstr(d)}','${String(h).padStart(2,'0')}:00')" title="Poser une réunion ici"
+            style="border-left:1px solid var(--sep);${hi?'border-top:1px solid var(--sep);':''}${isT?'background:var(--today-col);':(we?'background:var(--tint2);':'')}padding:4px;cursor:pointer;min-width:0;overflow:hidden">${inner}</div>`; });
       });
-    });
-    grid+=`</div>`;
-    // Colonne droite : Organiser une réunion + Alertes envoyées
-    let mem=[]; try{ mem=await listMembers(); }catch(e){}
-    if(_curView!=='dash') return;
-    _dashSel=new Set([ME.uid]); _dashAlert=true;
-    const defD=new Date(nowMs+3600000);
-    const parts=mem.filter(m=>m.uid!==ME.uid).map(m=>`<div class="dash-pp" data-uid="${esc(m.uid)}" title="${esc(m.name||'')}" onclick="dashTogglePart(this)" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`).join('');
-    const alerts=upcoming.slice(0,4).map(r=>{ const diff=r.scheduledAt-nowMs; const soon=diff>0&&diff<=15*60000; const started=diff<=0;
+      grid+=`</div>`;
+    }
+    const seg=[['sem','Semaine'],['2sem','2 semaines'],['mois','Le mois']]
+      .map(([k,l])=>`<span onclick="dashPorteeSet('${k}')" style="font-size:11.5px;font-weight:700;padding:6px 12px;border-radius:8px;cursor:pointer;${_dashPortee===k?'background:var(--op);color:#fff':'color:var(--t2)'}">${l}</span>`).join('');
+    const cal=$('dash-cal'); if(cal) cal.innerHTML=`<div class="card" style="padding:0;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--sep);flex-wrap:wrap">
+        <b style="font-size:14.5px;font-weight:800">Le calendrier</b>
+        <span style="display:inline-flex;align-items:center;gap:5px">
+          <u onclick="dashDecale(-1)" style="text-decoration:none;width:28px;height:28px;border-radius:8px;border:1px solid var(--sep);display:inline-flex;align-items:center;justify-content:center;color:var(--t2);cursor:pointer">‹</u>
+          <b style="font-size:12.5px;font-weight:800;padding:0 6px;white-space:nowrap">${esc(lib)}</b>
+          <u onclick="dashDecale(1)" style="text-decoration:none;width:28px;height:28px;border-radius:8px;border:1px solid var(--sep);display:inline-flex;align-items:center;justify-content:center;color:var(--t2);cursor:pointer">›</u>
+          ${_dashDec?`<span onclick="dashAuj()" style="font-size:11px;font-weight:700;color:var(--tile-tx);cursor:pointer;padding:5px 9px">Aujourd’hui</span>`:''}
+        </span>
+        <span style="display:inline-flex;gap:3px;background:var(--inp);border-radius:9px;padding:3px">${seg}</span>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;color:var(--t3)">Clique sur une case vide pour poser une réunion</span>
+      </div>
+      <div style="overflow-x:auto">${grid}</div></div>`;
+
+    /* ── alertes envoyées, pleine largeur ── */
+    const alerts=upcoming.slice(0,6).map(r=>{ const diff=r.scheduledAt-nowMs; const soon=diff>0&&diff<=15*60000; const started=diff<=0;
       const icn=started?ms('check_circle',17):(soon?ms('notifications_active',17,1):ms('schedule',17));
       const bg=started?'var(--blk-green)':(soon?'var(--amber-bg)':'var(--tile-bg)'), col=started?'var(--blk-green-tx)':(soon?'var(--amber)':'var(--tile-tx)');
       const n=(r.members||[]).length;
       const when=started?'en cours':(soon?('dans '+Math.max(1,Math.round(diff/60000))+' min'):esc(fmtWhen(r.scheduledAt)));
-      return `<div style="display:flex;gap:11px;margin-top:12px;cursor:pointer" onclick="joinRoom('${r.id}','${esc((r.name||'').replace(/'/g,''))}')"><div style="width:34px;height:34px;flex:none;border-radius:10px;background:${bg};color:${col};display:flex;align-items:center;justify-content:center">${icn}</div>
-        <div style="min-width:0"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')} — ${when}</div>
-        <div style="font-size:11px;color:var(--t2);margin-top:2px">${n?n+' participant'+(n>1?'s':'')+' prévenus':'Alerte 15 min avant dans OP Messages'}</div></div></div>`; }).join('');
-    const dg=$('dash-grid'); if(!dg) return;
-    dg.innerHTML=`<div class="card" style="overflow-x:auto"><div style="min-width:540px">${grid}</div></div>
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="card" style="padding:16px">
-          <div style="font-size:14.5px;font-weight:800">Organiser une réunion</div>
-          <input id="dp-name" placeholder="Titre de la réunion…" style="width:100%;margin-top:12px;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:13px;color:var(--t1);font-family:inherit;outline:none">
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">calendar_today</span><input id="dp-date" type="date" value="${_dstr(defD)}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
-            <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${String(defD.getHours()).padStart(2,'0')}:00" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
-          </div>
-          <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">PARTICIPANTS</div>
-          <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">${parts||'<span class="muted" style="font-size:11.5px">Aucun autre membre</span>'}<span id="dp-count" style="font-size:11.5px;color:var(--t2);margin-left:4px">0 sélectionné</span></div>
-          <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
-            <div style="display:flex;align-items:center;gap:8px"><span class="ms f1" style="font-size:17px;color:var(--tile-tx)">notifications_active</span><span style="font-size:12.5px;font-weight:700">Alerter les participants</span></div>
-            <div id="dp-toggle" style="width:38px;height:22px;border-radius:999px;background:var(--green);position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:right .15s"></div></div>
-          </div>
-          <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
-          <button class="btn block" style="margin-top:12px;font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">Planifier la réunion</button>
-        </div>
-        <div class="card" style="padding:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:14.5px;font-weight:800">Alertes envoyées</div><div style="font-size:11px;font-weight:700;color:var(--tile-tx);cursor:pointer" onclick="openReunions()">Tout voir</div></div>
-          ${alerts||'<p class="muted" style="font-size:12px;margin-top:10px">Aucune réunion planifiée à venir.</p>'}
-        </div>
-      </div>`;
+      const o=rsvpResume(r);
+      const detail=n?[o.oui?o.oui+' présent'+(o.oui>1?'s':''):'',o.retard?o.retard+' en retard':'',o.non?o.non+' absent'+(o.non>1?'s':''):'',o.sans?o.sans+' sans réponse':''].filter(Boolean).join(' · ')
+                   :'Alerte 15 min avant dans OP Messages';
+      return `<div style="display:flex;gap:11px;padding:11px 15px;border-top:1px solid var(--sep);cursor:pointer" onclick="rsvpOuvre('${r.id}')">
+        <div style="width:34px;height:34px;flex:none;border-radius:10px;background:${bg};color:${col};display:flex;align-items:center;justify-content:center">${icn}</div>
+        <div style="min-width:0;flex:1"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')} — ${when}</div>
+        <div style="font-size:11px;color:var(--t2);margin-top:2px">${esc(detail)}</div></div></div>`; }).join('');
+    const dal=$('dash-al'); if(dal) dal.innerHTML=`<div class="card" style="padding:0;overflow:hidden">
+      <div style="display:flex;align-items:center;padding:12px 15px;${alerts?'border-bottom:1px solid var(--sep)':''}">
+        <b style="font-size:14.5px;font-weight:800">Alertes envoyées</b><span style="flex:1"></span>
+        <span style="font-size:11px;font-weight:700;color:var(--tile-tx);cursor:pointer" onclick="openReunions()">Tout voir</span></div>
+      ${alerts||'<p class="muted" style="font-size:12px;padding:0 15px 14px">Aucune réunion planifiée à venir.</p>'}</div>`;
+  }
+  /* ══════════════════════════════════════════════════════════════════════
+     LES RÉPONSES DES PARTICIPANTS — Présent · En retard · Absent
+     Chacun répond en un geste ; l'organisateur est prévenu de CHAQUE réponse
+     pour ne louper personne, et voit la liste complète dans une fenêtre.
+     ══════════════════════════════════════════════════════════════════════ */
+  const RSVP={oui:{l:'Présent',c:'var(--green)',bg:'rgba(52,199,123,.16)'},
+              retard:{l:'En retard',c:'var(--amber)',bg:'var(--amber-bg)'},
+              non:{l:'Absent',c:'var(--red)',bg:'rgba(224,82,82,.16)'}};
+  function rsvpDe(r,uid){ return ((r&&r.reponses)||{})[uid]||null; }
+  function rsvpResume(r){
+    const mem=(r&&r.members)||[], rep=(r&&r.reponses)||{};
+    const o={oui:0,retard:0,non:0,sans:0};
+    mem.forEach(u=>{ const x=rep[u]; if(x&&o[x.etat]!==undefined) o[x.etat]++; else o.sans++; });
+    return o;
+  }
+  /* la petite pastille de couleurs posée sur la réunion, dans le calendrier */
+  function rsvpPastille(r,clair){
+    const m=(r&&r.members)||[]; if(m.length<2) return '';
+    const o=rsvpResume(r);
+    const fond=clair?'rgba(0,0,0,.18)':'rgba(0,0,0,.24)', tx=clair?'#1B1200':'#fff';
+    if(o.oui===m.length) return `<span style="display:inline-flex;align-items:center;gap:4px;margin-top:5px;background:${fond};color:${tx};border-radius:20px;padding:2px 8px;font-size:9px;font-weight:800">tous présents</span>`;
+    const pt=(c,n)=>n?`<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><i style="width:6px;height:6px;border-radius:50%;background:${c};display:inline-block"></i>${n}</span>`:'';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;margin-top:5px;background:${fond};color:${tx};border-radius:20px;padding:2px 8px;font-size:9px;font-weight:800">
+      ${pt('#34C77B',o.oui)}${pt('#E8A33D',o.retard)}${pt('#E05252',o.non)}${o.sans?`<span style="opacity:.65">${o.sans} sans réponse</span>`:''}</span>`;
+  }
+  /* enregistre ma réponse, puis prévient l'organisateur */
+  async function rsvpRepond(id,etat,min){
+    const ref=fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id);
+    let r=null; try{ const d=await ref.get(); r=d.data()||{}; }catch(e){ toast('Réunion introuvable'); return; }
+    const anc=rsvpDe(r,ME.uid);
+    const mot=(($('rsvp-mot')||{}).value||'').trim().slice(0,140);
+    const rep=Object.assign({},r.reponses||{});
+    rep[ME.uid]={etat:etat,min:(etat==='retard'?(parseInt(min,10)||15):0),mot:mot,
+                 nom:(USER&&USER.name)||'',le:Date.now()};
+    try{ await ref.set({reponses:rep},{merge:true}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
+    toast(anc?'Réponse modifiée':'Réponse enregistrée');
+    rsvpPrevenir(id,Object.assign({},r,{reponses:rep}),etat,rep[ME.uid],!!anc);
+    rsvpOuvre(id);
+    if(_curView==='dash') viewDash();
+  }
+  /* l'alerte à l'organisateur — sur CHAQUE réponse, y compris les changements */
+  async function rsvpPrevenir(id,r,etat,ma,estChangement){
+    const org=r.createdBy; if(!org||org===ME.uid) return;
+    const nom=(USER&&USER.name)||'Quelqu’un', titre=r.name||'la réunion';
+    const quand=r.scheduledAt?fmtWhen(r.scheduledAt):'';
+    /* plusieurs réponses coup sur coup : on regroupe pour ne pas noyer */
+    const recentes=Object.values(r.reponses||{}).filter(x=>x&&x.le&&Date.now()-x.le<5*60000).length;
+    let txt;
+    if(recentes>=3){ const o=rsvpResume(r);
+      txt=`${recentes} nouvelles réponses pour « ${titre} »${quand?' — '+quand:''} : ${o.oui} présent${o.oui>1?'s':''}, ${o.retard} en retard, ${o.non} absent${o.non>1?'s':''}${o.sans?', '+o.sans+' sans réponse':''}.`;
+    } else {
+      const dit=etat==='oui'?'sera présent'
+              :etat==='non'?'sera absent'
+              :'arrivera avec '+(ma.min||15)+' min de retard';
+      txt=`${nom} ${dit} — « ${titre} »${quand?' · '+quand:''}${ma.mot?' — « '+ma.mot+' »':''}${estChangement?' (réponse modifiée)':''}`;
+    }
+    try{
+      const pair=[ME.uid,org].sort(), dmId='dm_'+pair.join('_');
+      const ref=chanCol().doc(dmId);
+      const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
+      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:txt,ts:FV(),rsvp:true});
+    }catch(e){}
+  }
+  /* relancer ceux qui n'ont pas répondu */
+  async function rsvpRelance(id,uid){
+    let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r=d.data()||{}; }catch(e){ return; }
+    const quand=r.scheduledAt?fmtWhen(r.scheduledAt):'';
+    const txt=`${(USER&&USER.name)||'L’organisateur'} attend ta réponse pour « ${r.name||'la réunion'} »${quand?' · '+quand:''} — Présent, En retard ou Absent ?`;
+    try{ const pair=[ME.uid,uid].sort(), dmId='dm_'+pair.join('_');
+      const ref=chanCol().doc(dmId); const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
+      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:txt,ts:FV(),rsvp:true});
+      toast('Relance envoyée'); }catch(e){ toast('Impossible d’envoyer la relance'); }
+  }
+  async function rsvpRelanceTous(id){
+    let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r=d.data()||{}; }catch(e){ return; }
+    const rep=r.reponses||{}; const sans=(r.members||[]).filter(u=>u!==ME.uid&&!rep[u]);
+    if(!sans.length){ toast('Tout le monde a répondu'); return; }
+    for(const u of sans){ await rsvpRelance(id,u); }
+    toast(sans.length+' relance'+(sans.length>1?'s':'')+' envoyée'+(sans.length>1?'s':''));
+  }
+  function rsvpRetardChoix(id){
+    const z=$('rsvp-retard'); if(!z) return;
+    z.innerHTML=[5,10,15,30].map(m=>`<span onclick="rsvpRepond('${id}','retard',${m})" style="font-size:11.5px;font-weight:800;padding:7px 13px;border-radius:9px;border:1px solid var(--brd2);color:var(--amber);cursor:pointer">+${m} min</span>`).join('')
+      +`<span onclick="rsvpRetardLibre('${id}')" style="font-size:11.5px;font-weight:700;padding:7px 12px;border-radius:9px;color:var(--t2);cursor:pointer">autre…</span>`;
+    z.style.display='flex';
+  }
+  function rsvpRetardLibre(id){ const v=prompt('Combien de minutes de retard ?','20'); if(v===null) return;
+    const m=parseInt(v,10); if(!m||m<1){ toast('Nombre invalide'); return; } rsvpRepond(id,'retard',m); }
+  /* la fenêtre : ma réponse en haut, la liste de tout le monde en dessous */
+  async function rsvpOuvre(id){
+    openSheet('<p class="muted center">Chargement…</p>');
+    let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r={id:d.id,...(d.data()||{})}; }
+    catch(e){ openSheet('<p class="muted center">Réunion introuvable.</p>'); return; }
+    let mem=[]; try{ mem=await listMembers(); }catch(e){}
+    const nomDe=u=>{ const m=mem.find(x=>x.uid===u); return (m&&m.name)||(rsvpDe(r,u)||{}).nom||'—'; };
+    const membres=(r.members||[]);
+    const o=rsvpResume(r);
+    const jeSuisDedans=membres.indexOf(ME.uid)>=0;
+    const ma=rsvpDe(r,ME.uid);
+    const quand=r.scheduledAt?fmtWhen(r.scheduledAt):'';
+    const btn=(k,lib)=>{ const on=ma&&ma.etat===k; const c=RSVP[k].c;
+      const clic=(k==='retard')?`rsvpRetardChoix('${id}')`:`rsvpRepond('${id}','${k}')`;
+      return `<span onclick="${clic}" style="flex:1;text-align:center;font-size:12px;font-weight:800;padding:11px 6px;border-radius:11px;cursor:pointer;
+        border:1.5px solid ${on?c:'var(--brd2)'};color:${on?c:'var(--t2)'};${on?'background:'+RSVP[k].bg:''}">${lib}${on&&k==='retard'&&ma.min?' +'+ma.min+' min':''}</span>`; };
+    const ligne=u=>{ const x=rsvpDe(r,u), nm=nomDe(u), est=u===r.createdBy;
+      const pil=x?`<span style="font-size:10.5px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap;background:${RSVP[x.etat].bg};color:${RSVP[x.etat].c}">${x.etat==='retard'?'+'+(x.min||15)+' min':RSVP[x.etat].l}</span>`
+        :`<span style="font-size:10.5px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap;background:var(--inp);color:var(--t3)">Sans réponse</span>`;
+      const sous=x?(x.mot?'« '+esc(x.mot)+' »':(x.le?'a répondu '+fmtWhen(x.le):'')):(est?'organisateur':'pas encore répondu');
+      const rel=(!x&&u!==ME.uid&&r.createdBy===ME.uid)?`<span onclick="rsvpRelance('${id}','${esc(u)}')" style="font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:7px;border:1px solid var(--brd2);color:var(--t2);cursor:pointer;white-space:nowrap">Relancer</span>`:'';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--sep)">
+        <div class="ava" style="width:32px;height:32px;border-radius:50%;font-size:11px;${avatarStyle(nm)}">${ini(nm)}</div>
+        <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}${est?' <span style="font-size:10px;color:var(--t3);font-weight:600">· organisateur</span>':''}</div>
+        ${sous?`<div style="font-size:10.7px;color:var(--t3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}</div>
+        ${pil}${rel}</div>`; };
+    const compte=(n,lib,c)=>`<div style="flex:1;text-align:center;padding:10px 6px"><div style="font-size:19px;font-weight:800;line-height:1;color:${c||'var(--t1)'}">${n}</div><div style="font-size:10.3px;color:var(--t3);font-weight:600;margin-top:3px">${lib}</div></div>`;
+    openSheet(`<div style="margin-bottom:12px"><b style="font-size:15.5px;font-weight:800;display:block">${esc(r.name||'Réunion')}</b>
+        <small style="font-size:11.5px;color:var(--t2);display:block;margin-top:3px">${esc(quand)}${membres.length?' · '+membres.length+' convoqué'+(membres.length>1?'s':''):''}</small></div>
+      ${jeSuisDedans?`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:8px">TA RÉPONSE</div>
+        <div style="display:flex;gap:8px">${btn('oui','Présent')}${btn('retard','En retard')}${btn('non','Absent')}</div>
+        <div id="rsvp-retard" style="display:none;gap:7px;flex-wrap:wrap;margin-top:9px"></div>
+        <input id="rsvp-mot" maxlength="140" value="${esc((ma&&ma.mot)||'')}" placeholder="Un mot pour l'organisateur (facultatif)…"
+          style="width:100%;margin-top:9px;padding:10px 12px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none">
+        <div style="font-size:10.7px;color:var(--t3);margin-top:7px;line-height:1.5">Écris ton mot avant de choisir : il part avec la réponse. Tu peux changer d'avis jusqu'au début.</div>`:''}
+      <div style="display:flex;background:var(--inp);border-radius:12px;margin-top:${jeSuisDedans?'14':'0'}px">
+        ${compte(o.oui,'présents','var(--green)')}${compte(o.retard,'en retard','var(--amber)')}${compte(o.non,'absents','var(--red)')}${compte(o.sans,'sans réponse')}</div>
+      <div style="margin-top:6px">${membres.map(ligne).join('')||'<p class="muted" style="font-size:12px">Aucun participant.</p>'}</div>
+      ${(r.createdBy===ME.uid&&o.sans>0)?`<button class="btn ghost block" style="margin-top:12px" onclick="rsvpRelanceTous('${id}')">${o.sans>1?'Relancer les '+o.sans+' personnes sans réponse':'Relancer la personne sans réponse'}</button>`:''}
+      <button class="btn block" style="margin-top:10px;font-weight:800" onclick="closeSheet();joinRoom('${id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre la réunion</button>`);
+  }
+  /* ── « Organiser une réunion » : une fenêtre, plus une colonne du tableau ── */
+  async function dashForm(dateISO,heure){
+    _dashSel=new Set([ME.uid]); _dashAlert=true;
+    let mem=[]; try{ mem=await listMembers(); }catch(e){}
+    const d=dateISO?new Date(dateISO+'T00:00:00'):new Date(Date.now()+3600000);
+    const hh=heure||(String(new Date(Date.now()+3600000).getHours()).padStart(2,'0')+':00');
+    const parts=mem.filter(m=>m.uid!==ME.uid).map(m=>`<div class="dash-pp" data-uid="${esc(m.uid)}" title="${esc(m.name||'')}" onclick="dashTogglePart(this)" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`).join('');
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Nouvelle réunion</h3>
+      <input id="dp-name" placeholder="Titre de la réunion…" style="width:100%;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:13px;color:var(--t1);font-family:inherit;outline:none">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">calendar_today</span><input id="dp-date" type="date" value="${_dstr(d)}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
+        <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${hh}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
+      </div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">PARTICIPANTS</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">${parts||'<span class="muted" style="font-size:11.5px">Aucun autre membre</span>'}<span id="dp-count" style="font-size:11.5px;color:var(--t2);margin-left:4px">0 sélectionné</span></div>
+      <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
+        <div style="display:flex;align-items:center;gap:8px"><span class="ms f1" style="font-size:17px;color:var(--tile-tx)">notifications_active</span><span style="font-size:12.5px;font-weight:700">Alerter les participants</span></div>
+        <div id="dp-toggle" style="width:38px;height:22px;border-radius:999px;background:var(--green);position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:right .15s"></div></div>
+      </div>
+      <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
+      <button class="btn block" style="margin-top:12px;font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">Planifier la réunion</button>`);
+    setTimeout(()=>{ const n=$('dp-name'); if(n) n.focus(); },80);
   }
   function dashTogglePart(el){ const uid=el.dataset.uid; if(_dashSel.has(uid)){ _dashSel.delete(uid); el.classList.remove('sel'); } else { _dashSel.add(uid); el.classList.add('sel'); }
     const c=$('dp-count'); if(c){ const n=Math.max(0,_dashSel.size-1); c.textContent=n+' sélectionné'+(n>1?'s':''); } }
   function dashToggleAlert(){ _dashAlert=!_dashAlert; const t=$('dp-toggle'); if(!t) return; t.style.background=_dashAlert?'var(--green)':'var(--brd2)'; const k=t.firstElementChild; if(k) k.style.right=_dashAlert?'2px':'18px'; }
   function dashPrefill(di,h){ const mon=_dashMonday(); const d=new Date(mon); d.setDate(mon.getDate()+di);
-    const de=$('dp-date'), ti=$('dp-time'), ni=$('dp-name');
-    if(de) de.value=_dstr(d); if(ti) ti.value=String(h).padStart(2,'0')+':00'; if(ni){ ni.focus(); }
-    toast('Créneau choisi — complétez « Organiser une réunion ».'); }
+    dashForm(_dstr(d),String(h).padStart(2,'0')+':00'); }
   // Planification : même écriture Firestore que createRoom (rooms + scheduledAt) → alertes existantes
   async function dashPlan(){
     const name=(($('dp-name')||{}).value||'').trim(); if(!name){ toast('Donnez un titre à la réunion.'); const n=$('dp-name'); if(n) n.focus(); return; }
@@ -950,6 +1155,7 @@
     const scheduledAt=new Date(dv+'T'+tv).getTime(); if(!scheduledAt||isNaN(scheduledAt)){ toast('Date invalide.'); return; }
     const members=Array.from(new Set([ME.uid,..._dashSel]));
     try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,members,createdAt:FV(),scheduledAt});
+      try{ closeSheet(); }catch(e){}
       toast(_dashAlert?'Réunion planifiée — les participants seront prévenus.':'Réunion planifiée.'); if(_curView==='dash') viewDash();
     }catch(e){ alert('Erreur : '+(e.message||e)); }
   }
