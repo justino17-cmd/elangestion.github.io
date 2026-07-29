@@ -381,6 +381,25 @@
   function togglePin(id){ const k=ck(id); if(_pin.has(k))_pin.delete(k); else _pin.add(k); lsSave('opmsg_pin',_pin); }
   function toggleMute(id){ const k=ck(id); if(_mute.has(k))_mute.delete(k); else _mute.add(k); lsSave('opmsg_mute',_mute); }
   function toggleStar(id){ if(_star.has(id))_star.delete(id); else _star.add(id); lsSave('opmsg_star',_star); }
+  /* épingler : contrairement à « important » qui ne vaut que sur ton appareil,
+     un message épinglé est visible par toute l'équipe, en haut de la discussion */
+  async function epingler(id){
+    if(!_curCh) return; const it=_curMsgs.find(x=>x.id===id); if(!it) return;
+    const p={id:id, texte:(previewOf(it.m)||'').slice(0,200), par:(USER&&USER.name)||'', qui:it.m.name||'', ts:Date.now()};
+    try{ await chDoc(_curCh.id).set({epingle:p},{merge:true}); closeSheet(); toast('Message épinglé pour toute l’équipe'); }
+    catch(e){ alert('Impossible d’épingler : '+(e.message||e)); }
+  }
+  async function desepingler(){
+    if(!_curCh) return;
+    try{ await chDoc(_curCh.id).set({epingle:null},{merge:true}); toast('Épingle retirée'); }
+    catch(e){ alert('Erreur : '+(e.message||e)); }
+  }
+  function versMessage(id){
+    const el=document.querySelector('[data-mid="'+id+'"]'); if(!el){ toast('Ce message n’est plus dans les 300 derniers'); return; }
+    el.scrollIntoView({behavior:'smooth',block:'center'});
+    const av=el.style.boxShadow; el.style.boxShadow='0 0 0 2px var(--op)';
+    setTimeout(()=>{ el.style.boxShadow=av; },1600);
+  }
   function readKey(id){ return 'opmsg_read_'+MODE+'_'+id; }
   function getReadTs(id){ return +(localStorage.getItem(readKey(id))||0); }
   function setReadTs(id){ try{ localStorage.setItem(readKey(id),''+Date.now()); }catch(e){} }
@@ -809,6 +828,7 @@
     openReunions(); }
   // Bouton ＋ : raccourcis de création (façon WhatsApp)
   function quickNew(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau</h3>
+    <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();rechOuvre()">${ic('search',18)}Rechercher dans les messages</button>
     <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();showView('cont')">${ic('chat',18)}Nouveau message</button>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();newGroup()">${ic('users',18)}Nouveau groupe</button>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();newCall()">${ic('phone',18)}Nouvel appel</button>
@@ -876,7 +896,11 @@
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <div><h2 style="font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1;margin:0">Tableau de bord</h2>
         <div style="font-size:13px;color:var(--t2);margin-top:5px">${esc(lib)} · ${esc(COMP.name)}</div></div>
-        <button class="hbtn green" onclick="dashForm()">${ms('event',18)}Nouvelle réunion</button>
+        <div style="display:flex;align-items:center;gap:9px">
+          <button class="hbtn" onclick="rechOuvre()" title="Chercher dans tous les messages">${ms('search',18)}Rechercher</button>
+          <button class="hbtn green" onclick="dashForm()">${ms('event',18)}Nouvelle réunion</button>
+          <button class="ic accent" onclick="quickNew()" title="Nouveau : message, groupe, appel">＋</button>
+        </div>
       </div>
       <div id="dash-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
       <div style="display:grid;grid-template-columns:${window.innerWidth>=1180?'minmax(0,1fr) 330px':'minmax(0,1fr)'};gap:14px;align-items:start">
@@ -1030,6 +1054,68 @@
         <b style="font-size:14.5px;font-weight:800">Alertes envoyées</b><span style="flex:1"></span>
         <span style="font-size:11px;font-weight:700;color:var(--tile-tx);cursor:pointer" onclick="openReunions()">Tout voir</span></div>
       ${alerts||'<p class="muted" style="font-size:12px;padding:0 15px 14px">Aucune réunion planifiée à venir.</p>'}</div>`;
+  }
+  /* ── Chercher dans tous les messages, pas seulement dans la discussion ouverte ── */
+  let _rechQ='';
+  function rechOuvre(){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">Rechercher</h3>
+      <input id="rech-q" value="${esc(_rechQ)}" placeholder="Un mot, un nom, une adresse…" autocapitalize="off"
+        oninput="clearTimeout(window._rechT);window._rechT=setTimeout(rechLance,320)"
+        style="width:100%;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:13px;color:var(--t1);font-family:inherit;outline:none">
+      <div style="font-size:10.7px;color:var(--t3);margin-top:7px">Cherche dans toutes tes discussions à la fois.</div>
+      <div id="rech-res" style="margin-top:12px"></div>`);
+    setTimeout(()=>{ const i=$('rech-q'); if(i) i.focus(); },80);
+    if(_rechQ) rechLance();
+  }
+  async function rechLance(){
+    const q=((($('rech-q')||{}).value)||'').trim().toLowerCase(); _rechQ=q;
+    const z=$('rech-res'); if(!z) return;
+    if(q.length<2){ z.innerHTML='<p class="muted" style="font-size:12px">Tape au moins deux lettres.</p>'; return; }
+    z.innerHTML='<p class="muted center" style="font-size:12px">Recherche…</p>';
+    const ch=chanCol(); const map={}, nmap={};
+    try{
+      if(MODE==='perso'){
+        const [grp,mem]=await Promise.all([ ch.where('members','array-contains',ME.uid).get(), listMembers() ]);
+        mem.forEach(m=>nmap[m.uid]=m.name||''); grp.forEach(d=>map[d.id]=d.data());
+      } else {
+        const [gen,grp,mem]=await Promise.all([ ch.where('type','==','general').get(),
+          ch.where('members','array-contains',ME.uid).get(),
+          fs.collection('op_companies').doc(COMP.id).collection('members').get() ]);
+        mem.forEach(d=>nmap[d.id]=d.data().name||'');
+        gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data());
+      }
+    }catch(e){ z.innerHTML='<p class="muted" style="font-size:12px">Impossible de lire les discussions.</p>'; return; }
+    const nomCh=(id,c)=>{ if(c.type==='general') return 'Général';
+      if(c.type==='dm'){ const o=(c.members||[]).find(u=>u!==ME.uid); return nmap[o]||'Contact'; }
+      return c.name||''; };
+    const ids=Object.keys(map);
+    const trouves=[];
+    await Promise.all(ids.map(async id=>{
+      try{ const qs=await ch.doc(id).collection('messages').orderBy('ts','desc').limit(300).get();
+        qs.forEach(d=>{ const m=d.data(); const t=(m.text||'');
+          if(t.toLowerCase().indexOf(q)>=0)
+            trouves.push({ch:id, nomCh:nomCh(id,map[id]), id:d.id, m:m,
+              ts:(m.ts&&m.ts.toDate)?m.ts.toDate().getTime():0}); });
+      }catch(e){}
+    }));
+    trouves.sort((a,b)=>b.ts-a.ts);
+    if(!trouves.length){ z.innerHTML=`<p class="muted" style="font-size:12px">Rien trouvé pour « ${esc(q)} ».</p>`; return; }
+    const surligne=t=>{ const i=t.toLowerCase().indexOf(q); if(i<0) return esc(t.slice(0,110));
+      const a=Math.max(0,i-40), av=(a?'…':'')+t.slice(a,i), mo=t.slice(i,i+q.length), ap=t.slice(i+q.length,i+q.length+60);
+      return esc(av)+'<b style="background:rgba(94,130,255,.28);color:var(--op-l);border-radius:4px;padding:0 2px">'+esc(mo)+'</b>'+esc(ap)+(t.length>i+q.length+60?'…':''); };
+    z.innerHTML=`<div style="font-size:10.7px;font-weight:800;letter-spacing:.06em;color:var(--t3);margin-bottom:4px">${trouves.length} RÉSULTAT${trouves.length>1?'S':''}</div>`
+      +trouves.slice(0,40).map(x=>`<div onclick="rechAller('${esc(x.ch)}','${esc((x.nomCh||'').replace(/'/g,''))}','${esc(x.id)}')"
+        style="padding:10px 0;border-top:1px solid var(--sep);cursor:pointer">
+        <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--t3)">
+          <b style="color:var(--tile-tx);font-weight:800">${esc(x.nomCh)}</b>
+          <span>${esc(x.m.name||'')}</span><span style="flex:1"></span>
+          <span>${x.ts?esc(dashDepuis(x.ts)):''}</span></div>
+        <div style="font-size:12.5px;margin-top:3px;line-height:1.45">${surligne(x.m.text||'')}</div></div>`).join('')
+      +(trouves.length>40?`<div style="font-size:11px;color:var(--t3);text-align:center;padding:9px 0">+ ${trouves.length-40} autres — précise ta recherche</div>`:'');
+  }
+  function rechAller(chId,nom,msgId){
+    closeSheet(); showView('disc');
+    setTimeout(()=>{ try{ openChannel(chId,nom); setTimeout(()=>versMessage(msgId),900); }catch(e){} },140);
   }
   /* ── La colonne des nouveaux messages : uniquement ce qui n'est pas lu ── */
   async function dashNouveaux(){
@@ -1209,7 +1295,57 @@
         ${compte(o.oui,'présents','var(--green)')}${compte(o.retard,'en retard','var(--amber)')}${compte(o.non,'absents','var(--red)')}${compte(o.sans,'sans réponse')}</div>
       <div style="margin-top:6px">${membres.map(ligne).join('')||'<p class="muted" style="font-size:12px">Aucun participant.</p>'}</div>
       ${(r.createdBy===ME.uid&&o.sans>0)?`<button class="btn ghost block" style="margin-top:12px" onclick="rsvpRelanceTous('${id}')">${o.sans>1?'Relancer les '+o.sans+' personnes sans réponse':'Relancer la personne sans réponse'}</button>`:''}
-      <button class="btn block" style="margin-top:10px;font-weight:800" onclick="closeSheet();joinRoom('${id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre la réunion</button>`);
+      <button class="btn block" style="margin-top:10px;font-weight:800" onclick="closeSheet();joinRoom('${id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre la réunion</button>
+      ${r.createdBy===ME.uid?`<div style="display:flex;gap:8px;margin-top:9px">
+        <button class="btn ghost" style="flex:1" onclick="reunionModifier('${id}')">Modifier</button>
+        <button class="btn ghost" style="flex:1;color:var(--red)" onclick="reunionAnnuler('${id}')">Annuler la réunion</button></div>`:''}`);
+  }
+  /* ── Modifier ou annuler une réunion, et prévenir tout le monde ── */
+  function roomCol(){ return fs.collection('op_companies').doc(COMP.id).collection('rooms'); }
+  async function reunionPrevenir(membres,texte){
+    const dest=(membres||[]).filter(u=>u&&u!==ME.uid);
+    for(const u of dest){
+      try{ const pair=[ME.uid,u].sort(), dmId='dm_'+pair.join('_');
+        const ref=chanCol().doc(dmId); const d=await ref.get();
+        if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
+        await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:texte,ts:FV(),reunion:true});
+      }catch(e){}
+    }
+  }
+  function reunionQuand(t){ try{ return fmtWhen(t); }catch(e){ return ''; } }
+  /* ── Annuler ── */
+  async function reunionAnnuler(id){
+    let r=null; try{ const d=await roomCol().doc(id).get(); r={id:d.id,...(d.data()||{})}; }catch(e){ toast('Réunion introuvable'); return; }
+    if(r.createdBy!==ME.uid){ toast('Seul l’organisateur peut annuler'); return; }
+    const suite=r.serie?await roomCol().where('serie','==',r.serie).get().then(qs=>{ const l=[]; qs.forEach(d=>{ const x={id:d.id,...d.data()}; if(x.scheduledAt>=r.scheduledAt) l.push(x); }); return l; }).catch(()=>[r]):[r];
+    const plusieurs=r.serie&&suite.length>1;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Annuler la réunion</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.6;margin-bottom:14px">« ${esc(r.name||'')} » — ${esc(reunionQuand(r.scheduledAt))}.<br>
+      ${(r.members||[]).length>1?'Les participants seront prévenus.':'Personne d’autre n’est convoqué.'}</p>
+      <button class="btn block" style="background:var(--red);border-color:var(--red);margin-bottom:${plusieurs?'9':'0'}px" onclick="reunionAnnulerOk('${id}',false)">Annuler cette réunion</button>
+      ${plusieurs?`<button class="btn ghost block" onclick="reunionAnnulerOk('${id}',true)">Annuler celle-ci et les ${suite.length-1} suivantes</button>`:''}`);
+  }
+  async function reunionAnnulerOk(id,toute){
+    let r=null; try{ const d=await roomCol().doc(id).get(); r={id:d.id,...(d.data()||{})}; }catch(e){ return; }
+    let liste=[r];
+    if(toute&&r.serie){ try{ const qs=await roomCol().where('serie','==',r.serie).get();
+      liste=[]; qs.forEach(d=>{ const x={id:d.id,...d.data()}; if(x.scheduledAt>=r.scheduledAt) liste.push(x); }); }catch(e){} }
+    let ko=0;
+    for(const x of liste){ try{ await roomCol().doc(x.id).delete(); }catch(e){ ko++; } }
+    if(ko===liste.length){ alert('Impossible d’annuler : '+(liste.length>1?'les réunions n’ont pas pu être supprimées.':'la réunion n’a pas pu être supprimée.')); return; }
+    const txt=liste.length>1
+      ? `${(USER&&USER.name)||'L’organisateur'} a annulé « ${r.name||'la réunion'} » et les ${liste.length-1} suivantes.`
+      : `${(USER&&USER.name)||'L’organisateur'} a annulé « ${r.name||'la réunion'} » — ${reunionQuand(r.scheduledAt)}.`;
+    await reunionPrevenir(r.members||[],txt);
+    closeSheet(); toast(liste.length>1?(liste.length+' réunions annulées'):'Réunion annulée');
+    if(_curView==='dash') viewDash();
+  }
+  /* ── Modifier : on remplace la réunion, et on prévient du changement ── */
+  async function reunionModifier(id){
+    let r=null; try{ const d=await roomCol().doc(id).get(); r={id:d.id,...(d.data()||{})}; }catch(e){ toast('Réunion introuvable'); return; }
+    if(r.createdBy!==ME.uid){ toast('Seul l’organisateur peut modifier'); return; }
+    const d=new Date(r.scheduledAt||Date.now());
+    dashForm(_dstr(d),String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'),r);
   }
   /* ── Notre calendrier de choix de date : celui du navigateur est minuscule
      et rien ne permet de l'agrandir. Celui-ci est à nous. ── */
@@ -1294,15 +1430,20 @@
       out.push(d.getTime()); }
     return out;
   }
-  async function dashForm(dateISO,heure){
+  let _dashEdit=null;
+  async function dashForm(dateISO,heure,edit){
+    _dashEdit=edit||null;
     _dashSel=new Set([ME.uid]); _dashAlert=true; _dashRepet='une'; _dashRepetN=8;
+    if(_dashEdit&&Array.isArray(_dashEdit.members)) _dashEdit.members.forEach(u=>_dashSel.add(u));
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
     const d=dateISO?new Date(dateISO+'T00:00:00'):new Date(Date.now()+3600000);
     const hh=heure||(String(new Date(Date.now()+3600000).getHours()).padStart(2,'0')+':00');
-    const parts=mem.filter(m=>m.uid!==ME.uid).map(m=>`<div class="dash-pp" data-uid="${esc(m.uid)}" title="${esc(m.name||'')}" onclick="dashTogglePart(this)" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`).join('');
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Nouvelle réunion</h3>
-      <input id="dp-name" placeholder="Titre de la réunion…" style="width:100%;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:13px;color:var(--t1);font-family:inherit;outline:none">
-      <textarea id="dp-desc" rows="2" maxlength="400" placeholder="De quoi va-t-on parler ? (facultatif)" style="width:100%;margin-top:8px;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none;resize:vertical;line-height:1.5"></textarea>
+    const parts=mem.filter(m=>m.uid!==ME.uid).map(m=>`<div class="dash-pp${_dashSel.has(m.uid)?' sel':''}" data-uid="${esc(m.uid)}" title="${esc(m.name||'')}" onclick="dashTogglePart(this)" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`).join('');
+    const E=_dashEdit;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">${E?'Modifier la réunion':'Nouvelle réunion'}</h3>
+      ${(E&&E.serie)?`<p class="muted" style="font-size:11.5px;line-height:1.5;margin-bottom:10px">Cette réunion fait partie d’une série. Seule celle-ci sera modifiée.</p>`:''}
+      <input id="dp-name" value="${esc((E&&E.name)||'')}" placeholder="Titre de la réunion…" style="width:100%;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:13px;color:var(--t1);font-family:inherit;outline:none">
+      <textarea id="dp-desc" rows="2" maxlength="400" placeholder="De quoi va-t-on parler ? (facultatif)" style="width:100%;margin-top:8px;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none;resize:vertical;line-height:1.5">${esc((E&&E.desc)||'')}</textarea>
       <div style="display:flex;gap:8px;margin-top:8px">
         <div style="flex:1;min-width:0">
           <div onclick="dcOuvre()" style="display:flex;align-items:center;gap:7px;padding:10px 12px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:700;cursor:pointer">
@@ -1314,9 +1455,9 @@
         <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${hh}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
       </div>
       <div id="dp-cal" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
-      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">RÉPÉTITION</div>
+      ${E?'':`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">RÉPÉTITION</div>
       <div id="dp-rep" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
-      <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
+      <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>`}
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">PARTICIPANTS</div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">${parts||'<span class="muted" style="font-size:11.5px">Aucun autre membre</span>'}<span id="dp-count" style="font-size:11.5px;color:var(--t2);margin-left:4px">0 sélectionné</span></div>
       <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
@@ -1324,8 +1465,9 @@
         <div id="dp-toggle" style="width:38px;height:22px;border-radius:999px;background:var(--green);position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:right .15s"></div></div>
       </div>
       <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
-      <button class="btn block" style="margin-top:12px;font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">Planifier la réunion</button>`);
-    setTimeout(()=>{ dcLabel(); dashRepetMaj(); const n=$('dp-name'); if(n) n.focus(); },80);
+      <button class="btn block" style="margin-top:12px;font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">${E?'Enregistrer les changements':'Planifier la réunion'}</button>`);
+    setTimeout(()=>{ dcLabel(); try{ dashRepetMaj(); }catch(e){} const n=$('dp-name'); if(n) n.focus();
+      try{ const c=$('dp-count'); if(c){ const k=Math.max(0,_dashSel.size-1); c.textContent=k+' sélectionné'+(k>1?'s':''); } }catch(e){} },80);
   }
   function dashTogglePart(el){ const uid=el.dataset.uid; if(_dashSel.has(uid)){ _dashSel.delete(uid); el.classList.remove('sel'); } else { _dashSel.add(uid); el.classList.add('sel'); }
     const c=$('dp-count'); if(c){ const n=Math.max(0,_dashSel.size-1); c.textContent=n+' sélectionné'+(n>1?'s':''); } }
@@ -1340,9 +1482,29 @@
     const scheduledAt=new Date(dv+'T'+tv).getTime(); if(!scheduledAt||isNaN(scheduledAt)){ toast('Date invalide.'); return; }
     const desc=((($('dp-desc')||{}).value)||'').trim().slice(0,400);
     const members=Array.from(new Set([ME.uid,..._dashSel]));
-    const dates=dashRepetDates(); const serie=(dates.length>1)?('s'+Date.now()):'';
+    const E=_dashEdit;
     try{
       const col=fs.collection('op_companies').doc(COMP.id).collection('rooms');
+      if(E){
+        /* on remplace la réunion : les règles n'autorisent pas de la modifier sur place */
+        const d={name,desc,createdBy:ME.uid,members,createdAt:FV(),scheduledAt};
+        if(E.serie){ d.serie=E.serie; d.repet=E.repet||''; }
+        await col.add(d);
+        try{ await col.doc(E.id).delete(); }catch(e){}
+        const chg=[];
+        if((E.name||'')!==name) chg.push('renommée « '+name+' »');
+        if((E.scheduledAt||0)!==scheduledAt) chg.push('déplacée au '+reunionQuand(scheduledAt));
+        if(((E.members||[]).length)!==members.length) chg.push('participants modifiés');
+        if((E.desc||'')!==desc) chg.push('description mise à jour');
+        const tous=Array.from(new Set([...(E.members||[]),...members]));
+        await reunionPrevenir(tous, `${(USER&&USER.name)||'L’organisateur'} a modifié « ${E.name||name} » : ${chg.length?chg.join(', '):'quelques détails'}.${((E.scheduledAt||0)!==scheduledAt)?' Merci de reconfirmer ta présence.':''}`);
+        _dashEdit=null;
+        try{ closeSheet(); }catch(e){}
+        toast('Réunion modifiée — les participants sont prévenus.');
+        if(_curView==='dash') viewDash();
+        return;
+      }
+      const dates=dashRepetDates(); const serie=(dates.length>1)?('s'+Date.now()):'';
       for(const t of (dates.length?dates:[scheduledAt])){
         const d={name,desc,createdBy:ME.uid,members,createdAt:FV(),scheduledAt:t};
         if(serie){ d.serie=serie; d.repet=_dashRepet; }
@@ -1857,6 +2019,7 @@
         <button class="ic" onclick="toggleSearch()" title="Rechercher">${ic('search',20)}</button>
         <button class="ic" onclick="joinRoom('chat-${id}','Réunion : ${esc(name).replace(/"/g,'')}')" title="Appel">${ic('phone',19)}</button>
       </div>
+      <div id="pinbar" style="display:none"></div>
       <div id="searchbar" style="display:none;padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)"><input id="chsearch" placeholder="Rechercher dans la discussion…" oninput="renderStream()" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-size:15px;font-family:inherit"></div>
       <div class="stream" id="stream"><p class="muted center" style="margin:auto">Chargement…</p></div>
       <div id="replybar" style="display:none;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--brd);background:var(--bg1)"></div>
@@ -1881,7 +2044,7 @@
     s.addEventListener('touchend',e=>{ if(!el) return; const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy; const mid=el.getAttribute('data-mid'); el.style.transition='transform .18s'; el.style.transform='translateX(0)';
       if(dx>55&&Math.abs(dy)<45&&mid){ setReply(mid); } el=null; },{passive:true});
   }
-  function closeChat(){ clearTyping(); if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
+  function closeChat(){ clearTyping(); if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_pinUnsub){_pinUnsub();_pinUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
   function chDoc(id){ return chanCol().doc(id); }
   function chMsgs(){ return chDoc(_curCh.id).collection('messages'); }
   // Envoi centralisé : ajoute le message ET met à jour l'aperçu du canal (dernier message + heure)
@@ -1900,7 +2063,7 @@
   function addMsg(data){ const e=getEph(_curCh.id); if(e && !data.exp) data.exp=Date.now()+e; return addMsgTo(_curCh.id,data); }
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
   function fmtListTime(ms){ try{ const d=new Date(ms), now=new Date(); if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return 'Hier'; return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}); }catch(e){ return ''; } }
-  let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={},_chDocUnsub=null,_starFilter=false,_dmOther=null,_typingTs=0,_showArch=false;
+  let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={},_chDocUnsub=null,_starFilter=false,_dmOther=null,_typingTs=0,_showArch=false,_pinUnsub=null;
   function markRead(id){ setReadTs(id); if(!readReceiptsOn()) return; try{ chDoc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
   // ---- Indicateur « en train d'écrire » + « en ligne / vu » ----
   function signalTyping(){ if(!_curCh) return; const now=Date.now(); if(now-_typingTs<2500) return; _typingTs=now;
@@ -1938,6 +2101,16 @@
       renderStream(); markRead(id);
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
     _readsUnsub=chDoc(id).collection('reads').onSnapshot(qs=>{ _reads={}; qs.forEach(d=>{ _reads[d.id]=d.data().ts||0; }); renderStream(); }, err=>{});
+    if(_pinUnsub){ _pinUnsub(); _pinUnsub=null; }
+    _pinUnsub=chDoc(id).onSnapshot(d=>{ const p=(d.data()||{}).epingle; const b=$('pinbar'); if(!b) return;
+      if(!p||!p.texte){ b.style.display='none'; b.innerHTML=''; return; }
+      b.style.display='block';
+      b.innerHTML=`<div onclick="versMessage('${esc(p.id)}')" style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--brd);background:var(--tint2);cursor:pointer">
+        <span class="ms" style="font-size:16px;color:var(--tile-tx)">push_pin</span>
+        <div style="flex:1;min-width:0"><div style="font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--t3)">ÉPINGLÉ${p.qui?' · '+esc(p.qui):''}</div>
+          <div style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.texte)}</div></div>
+        <span onclick="event.stopPropagation();desepingler()" style="font-size:11px;font-weight:700;color:var(--t3);padding:5px 9px;border-radius:8px;cursor:pointer">Retirer</span></div>`;
+    }, err=>{});
   }
   function renderStream(){
     const s=$('stream'); if(!s) return;
@@ -1966,7 +2139,10 @@
       const starTag=_star.has(id)?'<span style="color:#f5c518;font-size:10px"> ★</span>':'';
       const ephTag=m.exp?'<span style="font-size:10px;opacity:.6" title="Éphémère"> ⏱</span>':'';
       html+=`<div class="m ${mine?'me':'them'}" data-mid="${id}" onclick="msgTap('${id}')" style="cursor:pointer">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${reacts}${m.fwd?'<span style="font-size:9px;opacity:.55">↪ transféré</span>':''}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}${ephTag}${starTag}</div></div>`;
-      if(id===lastMineId && readReceiptsOn()){ const mt=d.getTime(); const rd=Object.keys(_reads).filter(u=>u!==ME.uid && (_reads[u]||0)>=mt-2000).length; const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé'; html+=`<div style="align-self:flex-end;font-size:10.5px;color:var(--t3);margin:-3px 4px 2px">${rtxt}</div>`; }
+      if(id===lastMineId && readReceiptsOn()){ const mt=d.getTime();
+        const rd=Object.keys(_reads).filter(u=>u!==ME.uid && (_reads[u]||0)>=mt-2000).length;
+        const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé';
+        html+=`<div onclick="${rd&&!isDM?`quiALu(${mt})`:''}" style="align-self:flex-end;font-size:10.5px;color:var(--t3);margin:-3px 4px 2px${rd&&!isDM?';cursor:pointer;text-decoration:underline dotted':''}">${rtxt}</div>`; }
     });
     s.innerHTML=html||(q?'<p class="muted center" style="margin:auto">Aucun résultat.</p>':'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>');
     if(!q) s.scrollTop=s.scrollHeight;
@@ -1997,6 +2173,26 @@
     return s; }
   function fmtDur(s){ s=Math.round(s||0); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
   function previewOf(m){ if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.poll) return '📊 Sondage'; if(m.event) return '📅 '+((m.event&&m.event.titre)||'Événement'); if(m.sticker) return m.sticker; return ''; }
+  /* qui a lu, et quand — la donnée existait, elle n'était pas montrée */
+  async function quiALu(mt){
+    let mem=[]; try{ mem=await listMembers(); }catch(e){}
+    const nom=u=>{ const m=mem.find(x=>x.uid===u); return (m&&m.name)||'Quelqu’un'; };
+    const lus=[], pas=[];
+    const cible=(_curCh&&_curCh.id)?null:null;
+    Object.keys(_reads).forEach(u=>{ if(u===ME.uid) return;
+      if((_reads[u]||0)>=mt-2000) lus.push({u:u,ts:_reads[u]}); });
+    lus.sort((a,b)=>a.ts-b.ts);
+    const vus=new Set(lus.map(x=>x.u));
+    mem.forEach(m=>{ if(m.uid!==ME.uid && !vus.has(m.uid)) pas.push(m.uid); });
+    const ligne=(u,ts)=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--sep)">
+      <div class="ava" style="width:30px;height:30px;border-radius:50%;font-size:11px;${avatarStyle(nom(u))}">${ini(nom(u))}</div>
+      <div style="flex:1;min-width:0;font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nom(u))}</div>
+      <div style="font-size:11px;color:var(--t3);white-space:nowrap">${ts?esc(dashDepuis(ts)):'pas encore'}</div></div>`;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">Qui a lu</h3>
+      <p class="muted" style="font-size:11.5px;margin-bottom:10px">${lus.length} lu${lus.length>1?'s':''}${pas.length?' · '+pas.length+' pas encore':''}</p>
+      ${lus.map(x=>ligne(x.u,x.ts)).join('')}
+      ${pas.length?`<div style="font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--t3);margin-top:14px">PAS ENCORE LU</div>${pas.map(u=>ligne(u,0)).join('')}`:''}`);
+  }
   function setReply(id){ closeSheet(); const it=_curMsgs.find(x=>x.id===id); if(!it) return; _replyTo={name:it.m.name||'',text:previewOf(it.m)};
     const bar=$('replybar'); if(bar){ bar.innerHTML=`<div style="flex:1;border-left:3px solid var(--op);padding-left:8px;font-size:13px;min-width:0"><b>${esc(_replyTo.name)}</b><br><span class="muted" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(_replyTo.text)}</span></div><button class="ic" style="border:1px solid var(--brd2);border-radius:10px;width:36px;height:36px;background:transparent;color:var(--t2)" onclick="cancelReply()">✕</button>`; bar.style.display='flex'; } const i=$('msg'); if(i) i.focus(); }
   function cancelReply(){ _replyTo=null; const bar=$('replybar'); if(bar){ bar.style.display='none'; bar.innerHTML=''; } }
@@ -2008,6 +2204,7 @@
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="setReply('${id}')">↩️ Répondre</button>`;
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="forwardMsg('${id}')">↪️ Transférer</button>`;
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="starMsg('${id}')">${_star.has(id)?'★ Retirer des importants':'☆ Marquer comme important'}</button>`;
+    h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="epingler('${id}')">Épingler en haut de la discussion</button>`;
     if(m && (m.text||m.img)) h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="copyMsg('${id}')">📋 Copier le texte</button>`;
     if(mine && m && m.text!=null && !m.img && !m.file && !m.audio && !m.poll) h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="editMsg('${id}')">✏️ Modifier</button>`;
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="hideForMe('${id}')">Supprimer pour moi</button>`;
