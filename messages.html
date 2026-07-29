@@ -253,6 +253,9 @@
     #dskside{display:flex}
     .maincol .nav{display:none}
     .chat{left:284px}
+    /* les fenêtres ne recouvrent JAMAIS la barre latérale : la navigation
+       reste cliquable du premier coup, même quand une fenêtre est ouverte */
+    .sheet{left:284px}
     .chat .topbar .bk{display:none}
     .chat .topbar{padding:14px 24px;gap:12px}
     .chat .topbar .ti b{font-size:19px}
@@ -704,6 +707,9 @@
     return (e&&e.message)||'Erreur.'; }
 
   // ========== APP SHELL ==========
+  /* L'écran d'arrivée : le tableau de bord quand l'espace en a un
+     (entreprise), sinon les messages (compte perso). */
+  function vueArrivee(){ return (MODE==='company'&&HAS_COMPANY)?'dash':'disc'; }
   // Un seul compte : espace Perso (toujours) + éventuellement un espace Pro (entreprise).
   async function enterApp(){
     if(USER&&USER.companyId){ HAS_COMPANY=true; COMP={id:USER.companyId,name:USER.companyName}; }
@@ -715,7 +721,7 @@
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
-    renderShell(); showView('disc'); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
+    _curView=vueArrivee(); renderShell(); showView(_curView); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
     setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') opPushSub(true); else setTimeout(opPushPropose,1500); }catch(e){} },1800);
   }
   function startSpaceListeners(){
@@ -727,10 +733,10 @@
   async function switchSpace(sp){
     if(sp===MODE) return;
     if(sp==='company'&&!HAS_COMPANY){ return; }
-    closeChat(); MODE=sp; _curView='disc';
+    closeChat(); MODE=sp;
     IS_OWNER = (MODE==='company') && HAS_COMPANY && COMP && COMP.ownerUid===ME.uid;
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
-    renderShell(); showView('disc'); startSpaceListeners();
+    _curView=vueArrivee(); renderShell(); showView(_curView); startSpaceListeners();
   }
   // Créer son entreprise depuis l'app (un compte perso qui devient patron)
   function showAddCompany(){
@@ -784,9 +790,10 @@
     const dash=(MODE==='company'&&HAS_COMPANY);
     // Navigation latérale : entreprise = Tableau de bord, Messages, Appels, Réunions, Contacts · perso = Messages, Appels, Contacts
     let pills='';
-    if(dash) pills+=`<div id="nv2-dash" class="dsk-item" onclick="showView('dash')">Tableau de bord</div>`;
-    pills+=`<div id="nv2-disc" class="dsk-item on" onclick="showView('disc')">Messages<span class="dbadge" id="dsk-b-disc" style="display:none"></span></div>`;
-    pills+=`<div id="nv2-appel" class="dsk-item" onclick="showView('appel')">Appels</div>`;
+    const surLui=v=>(_curView===v?' on':'');   // l'onglet de l'écran affiché est allumé tout de suite
+    if(dash) pills+=`<div id="nv2-dash" class="dsk-item${surLui('dash')}" onclick="showView('dash')">Tableau de bord</div>`;
+    pills+=`<div id="nv2-disc" class="dsk-item${surLui('disc')}" onclick="showView('disc')">Messages<span class="dbadge" id="dsk-b-disc" style="display:none"></span></div>`;
+    pills+=`<div id="nv2-appel" class="dsk-item${surLui('appel')}" onclick="showView('appel')">Appels</div>`;
     if(isPro()) pills+=`<div id="nv2-meet" class="dsk-item" onclick="dskMeet()">Réunions</div>`;
     pills+=`<div id="nv2-cont" class="dsk-item" onclick="showView('cont')">Contacts</div>`;
     ROOT.innerHTML=`
@@ -828,8 +835,8 @@
       <div class="view" id="view"></div>
       <div class="nav">
         <span id="nav-blob"></span>
-        ${dash?`<button id="nv-dash" onclick="showView('dash')"><span class="ni"><span class="ms" style="font-size:17px">space_dashboard</span></span>Tableau</button>`:''}
-        <button id="nv-disc" class="on" onclick="showView('disc')"><span class="ni">${ic('chat')}<span class="navdot" id="nav-unread" style="display:none"></span></span>Discussions</button>
+        ${dash?`<button id="nv-dash" class="${_curView==='dash'?'on':''}" onclick="showView('dash')"><span class="ni"><span class="ms" style="font-size:17px">space_dashboard</span></span>Tableau</button>`:''}
+        <button id="nv-disc" class="${_curView==='disc'?'on':''}" onclick="showView('disc')"><span class="ni">${ic('chat')}<span class="navdot" id="nav-unread" style="display:none"></span></span>Discussions</button>
         <button id="nv-cont" onclick="showView('cont')"><span class="ni">${ic('users')}</span>Contacts</button>
         <button id="nv-appel" onclick="showView('appel')"><span class="ni">${ic('phone')}</span>Appels</button>
         <button id="nv-prof" onclick="showView('prof')"><span class="ni">${USER.photo?`<img src="${USER.photo}" alt="">`:ic('user')}</span>Vous</button>
@@ -850,6 +857,9 @@
     ${MODE==='perso'?`<button class="btn ghost block" onclick="closeSheet();addContactForm()">${ic('plus',18)}Ajouter un contact</button>`:(IS_OWNER?`<button class="btn ghost block" onclick="closeSheet();addPeopleMenu()">${ic('plus',18)}Ajouter quelqu'un</button>`:'')}`); }
   function showView(v){ _curView=v;
     try{ if(typeof closeSheet==='function') closeSheet(); }catch(e){}   // aucune feuille ne doit rester par-dessus
+    /* la page « Réunions » se pose PAR-DESSUS l'écran : si on ne la ferme pas,
+       cliquer sur un onglet ne change rien à l'écran. On la ferme toujours. */
+    try{ if($('page')&&$('page').classList.contains('open')) closePage(); }catch(e){}
     if(_meetTicker){clearInterval(_meetTicker);_meetTicker=null;}
     ['dash','disc','cont','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===v); });
     const m2=$('nv2-meet'); if(m2) m2.classList.remove('on');
@@ -995,30 +1005,41 @@
       let h0=(a===null)?8:Math.min(8,Math.max(0,a-1));
       let h1=(b===null)?18:Math.max(18,Math.min(23,b+1));
       const HEURES=[]; for(let h=h0;h<=h1;h++) HEURES.push(h);
-      const cols=jours.length, ROWH=56, HEADH=50, BLOCH=46;
+      const cols=jours.length, ROWH=56, HEADH=50, BLOCH=46, GUT=54;
+      /* les heures (et les demies) où il y a une réunion : on les met en couleur */
+      const hPleine=new Set(), hDemi=new Set();
+      rooms.filter(dansPeriode).forEach(r=>{ const d=new Date(r.scheduledAt);
+        (d.getMinutes()<30?hPleine:hDemi).add(d.getHours()); });
+      /* le petit trait pointillé de la demi-heure, dans chaque case */
+      const demi=`background-image:repeating-linear-gradient(to right,var(--cal-line) 0 5px,transparent 5px 11px);background-size:100% 1px;background-repeat:no-repeat;background-position:0 ${ROWH/2-1}px;`;
       const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
       const estWE=d=>{ const j=d.getDay(); return j===0||j===6; };
       const totalH=HEURES.length*ROWH;
       /* le fond : les lignes des heures et les colonnes des jours */
-      grid=`<div style="position:relative;min-width:${48+cols*88}px;background:var(--cal-bg)">
-        <div style="display:grid;grid-template-columns:48px repeat(${cols},minmax(88px,1fr))">`;
+      grid=`<div style="position:relative;min-width:${GUT+cols*88}px;background:var(--cal-bg)">
+        <div style="display:grid;grid-template-columns:${GUT}px repeat(${cols},minmax(88px,1fr))">`;
       grid+=`<div style="border-bottom:1.5px solid var(--cal-line2);height:${HEADH}px"></div>`;
       jours.forEach((d,i)=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
         grid+=`<div style="height:${HEADH}px;padding:8px 6px 0;text-align:center;border-bottom:1.5px solid var(--cal-line2);border-left:1px solid var(--cal-line);${isT?'background:var(--cal-todayhd)':(we?'background:var(--cal-we)':'')}">
           <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:${isT?'var(--tile-tx)':'var(--t2)'};${we&&!isT?'opacity:.7':''}">${DN[d.getDay()===0?6:d.getDay()-1]}</div>
           <div style="font-size:15px;font-weight:800;margin-top:1px;${isT?'color:var(--op-tx)':(we?'opacity:.7':'')}">${d.getDate()}</div></div>`; });
       HEURES.forEach((h,hi)=>{
-        grid+=`<div style="height:${ROWH}px;padding:5px 9px 0 0;text-align:right;font-size:10px;font-weight:700;color:var(--t2);${hi?'border-top:1px solid var(--cal-line)':''}">${String(h).padStart(2,'0')}:00</div>`;
+        const HH=String(h).padStart(2,'0'), aPlein=hPleine.has(h), aDemi=hDemi.has(h);
+        grid+=`<div style="height:${ROWH}px;position:relative;${hi?'border-top:1px solid var(--cal-line)':''}">
+          <div title="${aPlein?'Une réunion commence dans cette demi-heure':''}"
+            style="position:absolute;top:4px;right:9px;font-size:10.5px;font-weight:${aPlein?800:700};color:${aPlein?'var(--op-tx)':'var(--t2)'}">${aPlein?`<i style="width:5px;height:5px;border-radius:50%;background:var(--op-tx);display:inline-block;vertical-align:2px;margin-right:4px"></i>`:''}${HH}:00</div>
+          <div title="${aDemi?'Une réunion commence dans cette demi-heure':''}"
+            style="position:absolute;top:${ROWH/2-2}px;right:9px;font-size:9px;font-weight:${aDemi?800:600};color:${aDemi?'var(--op-tx)':'var(--t3)'};${aDemi?'':'opacity:.7'}">${aDemi?`<i style="width:4px;height:4px;border-radius:50%;background:var(--op-tx);display:inline-block;vertical-align:1px;margin-right:4px"></i>`:''}${HH}:30</div></div>`;
         jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
-          grid+=`<div onclick="dashForm('${_dstr(d)}','${String(h).padStart(2,'0')}:00')" title="Poser une réunion ici"
-            style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background:var(--cal-today);':(we?'background:var(--cal-we);':'')}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
+          grid+=`<div onclick="dashForm('${_dstr(d)}','${HH}:00')" title="Poser une réunion ici"
+            style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background-color:var(--cal-today);':(we?'background-color:var(--cal-we);':'')}${demi}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
             <div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;display:flex;align-items:center;justify-content:center;color:transparent"
               onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'"
               onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div></div>`; });
       });
       grid+=`</div>`;
       /* la couche des réunions : chacune tombe à sa minute exacte */
-      grid+=`<div style="position:absolute;left:48px;right:0;top:${HEADH}px;height:${totalH}px;pointer-events:none;display:grid;grid-template-columns:repeat(${cols},minmax(88px,1fr))">`;
+      grid+=`<div style="position:absolute;left:${GUT}px;right:0;top:${HEADH}px;height:${totalH}px;pointer-events:none;display:grid;grid-template-columns:repeat(${cols},minmax(88px,1fr))">`;
       jours.forEach(d=>{
         const l=duJour(d).filter(r=>{ const hh=new Date(r.scheduledAt).getHours(); return hh>=h0&&hh<=h1; });
         const ct=dashCotes(l);
@@ -1737,9 +1758,9 @@
           const sub=(c.lastMsg&&(c.lastMsgAt||0)>getClearedAt(id))?esc((c.lastMsg||'').slice(0,34)):(c.type==='dm'?'Message privé':'');
           return `<div class="dsk-chan${(typeof _curCh!=='undefined'&&_curCh&&_curCh.id===id)?' on':''}" data-cid="${id}" onclick="rowOpen('${id}','${nmSafe}')"><b>${c.type==='dm'?'👤 ':`<span style="color:var(--op-tx);font-weight:800">#</span> `}${esc(nm)}</b>${sub?`<span>${sub}</span>`:''}${u?`<i class="dbadge">${u>99?'99+':u}</i>`:''}</div>`; }).join('')
           ||'<div style="font-size:11px;color:var(--t3);padding:0 6px">Aucune discussion</div>'; }
-        // Version bureau : ouvre automatiquement la 1re discussion à l'arrivée (comme la maquette)
-        if(window.innerWidth>=1024 && !_curCh && active.length && !window._dskAutoOpened){ window._dskAutoOpened=true;
-          const [aid,ac]=active[0]; rowOpen(aid, dispName(aid,ac).replace(/'/g,'')); } }catch(e){}
+        /* On n'ouvre PLUS de conversation tout seul : quand on clique sur
+           « Messages », on veut la liste des discussions, pas se retrouver
+           d'office dans une conversation. */ }catch(e){}
       const rowHtml=([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
         let nm=c.name||'', avInner=ini(nm), avBg=avatarStyle(nm)+';border-radius:11px';
         if(g){ nm='Général'; avInner=ms('forum',22); avBg='background:var(--tile-bg);color:var(--tile-tx);border-radius:11px'; }
