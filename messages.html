@@ -305,9 +305,6 @@
     .chat .topbar .bk{display:none}
     .chat .topbar{padding:14px 24px;gap:12px}
     .chat .topbar .ti b{font-size:19px}
-    .chat .topbar .ic[title="Appel"]{width:auto;height:40px;padding:0 16px;background:var(--op);color:#fff;border:none;border-radius:12px;font-weight:800;display:inline-flex;align-items:center;gap:7px}
-    .chat .topbar .ic[title="Appel"]::after{content:"Réunion";font-size:13px}
-    .chat .topbar .ic[title="Appel"]:hover{background:var(--op-h)}
     .chat .stream{padding:22px 28px}
     .chat .composer{padding:14px 24px 18px}
     .view{max-width:880px;margin:0 auto;width:100%;padding:8px 28px 88px}
@@ -2421,7 +2418,7 @@
   let _discSearch='';
   function discSearchInput(v){ _discSearch=(v||'').trim().toLowerCase(); viewDisc(true); }
   async function viewDisc(keepFocus){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?'':`<button class="hbtn neutral" onclick="showView('cont')">${ms('edit_square',18)}Nouveau message</button>`}</div>
+    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2><button class="hbtn neutral" onclick="vueDocuments()">${ms('attach_file',18)}Documents</button></div>
       <div class="gsearch">${ms('search',19)}<input id="disc-search" placeholder="Rechercher une discussion…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
       <div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ms('add',25)}</button>`;
     if(keepFocus){ const si=$('disc-search'); if(si){ si.focus(); try{ si.setSelectionRange(si.value.length,si.value.length); }catch(e){} } }
@@ -2453,8 +2450,13 @@
       if(_discFilter==='unread') filtered=entries.filter(([id,c])=>unreadOf(id,c)>0);
       else if(_discFilter==='fav') filtered=entries.filter(([id])=>isFav(id));
       else if(_discFilter==='groups') filtered=entries.filter(([id,c])=>c.type==='group'||c.type==='general');
+      /* un chantier dont la date est passée se range tout seul */
+      const maintenant=Date.now();
+      entries.forEach(([id,c])=>{ if(c.finLe&&c.finLe<maintenant&&!c.cloture){ c.cloture=true;
+        try{ ch.doc(id).set({cloture:true},{merge:true}); }catch(e){} } });
+      const clos=filtered.filter(([id,c])=>c.cloture&&!isArch(id));
       const archived=filtered.filter(([id])=>isArch(id));
-      const active=filtered.filter(([id])=>!isArch(id));
+      const active=filtered.filter(([id,c])=>!isArch(id)&&!c.cloture);
       const sortFn=(a,b)=>{ const pa=isPinned(a[0])?1:0, pb=isPinned(b[0])?1:0; if(pa!==pb) return pb-pa; const ta=a[1].lastMsgAt||(a[1].type==='general'?1:0), tb=b[1].lastMsgAt||(b[1].type==='general'?1:0); return (tb||0)-(ta||0); };
       active.sort(sortFn); archived.sort(sortFn);
       // Canaux dans la colonne TEAM OP (version web/Mac/Windows)
@@ -2467,6 +2469,7 @@
            « Messages », on veut la liste des discussions, pas se retrouver
            d'office dans une conversation. */ }catch(e){}
       const rowHtml=([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
+        const marque=(c.urgence?'🚨 ':'')+(c.finLe?(c.cloture?'🏗️ ':'🏗️ '):'');
         let nm=c.name||'', avInner=ini(nm), avBg=avatarStyle(nm)+';border-radius:11px';
         if(g){ nm='Général'; avInner=ms('forum',22); avBg='background:var(--tile-bg);color:var(--tile-tx);border-radius:11px'; }
         else if(dm){ const o=(c.members||[]).find(u=>u!==ME.uid); nm=nmap[o]||'Contact'; avInner=ini(nm); avBg=avatarStyle(nm); }
@@ -2488,12 +2491,14 @@
             ${actBtn('#64748b','⋯','Options',`rowMenu('${id}','${nmSafe}')`)}
             ${actBtn('var(--op)','🗄️',isArch(id)?'Désarchiver':'Archiver',`rowArch('${id}')`)}
           </div>
-          <div class="row sw-row" data-nm="${nmSafe}" onclick="${_selMode?`selToggle('${id}')`:`rowOpen('${id}','${nmSafe}')`}" style="position:relative;background:var(--card);margin:0">${_selMode?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${_selSet.has(id)?'var(--op)':'var(--brd2)'};background:${_selSet.has(id)?'var(--op)':'transparent'};color:#fff">${_selSet.has(id)?'✓':''}</div>`:''}<div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:11.5px;font-weight:600;color:var(--t3)">${t}</span>${badge}</div></div>
+          <div class="row sw-row" data-nm="${nmSafe}" onclick="${_selMode?`selToggle('${id}')`:`rowOpen('${id}','${nmSafe}')`}" style="position:relative;background:var(--card);margin:0">${_selMode?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${_selSet.has(id)?'var(--op)':'var(--brd2)'};background:${_selSet.has(id)?'var(--op)':'transparent'};color:#fff">${_selSet.has(id)?'✓':''}</div>`:''}<div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${marque}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:11.5px;font-weight:600;color:var(--t3)">${t}</span>${badge}</div></div>
         </div>`; };
       const chips=[['all','Toutes'],['unread','Non lues'+(nbUnread?' '+nbUnread:'')],['fav','Favoris'],['groups','Groupes']]
         .map(([k,l])=>`<button class="${_discFilter===k?'on':''}" onclick="setDiscFilter('${k}')">${l}</button>`).join('');
       let html=`<div style="overflow:auto;padding:0 2px 14px;-webkit-overflow-scrolling:touch"><div class="seg">${chips}</div></div>`;
       html+=active.length?`<div class="listbox">${active.map(rowHtml).join('')}</div>`:`<p class="muted center">${_discFilter==='all'?'Aucune discussion.':'Rien dans ce filtre.'}</p>`;
+      if(clos.length){ html+=`<div onclick="_showClos=!_showClos;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🏗️ Chantiers terminés (${clos.length}) <span style="margin-left:auto;color:var(--t3)">${_showClos?'▲':'▼'}</span></div>`;
+        if(_showClos) html+=`<div class="listbox">${clos.map(rowHtml).join('')}</div>`; }
       if(archived.length){ html+=`<div onclick="_showArch=!_showArch;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🗄️ Archivées (${archived.length}) <span style="margin-left:auto;color:var(--t3)">${_showArch?'▲':'▼'}</span></div>`; if(_showArch) html+=`<div class="listbox">${archived.map(rowHtml).join('')}</div>`; }
       if(_selMode){ html=`<div style="display:flex;align-items:center;gap:8px;margin:0 2px 12px"><b style="flex:1">${_selSet.size} sélectionnée(s)</b><button class="btn ghost sm" onclick="exitSelMode()">✕ Annuler</button></div>`+html
         +`<div style="position:fixed;left:16px;right:16px;bottom:calc(62px + env(safe-area-inset-bottom));z-index:15;display:flex;gap:8px;background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:9px;max-width:440px;margin:0 auto;box-shadow:0 10px 26px rgba(0,0,0,.35)">
@@ -2603,16 +2608,94 @@
       <div class="field" style="margin-bottom:6px"><label>Qui fait partie du groupe ?</label></div>
       <div id="ng-members">${chks||'<p class="muted">Aucun autre membre. Ajoutez des contacts d\'abord.</p>'}</div>
       <p class="muted" style="margin:4px 0 10px">Vous êtes automatiquement membre. Seuls les membres choisis verront ce groupe.</p>
+      ${peutReunion()?`<div class="chk" id="ng-urgence" onclick="this.classList.toggle('sel')" style="margin-bottom:8px">
+        <span style="font-size:20px">🚨</span><div style="flex:1"><b style="font-size:13.5px">Canal d'urgence</b>
+        <div class="muted" style="font-size:11.5px;line-height:1.4">Les messages sonnent même pendant les heures de silence.</div></div></div>`:''}
+      <div class="chk" id="ng-chantier" onclick="this.classList.toggle('sel');ngChantierMaj()" style="margin-bottom:8px">
+        <span style="font-size:20px">🏗️</span><div style="flex:1"><b style="font-size:13.5px">Discussion de chantier</b>
+        <div class="muted" style="font-size:11.5px;line-height:1.4">Elle se rangera toute seule à la date de fin, sans rien perdre.</div></div></div>
+      <div id="ng-fin" style="display:none;margin-bottom:10px">
+        <div class="field" style="margin-bottom:6px"><label>Fin du chantier</label></div>
+        ${champDateHeure(_dstr(new Date(Date.now()+7*86400000)),'18:00')}</div>
       <button class="btn block" onclick="createGroup()">Créer le groupe</button>`);
   }
+  function ngChantierMaj(){ const z=$('ng-fin'); const c=$('ng-chantier');
+    if(z) z.style.display=(c&&c.classList.contains('sel'))?'block':'none';
+    try{ dcLabel(); }catch(e){} }
   async function createGroup(){
     const name=($('ng-name').value||'').trim(); if(!name){ $('ngerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
     const sel=[...document.querySelectorAll('#ng-members .chk.sel')].map(x=>x.dataset.uid);
     const members=Array.from(new Set([ME.uid,...sel]));
-    try{ const r=await chanCol().add({name,type:'group',members,createdBy:ME.uid,createdAt:FV()}); closeSheet(); openChannel(r.id,name); }
+    const d={name,type:'group',members,createdBy:ME.uid,createdAt:FV()};
+    const u=$('ng-urgence'); if(u&&u.classList.contains('sel')) d.urgence=true;
+    const ch=$('ng-chantier'); if(ch&&ch.classList.contains('sel')){ const f=momentChoisi(); if(f) d.finLe=f; }
+    try{ const r=await chanCol().add(d); closeSheet(); openChannel(r.id,name); }
     catch(e){ $('ngerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
 
+  /* ══ LE TROMBONE DE L'ENTREPRISE ══
+     Toutes les photos et tous les documents échangés dans toutes les
+     discussions, au même endroit, avec une recherche. Fini la photo perdue
+     trois semaines plus tard. */
+  let _docs=[], _docsRech='';
+  async function vueDocuments(){
+    const view=$('view');
+    view.innerHTML=`<div class="view-h"><h2>Documents</h2><button class="hbtn neutral" onclick="showView('disc')">‹ Discussions</button></div>
+      <div class="gsearch">${ms('search',19)}<input id="doc-rech" placeholder="Rechercher un document, une photo…" oninput="_docsRech=this.value.trim().toLowerCase();docsRender()"></div>
+      <div id="doc-liste"><p class="muted center">Recherche dans toutes les discussions…</p></div>`;
+    _docs=[];
+    try{
+      const ch=chanCol(); const map={};
+      if(MODE==='perso'){ (await ch.where('members','array-contains',ME.uid).get()).forEach(d=>map[d.id]=d.data()); }
+      else { const [gen,grp]=await Promise.all([ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get()]);
+        gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data()); }
+      for(const [cid,c] of Object.entries(map)){
+        const nomCanal=c.type==='general'?'Général':(c.name||'Discussion');
+        try{ const qs=await ch.doc(cid).collection('messages').get();
+          qs.forEach(d=>{ const m=d.data()||{};
+            if(m.programmeAt&&m.programmeAt>Date.now()) return;
+            const t=(m.ts&&m.ts.toDate)?m.ts.toDate():new Date();
+            if(m.img) _docs.push({type:'photo',nom:'Photo',par:m.name||'',canal:nomCanal,cid:cid,d:t,data:m.img});
+            else if(m.file) _docs.push({type:'fichier',nom:(m.file.name||'Fichier'),par:m.name||'',canal:nomCanal,cid:cid,d:t,file:m.file});
+            else if(m.audio) _docs.push({type:'vocal',nom:'Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''),par:m.name||'',canal:nomCanal,cid:cid,d:t,data:m.audio});
+          });
+        }catch(e){}
+      }
+      _docs.sort((a,b)=>b.d-a.d);
+    }catch(e){}
+    docsRender();
+  }
+  function docsRender(){
+    const z=$('doc-liste'); if(!z) return;
+    let l=_docs;
+    if(_docsRech) l=l.filter(x=>(x.nom+' '+x.par+' '+x.canal).toLowerCase().includes(_docsRech));
+    if(!l.length){ z.innerHTML=`<p class="muted center">${_docs.length?'Rien ne correspond à cette recherche.':'Aucun document échangé pour le moment.'}</p>`; return; }
+    const ico={photo:'🖼️',fichier:'📄',vocal:'🎤'};
+    z.innerHTML=`<p class="muted" style="font-size:12px;margin:0 2px 10px">${l.length} élément${l.length>1?'s':''}</p><div class="listbox">`+
+      l.map((x,i)=>`<div class="row" onclick="docOuvrir(${_docs.indexOf(x)})">
+        ${x.type==='photo'?`<img src="${x.data}" style="width:44px;height:44px;border-radius:11px;object-fit:cover;flex-shrink:0">`
+          :`<div class="ava" style="background:var(--tile-bg);color:var(--tile-tx);border-radius:11px">${ico[x.type]}</div>`}
+        <div class="info"><div class="nm">${esc(x.nom)}</div>
+          <div class="ds">${esc(x.par)} · ${esc(x.canal)} · ${esc(x.d.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}))}</div></div>
+        <div class="chev">›</div></div>`).join('')+`</div>`;
+  }
+  function docOuvrir(i){
+    const x=_docs[i]; if(!x) return;
+    if(x.type==='photo'){ const w=window.open(); if(w) w.document.write('<img src="'+x.data+'" style="max-width:100%">'); return; }
+    if(x.type==='vocal'){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:15px;margin-bottom:10px">🎤 ${esc(x.nom)}</h3>
+      <p class="muted" style="font-size:12.5px;margin-bottom:12px">${esc(x.par)} · ${esc(x.canal)}</p>
+      <audio controls src="${x.data}" style="width:100%"></audio>`); return; }
+    /* un vrai fichier : on le reconstruit pour que l'appareil sache l'ouvrir */
+    try{
+      const blob=fichierBlob(x.file);
+      const souris=(function(){ try{ return window.matchMedia('(hover: hover) and (pointer: fine)').matches; }catch(e){ return true; } })();
+      if(!souris && navigator.canShare){ try{ const f=new File([blob],x.file.name||'fichier',{type:blob.type});
+        if(navigator.canShare({files:[f]})){ navigator.share({files:[f],title:x.file.name||'Fichier'}); return; } }catch(e){} }
+      const url=URL.createObjectURL(blob); const w=window.open(url,'_blank');
+      if(!w){ const a=document.createElement('a'); a.href=url; a.download=x.file.name||'fichier'; document.body.appendChild(a); a.click(); a.remove(); }
+      setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch(e){} },60000);
+    }catch(e){ toast('Ouverture impossible'); }
+  }
   // ---- CONTACTS (membres) ----
   let _contList=[],_contSearch='';
   async function viewCont(){
@@ -2982,7 +3065,7 @@
         <div class="ti" onclick="openGroupInfo('${id}')" style="cursor:pointer"><b>${esc(name)}${isMuted(id)?' 🔇':''}</b><span id="ch-sub">${estBureau()?'synchronisé en temps réel ›':'Touchez pour les infos ›'}</span></div>
         <button class="ic" id="starfilt" onclick="toggleStarFilter()" title="Messages importants">${ic('star',20)}</button>
         <button class="ic" onclick="toggleSearch()" title="Rechercher">${ic('search',20)}</button>
-        <button class="ic" onclick="joinRoom('chat-${id}','Réunion : ${esc(name).replace(/"/g,'')}')" title="Appel">${ic('phone',19)}</button>
+
       </div>
       <div id="pinbar" style="display:none"></div>
       <div id="progbar" style="display:none;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)"></div>
@@ -3004,6 +3087,7 @@
     applyWall(); bindSwipeReply(); listenCh(id); listenChDoc(id);
     setTimeout(guideConv,600);
     progEnvoyerDus(); if(_progT) clearInterval(_progT); _progT=setInterval(progEnvoyerDus,60000);
+    setTimeout(ackRelanceAuto,4000);
   }
   // Balayage vers la droite sur un message = répondre (comme WhatsApp)
   function bindSwipeReply(){ const s=$('stream'); if(!s) return; let sx=0,sy=0,el=null;
@@ -3024,7 +3108,8 @@
       let dest=(Array.isArray(c.members)&&c.members.length)?c.members:_members.map(m=>m.uid);
       dest=[...new Set(dest)].filter(u=>u&&u!==ME.uid);
       const who=(USER&&USER.name)||'Message';
-      const title='💬 '+(c.type==='dm'?who:((c.name||'Général')+(MODE==='company'&&COMP&&COMP.name?' · '+COMP.name:'')));
+      /* un canal d'urgence sonne même pendant les heures de silence */
+      const title=(c.urgence?'🚨 URGENT · ':'💬 ')+(c.type==='dm'?who:((c.name||'Général')+(MODE==='company'&&COMP&&COMP.name?' · '+COMP.name:'')));
       const body=(c.type==='dm'?'':(who+' : '))+(previewOf(data)||'').slice(0,140);
       opPushNotifyUsers(dest,title,body);
     }catch(e){}
@@ -3033,6 +3118,7 @@
   function fmtDay(d){ return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}); }
   function fmtListTime(ms){ try{ const d=new Date(ms), now=new Date(); if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return 'Hier'; return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}); }catch(e){ return ''; } }
   let _curMsgs=[],_lastMsgCount=0,_readsUnsub=null,_reads={},_chDocUnsub=null,_starFilter=false,_dmOther=null,_typingTs=0,_showArch=false,_pinUnsub=null;
+  let _curChDoc=null, _showClos=false;
   function markRead(id){ setReadTs(id); if(!readReceiptsOn()) return; try{ chDoc(id).collection('reads').doc(ME.uid).set({ts:Date.now()}); }catch(e){} }
   // ---- Indicateur « en train d'écrire » + « en ligne / vu » ----
   function signalTyping(){ if(!_curCh) return; const now=Date.now(); if(now-_typingTs<2500) return; _typingTs=now;
@@ -3076,7 +3162,7 @@
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
     _readsUnsub=chDoc(id).collection('reads').onSnapshot(qs=>{ _reads={}; qs.forEach(d=>{ _reads[d.id]=d.data().ts||0; }); renderStream(); }, err=>{});
     if(_pinUnsub){ _pinUnsub(); _pinUnsub=null; }
-    _pinUnsub=chDoc(id).onSnapshot(d=>{ const p=(d.data()||{}).epingle; const b=$('pinbar'); if(!b) return;
+    _pinUnsub=chDoc(id).onSnapshot(d=>{ _curChDoc=d.data()||{}; const p=(d.data()||{}).epingle; const b=$('pinbar'); if(!b) return;
       if(!p||!p.texte){ b.style.display='none'; b.innerHTML=''; return; }
       b.style.display='block';
       b.innerHTML=`<div onclick="versMessage('${esc(p.id)}')" style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--brd);background:var(--tint2);cursor:pointer">
@@ -3105,6 +3191,7 @@
       body+=m.text?linkify(highlightMentions(esc(m.text),m)):'';
       if(m.img) body+=`<img src="${m.img}" onclick="event.stopPropagation();window.open(this.src)">`;
       if(m.audio) body+=`<audio class="voc" controls src="${m.audio}" style="max-width:215px;display:block;margin-top:6px;height:38px" onclick="event.stopPropagation()" onplay="vocSeul(this)" onended="vocSuivant(this)"></audio>`;
+      if(m.ack) body+=ackHtml(id,m);
       if(m.poll) body+=pollHtml(id,m);
       if(m.event) body+=eventHtml(id,m);
       if(m.sticker) body+=`<div style="font-size:54px;line-height:1.05">${esc(m.sticker)}</div>`;
@@ -3261,6 +3348,71 @@
     const opts=[...document.querySelectorAll('#pl-opts input')].map(i=>(i.value||'').trim()).filter(Boolean);
     if(!q||opts.length<2){ $('plerr').innerHTML='<div class="err">Une question et au moins 2 options.</div>'; return; }
     try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,poll:{q,opts},ts:FV()}); closeSheet(); toast('📊 Sondage envoyé'); }catch(e){ $('plerr').innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
+  /* ══ LE MESSAGE QUI EXIGE UNE RÉPONSE ══
+     « Qui prend l'urgence de demain 8h ? » — chacun répond d'un doigt, et
+     celui qui a demandé voit en direct qui a répondu et qui n'a rien dit.
+     Les réponses sont rangées là où le sont déjà les votes de sondage :
+     aucune permission à changer. */
+  function ackForm(){ if(!_curCh) return;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">✋ Demander une réponse</h3>
+      <p class="muted" style="font-size:13px;line-height:1.55;margin-bottom:14px">Chacun répondra d'un seul doigt. Tu verras qui a répondu et qui n'a pas encore vu — et l'application relancera les silencieux au bout d'une heure.</p>
+      <div id="akerr"></div>
+      <div class="field"><label>Ta demande</label><textarea id="ak-txt" rows="3" placeholder="Ex : Qui peut prendre l'urgence de Rochefort demain 8h ?"></textarea></div>
+      <button class="btn block" onclick="ackEnvoyer()">Envoyer la demande</button>`); }
+  async function ackEnvoyer(){ try{
+    const t=($('ak-txt').value||'').trim();
+    if(!t){ $('akerr').innerHTML='<div class="err">Écris ta demande.</div>'; return; }
+    await addMsg({uid:ME.uid,name:USER.name||ME.email,text:t,ack:true,ts:FV()});
+    closeSheet(); toast('✋ Demande envoyée — tu verras qui répond');
+  }catch(e){ const z=$('akerr'); if(z) z.innerHTML='<div class="err">'+esc((e&&e.message)||e)+'</div>'; } }
+  function ackDestinataires(){ const c=_curChDoc||{};
+    let l=(Array.isArray(c.members)&&c.members.length)?c.members:_members.map(m=>m.uid);
+    return [...new Set(l)].filter(Boolean); }
+  function ackHtml(id,m){
+    const v=_pollVotes[id];
+    if(v===undefined){ loadPollVotes(id); return '<div class="muted" style="font-size:12px;margin-top:5px">…</div>'; }
+    const dest=ackDestinataires().filter(u=>u!==m.uid);
+    const ont=Object.keys(v).filter(u=>u!==m.uid);
+    const moi=v[ME.uid]!==undefined;
+    const mien=m.uid===ME.uid;
+    if(!mien && !moi) return `<div style="margin-top:7px"><button onclick="event.stopPropagation();ackRepondre('${id}')" style="width:100%;border:none;border-radius:10px;padding:9px;background:var(--op);color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit">✅ J'ai vu — je réponds</button></div>`;
+    const n=ont.length, tot=dest.length;
+    return `<div onclick="event.stopPropagation();ackQui('${id}')" style="margin-top:7px;border:1px solid var(--brd2);border-radius:10px;padding:8px 10px;font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:7px">
+      <span>${(tot&&n>=tot)?'✅':'👀'}</span><span style="flex:1">${n} sur ${tot||'?'} ${n>1?'ont répondu':'a répondu'}${(!mien&&moi)?' · tu as répondu ✓':''}</span><span style="color:var(--t3)">voir ›</span></div>`; }
+  async function ackRepondre(id){ try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:1,ts:Date.now()});
+      _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=1; renderStream(); toast('Réponse envoyée ✓'); }
+    catch(e){ alert('Erreur : '+((e&&e.message)||e)); } }
+  async function ackQui(id){
+    openSheet('<p class="muted center">Chargement…</p>');
+    if(!_members.length){ try{ _members=await listMembers(); }catch(e){} }
+    let v={}; try{ const qs=await chMsgs().doc(id).collection('votes').get(); qs.forEach(d=>v[d.id]=d.data()); }catch(e){}
+    const it=_curMsgs.find(x=>x.id===id); const m=(it&&it.m)||{};
+    const noms={}; _members.forEach(x=>noms[x.uid]=x.name||''); noms[ME.uid]=(USER&&USER.name)||'Moi';
+    const dest=ackDestinataires().filter(u=>u!==m.uid);
+    const ligne=(u,ok)=>`<div class="row"><div class="ava" style="${avatarStyle(noms[u]||'?')}">${ini(noms[u]||'?')}</div>
+      <div class="info"><div class="nm">${esc(noms[u]||'Membre')}</div><div class="ds">${ok?'✅ a répondu':'⏳ pas encore'}</div></div></div>`;
+    const ontRep=dest.filter(u=>v[u]!==undefined), sans=dest.filter(u=>v[u]===undefined);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">✋ ${esc((m.text||'').slice(0,60))}</h3>
+      <p class="muted" style="font-size:12.5px;margin-bottom:12px">${ontRep.length} sur ${dest.length} ${ontRep.length>1?'ont répondu':'a répondu'}</p>
+      ${ontRep.map(u=>ligne(u,true)).join('')}${sans.map(u=>ligne(u,false)).join('')}
+      ${(m.uid===ME.uid&&sans.length)?`<button class="btn ghost block" style="margin-top:12px" onclick="ackRelancer('${id}')">🔔 Relancer les ${sans.length} qui n'ont pas répondu</button>`:''}`);
+  }
+  async function ackRelancer(id,silencieux){
+    const it=_curMsgs.find(x=>x.id===id); const m=(it&&it.m)||{};
+    let v={}; try{ const qs=await chMsgs().doc(id).collection('votes').get(); qs.forEach(d=>v[d.id]=1); }catch(e){}
+    const sans=ackDestinataires().filter(u=>u!==ME.uid&&v[u]===undefined);
+    if(!sans.length){ if(!silencieux) toast('Tout le monde a répondu ✓'); return; }
+    opPushNotifyUsers(sans,'✋ Réponse attendue'+(COMP&&COMP.name?' · '+COMP.name:''),((USER&&USER.name)||'')+' : '+String(m.text||'').slice(0,120));
+    if(!silencieux){ closeSheet(); toast('🔔 '+sans.length+' personne'+(sans.length>1?'s relancées':' relancée')); }
+  }
+  /* la relance automatique : une heure après, une seule fois */
+  function ackRelanceAuto(){ try{
+    if(!_curCh) return;
+    _curMsgs.forEach(({id,m,d})=>{ if(!m.ack||m.uid!==ME.uid) return;
+      if(Date.now()-d.getTime()<3600000) return;
+      const k='opmsg_relance_'+id; if(localStorage.getItem(k)) return;
+      localStorage.setItem(k,'1'); ackRelancer(id,true); });
+  }catch(e){} }
   function pollHtml(id,m){ const p=m.poll||{opts:[]}; const v=_pollVotes[id];
     if(v===undefined){ loadPollVotes(id); return `<div style="font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px">${ic('poll',15)} ${esc(p.q||'')}</div><div class="muted">Chargement du sondage…</div>`; }
     const counts=p.opts.map((_,i)=>Object.values(v).filter(x=>x===i).length); const total=Object.keys(v).length; const my=v[ME.uid];
@@ -3444,6 +3596,7 @@
       ${attTile('Événement','#ef5350',ic('cal',26),"closeSheet();eventForm()")}
       ${attTile('Sticker','#f5c518',ic('smile',26),"closeSheet();openStickers()")}
       ${attTile('Programmé','#8b7cf6','⏰',"closeSheet();progForm()")}
+      ${attTile('Réponse','#e0663f','✋',"closeSheet();ackForm()")}
     </div>`); }
   // Envoyer une fiche contact dans la conversation courante
   async function attachContact(){ if(!_curCh) return; openSheet('<p class="muted center">Chargement…</p>');
