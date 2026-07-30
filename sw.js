@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v543';
+const CACHE = 'elan-gestion-v544';
 const ASSETS = [
   './',
   'index.html',
@@ -68,14 +68,46 @@ self.addEventListener('fetch', e => {
 });
 
 /* ── Notifications push ── */
+/* Heures de silence : réglage posé par OP MESSAGES dans une petite base
+   locale — la seule mémoire lisible ici, application fermée. Pendant la
+   plage choisie la notification arrive SANS son ni vibration. */
+function lireSilence() {
+  return new Promise(res => {
+    try {
+      const o = indexedDB.open('opmsg_prefs', 1);
+      o.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains('prefs')) db.createObjectStore('prefs'); };
+      o.onerror = () => res(null);
+      o.onsuccess = e => {
+        const db = e.target.result;
+        try {
+          const r = db.transaction('prefs', 'readonly').objectStore('prefs').get('silence');
+          r.onsuccess = () => res(r.result || null);
+          r.onerror = () => res(null);
+        } catch (_) { res(null); }
+      };
+    } catch (_) { res(null); }
+  });
+}
+function enSilence(v) {
+  if (!v || !v.on) return false;
+  const n = new Date(), m = n.getHours() * 60 + n.getMinutes();
+  const p = t => { const x = String(t || '').split(':'); return (+x[0] || 0) * 60 + (+x[1] || 0); };
+  const de = p(v.de), a = p(v.a);
+  return de <= a ? (m >= de && m < a) : (m >= de || m < a);
+}
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data.json(); } catch (_) { d = { title: 'TeamOP', body: e.data ? e.data.text() : '' }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'TeamOP', {
-    body: d.body || '',
-    icon: 'icons/icon-192.png',
-    badge: 'icons/icon-192.png',
-    data: { url: d.url || '/app.html' }
+  e.waitUntil(lireSilence().then(sil => {
+    const muet = enSilence(sil);
+    return self.registration.showNotification(d.title || 'TeamOP', {
+      body: d.body || '',
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      silent: muet,
+      vibrate: muet ? [] : undefined,
+      data: { url: d.url || '/app.html' }
+    });
   }));
 });
 self.addEventListener('notificationclick', e => {
