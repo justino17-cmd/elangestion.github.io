@@ -3145,16 +3145,26 @@
 
   // ---- Sondages ----
   let _pollVotes={};
-  function pollForm(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau sondage</h3><div id="plerr"></div>
+  /* Le sondage démarre avec 2 réponses ; le bouton « ＋ » en ajoute autant
+     qu'il faut (10 maximum). Les cases laissées vides sont ignorées. */
+  let _plN=0;
+  function pollForm(){ _plN=0; openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau sondage</h3><div id="plerr"></div>
     <div class="field"><label>Question</label><input id="pl-q" placeholder="Ex : On déjeune où ?"></div>
-    <div class="field"><label>Option 1</label><input id="pl-o0"></div>
-    <div class="field"><label>Option 2</label><input id="pl-o1"></div>
-    <div class="field"><label>Option 3 (facultatif)</label><input id="pl-o2"></div>
-    <div class="field"><label>Option 4 (facultatif)</label><input id="pl-o3"></div>
-    <button class="btn block" onclick="createPoll()">Envoyer le sondage</button>`); }
-  async function createPoll(){ const q=($('pl-q').value||'').trim(); const opts=[0,1,2,3].map(i=>($('pl-o'+i).value||'').trim()).filter(Boolean);
+    <div id="pl-opts"></div>
+    <button class="btn ghost block" style="margin-bottom:10px" onclick="plAjoutOption()">＋ Ajouter une réponse</button>
+    <button class="btn block" onclick="createPoll()">Envoyer le sondage</button>`);
+    plAjoutOption(); plAjoutOption(); }
+  function plAjoutOption(){ const z=$('pl-opts'); if(!z) return;
+    if(_plN>=10){ toast('10 réponses maximum'); return; }
+    _plN++;
+    const d=document.createElement('div'); d.className='field';
+    d.innerHTML=`<label>Option ${_plN}${_plN>2?' (facultatif)':''}</label><input>`;
+    z.appendChild(d);
+    if(_plN>2){ const i=d.querySelector('input'); if(i) i.focus(); } }
+  async function createPoll(){ const q=($('pl-q').value||'').trim();
+    const opts=[...document.querySelectorAll('#pl-opts input')].map(i=>(i.value||'').trim()).filter(Boolean);
     if(!q||opts.length<2){ $('plerr').innerHTML='<div class="err">Une question et au moins 2 options.</div>'; return; }
-    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,poll:{q,opts},ts:FV()}); closeSheet(); }catch(e){ $('plerr').innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
+    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,poll:{q,opts},ts:FV()}); closeSheet(); toast('📊 Sondage envoyé'); }catch(e){ $('plerr').innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
   function pollHtml(id,m){ const p=m.poll||{opts:[]}; const v=_pollVotes[id];
     if(v===undefined){ loadPollVotes(id); return `<div style="font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px">${ic('poll',15)} ${esc(p.q||'')}</div><div class="muted">Chargement du sondage…</div>`; }
     const counts=p.opts.map((_,i)=>Object.values(v).filter(x=>x===i).length); const total=Object.keys(v).length; const my=v[ME.uid];
