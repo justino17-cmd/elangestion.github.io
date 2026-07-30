@@ -138,6 +138,14 @@
   .plbloc.tirable{touch-action:none;cursor:grab!important}
   .plbloc.tirable:active{cursor:grabbing!important}
   .plbloc.attrape{opacity:.88;z-index:9;box-shadow:0 10px 26px rgba(0,0,0,.35);transition:none!important}
+  /* pas de sélection de texte dans le calendrier : c'est elle qui coloriait
+     les « + » invisibles en carrés roses pendant le glissement */
+  #dash-cal{user-select:none;-webkit-user-select:none}
+  /* la bulle qui suit le glissement : elle dit l'heure EXACTE où la réunion
+     va se poser, pour viser la minute qu'on veut */
+  #tirehov{position:fixed;z-index:99;padding:6px 11px;border-radius:9px;background:var(--op);color:#fff;
+    font-size:13px;font-weight:800;pointer-events:none;display:none;font-variant-numeric:tabular-nums;
+    box-shadow:0 8px 20px rgba(0,0,0,.35);white-space:nowrap}
   .dstat{cursor:pointer;transition:border-color .15s,transform .12s}
   .dstat:hover{border-color:var(--op);transform:translateY(-1px)}
   .sptab{padding:11px;border-radius:12px;border:none;background:var(--inp);color:var(--t2);font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s}
@@ -1278,6 +1286,22 @@
     if(_pd.survole&&_pd.survole!==cell) _pd.survole.classList.remove('survol-depot');
     if(cell) cell.classList.add('survol-depot');
     _pd.survole=cell;
+    /* la bulle : on voit la minute exacte avant de lâcher */
+    let bulle=$('tirehov'); if(!bulle){ bulle=document.createElement('div'); bulle.id='tirehov'; document.body.appendChild(bulle); }
+    if(cell){
+      const hc=cell.getAttribute('data-hc'); let lib='';
+      if(hc===''){ const r0=_dashRooms[_pd.id], d0=r0?new Date(r0.scheduledAt):null;
+        const jr=new Date(cell.getAttribute('data-jr')+'T00:00:00');
+        lib=jr.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric'})+(d0?' · '+String(d0.getHours()).padStart(2,'0')+':'+String(d0.getMinutes()).padStart(2,'0'):'');
+      } else {
+        const b=cell.getBoundingClientRect();
+        const y=Math.max(0,Math.min(b.height,ev.clientY-b.top));
+        const min=Math.min(55,Math.round((y/b.height)*12)*5);
+        lib=String(parseInt(hc,10)).padStart(2,'0')+':'+String(min).padStart(2,'0');
+      }
+      bulle.textContent=lib; bulle.style.display='block';
+      bulle.style.left=(ev.clientX+14)+'px'; bulle.style.top=(ev.clientY-36)+'px';
+    } else bulle.style.display='none';
     ev.preventDefault();
   },{passive:false});
   document.addEventListener('pointerup',async ev=>{
@@ -1286,6 +1310,7 @@
     const c=$('dash-cal'); if(c) c.classList.remove('deplace');
     pd.el.classList.remove('attrape'); pd.el.style.transform='';
     if(pd.survole) pd.survole.classList.remove('survol-depot');
+    try{ const bl=$('tirehov'); if(bl) bl.style.display='none'; }catch(e){}
     if(!pd.actif) return;                              /* simple clic : la fenêtre s'ouvre normalement */
     /* on avale le clic qui suit le lâcher, sinon la fenêtre de la réunion s'ouvrirait */
     const avale=e=>{ e.stopPropagation(); e.preventDefault(); window.removeEventListener('click',avale,true); };
@@ -1312,6 +1337,7 @@
     const c=$('dash-cal'); if(c) c.classList.remove('deplace');
     pd.el.classList.remove('attrape'); pd.el.style.transform='';
     if(pd.survole) pd.survole.classList.remove('survol-depot');
+    try{ const bl=$('tirehov'); if(bl) bl.style.display='none'; }catch(e){}
   });
   /* ══ DÉPLACER EN DEUX CLICS ══
      Le glisser à la souris ne marche pas partout (et jamais au doigt sur
