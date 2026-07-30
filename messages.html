@@ -3118,7 +3118,7 @@
       <div id="searchbar" style="display:none;padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)"><input id="chsearch" placeholder="Rechercher dans la discussion…" oninput="renderStream()" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-size:15px;font-family:inherit"></div>
       <div class="stream" id="stream"><p class="muted center" style="margin:auto">Chargement…</p></div>
       <div id="replybar" style="display:none;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--brd);background:var(--bg1)"></div>
-      <div id="emojipop" style="display:none;position:absolute;left:8px;right:8px;bottom:64px;max-height:190px;overflow:auto;background:var(--card2);border:1px solid var(--brd2);border-radius:12px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:5;font-size:24px;line-height:1.7"></div>
+      <div id="emojipop" style="display:none;position:absolute;left:8px;right:8px;bottom:64px;max-height:290px;overflow:auto;background:var(--card2);border:1px solid var(--brd2);border-radius:14px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:5"></div>
       <div id="mentionpop" style="display:none;position:absolute;left:8px;right:8px;bottom:64px;max-height:200px;overflow:auto;background:var(--card2);border:1px solid var(--brd2);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:5"></div>
       <div class="composer">
         <button class="ic" onclick="openAttach()">${ic('plus',24)}</button>
@@ -3220,11 +3220,65 @@
     } else el.textContent='Touchez pour les infos ›';
   }
   // ---- Emoji picker ----
-  const EMOJIS='😀😁😂🤣😊😍😘😎🤩🥳😅😉🙂🙃😇🤔🤨😐😴😭😤😡👍👎👏🙏💪🔥🎉❤️🧡💛💚💙💜🤍✅❌⭐️💯👀🙌🤝😢😱🥺😬👌✌️'.match(/./gu)||[];
+  /* ══ LE CLAVIER D'ÉMOJIS ══
+     Rangés par familles, avec les derniers utilisés en tête et une recherche
+     en français. Chaque émoji est écrit en entier (les anciens étaient
+     découpés caractère par caractère, ce qui cassait ❤️, ⭐️ ou ✌️ et
+     laissait des cases vides). */
+  const EMOJI_FAM=[
+    ['😀','Visages','😀 😃 😄 😁 😆 😅 😂 🤣 🙂 🙃 😉 😊 😇 🥰 😍 😘 😗 😋 😜 🤪 🤨 🧐 🤓 😎 🥳 😏 😒 😞 😔 😟 😕 🙁 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 😐 😑 😬 🙄 😯 😴 🤤 😷 🤒 🤕 🤢 🤮 🥴 😵 🤯 🤠 🥸 😈 💀 👻 🤖'],
+    ['👍','Gestes','👍 👎 👌 ✌️ 🤞 🤝 👏 🙌 🙏 💪 🫡 🤙 👋 ✋ 🖐️ 🤚 👆 👇 👈 👉 ☝️ ✊ 👊 🤛 🤜 🫶 🤲 💅 👀 👁️ 🧠 🦾'],
+    ['❤️','Cœurs','❤️ 🧡 💛 💚 💙 💜 🤎 🖤 🤍 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 ⭐️ 🌟 ✨ ⚡ 🔥 💥 💯 ✅ ❌ ⚠️ ❗ ❓ 💤 🎉 🎊 🎁 🏆 🥇'],
+    ['🔧','Le métier','🔧 🔨 🛠️ ⚙️ 🧰 🪜 🧯 🧪 🧴 🧽 🧹 🚿 🔬 🔎 📏 📐 🪛 🔩 ⛏️ 🪤 🐀 🐁 🐜 🕷️ 🕸️ 🐝 🪰 🪳 🦟 🐛 🦠 ☠️ 🚧 🦺 🧤 🥽 😷'],
+    ['🚗','Déplacements','🚗 🚙 🚐 🚚 🛻 🏍️ 🚲 ⛽ 🅿️ 🗺️ 📍 🧭 🏠 🏡 🏢 🏬 🏭 🏨 ⛺ 🏗️ 🌳 🌲 🌿 🍀 ☀️ 🌤️ ⛅ 🌧️ ⛈️ ❄️ 💨 🌊'],
+    ['📅','Travail','📅 📆 🕐 ⏰ ⏳ 📞 📱 💻 🖨️ 📷 📸 🎥 🎤 📝 ✏️ 📄 📋 📊 📈 📉 💰 💶 💳 🧾 🔑 🔒 🔓 📦 📬 ✉️ 📎 🖇️ 🗂️ 🗑️ ☕ 🍽️'],
+  ].map(([ic,nom,liste])=>({ic:ic,nom:nom,l:liste.split(' ').filter(Boolean)}));
+  const EMOJI_MOTS={'😀':'sourire content','😂':'rire pleure mdr','🥳':'fête bravo','😍':'amour adore',
+    '😡':'colère énervé','😢':'triste pleure','🤔':'réfléchit doute','😴':'fatigué dort','😷':'masque malade',
+    '👍':'ok bien pouce accord','👎':'non pas bien','👌':'parfait ok','🙏':'merci svp','👏':'bravo applaudit',
+    '💪':'force costaud','🤝':'accord deal','👋':'salut bonjour','❤️':'coeur amour','🔥':'feu urgent chaud',
+    '✅':'fait valide ok','❌':'non annulé','⚠️':'attention danger','💯':'parfait cent','🎉':'bravo fête',
+    '🔧':'outil réparation','🧰':'caisse outils','🐀':'rat rongeur dératisation','🐁':'souris rongeur',
+    '🐜':'fourmi insecte','🕷️':'araignée','🐝':'abeille guêpe frelon','🪳':'cafard blatte','🦟':'moustique',
+    '🐛':'chenille larve','☠️':'poison danger mort','🦺':'sécurité chantier','🧤':'gants protection',
+    '🚗':'voiture','🚚':'camion','⛽':'essence carburant','📍':'adresse lieu','🏠':'maison client',
+    '🏢':'immeuble bureau','📅':'date agenda','⏰':'heure rendez-vous','📞':'appel téléphone','📷':'photo',
+    '📝':'note rapport','💰':'argent paiement','💶':'euro paiement','🧾':'facture ticket','🔑':'clé accès','📦':'colis matériel'};
+  function emojiRecents(){ try{ return JSON.parse(localStorage.getItem('opmsg_emoji_recents')||'[]'); }catch(e){ return []; } }
+  function emojiRetiens(e){ try{ const l=emojiRecents().filter(x=>x!==e); l.unshift(e);
+    localStorage.setItem('opmsg_emoji_recents',JSON.stringify(l.slice(0,16))); }catch(_){} }
+  let _emFam=0, _emRech='';
   function toggleEmoji(){ const p=$('emojipop'); if(!p) return; const show=p.style.display==='none';
-    if(show){ p.innerHTML=EMOJIS.map(e=>`<span style="cursor:pointer;padding:2px" onclick="insertEmoji('${e}')">${e}</span>`).join(''); }
+    if(show){ _emRech=''; _emFam=emojiRecents().length?-1:0; emojiRender(); }
     p.style.display=show?'block':'none';
     if(show) setTimeout(emojiEcoute,0); else emojiSourd(); }
+  function emojiFam(i){ _emFam=i; _emRech=''; const c=$('em-rech'); if(c) c.value=''; emojiRender(); }
+  function emojiRech(v){ _emRech=(v||'').trim().toLowerCase(); emojiRender(true); }
+  function emojiRender(gardeFocus){
+    const p=$('emojipop'); if(!p) return;
+    const rec=emojiRecents();
+    let liste;
+    if(_emRech){
+      const tous=[...new Set(EMOJI_FAM.flatMap(f=>f.l))];
+      liste=tous.filter(e=>((EMOJI_MOTS[e]||'')+' ').includes(_emRech)||(EMOJI_MOTS[e]||'').split(' ').some(m=>m.startsWith(_emRech)));
+    } else if(_emFam===-1) liste=rec;
+    else liste=(EMOJI_FAM[_emFam]||EMOJI_FAM[0]).l;
+    const onglet=(txt,on,fn,titre)=>`<span onclick="${fn}" title="${titre}" style="cursor:pointer;font-size:17px;padding:4px 7px;border-radius:9px;line-height:1;
+      ${on?'background:var(--op);':'background:transparent;'}">${txt}</span>`;
+    p.innerHTML=`<div style="display:flex;gap:4px;align-items:center;margin-bottom:7px;flex-wrap:wrap">
+        ${rec.length?onglet('🕘',_emFam===-1&&!_emRech,'emojiFam(-1)','Derniers utilisés'):''}
+        ${EMOJI_FAM.map((f,i)=>onglet(f.ic,_emFam===i&&!_emRech,'emojiFam('+i+')',f.nom)).join('')}
+        <span style="flex:1"></span>
+        <span onclick="toggleEmoji()" title="Fermer" style="cursor:pointer;font-size:15px;color:var(--t3);padding:2px 7px">✕</span>
+      </div>
+      <input id="em-rech" value="${esc(_emRech)}" placeholder="Chercher : rat, urgent, merci…" oninput="emojiRech(this.value)"
+        style="width:100%;background:var(--inp);border:1px solid transparent;border-radius:9px;padding:7px 10px;color:var(--t1);font-size:13px;font-family:inherit;outline:none;margin-bottom:8px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(38px,1fr));gap:2px">
+        ${liste.map(e=>`<span onclick="insertEmoji('${e}')" style="cursor:pointer;text-align:center;padding:5px 0;border-radius:8px;font-size:23px;line-height:1.15">${e}</span>`).join('')
+          ||'<div style="grid-column:1/-1;color:var(--t3);font-size:12.5px;padding:10px 2px;text-align:center">Aucun émoji pour « '+esc(_emRech)+' »</div>'}
+      </div>`;
+    if(gardeFocus){ const c=$('em-rech'); if(c){ c.focus(); try{ c.setSelectionRange(c.value.length,c.value.length); }catch(e){} } }
+  }
   /* Un doigt (ou un clic) posé n'importe où ailleurs referme le clavier
      d'émojis : sur téléphone, on n'a pas envie de viser le petit bouton. */
   function _emojiDehors(ev){
@@ -3235,7 +3289,15 @@
   }
   function emojiEcoute(){ document.addEventListener('pointerdown',_emojiDehors,true); }
   function emojiSourd(){ document.removeEventListener('pointerdown',_emojiDehors,true); }
-  function insertEmoji(e){ const i=$('msg'); if(!i) return; i.value=(i.value||'')+e; i.focus(); }
+  function insertEmoji(e){ const i=$('msg'); if(!i) return;
+    emojiRetiens(e);
+    /* on l'insère là où est le curseur, pas forcément à la fin */
+    const v=i.value||'', a=(i.selectionStart==null?v.length:i.selectionStart), b=(i.selectionEnd==null?v.length:i.selectionEnd);
+    i.value=v.slice(0,a)+e+v.slice(b);
+    const pos=a+e.length;
+    i.focus(); try{ i.setSelectionRange(pos,pos); }catch(_){}
+    try{ onMsgInput(); }catch(_){}
+  }
   function toggleStarFilter(){ _starFilter=!_starFilter; const b=$('starfilt'); if(b) b.style.color=_starFilter?'#f5c518':''; renderStream(); }
   function listenCh(id){
     if(_chMsgUnsub)_chMsgUnsub(); if(_readsUnsub){_readsUnsub();_readsUnsub=null;} _curMsgs=[]; _lastMsgCount=0; _reads={};
