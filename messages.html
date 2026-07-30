@@ -366,6 +366,7 @@
   </div></div>
 <div class="viewer" id="viewer"><div class="vbar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn ghost sm" onclick="closeViewer()">✕ Fermer</button></div><iframe id="viewer-frame" title="Document"></iframe></div>
 <div class="viewer" id="visio"><div class="vbar"><span style="display:flex;align-items:center;gap:10px;min-width:0">
+    <span id="visio-genre" style="flex:none;font-size:10.5px;font-weight:800;letter-spacing:.05em;padding:3px 9px;border-radius:999px;background:#1e7a4e;color:#fff">📅 RÉUNION</span>
     <span id="visio-nom" style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Réunion</span>
     <b id="visio-duree" style="font-size:12.5px;font-variant-numeric:tabular-nums;color:#9fe870">00:00</b></span>
   <span style="display:flex;gap:8px;align-items:center">
@@ -2952,16 +2953,14 @@
   function setCallFilter(k){ _callFilter=k; const sg=$('call-seg'); if(sg){ [...sg.querySelectorAll('button')].forEach(b=>b.classList.toggle('on',b.dataset.k===k)); } viewAppelList(); }
   async function viewAppel(){
     _callSearch='';
-    const up=isPro()? _myMeetings.filter(m=>m.scheduledAt && m.scheduledAt>Date.now()-3600000).sort((a,b)=>a.scheduledAt-b.scheduledAt) : [];
-    let meetHtml=''; if(up.length){ meetHtml=`<div class="sec-lbl">Réunions à venir</div>`+
-      up.map(m=>`<div class="meet" onclick="joinRoom('${m.id}','${esc((m.name||'').replace(/'/g,''))}')"><div class="cava" style="border-radius:11px;background:var(--blk-green);color:var(--blk-green-tx)">${ms('videocam',20)}</div><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div><div style="font-size:12.5px;color:var(--t2);margin-top:2px">${esc(fmtWhen(m.scheduledAt))}</div></div><div class="cd" data-t="${m.scheduledAt}">${esc(fmtCountdown(m.scheduledAt-Date.now()))}</div></div>`).join('')+`<div style="height:14px"></div>`; }
+    /* Un appel n'est pas une réunion : ici, UNIQUEMENT le téléphone.
+       Les réunions planifiées vivent sur leur propre page et le calendrier. */
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2><button class="hbtn blue" onclick="newCall()">${ms('add_call',18)}Nouvel appel</button></div>
+      <p class="muted" style="font-size:12px;margin:-6px 2px 12px">Le téléphone de l'équipe : ça sonne, on décroche. Pour les rendez-vous planifiés, va dans <a onclick="${isPro()?'openReunions()':''}" style="color:var(--op-tx);cursor:pointer;text-decoration:underline">Réunions</a>.</p>
       <div class="gsearch">${ms('search',19)}<input id="call-search" placeholder="Rechercher un appel…" oninput="_callSearch=this.value.trim().toLowerCase();viewAppelList()"></div>
       <div style="overflow:auto;padding:0 2px 14px;-webkit-overflow-scrolling:touch"><div class="seg" id="call-seg">${[['all','Tous'],['missed','Manqués'],['in','Entrants'],['out','Sortants']].map(([k,l])=>`<button data-k="${k}" class="${_callFilter===k?'on':''}" onclick="setCallFilter('${k}')">${l}</button>`).join('')}</div></div>
-      ${meetHtml}
       <div id="call-list"><p class="muted center">Chargement…</p></div>
       <button class="fab" onclick="newCall()" title="Nouvel appel">${ms('add_call',24)}</button>`;
-    if(_meetTicker)clearInterval(_meetTicker); if(up.length) _meetTicker=setInterval(tickCountdowns,30000);
     try{
       const col=callsCol();
       const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
@@ -3029,7 +3028,7 @@
     _callDocUnsub=ref.onSnapshot(d=>{ if(!d.exists||!_activeCall) return; const st=d.data().status;
       if(st==='answered'){ _activeCall.answered=true; }
       else if(st==='declined' && _activeCall.oneToOne){ const nm=(names&&names[0])||'Le contact'; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;} _activeCall=null; closeJitsi(); setTimeout(()=>alert(nm+' a refusé l\'appel.'),250); } });
-    visioOuvrir(room, 'Appel · '+((names||[]).join(', ')), type==='audio');
+    visioOuvrir(room, ((names||[]).join(', '))||'Appel', type==='audio', 'appel');
   }
   /* ══════════════════════════════════════════════════════════════════════
      LA VISIO À NOUS — salle complète
@@ -3045,8 +3044,11 @@
   function _vCol(){ return callsCol(); }
   async function _vDire(m){ try{ await _vCol().add(Object.assign({sig:1,room:_vRoom,de:ME.uid,nom:(USER&&USER.name)||'',ts:Date.now()},m)); }catch(e){} }
   function visioEtat(t){ const e=$('visio-etat'); if(e) e.textContent=t||''; }
-  async function visioOuvrir(room,titre,audioOnly){
+  async function visioOuvrir(room,titre,audioOnly,genre){
     _vRoom=room; _vAudioOnly=!!audioOnly; _vVus=new Set(); _vPairs={}; _vNettoye=false;
+    /* un appel et une réunion, ce n'est pas pareil : la pastille le dit */
+    const gg=$('visio-genre'); if(gg){ if(genre==='appel'){ gg.textContent='📞 APPEL'; gg.style.background='var(--op)'; }
+      else { gg.textContent='📅 RÉUNION'; gg.style.background='#1e7a4e'; } }
     _vEcran=null; _vOrdre=['moi']; _vGrand=null; _vNotes={}; _vMsgs=[]; _vTchatOn=false; _vTchatNew=0;
     $('visio-nom').textContent=titre||'Réunion';
     { const w=$('visio').classList.contains('open'); $('visio').classList.add('open'); if(!w) pushBack(); }
@@ -3378,7 +3380,7 @@
       interfaceConfigOverwrite:{SHOW_JITSI_WATERMARK:false,SHOW_WATERMARK_FOR_GUESTS:false,SHOW_BRAND_WATERMARK:false,JITSI_WATERMARK_LINK:'',MOBILE_APP_PROMO:false,HIDE_DEEP_LINKING_LOGO:true,SHOW_POWERED_BY:false,APP_NAME:'OP MESSAGES',NATIVE_APP_NAME:'OP MESSAGES',PROVIDER_NAME:'OP MESSAGES',DEFAULT_BACKGROUND:'#0a0e16',DISABLE_JOIN_LEAVE_NOTIFICATIONS:true,TOOLBAR_BUTTONS:['microphone','camera','desktop','tileview','hangup','chat','raisehand','participants-pane','settings']}});
     _japi.addEventListener('readyToClose',closeJitsi);
   }
-  function joinRoom(id,name){ visioOuvrir('OPMSG'+((COMP&&COMP.id)||'perso')+id, name||'Réunion', false); }
+  function joinRoom(id,name){ visioOuvrir('OPMSG'+((COMP&&COMP.id)||'perso')+id, name||'Réunion', false, 'reunion'); }
   function closeJitsi(){ try{ if(_japi){_japi.dispose();_japi=null;} }catch(e){} $('jitsi-box').innerHTML=''; $('jitsi').classList.remove('open');
     appelClore(); }
 
@@ -3397,7 +3399,7 @@
     { const _rw=$('ring').classList.contains('open'); $('ring').classList.add('open'); if(!_rw) pushBack(); } ringStart();
     _ringRefUnsub=ref.onSnapshot(d=>{ if(!d.exists||d.data().status!=='ringing') hideRing(); });
   }
-  function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); visioOuvrir(room,'Appel',type==='audio'); }
+  function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); visioOuvrir(room,'Appel',type==='audio','appel'); }
   function declineCall(){ if(_ringRef) _ringRef.update({status:'declined'}).catch(()=>{}); hideRing(); }
   function hideRing(){ ringStop(); $('ring').classList.remove('open'); _ringRef=null; if(_ringRefUnsub){_ringRefUnsub();_ringRefUnsub=null;} }
   function ringStart(){ ringStop(); beep(); _ringT=setInterval(()=>beep(),1100); }
