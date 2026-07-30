@@ -373,8 +373,14 @@
     <button class="btn ghost sm" onclick="visioFermer()">✕ Quitter</button></span></div>
   <div id="visio-outils" style="display:none;align-items:center;gap:7px;padding:7px 12px;background:#0d1220;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap">
     <span style="font-size:11px;font-weight:800;letter-spacing:.06em;color:#8b93a5">ANNOTER :</span>
-    <button onclick="noteOutil('d')" id="vo-d" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">✏️</button>
-    <button onclick="noteOutil('t')" id="vo-t" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:13px;font-weight:800">T</button>
+    <button onclick="noteOutil('d')" id="vo-d" title="Main levée" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">✏️</button>
+    <button onclick="noteOutil('l')" id="vo-l" title="Ligne droite" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px;font-weight:800">╱</button>
+    <button onclick="noteOutil('f')" id="vo-f" title="Flèche" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">➜</button>
+    <button onclick="noteOutil('r')" id="vo-r" title="Rectangle" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">▭</button>
+    <button onclick="noteOutil('q')" id="vo-q" title="Carré" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">◻</button>
+    <button onclick="noteOutil('c2')" id="vo-c2" title="Cercle" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">◯</button>
+    <button onclick="noteOutil('e')" id="vo-e" title="Ellipse" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">⬭</button>
+    <button onclick="noteOutil('t')" id="vo-t" title="Texte" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:13px;font-weight:800">T</button>
     <button onclick="noteCouleur('#ffd54a')" id="vo-c-ffd54a" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#ffd54a;cursor:pointer"></button><button onclick="noteCouleur('#ff5252')" id="vo-c-ff5252" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#ff5252;cursor:pointer"></button><button onclick="noteCouleur('#42a5f5')" id="vo-c-42a5f5" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#42a5f5;cursor:pointer"></button><button onclick="noteCouleur('#ffffff')" id="vo-c-ffffff" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#ffffff;cursor:pointer"></button>
     <button onclick="noteEffacer()" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px" title="Tout effacer">🗑</button>
     <span style="flex:1"></span>
@@ -3256,7 +3262,7 @@
     noteBranche(); noteDessine();
   }
   /* ── les annotations : dessin, texte, gomme ── */
-  function noteOutil(o){ _vOutil=o; ['d','t'].forEach(x=>{ const b=$('vo-'+x); if(b) b.style.background=(x===o)?'var(--op)':'#232a3a'; }); }
+  function noteOutil(o){ _vOutil=o; ['d','l','f','r','q','c2','e','t'].forEach(x=>{ const b=$('vo-'+x); if(b) b.style.background=(x===o)?'var(--op)':'#232a3a'; }); }
   function noteCouleur(c){ _vCouleur=c; document.querySelectorAll('[id^=vo-c-]').forEach(b=>b.style.border='2px solid transparent');
     const b=$('vo-c-'+c.replace('#','')); if(b) b.style.border='2px solid #fff'; }
   function noteEffacer(){ const cv=document.querySelector('canvas.vnote'); if(!cv) return;
@@ -3267,13 +3273,20 @@
     const pos=e=>{ const r=cv.getBoundingClientRect(); return [ (e.clientX-r.left)/r.width, (e.clientY-r.top)/r.height ]; };
     let trait=null;
     cv.addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation();
-      if(_vOutil==='t'){ const [x,y]=pos(e); const txt=prompt('Texte à poser :'); if(txt&&txt.trim()){
+      const [x,y]=pos(e);
+      if(_vOutil==='t'){ const txt=prompt('Texte à poser :'); if(txt&&txt.trim()){
           const n={t:'t',x:x,y:y,txt:txt.trim().slice(0,60),c:_vCouleur};
           (_vNotes[cible]=_vNotes[cible]||[]).push(n); dcTous({t:'note',cible:cible,note:n}); noteDessine(); } return; }
-      trait={t:'d',pts:[pos(e)],c:_vCouleur,w:3}; try{ cv.setPointerCapture(e.pointerId); }catch(_){ } });
-    cv.addEventListener('pointermove',e=>{ if(!trait) return; e.preventDefault(); trait.pts.push(pos(e)); noteDessine(trait); });
+      if(_vOutil==='d') trait={t:'d',pts:[[x,y]],c:_vCouleur,w:3};
+      else trait={t:_vOutil,x1:x,y1:y,x2:x,y2:y,c:_vCouleur,w:3};   // ligne, flèche, rectangle, carré, cercle, ellipse
+      try{ cv.setPointerCapture(e.pointerId); }catch(_){ } });
+    cv.addEventListener('pointermove',e=>{ if(!trait) return; e.preventDefault();
+      const [x,y]=pos(e);
+      if(trait.t==='d') trait.pts.push([x,y]); else { trait.x2=x; trait.y2=y; }
+      noteDessine(trait); });
     const fin=e=>{ if(!trait) return;
-      if(trait.pts.length>1){ (_vNotes[cible]=_vNotes[cible]||[]).push(trait); dcTous({t:'note',cible:cible,note:trait}); }
+      const ok=trait.t==='d'?trait.pts.length>1:(Math.abs(trait.x2-trait.x1)>0.004||Math.abs(trait.y2-trait.y1)>0.004);
+      if(ok){ (_vNotes[cible]=_vNotes[cible]||[]).push(trait); dcTous({t:'note',cible:cible,note:trait}); }
       trait=null; noteDessine(); };
     cv.addEventListener('pointerup',fin); cv.addEventListener('pointercancel',fin);
   }
@@ -3284,10 +3297,23 @@
     const cible=cv.dataset.cible;
     const toutes=(_vNotes[cible]||[]).concat(enCours?[enCours]:[]);
     toutes.forEach(n=>{
-      if(n.t==='d'){ g.strokeStyle=n.c; g.lineWidth=n.w||3; g.lineCap='round'; g.lineJoin='round'; g.beginPath();
-        n.pts.forEach((p2,i)=>{ const X=p2[0]*cv.width, Y=p2[1]*cv.height; if(i===0) g.moveTo(X,Y); else g.lineTo(X,Y); }); g.stroke(); }
-      if(n.t==='t'){ g.fillStyle=n.c; g.font='800 17px sans-serif'; g.shadowColor='rgba(0,0,0,.65)'; g.shadowBlur=4;
-        g.fillText(n.txt,n.x*cv.width,n.y*cv.height); g.shadowBlur=0; }
+      g.strokeStyle=n.c; g.fillStyle=n.c; g.lineWidth=n.w||3; g.lineCap='round'; g.lineJoin='round';
+      if(n.t==='d'){ g.beginPath();
+        n.pts.forEach((p2,i)=>{ const X=p2[0]*cv.width, Y=p2[1]*cv.height; if(i===0) g.moveTo(X,Y); else g.lineTo(X,Y); }); g.stroke(); return; }
+      if(n.t==='t'){ g.font='800 17px sans-serif'; g.shadowColor='rgba(0,0,0,.65)'; g.shadowBlur=4;
+        g.fillText(n.txt,n.x*cv.width,n.y*cv.height); g.shadowBlur=0; return; }
+      const X1=n.x1*cv.width, Y1=n.y1*cv.height, X2=n.x2*cv.width, Y2=n.y2*cv.height;
+      if(n.t==='l'){ g.beginPath(); g.moveTo(X1,Y1); g.lineTo(X2,Y2); g.stroke(); return; }
+      if(n.t==='f'){ g.beginPath(); g.moveTo(X1,Y1); g.lineTo(X2,Y2); g.stroke();
+        const a=Math.atan2(Y2-Y1,X2-X1), L=13;
+        g.beginPath(); g.moveTo(X2,Y2); g.lineTo(X2-L*Math.cos(a-0.45),Y2-L*Math.sin(a-0.45));
+        g.moveTo(X2,Y2); g.lineTo(X2-L*Math.cos(a+0.45),Y2-L*Math.sin(a+0.45)); g.stroke(); return; }
+      if(n.t==='r'){ g.strokeRect(Math.min(X1,X2),Math.min(Y1,Y2),Math.abs(X2-X1),Math.abs(Y2-Y1)); return; }
+      if(n.t==='q'){ const c2=Math.max(Math.abs(X2-X1),Math.abs(Y2-Y1));
+        g.strokeRect(X2>=X1?X1:X1-c2, Y2>=Y1?Y1:Y1-c2, c2, c2); return; }
+      if(n.t==='c2'){ const r2=Math.hypot(X2-X1,Y2-Y1)/2;
+        g.beginPath(); g.arc((X1+X2)/2,(Y1+Y2)/2,r2,0,7); g.stroke(); return; }
+      if(n.t==='e'){ g.beginPath(); g.ellipse((X1+X2)/2,(Y1+Y2)/2,Math.abs(X2-X1)/2||1,Math.abs(Y2-Y1)/2||1,0,0,7); g.stroke(); return; }
     });
   }
   /* ── le tchat pendant l'appel ── */
