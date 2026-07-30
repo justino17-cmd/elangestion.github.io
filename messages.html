@@ -291,6 +291,19 @@
   .dsk-suite.here{background:var(--tint2)}
   .dsk-user{display:flex;align-items:center;gap:11px;padding:14px 11px 2px;border-top:1px solid var(--brd);margin-top:12px;cursor:pointer}
   .maincol{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+  /* sur grand écran, la liste des discussions ne reste plus seule au milieu
+     d'une page vide : un panneau à droite donne la journée en cours */
+  #disc-side{display:none}
+  @media(min-width:1000px) and (min-height:500px){
+    .disc-2col{display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:18px;align-items:start}
+    #disc-side{display:block}
+    .view.discview{max-width:1500px}
+  }
+  .row.ouverte{background:var(--tint2)!important}
+  .side-c{background:var(--card);border:1px solid var(--card-brd);border-radius:16px;padding:13px 15px;margin-bottom:12px}
+  .side-t{font-size:11px;font-weight:800;letter-spacing:.09em;color:var(--t3);text-transform:uppercase;margin-bottom:9px}
+  .side-l{display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--sep);font-size:13px}
+  .side-l:first-of-type{border-top:none}
   @media(min-width:768px) and (min-height:500px){
     #root{flex-direction:row}
     #dskside{display:flex}
@@ -970,8 +983,6 @@
           </div>
         </div>
         ${pills}
-        ${MODE!=='perso'?`<div class="dsk-lbl">Canaux</div>
-        <div id="dsk-canaux"><div style="font-size:11px;color:var(--t3);padding:0 6px">Chargement…</div></div>`:''}
         <div style="flex:1"></div>
         <div class="dsk-lbl">Suite</div>
         <a class="dsk-suite" href="app.html" title="Ouvrir OP GESTION"><img src="icons/plan-gestion.png" alt="" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;object-fit:cover">OP GESTION<span class="ms" style="font-size:15px;margin-left:auto;color:var(--lbl)">chevron_right</span></a>
@@ -1027,6 +1038,7 @@
     ['dash','disc','cont','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===v); });
     const m2=$('nv2-meet'); if(m2) m2.classList.remove('on');
     if(estBureau() && typeof closeChat==='function'){ try{ closeChat(); }catch(e){} }   // bureau : la section choisie s'affiche (la conversation se ferme)
+    try{ badgesMaj(); }catch(e){}
     setTimeout(()=>{ try{ ['dash','disc','cont','appel','prof'].forEach(x=>{ const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===_curView); }); }catch(e){} },400);   // ré-assure la pastille active après le rendu
     moveNavBlob();
     try{ const vw=$('view'); if(vw) vw.classList.toggle('wide',v==='dash'); }catch(e){}
@@ -2417,10 +2429,33 @@
   // ---- DISCUSSIONS (canaux/groupes) ----
   let _discSearch='';
   function discSearchInput(v){ _discSearch=(v||'').trim().toLowerCase(); viewDisc(true); }
+  /* Le compteur de la pastille « Messages » : il vit sa vie, même quand on
+     est sur le tableau de bord ou dans les réglages. */
+  async function badgesMaj(){ try{
+    if(!ME||!(MODE==='perso'||COMP)) return;
+    const ch=chanCol(); const map={};
+    if(MODE==='perso'){ (await ch.where('members','array-contains',ME.uid).get()).forEach(d=>map[d.id]=d.data()); }
+    else { const [gen,grp]=await Promise.all([ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get()]);
+      gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data()); }
+    let n=0;
+    Object.entries(map).forEach(([id,c])=>{
+      const del=getDelAt(id); if(del&&(c.lastMsgAt||0)<=del) return;
+      if(c.lastMsgFrom===ME.uid) return;
+      let u=Math.max(0,(c.msgCount||0)-getReadCount(id));
+      if(!c.msgCount && c.lastMsgAt && c.lastMsgAt>getReadTs(id)) u=1;
+      n+=u; });
+    badgesPose(n);
+  }catch(e){} }
+  function badgesPose(n){
+    [['nav-unread'],['dsk-b-disc']].forEach(([k])=>{ const el=$(k); if(!el) return;
+      if(n>0){ el.textContent=n>99?'99+':n; el.style.display='flex'; } else el.style.display='none'; });
+  }
+  try{ setInterval(()=>{ try{ badgesMaj(); }catch(e){} },60000); }catch(e){}
   async function viewDisc(keepFocus){
-    const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Discussions</h2><button class="hbtn neutral" onclick="vueDocuments()">${ms('attach_file',18)}Documents</button></div>
+    const view=$('view'); try{ view.classList.add('discview'); }catch(e){} view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?'':`<button class="hbtn neutral" onclick="showView('cont')">${ms('edit_square',18)}Nouveau message</button>`}</div>
       <div class="gsearch">${ms('search',19)}<input id="disc-search" placeholder="Rechercher une discussion…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
-      <div id="disc-list"><p class="muted center">Chargement…</p></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ms('add',25)}</button>`;
+      <div class="disc-2col"><div id="disc-list"><p class="muted center">Chargement…</p></div>
+      <aside id="disc-side"></aside></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ms('add',25)}</button>`;
     if(keepFocus){ const si=$('disc-search'); if(si){ si.focus(); try{ si.setSelectionRange(si.value.length,si.value.length); }catch(e){} } }
     try{
       const ch=chanCol();
@@ -2438,10 +2473,9 @@
       entries=entries.filter(([id,c])=>{ if(c.type==='dm'){ const o=(c.members||[]).find(u=>u!==ME.uid); if(isBlocked(o)) return false; }
         const del=getDelAt(id); if(del && (c.lastMsgAt||0)<=del) return false; return true; });
       const unreadOf=(id,c)=>{ let u=0; if(c.lastMsgFrom!==ME.uid){ u=Math.max(0,(c.msgCount||0)-getReadCount(id)); if(!c.msgCount && c.lastMsgAt && c.lastMsgAt>getReadTs(id)) u=1; } if(!u&&_munread.has(ck(id))) u=1; return u; };
-      const nbUnread=entries.filter(([id,c])=>unreadOf(id,c)>0).length;
+      const nbUnread=entries.reduce((t,[id,c])=>t+unreadOf(id,c),0);
       // badge de non-lus sur l'onglet Discussions
-      const nb=$('nav-unread'); if(nb){ if(nbUnread){ nb.textContent=nbUnread>99?'99+':nbUnread; nb.style.display='flex'; } else nb.style.display='none'; }
-      const nb2=$('dsk-b-disc'); if(nb2){ if(nbUnread){ nb2.textContent=nbUnread>99?'99+':nbUnread; nb2.style.display='flex'; } else nb2.style.display='none'; }
+      badgesPose(nbUnread);
       // recherche par nom
       const dispName=(id,c)=>{ if(c.type==='general') return 'Général'; if(c.type==='dm'){ const o=(c.members||[]).find(u=>u!==ME.uid); return nmap[o]||'Contact'; } return c.name||''; };
       if(_discSearch) entries=entries.filter(([id,c])=>dispName(id,c).toLowerCase().includes(_discSearch));
@@ -2491,7 +2525,7 @@
             ${actBtn('#64748b','⋯','Options',`rowMenu('${id}','${nmSafe}')`)}
             ${actBtn('var(--op)','🗄️',isArch(id)?'Désarchiver':'Archiver',`rowArch('${id}')`)}
           </div>
-          <div class="row sw-row" data-nm="${nmSafe}" onclick="${_selMode?`selToggle('${id}')`:`rowOpen('${id}','${nmSafe}')`}" style="position:relative;background:var(--card);margin:0">${_selMode?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${_selSet.has(id)?'var(--op)':'var(--brd2)'};background:${_selSet.has(id)?'var(--op)':'transparent'};color:#fff">${_selSet.has(id)?'✓':''}</div>`:''}<div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${marque}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:11.5px;font-weight:600;color:var(--t3)">${t}</span>${badge}</div></div>
+          <div class="row sw-row${(typeof _curCh!=='undefined'&&_curCh&&_curCh.id===id)?' ouverte':''}" data-nm="${nmSafe}" onclick="${_selMode?`selToggle('${id}')`:`rowOpen('${id}','${nmSafe}')`}" style="position:relative;background:var(--card);margin:0">${_selMode?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${_selSet.has(id)?'var(--op)':'var(--brd2)'};background:${_selSet.has(id)?'var(--op)':'transparent'};color:#fff">${_selSet.has(id)?'✓':''}</div>`:''}<div class="ava" style="${avBg}">${avInner}</div><div class="info"><div class="nm">${isPinned(id)?'📌 ':''}${marque}${esc(nm)}${isFav(id)?' ⭐':''}${isMuted(id)?' 🔇':''}${isLocked(id)?' 🔒':''}</div><div class="ds">${sub}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="when" style="font-size:11.5px;font-weight:600;color:var(--t3)">${t}</span>${badge}</div></div>
         </div>`; };
       const chips=[['all','Toutes'],['unread','Non lues'+(nbUnread?' '+nbUnread:'')],['fav','Favoris'],['groups','Groupes']]
         .map(([k,l])=>`<button class="${_discFilter===k?'on':''}" onclick="setDiscFilter('${k}')">${l}</button>`).join('');
@@ -2500,6 +2534,8 @@
       if(clos.length){ html+=`<div onclick="_showClos=!_showClos;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🏗️ Chantiers terminés (${clos.length}) <span style="margin-left:auto;color:var(--t3)">${_showClos?'▲':'▼'}</span></div>`;
         if(_showClos) html+=`<div class="listbox">${clos.map(rowHtml).join('')}</div>`; }
       if(archived.length){ html+=`<div onclick="_showArch=!_showArch;viewDisc()" style="display:flex;align-items:center;gap:8px;padding:12px 4px;cursor:pointer;color:var(--t2)">🗄️ Archivées (${archived.length}) <span style="margin-left:auto;color:var(--t3)">${_showArch?'▲':'▼'}</span></div>`; if(_showArch) html+=`<div class="listbox">${archived.map(rowHtml).join('')}</div>`; }
+      try{ discSide(active); }catch(e){}
+      setTimeout(()=>{ try{ chatPlacer(); }catch(e){} },30);
       if(_selMode){ html=`<div style="display:flex;align-items:center;gap:8px;margin:0 2px 12px"><b style="flex:1">${_selSet.size} sélectionnée(s)</b><button class="btn ghost sm" onclick="exitSelMode()">✕ Annuler</button></div>`+html
         +`<div style="position:fixed;left:16px;right:16px;bottom:calc(62px + env(safe-area-inset-bottom));z-index:15;display:flex;gap:8px;background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:9px;max-width:440px;margin:0 auto;box-shadow:0 10px 26px rgba(0,0,0,.35)">
           <button class="btn sm" style="flex:1" onclick="selRead()">💬 Lire</button>
@@ -2633,31 +2669,82 @@
     catch(e){ $('ngerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
 
+  /* ══ LE PANNEAU DE DROITE (grand écran) ══
+     Ce qui compte aujourd'hui, sans changer de page : les réunions du jour,
+     les derniers documents reçus, et deux raccourcis. */
+  async function discSide(entries){
+    const z=$('disc-side'); if(!z) return;
+    const auj=new Date(); const j0=new Date(auj.getFullYear(),auj.getMonth(),auj.getDate()).getTime(), j1=j0+86400000;
+    let reunions=[];
+    if(MODE==='company'&&COMP){ try{
+      const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').get();
+      qs.forEach(d=>{ const r=d.data()||{}; if(r.scheduledAt>=j0&&r.scheduledAt<j1) reunions.push(r); });
+      reunions.sort((a,b)=>a.scheduledAt-b.scheduledAt);
+    }catch(e){} }
+    const nonLues=(entries||[]).filter(([id,c])=>c.lastMsgFrom&&c.lastMsgFrom!==ME.uid&&(c.lastMsgAt||0)>getReadTs(id)).length;
+    /* les derniers documents, pris dans les discussions les plus récentes */
+    let derniers=[];
+    try{
+      const recents=(entries||[]).slice(0,6);
+      for(const [id,c] of recents){
+        const qs=await chanCol().doc(id).collection('messages').get();
+        qs.forEach(d=>{ const m=d.data()||{}; if(m.programmeAt&&m.programmeAt>Date.now()) return;
+          const t=(m.ts&&m.ts.toDate)?m.ts.toDate():new Date();
+          if(m.img) derniers.push({n:'Photo',i:'🖼️',q:m.name||'',d:t,cid:id});
+          else if(m.file) derniers.push({n:(m.file.name||'Fichier'),i:'📄',q:m.name||'',d:t,cid:id}); });
+      }
+      derniers.sort((a,b)=>b.d-a.d); derniers=derniers.slice(0,4);
+    }catch(e){}
+    const hh=t=>new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    z.innerHTML=`
+      <div class="side-c">
+        <div class="side-t">${esc(auj.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}))}</div>
+        <div class="side-l"><span>💬</span><span style="flex:1">Discussions</span><b>${(entries||[]).length}</b></div>
+        <div class="side-l"><span>🔔</span><span style="flex:1">Non lues</span><b style="color:${nonLues?'var(--op-tx)':'inherit'}">${nonLues}</b></div>
+        <div class="side-l"><span>📅</span><span style="flex:1">Réunions aujourd'hui</span><b>${reunions.length}</b></div>
+      </div>
+      ${reunions.length?`<div class="side-c"><div class="side-t">Les réunions du jour</div>
+        ${reunions.slice(0,4).map(r=>`<div class="side-l"><b style="font-variant-numeric:tabular-nums">${esc(hh(r.scheduledAt))}</b>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'Réunion')}</span>
+          <span style="color:var(--t3);font-size:11.5px">${(r.members||[]).length} pers.</span></div>`).join('')}
+        <button class="btn ghost sm block" style="margin-top:9px" onclick="showView('dash')">Voir le calendrier</button></div>`:''}
+      ${derniers.length?`<div class="side-c"><div class="side-t">Derniers documents</div>
+        ${derniers.map(x=>`<div class="side-l" style="cursor:pointer" onclick="vueDocuments('${x.cid}')"><span>${x.i}</span>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.n)}</span>
+          <span style="color:var(--t3);font-size:11.5px">${esc(x.d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'}))}</span></div>`).join('')}</div>`:''}
+      <div class="side-c"><div class="side-t">Raccourcis</div>
+        <button class="btn ghost sm block" style="margin-bottom:7px" onclick="newGroup()">＋ Nouveau groupe</button>
+        <button class="btn ghost sm block" style="margin-bottom:7px" onclick="showView('cont')">👥 Contacts</button>
+        <button class="btn ghost sm block" onclick="showView('prof')">⚙️ Mes réglages</button></div>`;
+  }
   /* ══ LE TROMBONE DE L'ENTREPRISE ══
      Toutes les photos et tous les documents échangés dans toutes les
      discussions, au même endroit, avec une recherche. Fini la photo perdue
      trois semaines plus tard. */
-  let _docs=[], _docsRech='';
-  async function vueDocuments(){
-    const view=$('view');
-    view.innerHTML=`<div class="view-h"><h2>Documents</h2><button class="hbtn neutral" onclick="showView('disc')">‹ Discussions</button></div>
+  let _docs=[], _docsRech='', _docsCanal=null;
+  async function vueDocuments(cid){
+    const view=$('view'); _docsCanal=cid||null;
+    const retour=cid?`<button class="hbtn neutral" onclick="showView('disc')">‹ Retour</button>`:`<button class="hbtn neutral" onclick="showView('disc')">‹ Discussions</button>`;
+    view.innerHTML=`<div class="view-h"><h2>Documents</h2>${retour}</div>
       <div class="gsearch">${ms('search',19)}<input id="doc-rech" placeholder="Rechercher un document, une photo…" oninput="_docsRech=this.value.trim().toLowerCase();docsRender()"></div>
       <div id="doc-liste"><p class="muted center">Recherche dans toutes les discussions…</p></div>`;
     _docs=[];
     try{
       const ch=chanCol(); const map={};
-      if(MODE==='perso'){ (await ch.where('members','array-contains',ME.uid).get()).forEach(d=>map[d.id]=d.data()); }
+      if(cid){ const d=await ch.doc(cid).get(); map[cid]=d.data()||{}; }
+      else if(MODE==='perso'){ (await ch.where('members','array-contains',ME.uid).get()).forEach(d=>map[d.id]=d.data()); }
       else { const [gen,grp]=await Promise.all([ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get()]);
         gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data()); }
-      for(const [cid,c] of Object.entries(map)){
+      for(const [id,c] of Object.entries(map)){
         const nomCanal=c.type==='general'?'Général':(c.name||'Discussion');
-        try{ const qs=await ch.doc(cid).collection('messages').get();
+        try{ const qs=await ch.doc(id).collection('messages').get();
           qs.forEach(d=>{ const m=d.data()||{};
             if(m.programmeAt&&m.programmeAt>Date.now()) return;
             const t=(m.ts&&m.ts.toDate)?m.ts.toDate():new Date();
-            if(m.img) _docs.push({type:'photo',nom:'Photo',par:m.name||'',canal:nomCanal,cid:cid,d:t,data:m.img});
-            else if(m.file) _docs.push({type:'fichier',nom:(m.file.name||'Fichier'),par:m.name||'',canal:nomCanal,cid:cid,d:t,file:m.file});
-            else if(m.audio) _docs.push({type:'vocal',nom:'Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''),par:m.name||'',canal:nomCanal,cid:cid,d:t,data:m.audio});
+            /* les messages vocaux ne sont pas des documents : ils restent
+               dans la conversation, à leur place */
+            if(m.img) _docs.push({type:'photo',nom:'Photo',par:m.name||'',canal:nomCanal,cid:id,d:t,data:m.img});
+            else if(m.file) _docs.push({type:'fichier',nom:(m.file.name||'Fichier'),par:m.name||'',canal:nomCanal,cid:id,d:t,file:m.file});
           });
         }catch(e){}
       }
@@ -2670,21 +2757,18 @@
     let l=_docs;
     if(_docsRech) l=l.filter(x=>(x.nom+' '+x.par+' '+x.canal).toLowerCase().includes(_docsRech));
     if(!l.length){ z.innerHTML=`<p class="muted center">${_docs.length?'Rien ne correspond à cette recherche.':'Aucun document échangé pour le moment.'}</p>`; return; }
-    const ico={photo:'🖼️',fichier:'📄',vocal:'🎤'};
+    const ico={photo:'🖼️',fichier:'📄'};
     z.innerHTML=`<p class="muted" style="font-size:12px;margin:0 2px 10px">${l.length} élément${l.length>1?'s':''}</p><div class="listbox">`+
       l.map((x,i)=>`<div class="row" onclick="docOuvrir(${_docs.indexOf(x)})">
         ${x.type==='photo'?`<img src="${x.data}" style="width:44px;height:44px;border-radius:11px;object-fit:cover;flex-shrink:0">`
           :`<div class="ava" style="background:var(--tile-bg);color:var(--tile-tx);border-radius:11px">${ico[x.type]}</div>`}
         <div class="info"><div class="nm">${esc(x.nom)}</div>
-          <div class="ds">${esc(x.par)} · ${esc(x.canal)} · ${esc(x.d.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}))}</div></div>
+          <div class="ds">${esc(x.par)}${_docsCanal?'':' · '+esc(x.canal)} · ${esc(x.d.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'}))}</div></div>
         <div class="chev">›</div></div>`).join('')+`</div>`;
   }
   function docOuvrir(i){
     const x=_docs[i]; if(!x) return;
     if(x.type==='photo'){ const w=window.open(); if(w) w.document.write('<img src="'+x.data+'" style="max-width:100%">'); return; }
-    if(x.type==='vocal'){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:15px;margin-bottom:10px">🎤 ${esc(x.nom)}</h3>
-      <p class="muted" style="font-size:12.5px;margin-bottom:12px">${esc(x.par)} · ${esc(x.canal)}</p>
-      <audio controls src="${x.data}" style="width:100%"></audio>`); return; }
     /* un vrai fichier : on le reconstruit pour que l'appareil sache l'ouvrir */
     try{
       const blob=fichierBlob(x.file);
@@ -3084,6 +3168,7 @@
       </div>`;
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
     try{ document.querySelectorAll('.dsk-chan').forEach(x=>x.classList.toggle('on',x.dataset.cid===id)); }catch(e){}
+    chatPlacer(); chatMarquer();
     applyWall(); bindSwipeReply(); listenCh(id); listenChDoc(id);
     setTimeout(guideConv,600);
     progEnvoyerDus(); if(_progT) clearInterval(_progT); _progT=setInterval(progEnvoyerDus,60000);
@@ -3096,7 +3181,31 @@
     s.addEventListener('touchend',e=>{ if(!el) return; const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy; const mid=el.getAttribute('data-mid'); el.style.transition='transform .18s'; el.style.transform='translateX(0)';
       if(dx>55&&Math.abs(dy)<45&&mid){ setReply(mid); } el=null; },{passive:true});
   }
-  function closeChat(){ clearTyping(); if(_progT){ clearInterval(_progT); _progT=null; } if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_pinUnsub){_pinUnsub();_pinUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
+  /* Sur grand écran, la conversation se pose à droite de la liste (façon
+     WhatsApp Web) au lieu de recouvrir toute la page : on cale son bord
+     gauche sur la fin de la colonne des discussions. */
+  function chatPlacer(){
+    const c=$('chat'); if(!c) return;
+    const large=(function(){ try{ return window.matchMedia('(min-width:1000px) and (min-height:500px)').matches; }catch(e){ return false; } })();
+    const l=$('disc-list');
+    if(large && l && _curView==='disc'){ const r=l.getBoundingClientRect();
+      if(r.width){ c.style.left=Math.round(r.right+18)+'px';
+        /* la barre du haut (Perso / Entreprise) reste visible et entière */
+        const ab=document.querySelector('.maincol .appbar');
+        c.style.top=ab?Math.round(ab.getBoundingClientRect().bottom)+'px':'';
+        c.style.borderLeft='1px solid var(--brd)';
+        return; } }
+    c.style.left=''; c.style.top=''; c.style.borderLeft='';
+  }
+  function chatMarquer(){ try{
+    document.querySelectorAll('#disc-list .sw-wrap[data-cid]').forEach(w=>{
+      const r=w.querySelector('.row'); if(!r) return;
+      r.classList.toggle('ouverte', !!(_curCh&&_curCh.id===w.dataset.cid)); });
+  }catch(e){} }
+  try{ window.addEventListener('resize',()=>{ try{ chatPlacer(); }catch(e){} }); }catch(e){}
+  function closeChat(){ clearTyping(); if(_progT){ clearInterval(_progT); _progT=null; }
+    try{ const c=$('chat'); if(c) c.style.left=''; }catch(e){}
+    try{ document.querySelectorAll('#disc-list .row.ouverte').forEach(r=>r.classList.remove('ouverte')); }catch(e){} if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_pinUnsub){_pinUnsub();_pinUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
   function chDoc(id){ return chanCol().doc(id); }
   function chMsgs(){ return chDoc(_curCh.id).collection('messages'); }
   // Envoi centralisé : ajoute le message ET met à jour l'aperçu du canal (dernier message + heure)
@@ -3426,6 +3535,7 @@
   // ---- Infos / gestion de groupe ----
   function pinMuteBtns(id){ return `<div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn ghost sm" style="flex:1" onclick="pinChat('${id}')">${isPinned(id)?'📌 Désépingler':'📌 Épingler'}</button><button class="btn ghost sm" style="flex:1" onclick="muteChat('${id}')">${isMuted(id)?'🔔 Son':'🔇 Sourdine'}</button></div>
     <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn ghost sm" style="flex:1" onclick="archiveChat('${id}')">${isArch(id)?'📤 Désarchiver':'🗄️ Archiver'}</button><button class="btn ghost sm" style="flex:1" onclick="exportChat()">⬇️ Exporter</button></div>
+    <button class="btn ghost sm block" style="margin-bottom:8px" onclick="closeSheet();vueDocuments('${id}')">📎 Documents de la discussion</button>
     <button class="btn ghost sm block" style="margin-bottom:12px" onclick="cycleEph('${id}')">⏱ Messages éphémères : <b>${ephLabel(getEph(id))}</b></button>`; }
   function cycleEph(id){ const cur=getEph(id); const next = cur===0?86400000 : cur===86400000?604800000 : 0; setEph(id,next); closeSheet(); toast('Messages éphémères : '+ephLabel(next)); }
   function pinChat(id){ togglePin(id); closeSheet(); if(_curView==='disc') viewDisc(); toast(isPinned(id)?'Conversation épinglée':'Désépinglée'); }
