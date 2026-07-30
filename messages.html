@@ -1732,11 +1732,14 @@
       font-size:${gros?'13px':'12px'};font-weight:${on?800:600};
       ${on?'background:var(--op);color:#fff':'color:var(--t1);background:var(--card)'}">${txt}</span>`;
     let hs=''; for(let h=0;h<24;h++) hs+=pill(String(h).padStart(2,'0'),h===H,`tpHeure(${h})`,true);
-    let ms=''; for(let m=0;m<60;m++) ms+=pill(String(m).padStart(2,'0'),m===M,`tpMinute(${m})`);
+    /* les minutes par 5 : 12 choix qui tiennent d'un coup d'œil. Pour une
+       minute pile entre deux (9h03), les boutons −1 / +1 y vont. */
+    let ms=''; for(let m=0;m<60;m+=5) ms+=pill(String(m).padStart(2,'0'),m===M,`tpMinute(${m})`,true);
+    if(M%5) ms+=pill(String(M).padStart(2,'0'),true,`tpMinute(${M})`,true);   // la minute exacte reste affichée
     z.innerHTML=`<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
         <b style="font-size:17px;font-weight:800;font-variant-numeric:tabular-nums">${String(H).padStart(2,'0')}:${String(M).padStart(2,'0')}</b>
-        <span onclick="tpPas(-5)" title="5 minutes plus tôt" style="width:26px;height:26px;border-radius:8px;background:var(--card);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-weight:800">−</span>
-        <span onclick="tpPas(5)" title="5 minutes plus tard" style="width:26px;height:26px;border-radius:8px;background:var(--card);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-weight:800">+</span>
+        <span onclick="tpPas(-1)" title="1 minute plus tôt" style="padding:0 9px;height:26px;border-radius:8px;background:var(--card);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:11.5px;font-weight:800">−1 min</span>
+        <span onclick="tpPas(1)" title="1 minute plus tard" style="padding:0 9px;height:26px;border-radius:8px;background:var(--card);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:11.5px;font-weight:800">+1 min</span>
         <span style="flex:1"></span>
         <span onclick="tpFerme()" style="font-size:11.5px;font-weight:700;color:var(--op-tx);cursor:pointer;padding:4px 8px">Terminé</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">
@@ -1746,7 +1749,7 @@
         </div>
         <div style="min-width:0">
           <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--t3);margin-bottom:5px">MINUTES</div>
-          <div id="tp-m" style="position:relative;max-height:158px;overflow-y:auto;display:grid;grid-template-columns:repeat(5,1fr);gap:4px">${ms}</div>
+          <div id="tp-m" style="position:relative;max-height:158px;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:4px">${ms}</div>
         </div>
       </div>`;
     /* on amène le choix courant sous les yeux */
@@ -1931,6 +1934,95 @@
       dpPartRender(); toast((u.name||u.handle||'La personne')+' a rejoint l’entreprise et la réunion.');
     }catch(e){ dire('<span style="color:var(--red)">'+esc(e.message||'Erreur')+'</span>'); }
   }
+  /* ══ GÉNÉRATEUR DE PARTICIPANTS DE TEST ══
+     Trois vrais comptes, créés d'un clic, ajoutés à l'entreprise et à la
+     réunion en cours. Marqués « test » pour pouvoir tout retirer après.
+     Réservé au patron de l'entreprise. */
+  const TEST_PASS='teamop2026';
+  const TEST_GENS=[['Sophie','Test','sophie.test'],['Karim','Test','karim.test'],['Léa','Test','lea.test']];
+  function dpMsg(t){ const e=$('dp-msg'); if(e) e.innerHTML=t; }
+  async function dpGenerer(){
+    if(!IS_OWNER){ toast('Seul le patron de l’entreprise peut créer des comptes.'); return; }
+    if(!confirm('Créer 3 participants de test dans « '+COMP.name+' » ?\n\n'
+      +'Sophie Test, Karim Test, Léa Test — identifiants sophie.test, karim.test, lea.test,\n'
+      +'mot de passe '+TEST_PASS+'.\n\nCe sont de vrais comptes : tu pourras te connecter avec pour '
+      +'essayer les réponses aux réunions, et les supprimer d’un seul clic ensuite.')) return;
+    dpMsg('<span style="color:var(--t2)">Création en cours…</span>');
+    let faits=0, deja=0, rates=[];
+    for(const [prenom,nom,ident] of TEST_GENS){
+      const email=loginEmail(ident), nomComplet=prenom+' '+nom;
+      let sec=null, uid=null;
+      try{
+        sec=firebase.initializeApp(FB_CONFIG,'gen'+Date.now()+Math.random().toString(36).slice(2,6));
+        try{ const cred=await sec.auth().createUserWithEmailAndPassword(email,TEST_PASS); uid=cred.user.uid; faits++; }
+        catch(e){
+          if((e.code||'')!=='auth/email-already-in-use'){ rates.push(nomComplet+' : '+(e.message||e.code||'erreur')); await sec.delete(); continue; }
+          /* le compte existe déjà : on le retrouve pour l'ajouter quand même */
+          deja++;
+          try{ const q=await fs.collection('op_users').where('handle','==',handleOf(ident)).limit(1).get();
+            if(!q.empty) uid=q.docs[0].data().uid||q.docs[0].id; }catch(_){}
+        }
+        if(uid){
+          const sfs=(sec&&sec.firestore)?sec.firestore():fs;
+          try{ await sfs.collection('op_users').doc(uid).set({uid:uid,email:email,name:nomComplet,handle:ident,
+                 role:'classique',companyId:COMP.id,companyName:COMP.name,test:true},{merge:true}); }catch(_){}
+          try{ await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(uid)
+                 .set({uid:uid,name:nomComplet,role:'classique',test:true,ts:FV()},{merge:true}); }catch(_){}
+          if(!_dpMem.some(m=>m.uid===uid)) _dpMem.push({uid:uid,name:nomComplet,handle:ident,phone:''});
+          _dashSel.add(uid);
+        }
+        try{ await sec.auth().signOut(); }catch(_){}
+        await sec.delete();
+      }catch(e){ rates.push(nomComplet+' : '+(e.message||'erreur')); try{ if(sec) await sec.delete(); }catch(_){} }
+    }
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){}
+    _dpQ=''; dpPartRender();
+    const accès=TEST_GENS.map(([p,n,i])=>i).join(', ');
+    dpMsg(`<span style="color:var(--pres);font-weight:700">${faits?faits+' compte'+(faits>1?'s':'')+' créé'+(faits>1?'s':''):''}${(faits&&deja)?' · ':''}${deja?deja+' déjà existant'+(deja>1?'s':''):''}</span>`
+      +`<br><span style="color:var(--t2)">Identifiants : <b>${accès}</b> · mot de passe <b>${TEST_PASS}</b></span>`
+      +`<br><span onclick="dpCopierAcces()" style="color:var(--op-tx);font-weight:700;cursor:pointer;text-decoration:underline">Copier les accès</span>`
+      +` · <span onclick="dpSupprimerTests()" style="color:var(--red);font-weight:700;cursor:pointer;text-decoration:underline">Supprimer les comptes de test</span>`
+      +(rates.length?`<br><span style="color:var(--red)">${esc(rates.join(' — '))}</span>`:''));
+    toast(faits?('Participants de test prêts — ajoutés à la réunion'):'Comptes de test déjà présents — ajoutés à la réunion');
+  }
+  function dpCopierAcces(){
+    const t='Comptes de test OP MESSAGES — '+COMP.name+'\n'
+      +TEST_GENS.map(([p,n,i])=>p+' '+n+' — identifiant : '+i+' — mot de passe : '+TEST_PASS).join('\n')
+      +'\n\nConnexion : https://teamop.fr/messages.html';
+    if(navigator.clipboard) navigator.clipboard.writeText(t).then(()=>toast('Accès copiés')); else alert(t);
+  }
+  /* on retire les comptes de test : de l'entreprise ET de Firebase */
+  async function dpSupprimerTests(){
+    if(!IS_OWNER) return;
+    if(!confirm('Supprimer les comptes de test (Sophie, Karim, Léa) ?\n\nIls quittent l’entreprise et leurs comptes sont effacés.')) return;
+    dpMsg('<span style="color:var(--t2)">Suppression…</span>');
+    let n=0;
+    for(const [prenom,nom,ident] of TEST_GENS){
+      const email=loginEmail(ident);
+      let uid=null, sec=null;
+      try{ const q=await fs.collection('op_users').where('handle','==',handleOf(ident)).limit(1).get();
+        if(!q.empty) uid=q.docs[0].data().uid||q.docs[0].id; }catch(e){}
+      try{
+        sec=firebase.initializeApp(FB_CONFIG,'del'+Date.now()+Math.random().toString(36).slice(2,6));
+        const cred=await sec.auth().signInWithEmailAndPassword(email,TEST_PASS);
+        uid=uid||cred.user.uid;
+        const sfs=sec.firestore();
+        try{ await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).delete(); }catch(e){}
+        try{ await sfs.collection('op_users').doc(uid).delete(); }catch(e){}
+        await cred.user.delete(); n++;
+      }catch(e){
+        /* connexion impossible (compte déjà effacé, mot de passe changé) :
+           on nettoie au moins l'entreprise, avec notre propre accès */
+        if(uid){ try{ await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).delete(); n++; }catch(_){} }
+      }
+      try{ if(sec) await sec.delete(); }catch(e){}
+      if(uid){ _dpMem=_dpMem.filter(m=>m.uid!==uid); _dashSel.delete(uid); }
+    }
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){}
+    dpPartRender();
+    dpMsg('<span style="color:var(--t2)">'+n+' compte'+(n>1?'s':'')+' de test supprimé'+(n>1?'s':'')+'.</span>');
+    toast('Comptes de test supprimés');
+  }
   /* créer un compte tout neuf : on quitte le formulaire, en le disant */
   function dpCreerCompte(){
     if(!confirm('Créer un compte pour un nouvel employé ?\n\nLa réunion en cours de saisie sera abandonnée.')) return;
@@ -1976,10 +2068,14 @@
         <span class="ms" style="font-size:18px">person_add</span>
         <span style="font-size:12.5px;font-weight:700">Ajouter « ${esc(_dpQ)} » à l’entreprise et à la réunion</span></div>`:''}
       <div id="dp-msg" style="font-size:11px;margin-top:7px;line-height:1.5"></div>
-      ${(!autres.length&&IS_OWNER)?`<div onclick="dpCreerCompte()"
-        style="display:flex;align-items:center;gap:9px;margin-top:4px;padding:9px 10px;border-radius:10px;background:var(--tint2);cursor:pointer">
-        <span class="ms" style="font-size:18px;color:var(--tile-tx)">person_add</span>
-        <span style="font-size:12.5px;font-weight:700">Créer un compte pour quelqu’un</span></div>`:''}
+      ${IS_OWNER?`<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+        <div onclick="dpCreerCompte()" style="flex:1;min-width:150px;display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:10px;background:var(--tint2);cursor:pointer">
+          <span class="ms" style="font-size:18px;color:var(--tile-tx)">person_add</span>
+          <span style="font-size:12px;font-weight:700">Créer un compte</span></div>
+        <div onclick="dpGenerer()" title="Crée Sophie, Karim et Léa pour essayer les réunions" style="flex:1;min-width:150px;display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:10px;border:1.5px dashed var(--brd2);cursor:pointer">
+          <span class="ms" style="font-size:18px;color:var(--t2)">group_add</span>
+          <span style="font-size:12px;font-weight:700">Générer 3 personnes de test</span></div>
+      </div>`:''}
       <div style="font-size:11px;color:var(--t2);margin-top:8px">${n?(n+' personne'+(n>1?'s':'')+' convoquée'+(n>1?'s':'')+' · toi comme organisateur'):'Personne d’autre pour l’instant — tu peux planifier seul.'}</div>`;
   }
   function dashToggleAlert(){ _dashAlert=!_dashAlert; const t=$('dp-toggle'); if(!t) return; t.style.background=_dashAlert?'var(--green)':'var(--brd2)'; const k=t.firstElementChild; if(k) k.style.right=_dashAlert?'2px':'18px'; }
@@ -3160,7 +3256,9 @@
       catch(e){ if((e.code||'')==='auth/email-already-in-use') errBox('Cet identifiant existe déjà.'); else errBox(e.message||'Erreur'); if(btn)btn.disabled=false; await sec.delete(); return; }
       const sfs=sec.firestore();
       const phone=($('am-phone')&&$('am-phone').value||'').trim();
-      await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,phone,role:'classique',companyId:COMP.id,companyName:COMP.name});
+      /* l'identifiant (handle) DOIT être enregistré : sans lui, la personne est
+         introuvable par identifiant (ajout dans une entreprise, recherche de contact). */
+      await sfs.collection('op_users').doc(cred.user.uid).set({uid:cred.user.uid,email,name,handle:ident,phone,role:'classique',companyId:COMP.id,companyName:COMP.name});
       await sfs.collection('op_companies').doc(COMP.id).collection('members').doc(cred.user.uid).set({uid:cred.user.uid,name,phone,role:'classique',ts:FV()});
       await sec.auth().signOut(); await sec.delete(); sec=null; _lastCreds={ident,pass,company:COMP.name};
       openSheet(`<div class="ok" data-titre="Compte créé">✅ Compte créé pour <b>${esc(name)}</b>.</div>
