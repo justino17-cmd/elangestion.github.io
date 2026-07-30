@@ -295,9 +295,15 @@
   /* sur grand écran, la liste des discussions ne reste plus seule au milieu
      d'une page vide : un panneau à droite donne la journée en cours */
   #disc-side{display:none}
-  /* la liste des discussions : centrée, mais plus large qu'avant */
+  /* Deux états sur grand écran :
+     — rien d'ouvert : la liste est large et centrée ;
+     — une discussion ouverte : elle se resserre à gauche et la conversation
+       prend la droite, comme sur WhatsApp. */
   @media(min-width:1000px) and (min-height:500px){
     .view.discview{max-width:1120px}
+    .view.discview.cote{max-width:none;margin:0}
+    .view.discview.cote .disc-2col{display:grid;grid-template-columns:minmax(300px,380px) minmax(0,1fr);gap:0;align-items:start}
+    .view.discview.cote .view-h h2{font-size:26px}
   }
   .row.ouverte{background:var(--tint2)!important}
   .side-c{background:var(--card);border:1px solid var(--card-brd);border-radius:16px;padding:13px 15px;margin-bottom:12px}
@@ -3124,7 +3130,7 @@
       </div>`;
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
     try{ document.querySelectorAll('.dsk-chan').forEach(x=>x.classList.toggle('on',x.dataset.cid===id)); }catch(e){}
-    chatPlacer(); chatMarquer();
+    setTimeout(()=>{ try{ chatPlacer(); chatMarquer(); }catch(e){} },0);
     applyWall(); bindSwipeReply(); listenCh(id); listenChDoc(id);
     setTimeout(guideConv,600);
     progEnvoyerDus(); if(_progT) clearInterval(_progT); _progT=setInterval(progEnvoyerDus,60000);
@@ -3142,6 +3148,20 @@
      gauche sur la fin de la colonne des discussions. */
   function chatPlacer(){
     const c=$('chat'); if(!c) return;
+    const v=$('view');
+    const large=(function(){ try{ return window.matchMedia('(min-width:1000px) and (min-height:500px)').matches; }catch(e){ return false; } })();
+    const ouverte=c.classList.contains('open');
+    if(large && ouverte && _curView==='disc'){
+      if(v) v.classList.add('cote');
+      const l=$('disc-list');
+      if(l){ const r=l.getBoundingClientRect();
+        if(r.width){ c.style.left=Math.round(r.right+1)+'px';
+          const ab=document.querySelector('.maincol .appbar');
+          c.style.top=ab?Math.round(ab.getBoundingClientRect().bottom)+'px':'';
+          c.style.borderLeft='1px solid var(--brd)';
+          return; } }
+    }
+    if(v) v.classList.remove('cote');
     c.style.left=''; c.style.top=''; c.style.borderLeft='';
   }
   function chatMarquer(){ try{
@@ -3151,7 +3171,9 @@
   }catch(e){} }
   try{ window.addEventListener('resize',()=>{ try{ chatPlacer(); }catch(e){} }); }catch(e){}
   function closeChat(){ clearTyping(); if(_progT){ clearInterval(_progT); _progT=null; }
-    try{ const c=$('chat'); if(c) c.style.left=''; }catch(e){}
+    try{ const p=$('emojipop'); if(p) p.style.display='none'; emojiSourd(); }catch(e){}
+    try{ const c=$('chat'); if(c){ c.style.left=''; c.style.top=''; c.style.borderLeft=''; c.classList.remove('open'); } }catch(e){}
+    try{ const v=$('view'); if(v) v.classList.remove('cote'); }catch(e){}
     try{ document.querySelectorAll('#disc-list .row.ouverte').forEach(r=>r.classList.remove('ouverte')); }catch(e){} if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_pinUnsub){_pinUnsub();_pinUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
   function chDoc(id){ return chanCol().doc(id); }
   function chMsgs(){ return chDoc(_curCh.id).collection('messages'); }
@@ -3199,7 +3221,20 @@
   }
   // ---- Emoji picker ----
   const EMOJIS='😀😁😂🤣😊😍😘😎🤩🥳😅😉🙂🙃😇🤔🤨😐😴😭😤😡👍👎👏🙏💪🔥🎉❤️🧡💛💚💙💜🤍✅❌⭐️💯👀🙌🤝😢😱🥺😬👌✌️'.match(/./gu)||[];
-  function toggleEmoji(){ const p=$('emojipop'); if(!p) return; const show=p.style.display==='none'; if(show){ p.innerHTML=EMOJIS.map(e=>`<span style="cursor:pointer;padding:2px" onclick="insertEmoji('${e}')">${e}</span>`).join(''); } p.style.display=show?'block':'none'; }
+  function toggleEmoji(){ const p=$('emojipop'); if(!p) return; const show=p.style.display==='none';
+    if(show){ p.innerHTML=EMOJIS.map(e=>`<span style="cursor:pointer;padding:2px" onclick="insertEmoji('${e}')">${e}</span>`).join(''); }
+    p.style.display=show?'block':'none';
+    if(show) setTimeout(emojiEcoute,0); else emojiSourd(); }
+  /* Un doigt (ou un clic) posé n'importe où ailleurs referme le clavier
+     d'émojis : sur téléphone, on n'a pas envie de viser le petit bouton. */
+  function _emojiDehors(ev){
+    const p=$('emojipop'); if(!p||p.style.display==='none') return;
+    if(p.contains(ev.target)) return;
+    if(ev.target.closest && ev.target.closest('[onclick*="toggleEmoji"]')) return;   // le bouton gère lui-même
+    p.style.display='none'; emojiSourd();
+  }
+  function emojiEcoute(){ document.addEventListener('pointerdown',_emojiDehors,true); }
+  function emojiSourd(){ document.removeEventListener('pointerdown',_emojiDehors,true); }
   function insertEmoji(e){ const i=$('msg'); if(!i) return; i.value=(i.value||'')+e; i.focus(); }
   function toggleStarFilter(){ _starFilter=!_starFilter; const b=$('starfilt'); if(b) b.style.color=_starFilter?'#f5c518':''; renderStream(); }
   function listenCh(id){
@@ -3282,6 +3317,7 @@
   function pickMention(name){ const inp=$('msg'); if(!inp) return; inp.value=(inp.value||'').replace(/@([\p{L}\p{N}._'’-]{0,24})$/u,'@'+name+' '); $('mentionpop').style.display='none'; inp.focus(); }
   function parseMentions(text){ const out=[]; _members.forEach(m=>{ if(m.uid===ME.uid) return; const n=m.name||''; if(n && text.includes('@'+n)) out.push({uid:m.uid,name:n}); }); return out; }
   async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value=''; const mp=$('mentionpop'); if(mp) mp.style.display='none';
+    try{ const ep=$('emojipop'); if(ep&&ep.style.display!=='none'){ ep.style.display='none'; emojiSourd(); } }catch(e){}
     const data={uid:ME.uid,name:USER.name||ME.email,text,ts:FV()}; if(_replyTo) data.replyTo=_replyTo;
     const ment=parseMentions(text); if(ment.length){ data.mentions=ment.map(x=>x.uid); data.mentionNames=ment.map(x=>x.name); }
     try{ await addMsg(data); cancelReply(); clearTyping(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
