@@ -978,7 +978,6 @@
     pills+=`<div id="nv2-appel" class="dsk-item${surLui('appel')}" onclick="showView('appel')">Appels</div>`;
     if(isPro()) pills+=`<div id="nv2-meet" class="dsk-item" onclick="dskMeet()">Réunions</div>`;
     pills+=`<div id="nv2-cont" class="dsk-item" onclick="showView('cont')">Contacts</div>`;
-    if(MODE!=='perso') pills+=`<div id="nv2-carte" class="dsk-item" onclick="showView('carte')">Carte de l'équipe</div>`;
     ROOT.innerHTML=`
       <aside id="dskside">
         <div style="display:flex;align-items:center;gap:11px;padding:4px 10px 20px">
@@ -1048,7 +1047,7 @@
     setTimeout(()=>{ try{ ['dash','disc','cont','appel','prof'].forEach(x=>{ const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===_curView); }); }catch(e){} },400);   // ré-assure la pastille active après le rendu
     moveNavBlob();
     try{ const vw=$('view'); if(vw) vw.classList.toggle('wide',v==='dash'); }catch(e){}
-    if(v==='dash') viewDash(); else if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='carte') vueCarte(); else if(v==='appel') viewAppel(); else viewProfile();
+    if(v==='dash') viewDash(); else if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else viewProfile();
   }
   // Fait glisser la bulle sous l'onglet actif (animation « liquid glass »)
   function moveNavBlob(instant){ const blob=$('nav-blob'); const b=$('nv-'+_curView); if(!blob||!b) return;
@@ -2753,181 +2752,6 @@
       setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch(e){} },60000);
     }catch(e){ toast('Ouverture impossible'); }
   }
-  /* ══════════════════════════════════════════════════════════════════════
-     NOTRE CARTE À NOUS — « Où est mon équipe »
-     Chacun décide de partager sa position, et pour combien de temps. Les
-     positions vivent dans la fiche de chaque membre de l'entreprise : rien
-     n'est envoyé ailleurs, rien n'est partagé sans accord, et tout s'efface
-     à l'heure dite. La carte est dessinée ici, sans bibliothèque extérieure.
-     ══════════════════════════════════════════════════════════════════════ */
-  let _carteEtat={z:13,cx:46.16,cy:-1.15,suivi:true}, _cartePos=[], _carteT=null, _posT=null;
-  function memCol(){ return fs.collection('op_companies').doc(COMP.id).collection('members'); }
-  /* ── partager SA position avec l'équipe ── */
-  async function posPartager(minutes){
-    if(!navigator.geolocation){ toast('Géolocalisation non disponible.'); return; }
-    closeSheet(); toast('Localisation en cours…');
-    navigator.geolocation.getCurrentPosition(async p=>{
-      const la=+p.coords.latitude.toFixed(5), lo=+p.coords.longitude.toFixed(5);
-      const adresse=await locAdresse(la,lo);
-      try{
-        await memCol().doc(ME.uid).set({pos:{la:la,lo:lo,adresse:adresse,maj:Date.now(),jusqu:Date.now()+minutes*60000}},{merge:true});
-        toast('📍 Position partagée pendant '+(minutes>=60?(minutes/60)+' h':minutes+' min'));
-        if(_posT) clearInterval(_posT);
-        _posT=setInterval(posMaj,30000);
-        if(_curView==='carte') carteCharger();
-      }catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
-    }, ()=>toast('Position refusée ou indisponible.'), {enableHighAccuracy:true,timeout:8000});
-  }
-  function posMaj(){
-    if(!navigator.geolocation||!ME||!COMP) return;
-    navigator.geolocation.getCurrentPosition(async p=>{
-      try{ const d=await memCol().doc(ME.uid).get(); const pos=(d.data()||{}).pos;
-        if(!pos||!pos.jusqu||pos.jusqu<Date.now()){ if(_posT){ clearInterval(_posT); _posT=null; } return; }
-        await memCol().doc(ME.uid).set({pos:Object.assign({},pos,{la:+p.coords.latitude.toFixed(5),lo:+p.coords.longitude.toFixed(5),maj:Date.now()})},{merge:true});
-        if(_curView==='carte') carteCharger();
-      }catch(e){}
-    },()=>{},{enableHighAccuracy:true,timeout:8000});
-  }
-  async function posArreter(){
-    if(_posT){ clearInterval(_posT); _posT=null; }
-    try{ const d=await memCol().doc(ME.uid).get(); const pos=(d.data()||{}).pos;
-      if(pos) await memCol().doc(ME.uid).set({pos:Object.assign({},pos,{jusqu:Date.now()})},{merge:true}); }catch(e){}
-    toast('Partage arrêté'); closeSheet(); if(_curView==='carte') carteCharger();
-  }
-  function posMenu(){
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">📍 Partager ma position à l'équipe</h3>
-      <p class="muted" style="font-size:13px;line-height:1.55;margin-bottom:14px">Toi seul décides. Ta position apparaît sur la carte de l'équipe pendant la durée choisie, puis disparaît toute seule.</p>
-      <div style="display:flex;gap:8px;margin-bottom:8px">
-        ${[30,60,240].map(m=>`<button class="btn ghost sm" style="flex:1" onclick="posPartager(${m})">${m>=60?(m/60)+' h':m+' min'}</button>`).join('')}
-      </div>
-      <button class="btn block" onclick="posPartager(480)">Toute la journée de travail (8 h)</button>
-      <button class="btn ghost block" style="margin-top:8px" onclick="posArreter()">Arrêter de partager</button>
-      <p class="muted" style="font-size:11.5px;line-height:1.5;margin-top:12px">La position se met à jour tant que OP MESSAGES est ouverte. Écran éteint ou application fermée, l'équipe voit ta dernière position connue avec son heure.</p>`);
-  }
-  /* ── la carte : tuiles libres, dessinées et déplacées par nous ── */
-  function _n2t(lo,z){ return (lo+180)/360*Math.pow(2,z); }
-  function _n2y(la,z){ const r=la*Math.PI/180; return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z); }
-  function _t2lo(x,z){ return x/Math.pow(2,z)*360-180; }
-  function _t2la(y,z){ const n=Math.PI-2*Math.PI*y/Math.pow(2,z); return 180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n))); }
-  function carteRender(){
-    const z=$('carte-zone'); if(!z) return;
-    const L=z.clientWidth||600, H=z.clientHeight||420, T=256, Z=_carteEtat.z;
-    const cx=_n2t(_carteEtat.cy,Z)*T, cy=_n2y(_carteEtat.cx,Z)*T;   // centre en pixels monde
-    const x0=cx-L/2, y0=cy-H/2;
-    let html='<div id="carte-tuiles" style="position:absolute;inset:0;overflow:hidden">';
-    const tx0=Math.floor(x0/T), ty0=Math.floor(y0/T);
-    const nx=Math.ceil(L/T)+1, ny=Math.ceil(H/T)+1;
-    for(let i=0;i<=nx;i++) for(let j=0;j<=ny;j++){
-      const tx=tx0+i, ty=ty0+j; const max=Math.pow(2,Z);
-      if(ty<0||ty>=max) continue;
-      const txm=((tx%max)+max)%max;
-      html+=`<img src="https://tile.openstreetmap.org/${Z}/${txm}/${ty}.png" alt="" draggable="false"
-        style="position:absolute;left:${tx*T-x0}px;top:${ty*T-y0}px;width:${T}px;height:${T}px;user-select:none" onerror="this.style.visibility='hidden'">`;
-    }
-    html+='</div>';
-    /* les personnes */
-    _cartePos.forEach(p=>{
-      const px=_n2t(p.lo,Z)*T-x0, py=_n2y(p.la,Z)*T-y0;
-      if(px<-60||py<-60||px>L+60||py>H+60) return;
-      const vieux=Date.now()-(p.maj||0)>15*60000 || (p.jusqu||0)<Date.now();
-      html+=`<div onclick="carteFiche('${esc(p.uid)}')" title="${esc(p.nom)}" style="position:absolute;left:${px}px;top:${py}px;transform:translate(-50%,-100%);cursor:pointer;z-index:3;text-align:center">
-        <div style="width:36px;height:36px;border-radius:50%;border:3px solid ${vieux?'var(--off)':'var(--pres)'};box-shadow:0 3px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;${avatarStyle(p.nom)}">${ini(p.nom)}</div>
-        <div style="margin-top:2px;font-size:10.5px;font-weight:800;background:var(--card);border:1px solid var(--brd);border-radius:999px;padding:1px 7px;white-space:nowrap;display:inline-block">${esc((p.nom||'').split(' ')[0])}</div>
-      </div>`;
-    });
-    html+=`<div style="position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:6px;z-index:4">
-        <button class="btn ghost sm" style="width:38px;height:38px;padding:0;font-size:19px" onclick="carteZoom(1)">+</button>
-        <button class="btn ghost sm" style="width:38px;height:38px;padding:0;font-size:19px" onclick="carteZoom(-1)">−</button>
-        <button class="btn ghost sm" style="width:38px;height:38px;padding:0;font-size:16px" onclick="carteCentrer()" title="Recentrer sur l'équipe">⌖</button>
-      </div>
-      <div style="position:absolute;left:8px;bottom:6px;font-size:9.5px;color:var(--t3);background:rgba(0,0,0,.35);padding:2px 6px;border-radius:6px;z-index:4">fonds de carte © OpenStreetMap</div>`;
-    z.innerHTML=html;
-    carteGlisse();
-  }
-  function carteZoom(d){ _carteEtat.z=Math.max(3,Math.min(18,_carteEtat.z+d)); carteRender(); }
-  function carteCentrer(){
-    const l=_cartePos.filter(p=>p.la!=null);
-    if(!l.length) return;
-    _carteEtat.cx=l.reduce((s,p)=>s+p.la,0)/l.length;
-    _carteEtat.cy=l.reduce((s,p)=>s+p.lo,0)/l.length;
-    if(l.length>1){
-      const dla=Math.max(...l.map(p=>p.la))-Math.min(...l.map(p=>p.la));
-      const dlo=Math.max(...l.map(p=>p.lo))-Math.min(...l.map(p=>p.lo));
-      const d=Math.max(dla,dlo);
-      _carteEtat.z = d>1?8 : d>0.4?9 : d>0.2?10 : d>0.1?11 : d>0.05?12 : d>0.02?13 : 14;
-    } else _carteEtat.z=15;
-    carteRender();
-  }
-  function carteGlisse(){
-    const z=$('carte-zone'); if(!z||z._glisse) return; z._glisse=true;
-    let px=0,py=0,on=false;
-    z.addEventListener('pointerdown',e=>{ if(e.target.closest('button')||e.target.closest('[onclick^="carteFiche"]')) return;
-      on=true; px=e.clientX; py=e.clientY; z.setPointerCapture&&z.setPointerCapture(e.pointerId); z.style.cursor='grabbing'; });
-    z.addEventListener('pointermove',e=>{ if(!on) return;
-      const T=256, Z=_carteEtat.z, dx=e.clientX-px, dy=e.clientY-py; px=e.clientX; py=e.clientY;
-      const cx=_n2t(_carteEtat.cy,Z)*T-dx, cy=_n2y(_carteEtat.cx,Z)*T-dy;
-      _carteEtat.cy=_t2lo(cx/T,Z); _carteEtat.cx=_t2la(cy/T,Z);
-      carteRender();
-    });
-    const fin=()=>{ on=false; z.style.cursor='grab'; };
-    z.addEventListener('pointerup',fin); z.addEventListener('pointercancel',fin); z.addEventListener('pointerleave',fin);
-    z.addEventListener('wheel',e=>{ e.preventDefault(); carteZoom(e.deltaY<0?1:-1); },{passive:false});
-  }
-  function carteFiche(uid){
-    const p=_cartePos.find(x=>x.uid===uid); if(!p) return;
-    const actif=(p.jusqu||0)>Date.now();
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(p.nom)}</h3>
-      <p class="muted" style="font-size:12.5px;margin-bottom:12px">${actif?'🟢 partage sa position':'⚪ dernière position connue'} · ${esc(new Date(p.maj).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</p>
-      ${p.adresse?`<div class="card" style="padding:11px 13px;margin-bottom:12px;font-size:13.5px">📍 ${esc(p.adresse)}</div>`:''}
-      <button class="btn block" onclick="closeSheet();window.open('https://www.google.com/maps/dir/?api=1&destination=${p.la},${p.lo}','_blank')">🧭 Itinéraire vers ${esc((p.nom||'').split(' ')[0])}</button>
-      ${p.uid!==ME.uid?`<button class="btn ghost block" style="margin-top:8px" onclick="closeSheet();openDM('${esc(p.uid)}','${esc((p.nom||'').replace(/'/g,''))}')">💬 Lui écrire</button>`:''}`);
-  }
-  async function carteCharger(){
-    if(!COMP) return;
-    try{
-      const qs=await memCol().get();
-      _cartePos=[];
-      qs.forEach(d=>{ const m=d.data()||{}; const p=m.pos;
-        if(!p||p.la==null) return;
-        /* on n'affiche que ce qui est partagé de plein gré et pas trop vieux */
-        if((p.jusqu||0)<Date.now()-12*3600000) return;
-        _cartePos.push({uid:d.id,nom:m.name||'Membre',la:p.la,lo:p.lo,adresse:p.adresse||'',maj:p.maj||0,jusqu:p.jusqu||0}); });
-      _cartePos.sort((a,b)=>b.maj-a.maj);
-    }catch(e){ _cartePos=[]; }
-    carteListe(); carteRender();
-  }
-  function carteListe(){
-    const z=$('carte-liste'); if(!z) return;
-    const moi=_cartePos.find(p=>p.uid===ME.uid);
-    const actifs=_cartePos.filter(p=>(p.jusqu||0)>Date.now());
-    const anciens=_cartePos.filter(p=>(p.jusqu||0)<=Date.now());
-    const ligne=p=>{ const actif=(p.jusqu||0)>Date.now();
-      const min=Math.round((Date.now()-(p.maj||0))/60000);
-      return `<div class="row" onclick="carteVers(${p.la},${p.lo})">
-        <div class="ava" style="${avatarStyle(p.nom)}">${ini(p.nom)}</div>
-        <div class="info"><div class="nm">${esc(p.nom)}${p.uid===ME.uid?' (vous)':''}</div>
-          <div class="ds">${actif?'🟢':'⚪'} ${esc(p.adresse||'position partagée')} · ${min<1?'à l\'instant':(min<60?'il y a '+min+' min':'il y a '+Math.round(min/60)+' h')}</div></div>
-        <div class="chev">›</div></div>`; };
-    z.innerHTML=`
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-        <button class="btn" onclick="posMenu()">${moi&&(moi.jusqu>Date.now())?'📍 Je partage ma position':'📍 Partager ma position'}</button>
-        ${_cartePos.length?`<button class="btn ghost" onclick="carteCentrer()">⌖ Voir tout le monde</button>`:''}
-      </div>
-      ${actifs.length?`<div class="form-sec" style="font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--t3);margin-bottom:6px">EN CE MOMENT (${actifs.length})</div>${actifs.map(ligne).join('')}`:''}
-      ${anciens.length?`<div class="form-sec" style="font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--t3);margin:14px 0 6px">DERNIÈRES POSITIONS CONNUES</div>${anciens.map(ligne).join('')}`:''}
-      ${!_cartePos.length?`<p class="muted" style="font-size:13px;line-height:1.6">Personne ne partage sa position pour le moment. Chacun décide s'il la partage et pour combien de temps — c'est toujours volontaire.</p>`:''}`;
-  }
-  function carteVers(la,lo){ _carteEtat.cx=la; _carteEtat.cy=lo; _carteEtat.z=Math.max(_carteEtat.z,15); carteRender(); }
-  function vueCarte(){
-    const view=$('view');
-    view.innerHTML=`<div class="view-h"><h2>Carte de l'équipe</h2></div>
-      <div id="carte-zone" style="position:relative;height:min(52vh,430px);border-radius:16px;overflow:hidden;background:var(--inp);border:1px solid var(--card-brd);cursor:grab;touch-action:none;margin-bottom:14px"></div>
-      <div id="carte-liste"><p class="muted center">Chargement…</p></div>`;
-    if(_carteT) clearInterval(_carteT);
-    _carteT=setInterval(()=>{ if(_curView==='carte') carteCharger(); else { clearInterval(_carteT); _carteT=null; } },30000);
-    carteCharger();
-    setTimeout(()=>{ try{ if(_cartePos.length) carteCentrer(); else carteRender(); }catch(e){} },400);
-  }
   // ---- CONTACTS (membres) ----
   let _contList=[],_contSearch='';
   async function viewCont(){
@@ -2935,8 +2759,7 @@
     const showFab = MODE==='perso' || IS_OWNER;
     const fabAction = MODE==='perso' ? 'addContactForm()' : 'addPeopleMenu()';
     const emptyMsg = MODE==='perso' ? 'Aucun contact. Touchez + pour en ajouter avec leur identifiant.' : 'Aucun contact.';
-    const hb = MODE === 'perso' ? `<button class="hbtn blue" onclick="addContactForm()">${ms('person_add',18)}Ajouter</button>`
-      : `<span style="display:flex;gap:8px">${IS_OWNER?`<button class="hbtn blue" onclick="addPeopleMenu()">${ms('person_add',18)}Inviter</button>`:''}<button class="hbtn neutral" onclick="showView('carte')">🗺️ Carte</button></span>`;
+    const hb = MODE === 'perso' ? `<button class="hbtn blue" onclick="addContactForm()">${ms('person_add',18)}Ajouter</button>` : (IS_OWNER?`<button class="hbtn blue" onclick="addPeopleMenu()">${ms('person_add',18)}Inviter</button>`:'');
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2>${hb}</div>
       <div class="gsearch">${ms('search',19)}<input id="cont-search" placeholder="Rechercher un contact…" oninput="_contSearch=this.value.trim().toLowerCase();renderContList()"></div>
       <div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ms('person_add',24)}</button>`:''}`;
@@ -3766,13 +3589,34 @@
     const rad=la*Math.PI/180;
     const y=Math.floor((1-Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2*Math.pow(2,z));
     return 'https://tile.openstreetmap.org/'+z+'/'+x+'/'+y+'.png'; }
+  /* Chacun ouvre la position dans le GPS qu'il préfère. Son choix est
+     retenu pour la prochaine fois, mais reste changeable. */
+  function gpsOuvrir(la,lo){
+    const noms={google:'Google Maps',waze:'Waze',apple:'Plans (iPhone)'};
+    const pref=(function(){ try{ return localStorage.getItem('opmsg_gps')||''; }catch(e){ return ''; } })();
+    const b=(k,ic)=>`<button class="btn ${pref===k?'':'ghost '}block" style="margin-bottom:8px" onclick="gpsAvec('${k}',${la},${lo})">${ic} ${noms[k]}${pref===k?' · habituel':''}</button>`;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">🧭 Ouvrir avec…</h3>
+      ${b('google','🗺️')}${b('waze','🚗')}${b('apple','🍏')}
+      <button class="btn ghost block" onclick="gpsCopier(${la},${lo})">📋 Copier les coordonnées</button>`);
+  }
+  function gpsAvec(k,la,lo){
+    try{ localStorage.setItem('opmsg_gps',k); }catch(e){}
+    const urls={ google:'https://www.google.com/maps/dir/?api=1&destination='+la+','+lo,
+      waze:'https://waze.com/ul?ll='+la+','+lo+'&navigate=yes',
+      apple:'https://maps.apple.com/?daddr='+la+','+lo };
+    closeSheet(); window.open(urls[k],'_blank');
+  }
+  function gpsCopier(la,lo){
+    try{ navigator.clipboard.writeText(la+', '+lo); toast('Coordonnées copiées'); }catch(e){ toast(la+', '+lo); }
+    closeSheet();
+  }
   function locHtml(id,m){
     const L=m.loc||{}; if(L.la==null) return '';
     const live=m.live&&m.live.jusqu>Date.now();
     const url='https://maps.google.com/?q='+L.la+','+L.lo;
     const maj=L.maj?new Date(L.maj):null;
     return `<div style="margin-top:5px;border:1px solid var(--brd2);border-radius:12px;overflow:hidden;max-width:290px">
-      <div onclick="event.stopPropagation();window.open('${url}','_blank')" style="position:relative;height:130px;background:var(--inp);cursor:pointer">
+      <div onclick="event.stopPropagation();gpsOuvrir(${L.la},${L.lo})" style="position:relative;height:130px;background:var(--inp);cursor:pointer">
         <img src="${locTuile(L.la,L.lo)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none'">
         <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:28px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">📍</span>
         ${live?`<span style="position:absolute;left:8px;top:8px;background:var(--red);color:#fff;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:999px">🔴 EN DIRECT</span>`:''}
@@ -3780,13 +3624,12 @@
       <div style="padding:9px 11px">
         <div style="font-size:13px;font-weight:700">${esc(L.adresse||'Position partagée')}</div>
         <div style="font-size:11.5px;color:var(--t3);margin-top:2px">
-          ${live?('jusqu\'à '+esc(new Date(m.live.jusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))+(maj?' · mise à jour '+esc(maj.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})):''))
+          ${live?('⏳ <b class="loc-cr" data-fin="'+m.live.jusqu+'" style="font-variant-numeric:tabular-nums;color:var(--t1)"></b> restants · jusqu\'à '+esc(new Date(m.live.jusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})))
                 :(m.live?'partage terminé':'position à l\'instant de l\'envoi')}
         </div>
         <div style="display:flex;gap:7px;margin-top:8px;flex-wrap:wrap">
-          <button class="btn ghost sm" onclick="event.stopPropagation();window.open('${url}','_blank')">Ouvrir la carte</button>
-          <button class="btn ghost sm" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${L.la},${L.lo}','_blank')">Itinéraire</button>
-          ${(m.uid===ME.uid&&live)?`<button class="btn ghost sm" onclick="event.stopPropagation();liveStop()">Arrêter</button>`:''}
+          <button class="btn sm" onclick="event.stopPropagation();gpsOuvrir(${L.la},${L.lo})">🧭 Ouvrir dans mon GPS</button>
+          ${(m.uid===ME.uid&&live)?`<button class="btn ghost sm" onclick="event.stopPropagation();liveProlongerMenu()">⏱ Rallonger</button><button class="btn ghost sm" onclick="event.stopPropagation();liveStop()">Arrêter</button>`:''}
         </div>
       </div></div>`; }
   function pollHtml(id,m){ const p=m.poll||{opts:[]}; const v=_pollVotes[id];
@@ -4082,17 +3925,17 @@
   function locMenu(){
     if(!_curCh) return;
     const enCours=_liveId?`<div class="card" style="padding:11px 13px;margin-bottom:12px;font-size:13px">
-        🔴 Tu partages ta position en direct jusqu'à <b>${esc(new Date(_liveJusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))}</b>
+        🔴 Tu partages ta position jusqu'à <b>${esc(new Date(_liveJusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))}</b>
         <button class="btn ghost sm block" style="margin-top:9px" onclick="liveStop()">Arrêter le partage</button></div>`:'';
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">📍 Partager ma position</h3>
       ${enCours}
-      <button class="btn block" onclick="closeSheet();sendLocation()">📍 Envoyer ma position maintenant</button>
-      <div class="form-sec" style="margin:14px 0 8px;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--t3)">EN DIRECT, PENDANT…</div>
+      <button class="btn block" onclick="closeSheet();sendLocation()">📍 Envoyer ma position (reste dans la discussion)</button>
+      <div class="form-sec" style="margin:14px 0 8px;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--t3)">PARTAGER PENDANT…</div>
       <div style="display:flex;gap:8px">
         ${[15,30,60].map(m=>`<button class="btn ghost sm" style="flex:1" onclick="liveStart(${m})">${m} min</button>`).join('')}
       </div>
-      <button class="btn ghost block" style="margin-top:14px" onclick="locDemander()">🙋 Demander la position de l'équipe</button>
-      <p class="muted" style="font-size:11.5px;line-height:1.5;margin-top:12px">Ta position se met à jour tant que OP MESSAGES reste ouverte sur ton téléphone. Si tu fermes l'application, le partage s'arrête et les autres voient la dernière position connue.</p>`);
+      <p class="muted" style="font-size:11.5px;line-height:1.5;margin:10px 0 0">À la fin du temps choisi, ta position <b>disparaît de chez tout le monde</b>. Elle se met à jour tant que OP MESSAGES est ouverte, et chacun l'ouvre dans le GPS de son choix.</p>
+      <button class="btn ghost block" style="margin-top:14px" onclick="locDemander()">🙋 Demander la position de l'équipe</button>`);
   }
   /* l'adresse écrite en toutes lettres, quand le service public répond */
   async function locAdresse(la,lo){
@@ -4155,7 +3998,49 @@
     return h;
   }
   /* ── la position en direct ── */
-  let _liveId=null,_liveT=null,_liveJusqu=0,_liveCh=null;
+  let _liveId=null,_liveT=null,_liveJusqu=0,_liveCh=null,_liveAlerte=false;
+  /* le tic-tac : chaque seconde, les comptes à rebours affichés se mettent
+     à jour, sans redessiner la conversation */
+  setInterval(()=>{ try{
+    document.querySelectorAll('.loc-cr[data-fin]').forEach(e=>{
+      const r=Math.max(0,+e.dataset.fin-Date.now());
+      const m=Math.floor(r/60000), s2=Math.floor(r%60000/1000);
+      e.textContent = r<=0 ? 'terminé' : (m>=60 ? Math.floor(m/60)+' h '+String(m%60).padStart(2,'0') : m+':'+String(s2).padStart(2,'0'));
+      if(r>0&&r<=120000) e.style.color='var(--red)';
+    });
+  }catch(e){} },1000);
+  /* prolonger le partage en cours */
+  function liveProlongerMenu(){
+    if(!_liveId) return;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">⏱ Rallonger le partage</h3>
+      <p class="muted" style="font-size:13px;margin-bottom:14px">Il se termine à <b>${esc(new Date(_liveJusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))}</b>.</p>
+      <div style="display:flex;gap:8px">
+        ${[15,30,60].map(m=>`<button class="btn ghost sm" style="flex:1" onclick="liveProlonger(${m})">+ ${m} min</button>`).join('')}
+      </div>`);
+  }
+  async function liveProlonger(minutes){
+    if(!_liveId||!_liveCh) return;
+    _liveJusqu=Math.max(_liveJusqu,Date.now())+minutes*60000; _liveAlerte=false;
+    try{ await chanCol().doc(_liveCh).collection('messages').doc(_liveId)
+      .update({'live.jusqu':_liveJusqu,exp:_liveJusqu}); }catch(e){}
+    closeSheet(); toast('⏱ Partage rallongé jusqu\'à '+new Date(_liveJusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}));
+    try{ renderStream(); }catch(e){}
+  }
+  /* l'alerte : 2 minutes avant la fin, on prévient et on propose de rallonger */
+  function liveAlerteCheck(){
+    if(!_liveId||_liveAlerte) return;
+    const reste=_liveJusqu-Date.now();
+    if(reste<=0||reste>120000) return;
+    _liveAlerte=true;
+    try{ if('Notification' in window && Notification.permission==='granted' && navigator.serviceWorker)
+      navigator.serviceWorker.ready.then(r=>r.showNotification('📍 Partage de position',{body:'Il se termine dans 2 minutes. Ouvre OP MESSAGES pour le rallonger.',icon:'icons/icon-192.png'})); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">📍 Plus que 2 minutes</h3>
+      <p class="muted" style="font-size:13px;line-height:1.55;margin-bottom:14px">Ton partage de position se termine à <b>${esc(new Date(_liveJusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))}</b>, puis ta position disparaîtra de chez tout le monde.</p>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        ${[15,30,60].map(m=>`<button class="btn ghost sm" style="flex:1" onclick="liveProlonger(${m})">+ ${m} min</button>`).join('')}
+      </div>
+      <button class="btn ghost block" onclick="closeSheet()">Laisser se terminer</button>`);
+  }
   async function liveStart(minutes){
     if(!_curCh) return;
     if(!navigator.geolocation){ toast('Géolocalisation non disponible.'); return; }
@@ -4165,17 +4050,18 @@
       const jusqu=Date.now()+minutes*60000;
       const adresse=await locAdresse(la,lo);
       try{
-        const ref=await addMsg({uid:ME.uid,name:USER.name||ME.email,loc:{la:la,lo:lo,adresse:adresse,maj:Date.now()},live:{jusqu:jusqu},ts:FV()});
-        _liveId=ref.id; _liveCh=_curCh.id; _liveJusqu=jusqu;
-        toast('🔴 Position partagée pendant '+minutes+' min');
+        /* exp : à l'heure dite, le message disparaît de chez tout le monde */
+        const ref=await addMsg({uid:ME.uid,name:USER.name||ME.email,loc:{la:la,lo:lo,adresse:adresse,maj:Date.now()},live:{jusqu:jusqu},exp:jusqu,ts:FV()});
+        _liveId=ref.id; _liveCh=_curCh.id; _liveJusqu=jusqu; _liveAlerte=false;
+        toast('🔴 Position partagée pendant '+minutes+' min — compte à rebours lancé');
         if(_liveT) clearInterval(_liveT);
-        _liveT=setInterval(liveMaj,25000);
+        _liveT=setInterval(()=>{ liveAlerteCheck(); liveMaj(); },10000);
       }catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
     }, ()=>toast('Position refusée ou indisponible.'), {enableHighAccuracy:true,timeout:8000});
   }
   function liveMaj(){
     if(!_liveId||!_liveCh) return;
-    if(Date.now()>_liveJusqu){ liveStop(true); return; }
+    if(Date.now()>_liveJusqu){ liveStop(true); toast('📍 Partage de position terminé'); return; }
     if(!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(p=>{
       const la=+p.coords.latitude.toFixed(5), lo=+p.coords.longitude.toFixed(5);
