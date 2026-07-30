@@ -1071,27 +1071,14 @@
       const cols=jours.length, ROWH=76, BLOCH=Math.round(ROWH*0.75), GUT=80;
       /* La minute exacte de chaque réunion, heure par heure : 14h05, 10h35…
          Elle sera ÉCRITE dans la colonne des heures, en face de la réunion. */
-      const minH={}, minJH={};
-      rooms.filter(dansPeriode).forEach(r=>{ const d=new Date(r.scheduledAt), h=d.getHours(), m=d.getMinutes();
-        (minH[h]=minH[h]||new Set()).add(m);                       // pour la règle des heures
-        const k=d.toDateString()+'|'+h;
-        (minJH[k]=minJH[k]||new Set()).add(m); });                  // pour le cran, jour par jour
+      const minH={};
+      rooms.filter(dansPeriode).forEach(r=>{ const d=new Date(r.scheduledAt);
+        (minH[d.getHours()]=minH[d.getHours()]||new Set()).add(d.getMinutes()); });
       /* Les repères de temps dans chaque case : un pointillé sur toute la largeur
          à la demie, et deux petits crans aux quarts (…:15 et …:45). Avec ça, une
          réunion posée à 9h15 tombe visiblement sur un cran. */
-      const repereBase=[`repeating-linear-gradient(to right,var(--cal-line) 0 5px,transparent 5px 11px)`,
-                        `linear-gradient(to right,var(--cal-line) 0 8px,transparent 8px)`,
-                        `linear-gradient(to right,var(--cal-line) 0 8px,transparent 8px)`];
-      const tailleBase=['100% 1px','8px 1px','8px 1px'];
-      const posBase=h=>[`0 ${ROWH/2-1}px`,`0 ${Math.round(ROWH/4)-1}px`,`0 ${Math.round(ROWH*3/4)-1}px`];
-      /* les repères d'une case : la demie, les deux quarts, et un cran coloré
-         à la minute exacte de chaque réunion de cette heure-là */
-      const reperes=(h,d)=>{ const mm=[...(minJH[d.toDateString()+'|'+h]||[])].filter(m=>m>0).sort((a,b)=>a-b);
-        const img=repereBase.concat(mm.map(()=>`linear-gradient(to right,var(--op-tx) 0 13px,transparent 13px)`));
-        const tai=tailleBase.concat(mm.map(()=>'13px 2px'));
-        const pos=posBase(h).concat(mm.map(m=>`0 ${Math.round(m/60*ROWH)-1}px`));
-        return `background-image:${img.join(',')};background-size:${tai.join(',')};`
-              +`background-repeat:no-repeat;background-position:${pos.join(',')};`; };
+      /* Les cases restent nues : l'heure exacte est écrite en gras sur chaque
+         réunion et dans la colonne de gauche, les tirets faisaient double emploi. */
       const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
       const estWE=d=>{ const j=d.getDay(); return j===0||j===6; };
       /* Deux grilles empilées qui partagent les mêmes colonnes :
@@ -1143,9 +1130,8 @@
           etq+=`<div style="position:absolute;top:${tDemi}px;right:9px;font-size:9px;font-weight:600;color:var(--t3);opacity:.7">${HH}:30</div>`;
         grid+=`<div data-h="${HH}" style="height:${ROWH}px;position:relative;${hi?'border-top:1px solid var(--cal-line)':''}">${etq}</div>`;
         jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
-          const rep=reperes(h,d);
           grid+=`<div onclick="dashForm('${_dstr(d)}','${HH}:00')" title="Poser une réunion ici"
-            style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background-color:var(--cal-today);':(we?'background-color:var(--cal-we);':'')}${rep}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
+            style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background-color:var(--cal-today);':(we?'background-color:var(--cal-we);':'')}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
             <div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;display:flex;align-items:center;justify-content:center;color:transparent"
               onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'"
               onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div></div>`; });
