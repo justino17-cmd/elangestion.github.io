@@ -621,11 +621,16 @@
   function opPushNotifyUsers(uids,title,body){ try{ (uids||[]).forEach(u=>{ if(!u||u===ME.uid) return;
     fetch(PUSH_API+'/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:'opmsg-user-'+u,title:String(title||'').slice(0,120),body:String(body||'').slice(0,300),url:'/messages.html'})}).catch(()=>{}); }); }catch(e){} }
   function opPushPropose(){ try{ if(!pushSupported()||!ME) return; if(Notification.permission!=='default') return;
-    const k='opmsg_push_ask_'+ME.uid; if(localStorage.getItem(k)) return; localStorage.setItem(k,'1');
+    /* « Plus tard » ne veut pas dire « plus jamais » : on repropose au bout
+       de 3 jours, sinon la moitié de l'équipe ne recevait jamais rien. */
+    const k='opmsg_push_ask_'+ME.uid;
+    const dernierRefus=+(localStorage.getItem(k)||0);
+    if(dernierRefus && Date.now()-dernierRefus < 3*864e5) return;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🔔 Notifications</h3>
-      <p class="muted" style="font-size:13.5px;line-height:1.55;margin-bottom:14px">Sois prévenu des nouveaux messages même quand OP MESSAGES est fermée.</p>
+      <p class="muted" style="font-size:13.5px;line-height:1.55;margin-bottom:14px">Sois prévenu des nouveaux messages et des réunions (créées, déplacées, annulées) même quand OP MESSAGES est fermée.</p>
+      <p class="muted" style="font-size:12px;line-height:1.5;margin-bottom:14px">📱 Sur iPhone : installe d'abord OP MESSAGES sur l'écran d'accueil (Partager → « Sur l'écran d'accueil »), sinon l'iPhone n'autorise pas les notifications.</p>
       <button class="btn block" onclick="closeSheet();opPushSub()">Activer les notifications</button>
-      <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
+      <button class="btn ghost block" style="margin-top:8px" onclick="try{localStorage.setItem('opmsg_push_ask_'+ME.uid,String(Date.now()))}catch(e){};closeSheet()">Plus tard</button>`);
   }catch(e){} }
   function fontSize(){ return pref('fontsize','m'); }
   function applyFontSize(){ const map={s:'13.5px',m:'15px',l:'17px',xl:'19px'}; let st=$('fsStyle'); if(!st){ st=document.createElement('style'); st.id='fsStyle'; document.head.appendChild(st); } st.textContent='.m{font-size:'+(map[fontSize()]||'15px')+'}'; }
