@@ -365,6 +365,19 @@
     <button class="btn" id="cam-envoyer" onclick="camEnvoyer()" style="display:none;min-width:150px">Envoyer</button>
   </div></div>
 <div class="viewer" id="viewer"><div class="vbar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn ghost sm" onclick="closeViewer()">✕ Fermer</button></div><iframe id="viewer-frame" title="Document"></iframe></div>
+<div class="viewer" id="visio"><div class="vbar"><span style="display:flex;align-items:center;gap:10px;min-width:0">
+    <span id="visio-nom" style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Réunion</span>
+    <b id="visio-duree" style="font-size:12.5px;font-variant-numeric:tabular-nums;color:#9fe870">00:00</b></span>
+  <span style="display:flex;gap:8px;align-items:center">
+    <span id="visio-etat" style="font-size:11.5px;color:#8b93a5"></span>
+    <button class="btn ghost sm" onclick="visioFermer()">✕ Quitter</button></span></div>
+  <div id="visio-grille" style="flex:1;min-height:0;display:grid;gap:8px;padding:10px;background:#0a0e16;overflow:auto;
+    grid-template-columns:repeat(auto-fit,minmax(min(46vw,300px),1fr));align-content:center"></div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:12px calc(12px + env(safe-area-inset-bottom));background:#0a0e16">
+    <button id="visio-mic" onclick="visioMicro()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer">🎤</button>
+    <button id="visio-cam" onclick="visioCamera()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer">📷</button>
+    <button onclick="visioFermer()" style="width:62px;height:52px;border-radius:26px;border:none;background:#e05252;color:#fff;font-size:21px;cursor:pointer">📞</button>
+  </div></div>
 <div class="jitsi" id="jitsi"><div class="vbar"><span id="jitsi-name" style="font-size:14px;font-weight:600">Réunion</span><button class="btn ghost sm" onclick="closeJitsi()">✕ Quitter</button></div><div id="jitsi-box"></div></div>
 <div class="ring" id="ring"></div>
 <div class="toast" id="toast"></div>
@@ -2987,7 +3000,150 @@
     _callDocUnsub=ref.onSnapshot(d=>{ if(!d.exists||!_activeCall) return; const st=d.data().status;
       if(st==='answered'){ _activeCall.answered=true; }
       else if(st==='declined' && _activeCall.oneToOne){ const nm=(names&&names[0])||'Le contact'; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;} _activeCall=null; closeJitsi(); setTimeout(()=>alert(nm+' a refusé l\'appel.'),250); } });
-    openJitsi(room, 'Appel · '+((names||[]).join(', ')), type==='audio');
+    visioOuvrir(room, 'Appel · '+((names||[]).join(', ')), type==='audio');
+  }
+  /* ══════════════════════════════════════════════════════════════════════
+     LA VISIO À NOUS
+     La vidéo passe DIRECTEMENT d'un téléphone à l'autre (WebRTC), sans salle
+     chez un tiers : personne d'autre ne voit ni n'entend. Les appareils se
+     trouvent en s'écrivant de petits mots dans notre base (offre, réponse,
+     chemins réseau), qu'on efface en quittant. L'ancien système reste en
+     secours d'un clic si un réseau d'entreprise trop fermé bloque le direct.
+     ══════════════════════════════════════════════════════════════════════ */
+  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false;
+  const _vConf={iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
+  function _vCol(){ return callsCol(); }
+  async function _vDire(m){ try{ await _vCol().add(Object.assign({sig:1,room:_vRoom,de:ME.uid,nom:(USER&&USER.name)||'',ts:Date.now()},m)); }catch(e){} }
+  function visioEtat(t){ const e=$('visio-etat'); if(e) e.textContent=t||''; }
+  async function visioOuvrir(room,titre,audioOnly){
+    _vRoom=room; _vAudioOnly=!!audioOnly; _vVus=new Set(); _vPairs={}; _vNettoye=false;
+    $('visio-nom').textContent=titre||'Réunion';
+    { const w=$('visio').classList.contains('open'); $('visio').classList.add('open'); if(!w) pushBack(); }
+    visioEtat('caméra…');
+    try{
+      _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:1280},facingMode:'user'},audio:true});
+    }catch(e){
+      try{ _vLocal=await navigator.mediaDevices.getUserMedia({video:false,audio:true}); _vAudioOnly=true; }
+      catch(e2){ visioEtat(''); alert('Caméra et micro refusés — autorise-les dans le navigateur, ou passe par l\'ancien système.'); visioSecoursBtn(); return; }
+    }
+    _vT0=Date.now(); if(_vTimer) clearInterval(_vTimer);
+    _vTimer=setInterval(()=>{ const s2=Math.floor((Date.now()-_vT0)/1000); const el=$('visio-duree');
+      if(el) el.textContent=String(Math.floor(s2/60)).padStart(2,'0')+':'+String(s2%60).padStart(2,'0'); },1000);
+    visioTuiles(); visioEtat('en attente des autres…');
+    /* on s'annonce, puis on écoute les mots des autres */
+    await _vDire({type:'salut'});
+    const traite=d=>{ try{ visioTraiter(d); }catch(e){} };
+    try{ if(_vUnsub) _vUnsub();
+      _vUnsub=_vCol().where('room','==',room).onSnapshot(qs=>{ qs.forEach(x=>traite({id:x.id,...(x.data()||{})})); },()=>{}); }catch(e){}
+    if(_vPoll) clearInterval(_vPoll);
+    const relire=async()=>{ try{ const qs=await _vCol().where('room','==',_vRoom).get(); qs.forEach(x=>traite({id:x.id,...(x.data()||{})})); }catch(e){} };
+    _vPoll=setInterval(relire,2500); relire();
+  }
+  function _vPair(uid,nom){
+    if(_vPairs[uid]) return _vPairs[uid];
+    const pc=new RTCPeerConnection(_vConf);
+    const p={pc:pc,nom:nom||'',stream:null,glace:[],pret:false};
+    _vPairs[uid]=p;
+    try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>pc.addTrack(t,_vLocal)); }catch(e){}
+    pc.onicecandidate=ev=>{ if(ev.candidate) _vDire({type:'ice',a:uid,cand:JSON.stringify(ev.candidate)}); };
+    pc.ontrack=ev=>{ p.stream=ev.streams[0]||new MediaStream([ev.track]); visioTuiles(); };
+    pc.onconnectionstatechange=()=>{ const st=pc.connectionState;
+      if(st==='connected') visioEtat('');
+      if(st==='failed'){ visioEtat('connexion difficile'); visioSecoursBtn(); }
+      if(st==='disconnected'||st==='closed'){ setTimeout(()=>{ if(pc.connectionState==='disconnected'||pc.connectionState==='closed'){ delete _vPairs[uid]; visioTuiles(); } },4000); }
+    };
+    visioTuiles();
+    return p;
+  }
+  async function visioTraiter(d){
+    if(!_vRoom||!d||d.room!==_vRoom||!d.sig) return;
+    if(d.de===ME.uid) return;
+    if(d.a&&d.a!==ME.uid) return;
+    if(_vVus.has(d.id)) return; _vVus.add(d.id);
+    if(d.ts&&Date.now()-d.ts>3*3600000) return;
+    if(d.type==='salut'){
+      /* le plus « grand » identifiant fait l'offre : jamais deux offres croisées */
+      if(ME.uid>d.de && !_vPairs[d.de]){
+        const p=_vPair(d.de,d.nom);
+        const off=await p.pc.createOffer(); await p.pc.setLocalDescription(off);
+        await _vDire({type:'offre',a:d.de,sdp:JSON.stringify(off)});
+      } else if(ME.uid<d.de && !_vPairs[d.de]){
+        await _vDire({type:'salut',a:d.de});   // il fera l'offre en nous voyant
+      }
+      return;
+    }
+    if(d.type==='offre'){
+      const p=_vPair(d.de,d.nom);
+      await p.pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(d.sdp)));
+      p.pret=true; for(const c of p.glace) try{ await p.pc.addIceCandidate(c); }catch(e){} p.glace=[];
+      const rep2=await p.pc.createAnswer(); await p.pc.setLocalDescription(rep2);
+      await _vDire({type:'reponse',a:d.de,sdp:JSON.stringify(rep2)});
+      return;
+    }
+    if(d.type==='reponse'){
+      const p=_vPairs[d.de]; if(!p) return;
+      await p.pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(d.sdp)));
+      p.pret=true; for(const c of p.glace) try{ await p.pc.addIceCandidate(c); }catch(e){} p.glace=[];
+      return;
+    }
+    if(d.type==='ice'){
+      const p=_vPairs[d.de]; if(!p) return;
+      const c=new RTCIceCandidate(JSON.parse(d.cand));
+      if(p.pret){ try{ await p.pc.addIceCandidate(c); }catch(e){} } else p.glace.push(c);
+      return;
+    }
+    if(d.type==='pars'){ const p=_vPairs[d.de]; if(p){ try{ p.pc.close(); }catch(e){} delete _vPairs[d.de]; visioTuiles(); } }
+  }
+  function visioTuiles(){
+    const g=$('visio-grille'); if(!g) return;
+    const tuile=(id,stream,nom,moi)=>{
+      const camOff=moi?(!_vLocal||!_vLocal.getVideoTracks().some(t=>t.enabled)):!(stream&&stream.getVideoTracks&&stream.getVideoTracks().length);
+      return `<div style="position:relative;border-radius:14px;overflow:hidden;background:#141a26;aspect-ratio:4/3">
+        ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+            <div style="width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;${avatarStyle(nom)}">${ini(nom)}</div></div>`
+          :`<video id="vt-${id}" autoplay playsinline ${moi?'muted':''} style="width:100%;height:100%;object-fit:cover;${moi?'transform:scaleX(-1)':''}"></video>`}
+        ${(!moi&&stream)?`<audio id="va-${id}" autoplay></audio>`:''}
+        <span style="position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px">${esc((nom||'').split(' ')[0]||'')}${moi?' (toi)':''}</span>
+      </div>`; };
+    let h=tuile('moi',_vLocal,(USER&&USER.name)||'Moi',true);
+    Object.entries(_vPairs).forEach(([uid,p])=>{ h+=tuile(uid,p.stream,p.nom||'Invité',false); });
+    g.innerHTML=h;
+    try{ const v=$('vt-moi'); if(v&&_vLocal) v.srcObject=_vLocal; }catch(e){}
+    Object.entries(_vPairs).forEach(([uid,p])=>{ if(!p.stream) return;
+      try{ const v=$('vt-'+uid); if(v) v.srcObject=p.stream; }catch(e){}
+      try{ const a=$('va-'+uid); if(a){ a.srcObject=p.stream; const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{}); } }catch(e){} });
+  }
+  function visioMicro(){ if(!_vLocal) return; let on=false;
+    _vLocal.getAudioTracks().forEach(t=>{ t.enabled=!t.enabled; on=t.enabled; });
+    const b=$('visio-mic'); if(b){ b.textContent=on?'🎤':'🔇'; b.style.background=on?'#232a3a':'#e05252'; } }
+  function visioCamera(){ if(!_vLocal) return; let on=false;
+    _vLocal.getVideoTracks().forEach(t=>{ t.enabled=!t.enabled; on=t.enabled; });
+    const b=$('visio-cam'); if(b){ b.textContent=on?'📷':'🚫'; b.style.background=on?'#232a3a':'#e05252'; }
+    visioTuiles(); }
+  function visioSecoursBtn(){ const e=$('visio-etat');
+    if(e&&!e.querySelector('button')) e.innerHTML='<button class="btn ghost sm" onclick="visioSecours()">Passer par l\'ancien système</button>'; }
+  function visioSecours(){ const room=_vRoom, titre=($('visio-nom')||{}).textContent||'Réunion', audio=_vAudioOnly;
+    visioFermer(true); openJitsi(room,titre,audio); }
+  async function visioFermer(sansClore){
+    if(_vNettoye&&!_vRoom) return; _vNettoye=true;
+    const room=_vRoom; _vRoom=null;
+    if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
+    if(_vPoll){ clearInterval(_vPoll); _vPoll=null; }
+    try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
+    Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
+    try{ if(_vLocal) _vLocal.getTracks().forEach(t=>t.stop()); }catch(e){} _vLocal=null;
+    $('visio').classList.remove('open');
+    /* on prévient et on efface nos petits mots de signalisation */
+    if(room){ try{ await _vCol().add({sig:1,room:room,de:ME.uid,type:'pars',ts:Date.now()}); }catch(e){}
+      try{ const qs=await _vCol().where('room','==',room).get();
+        for(const d of qs.docs){ const x=d.data()||{}; if(x.sig&&x.de===ME.uid) try{ await d.ref.delete(); }catch(e){} } }catch(e){} }
+    if(!sansClore) appelClore();
+  }
+  try{ window.addEventListener('pagehide',()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} }); }catch(e){}
+  /* la clôture du dossier d'appel (manqué / terminé), partagée avec le secours */
+  function appelClore(){
+    if(_activeCall){ const ref=_activeCall.ref, ans=_activeCall.answered; _activeCall=null; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;}
+      ref.get().then(d=>{ if(!d.exists) return; const st=d.data().status; if(st==='ringing') ref.update({status: ans?'ended':'missed'}); else if(st==='answered') ref.update({status:'ended'}); }).catch(()=>{}); }
   }
   function loadJitsi(){ return new Promise((res,rej)=>{ if(window.JitsiMeetExternalAPI) return res(); const s=document.createElement('script'); s.src='https://meet.jit.si/external_api.js'; s.onload=res; s.onerror=()=>rej(new Error('jitsi')); document.head.appendChild(s); }); }
   async function openJitsi(roomName,title,audioOnly){
@@ -2999,10 +3155,9 @@
       interfaceConfigOverwrite:{SHOW_JITSI_WATERMARK:false,SHOW_WATERMARK_FOR_GUESTS:false,SHOW_BRAND_WATERMARK:false,JITSI_WATERMARK_LINK:'',MOBILE_APP_PROMO:false,HIDE_DEEP_LINKING_LOGO:true,SHOW_POWERED_BY:false,APP_NAME:'OP MESSAGES',NATIVE_APP_NAME:'OP MESSAGES',PROVIDER_NAME:'OP MESSAGES',DEFAULT_BACKGROUND:'#0a0e16',DISABLE_JOIN_LEAVE_NOTIFICATIONS:true,TOOLBAR_BUTTONS:['microphone','camera','desktop','tileview','hangup','chat','raisehand','participants-pane','settings']}});
     _japi.addEventListener('readyToClose',closeJitsi);
   }
-  function joinRoom(id,name){ openJitsi('OPMSG'+((COMP&&COMP.id)||'perso')+id, name||'Réunion', false); }
+  function joinRoom(id,name){ visioOuvrir('OPMSG'+((COMP&&COMP.id)||'perso')+id, name||'Réunion', false); }
   function closeJitsi(){ try{ if(_japi){_japi.dispose();_japi=null;} }catch(e){} $('jitsi-box').innerHTML=''; $('jitsi').classList.remove('open');
-    if(_activeCall){ const ref=_activeCall.ref, ans=_activeCall.answered; _activeCall=null; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;}
-      ref.get().then(d=>{ if(!d.exists) return; const st=d.data().status; if(st==='ringing') ref.update({status: ans?'ended':'missed'}); else if(st==='answered') ref.update({status:'ended'}); }).catch(()=>{}); } }
+    appelClore(); }
 
   // ---- Appel entrant (sonnerie tant que l'app est ouverte) ----
   let _ringRef=null,_ringRefUnsub=null,_ringT=null,_callListenUnsub=null;
@@ -3019,7 +3174,7 @@
     { const _rw=$('ring').classList.contains('open'); $('ring').classList.add('open'); if(!_rw) pushBack(); } ringStart();
     _ringRefUnsub=ref.onSnapshot(d=>{ if(!d.exists||d.data().status!=='ringing') hideRing(); });
   }
-  function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); openJitsi(room,'Appel',type==='audio'); }
+  function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); visioOuvrir(room,'Appel',type==='audio'); }
   function declineCall(){ if(_ringRef) _ringRef.update({status:'declined'}).catch(()=>{}); hideRing(); }
   function hideRing(){ ringStop(); $('ring').classList.remove('open'); _ringRef=null; if(_ringRefUnsub){_ringRefUnsub();_ringRefUnsub=null;} }
   function ringStart(){ ringStop(); beep(); _ringT=setInterval(()=>beep(),1100); }
@@ -4632,8 +4787,9 @@
 
   // ===== Bouton « retour » du téléphone : ferme l'écran ouvert au lieu de quitter l'app =====
   function pushBack(){ try{ history.pushState({op:1},''); }catch(e){} }
-  function anyOverlayOpen(){ return ['camera','viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
+  function anyOverlayOpen(){ return ['visio','camera','viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
   function closeTopOverlay(){
+    if($('visio')&&$('visio').classList.contains('open')){ visioFermer(); return true; }
     if($('camera')&&$('camera').classList.contains('open')){ camFermer(); return true; }
     if($('viewer')&&$('viewer').classList.contains('open')){ closeViewer(); return true; }
     if($('jitsi')&&$('jitsi').classList.contains('open')){ closeJitsi(); return true; }
