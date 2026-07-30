@@ -3162,7 +3162,7 @@
     p.opts.forEach((o,i)=>{ const c=counts[i], pct=total?Math.round(c*100/total):0, sel=my===i;
       h+=`<div onclick="event.stopPropagation();vote('${id}',${i})" style="position:relative;border:1px solid ${sel?'var(--op)':'var(--brd2)'};border-radius:10px;padding:9px 12px;margin-bottom:6px;cursor:pointer;overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(94,130,255,.2)"></div><div style="position:relative;display:flex;justify-content:space-between;gap:8px"><span>${sel?'✓ ':''}${esc(o)}</span><span style="opacity:.7">${c}</span></div></div>`; });
     h+=`<div class="muted" style="font-size:11px">${total} vote${total>1?'s':''}</div>`; return h; }
-  async function loadPollVotes(id){ try{ const qs=await chMsgs().doc(id).collection('votes').get(); const v={}; qs.forEach(d=>v[d.id]=d.data().opt); _pollVotes[id]=v; renderStream(); }catch(e){ _pollVotes[id]={}; } }
+  async function loadPollVotes(id){ try{ const qs=await chMsgs().doc(id).collection('votes').get(); const v={}; qs.forEach(d=>v[d.id]=d.data().opt); _pollVotes[id]=v; }catch(e){ _pollVotes[id]={}; } renderStream(); }
   async function vote(id,i){ try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:i}); _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=i; renderStream(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
 
   // ---- Infos / gestion de groupe ----
@@ -3236,10 +3236,20 @@
     <div class="field"><label>Date & heure</label><input id="ev-when" type="datetime-local"></div>
     <div class="field"><label>Lieu (facultatif)</label><input id="ev-lieu" placeholder="Ex : Dépôt, 12 rue des Fleurs"></div>
     <button class="btn block" onclick="createEvent()">Envoyer l'événement</button>`); }
-  async function createEvent(){ const titre=($('ev-titre').value||'').trim(); const when=($('ev-when').value||'').trim(); const lieu=($('ev-lieu').value||'').trim();
-    if(!titre||!when){ $('everr').innerHTML='<div class="err">Titre et date requis.</div>'; return; }
+  async function createEvent(){ try{
+    const titre=($('ev-titre').value||'').trim(); const when=($('ev-when').value||'').trim(); const lieu=($('ev-lieu').value||'').trim();
+    if(!titre){ $('everr').innerHTML='<div class="err">Donne un titre à l\'événement.</div>'; return; }
+    if(!when){ $('everr').innerHTML='<div class="err">La date est incomplète : choisis le jour ET l\'heure.</div>'; return; }
+    if(!_curCh){ $('everr').innerHTML='<div class="err">La discussion s\'est fermée — rouvre-la et recommence.</div>'; return; }
     const at=new Date(when).getTime();
-    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,event:{titre,at,lieu},ts:FV()}); closeSheet(); }catch(e){ $('everr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
+    if(!at||isNaN(at)){ $('everr').innerHTML='<div class="err">Cette date n\'est pas valable.</div>'; return; }
+    await addMsg({uid:ME.uid,name:USER.name||ME.email,event:{titre,at,lieu},ts:FV()});
+    closeSheet(); toast('📅 Événement envoyé');
+  }catch(e){
+    const msg=(e&&e.message)||String(e);
+    const ev=$('everr'); if(ev) ev.innerHTML='<div class="err">Envoi impossible : '+esc(msg)+'</div>'; else alert('Envoi impossible : '+msg);
+    try{ tmPush('erreur','Événement non envoyé : '+msg,String((e&&e.stack)||'').slice(0,600),'createEvent',0); }catch(_){}
+  } }
   function eventHtml(id,m){ const ev=m.event||{}; const v=_pollVotes[id];
     if(v===undefined){ loadPollVotes(id); return `<div style="font-weight:700">📅 ${esc(ev.titre||'')}</div><div class="muted">Chargement…</div>`; }
     const oui=Object.values(v).filter(x=>x===1).length, non=Object.values(v).filter(x=>x===0).length; const my=v[ME.uid];
