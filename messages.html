@@ -114,6 +114,13 @@
   .appbar .ic{width:40px;height:40px;border-radius:12px;border:none;background:var(--inp);color:var(--t1);font-size:17px;cursor:pointer;flex-shrink:0}
   .appbar .ic:hover{background:var(--inp-h)}
   .appbar .ic.accent{background:var(--addbtn-bg);color:var(--addbtn-tx);font-size:22px}
+  /* le bouton jour / nuit : un seul clic, visible en permanence */
+  .thbtn{width:40px;height:40px;border-radius:12px;border:1px solid var(--brd2);background:transparent;color:var(--t2);
+    display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;flex-shrink:0;
+    transition:color .15s,border-color .15s,background .15s}
+  .thbtn:hover{color:var(--op-tx);border-color:var(--op)}
+  .thbtn.jour{color:var(--amber);border-color:var(--amber)}
+  .thbtn.nuit{color:var(--op-tx)}
   /* la barre de recherche du tableau de bord : longue, transparente, centree */
   .dashrech{flex:0 1 620px;min-width:220px;max-width:620px;margin:0 auto;display:flex;align-items:center;gap:11px;
     padding:13px 20px;border-radius:14px;background:transparent;border:1px solid var(--brd2);
@@ -482,7 +489,29 @@
   function ini(n){ return (n||'?').trim().slice(0,1).toUpperCase(); }
   function hue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
   function avatarStyle(s){ const h=hue(s); const clair=document.documentElement.getAttribute('data-theme')==='clair'; return clair?`background:hsl(${h} 52% 91%);color:hsl(${h} 45% 34%)`:`background:hsl(${h} 45% 22%);color:hsl(${h} 70% 72%)`; }
-  function applyTheme(){ const p=localStorage.getItem('opmsg_theme')||'dark'; let dark; if(p==='auto'){ dark=!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches); } else dark=(p!=='light'); document.documentElement.setAttribute('data-theme',dark?'sombre':'clair'); document.body.classList.toggle('theme-light',!dark); document.body.classList.toggle('theme-dark',dark); try{ const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content',dark?'#222733':'#fcfcfd'); }catch(e){}
+  /* ══ MODE JOUR / NUIT ══
+     Trois réglages : Automatique (suit le téléphone ou l'ordinateur, donc
+     jour la journée et nuit le soir), Jour toujours, Nuit toujours.
+     Le défaut est « Automatique » — c'est aussi ce que l'écran des réglages
+     annonçait déjà, alors que le code appliquait « Nuit ». */
+  const TH_ICO={auto:'brightness_auto',light:'light_mode',dark:'dark_mode'};
+  const TH_LBL={auto:'Automatique (suit ton appareil)',light:'Mode jour',dark:'Mode nuit'};
+  const TH_COURT={auto:'Auto',light:'Jour',dark:'Nuit'};
+  function themePref(){ const p=localStorage.getItem('opmsg_theme'); return (p==='auto'||p==='light'||p==='dark')?p:'auto'; }
+  function themeEffectif(){ const p=themePref();
+    if(p!=='auto') return p;
+    return (window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'; }
+  function themeSuivant(){ const o=['auto','light','dark']; return o[(o.indexOf(themePref())+1)%3]; }
+  function toggleTheme(){ const p=themeSuivant(); setTheme(p); toast(TH_LBL[p]); }
+  /* les boutons (barre latérale sur ordinateur, barre du haut sur téléphone) */
+  function majThemeBtn(){
+    const p=themePref(), eff=themeEffectif();
+    ['th-btn','th-btn2'].forEach(id=>{ const b=$(id); if(!b) return;
+      b.innerHTML=`<span class="ms" style="font-size:19px">${TH_ICO[p]}</span>`;
+      b.title='Thème : '+TH_LBL[p]+' — cliquer pour passer en '+TH_COURT[themeSuivant()];
+      b.classList.toggle('jour',eff==='light'); b.classList.toggle('nuit',eff==='dark'); });
+  }
+  function applyTheme(){ const p=themePref(); let dark; if(p==='auto'){ dark=!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches); } else dark=(p!=='light'); document.documentElement.setAttribute('data-theme',dark?'sombre':'clair'); document.body.classList.toggle('theme-light',!dark); document.body.classList.toggle('theme-dark',dark); try{ const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content',dark?'#222733':'#fcfcfd'); }catch(e){}
     // 🎨 Couleur d'accent (même système qu'OP GESTION) : la teinte remplace le bleu partout
     try{ const ac=localStorage.getItem('opmsg_accent')||'blue'; const hx=localStorage.getItem('opmsg_accent_hex')||'';
       const P={green:{d:'#37C68A',l:'#1E7A4E'},purple:{d:'#9D7AFF',l:'#7A5AF8'},orange:{d:'#E79A3C',l:'#C26A10'}};
@@ -490,7 +519,8 @@
       if(ac==='custom'&&/^#[0-9a-fA-F]{6}$/.test(hx)){ st.setProperty('--op',hx); st.setProperty('--op-l', dark?('color-mix(in srgb,#fff 30%,'+hx+')'):hx); }
       else if(P[ac]){ const v=dark?P[ac].d:P[ac].l; st.setProperty('--op',v); st.setProperty('--op-l', dark?('color-mix(in srgb,#fff 28%,'+v+')'):v); }
       else { st.removeProperty('--op'); st.removeProperty('--op-l'); }
-    }catch(e){} }
+    }catch(e){}
+    try{ majThemeBtn(); }catch(e){} }
   function setTheme(p){ localStorage.setItem('opmsg_theme',p); applyTheme(); if(_curView==='prof') viewProfile(); }
   function setOpAccent(a){ localStorage.setItem('opmsg_accent',a); applyTheme(); toast('Couleur appliquée'); sheetChats(); }
   function setOpAccentCustom(hex){ if(!/^#[0-9a-fA-F]{6}$/.test(hex)) return; localStorage.setItem('opmsg_accent_hex',hex); localStorage.setItem('opmsg_accent','custom'); applyTheme(); }
@@ -823,7 +853,7 @@
       <aside id="dskside">
         <div style="display:flex;align-items:center;gap:11px;padding:4px 10px 20px">
           <img src="${planMsgBadge()}" alt="" title="${planMsgTitle()}" style="width:38px;height:38px;border-radius:11px;flex-shrink:0">
-          <div style="min-width:0">
+          <div style="min-width:0;flex:1">
             <div style="font-weight:800;letter-spacing:.12em;font-size:14px">OP&nbsp;MESSAGES</div>
             <div style="font-size:9px;font-weight:700;letter-spacing:.22em;margin-top:3px;color:${planMsgColor()}">${planMsgLabel()}</div>
           </div>
@@ -850,6 +880,7 @@
           <img src="${planMsgBadge()}" alt="" style="width:26px;height:26px;border-radius:8px">
           <div><b id="ab-title" style="font-size:13.5px">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</b><span id="ab-sub" style="display:block">${MODE==='perso'?'Compte perso':(IS_OWNER?'Administrateur':'Membre')}</span></div>
         </div>
+        <button id="th-btn2" class="thbtn" onclick="toggleTheme()"></button>
       </div>
       ${HAS_COMPANY?`<div style="display:flex;gap:10px;padding:6px 14px 8px">
         <button class="sptab${MODE==='perso'?' on-perso':''}" style="flex:1" onclick="switchSpace('perso')">Perso</button>
@@ -865,6 +896,7 @@
         <button id="nv-prof" onclick="showView('prof')"><span class="ni">${USER.photo?`<img src="${USER.photo}" alt="">`:ic('user')}</span>Vous</button>
       </div>
       </div>`;
+    try{ majThemeBtn(); }catch(e){}
   }
   // Réunions depuis la colonne bureau : surligne l'onglet et ouvre la vue
   function dskMeet(){ ['dash','disc','cont','appel'].forEach(x=>{ const b=$('nv2-'+x); if(b) b.classList.remove('on'); });
@@ -995,7 +1027,7 @@
        posée à la minute exacte (9h15 tombe à 9h15, pas sur la ligne des 9h). */
     const bloc=(r,soon,pos)=>{ const stD=new Date(r.scheduledAt);
       const h=stD.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-      const n=(r.members||[]).length;
+      const n=(r.members||[]).length, dur=dureeDe(r), court=pos&&pos.h<36;
       const bg=soon?'var(--amber-bg)':'var(--blk-blue)', tx=soon?'var(--amber)':'var(--blk-blue-tx)',
             sub=soon?'var(--amber)':'var(--blk-blue-sub)';
       const geo=pos?`position:absolute;top:min(${pos.top}%,calc(100% - ${pos.h}px));left:calc(${pos.left}% + 3px);width:calc(${pos.width}% - 6px);height:${pos.h}px;pointer-events:auto;`
@@ -1006,7 +1038,7 @@
         <div style="display:flex;align-items:baseline;gap:5px;min-width:0">
           <b style="flex:none;font-size:11px;font-weight:800;color:${tx};font-variant-numeric:tabular-nums">${h}</b>
           <span style="min-width:0;font-size:11px;font-weight:700;color:${tx};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</span></div>
-        <div style="font-size:9.5px;font-weight:600;color:${sub};margin-top:1px;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${soon?'dans '+Math.max(1,Math.round((r.scheduledAt-nowMs)/60000))+' min':(n?n+' pers.':'')}${(soon&&n)?' · '+n+' pers.':''}${rsvpPastille(r)}</div></div>`; };
+        ${court?'':`<div style="font-size:9.5px;font-weight:600;color:${sub};margin-top:1px;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${soon?'dans '+Math.max(1,Math.round((r.scheduledAt-nowMs)/60000))+' min · ':''}${dureeTexte(dur)}${n?' · '+n+' pers.':''}${rsvpPastille(r)}</div>`}</div>`; };
     let grid='';
     if(_dashPortee==='mois'){
       const DN=['LUN','MAR','MER','JEU','VEN','SAM','DIM'];
@@ -1129,8 +1161,10 @@
           /* en pourcentage de la hauteur du corps : toujours juste */
           const pct=(((dd.getHours()-h0)+dd.getMinutes()/60)/HEURES.length*100).toFixed(3);
           const nb=ct.n[i]||1;
+          /* la hauteur du bloc = la durée annoncée (au moins de quoi lire l'heure) */
+          const hb=Math.max(26,Math.round(ROWH*dureeDe(r)/60));
           return bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000,
-                      {top:pct,left:(100/nb)*(ct.lane[i]||0),width:100/nb,h:BLOCH});
+                      {top:pct,left:(100/nb)*(ct.lane[i]||0),width:100/nb,h:hb});
         }).join('')+`</div>`;
       });
       grid+=`</div></div></div>`;
@@ -1188,11 +1222,12 @@
      DEUX RÉUNIONS À LA MÊME HEURE SE RANGENT CÔTE À CÔTE
      ══════════════════════════════════════════════════════════════════════ */
   function dashCotes(list){
-    const SPAN=50*60000, lane=[], n=[];
+    const lane=[], n=[];
+    const finDe=r=>r.scheduledAt+dureeDe(r)*60000;   // sa vraie fin, pas une durée moyenne
     let i=0;
     while(i<list.length){
-      let j=i, fin=list[i].scheduledAt+SPAN;
-      while(j+1<list.length && list[j+1].scheduledAt<fin){ j++; fin=Math.max(fin,list[j].scheduledAt+SPAN); }
+      let j=i, fin=finDe(list[i]);
+      while(j+1<list.length && list[j+1].scheduledAt<fin){ j++; fin=Math.max(fin,finDe(list[j])); }
       const nb=j-i+1;
       for(let k=i;k<=j;k++){ lane[k]=k-i; n[k]=nb; }
       i=j+1;
@@ -1227,7 +1262,8 @@
         <span style="color:var(--t2)">${l}</span><b style="margin-left:auto">${v}</b></div>`:'';
     const rep=(REPETS.find(x=>x[0]===r.repet)||[])[1];
     el.innerHTML=`<div style="font-size:13.5px;font-weight:800;line-height:1.3">${esc(r.name||'Réunion')}</div>
-      <div style="font-size:11.5px;color:var(--t2);margin-top:3px">${esc(fmtWhen(r.scheduledAt))} · ${etat}</div>
+      <div style="font-size:11.5px;color:var(--t2);margin-top:3px">${esc(fmtWhen(r.scheduledAt))} → ${esc(heureFin(r))}</div>
+      <div style="font-size:11.5px;color:var(--t2);margin-top:2px">${esc(dureeTexte(dureeDe(r)))} · ${etat}</div>
       ${r.desc?`<div style="font-size:11.5px;color:var(--t1);margin-top:7px;line-height:1.45">${esc(String(r.desc).slice(0,200))}${String(r.desc).length>200?'…':''}</div>`:''}
       ${(r.serie&&rep)?`<div style="font-size:11px;color:var(--t3);margin-top:5px">${esc(rep)}</div>`:''}
       <div style="height:1px;background:var(--sep);margin:9px 0"></div>
@@ -1266,7 +1302,8 @@
     const bg=passe?'var(--blk-green)':(soon?'var(--amber-bg)':'var(--tile-bg)');
     const col=passe?'var(--blk-green-tx)':(soon?'var(--amber)':'var(--tile-tx)');
     const icn=passe?ms('check_circle',17):(soon?ms('notifications_active',17,1):ms('schedule',17));
-    const when=passe?dashEtat(diff):(soon?('dans '+Math.max(1,Math.round(diff/60000))+' min'):esc(reunionQuand(r.scheduledAt)));
+    const when=(passe?dashEtat(diff):(soon?('dans '+Math.max(1,Math.round(diff/60000))+' min'):esc(reunionQuand(r.scheduledAt))))
+              +' · '+dureeTexte(dureeDe(r));
     const det=n>1?[o.oui?o.oui+' présent'+(o.oui>1?'s':''):'',o.retard?o.retard+' en retard':'',
                    o.non?o.non+' absent'+(o.non>1?'s':''):'',o.sans?o.sans+' sans réponse':''].filter(Boolean).join(' · ')
                 :'Alerte 15 min avant dans OP Messages';
@@ -1580,7 +1617,8 @@
     const compte=(n,lib,c)=>`<div style="flex:1;text-align:center;padding:10px 6px"><div style="font-size:19px;font-weight:800;line-height:1;color:${c||'var(--t1)'}">${n}</div><div style="font-size:10.3px;color:var(--t3);font-weight:600;margin-top:3px">${lib}</div></div>`;
     const errLec=_rsvpErr;   // la lecture des réponses a-t-elle été refusée ?
     openSheet(`<div data-titre="${esc(r.name||'Réunion')}" style="margin-bottom:12px">
-        <small style="font-size:12.5px;color:var(--t2);display:block">${esc(quand)}${membres.length?' · '+membres.length+' convoqué'+(membres.length>1?'s':''):''}</small>
+        <small style="font-size:12.5px;color:var(--t2);display:block">${esc(quand)} → ${esc(heureFin(r))}${membres.length?' · '+membres.length+' convoqué'+(membres.length>1?'s':''):''}</small>
+        <small style="font-size:11.5px;color:var(--t3);display:block;margin-top:2px">Durée prévue : ${esc(dureeTexte(dureeDe(r)))}</small>
         ${r.desc?`<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--inp);font-size:12.3px;color:var(--t2);line-height:1.55;white-space:pre-wrap">${esc(r.desc)}</div>`:''}</div>
       <div id="rsvp-err">${errLec?`<div style="margin:0 0 10px;padding:11px 13px;border-radius:11px;background:rgba(224,82,82,.14);border:1px solid var(--red)">
         <div style="font-size:12.5px;font-weight:800;color:var(--red)">Les réponses ne peuvent pas être lues (${esc(errLec)})</div>
@@ -1693,6 +1731,25 @@
     z.innerHTML=h;
   }
   /* ── « Organiser une réunion » : une fenêtre, plus une colonne du tableau ── */
+  /* ══ LA DURÉE D'UNE RÉUNION ══
+     Choisie à la création, gardée sur la réunion, et utilisée partout :
+     la hauteur du bloc dans le calendrier, l'heure de fin affichée, le détail.
+     Les réunions créées avant n'ont pas de durée : on retient 30 minutes. */
+  const DUREES=[[15,'15 min'],[30,'30 min'],[45,'45 min'],[60,'1 h'],[90,'1 h 30'],[120,'2 h'],[180,'3 h']];
+  const DUREE_DEF=30;
+  let _dashDuree=DUREE_DEF;
+  function dureeDe(r){ const d=+((r&&r.duree)||0); return (d>=5&&d<=720)?d:DUREE_DEF; }
+  function dureeTexte(m){ m=+m||0; const h=Math.floor(m/60), r=m%60;
+    if(!h) return r+' min';
+    return h+' h'+(r?' '+String(r).padStart(2,'0'):''); }
+  function heureFin(r){ try{ const f=new Date((r.scheduledAt||0)+dureeDe(r)*60000);
+    return f.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+  function dashDureeSet(m){ _dashDuree=+m||DUREE_DEF; dashDureeMaj(); }
+  function dashDureeMaj(){ const z=$('dp-duree'); if(!z) return;
+    z.innerHTML=DUREES.map(([m,l])=>`<span onclick="dashDureeSet(${m})" style="font-size:11.5px;font-weight:700;padding:7px 12px;border-radius:9px;cursor:pointer;
+      border:1.5px solid ${_dashDuree===m?'var(--op)':'var(--brd2)'};color:${_dashDuree===m?'var(--op-tx)':'var(--t2)'};${_dashDuree===m?'background:var(--tint2)':''}">${l}</span>`).join('');
+    const f=$('dp-fin'); if(f){ const tv=(($('dp-time')||{}).value||''); f.textContent=tv?('de '+tv+' à '+(()=>{ const [H,M]=tv.split(':').map(Number);
+      const d=new Date(2000,0,1,H||0,(M||0)+_dashDuree); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); })()):''; } }
   let _dashRepet='une', _dashRepetN=8;
   const REPETS=[['une','Une fois'],['sem','Chaque semaine'],['2sem','Une semaine sur deux'],['mois','Chaque mois']];
   function dashRepetSet(k){ _dashRepet=k; dashRepetMaj(); }
@@ -1734,6 +1791,7 @@
   async function dashForm(dateISO,heure,edit){
     _dashEdit=edit||null;
     _dashSel=new Set([ME.uid]); _dashAlert=true; _dashRepet='une'; _dashRepetN=8;
+    _dashDuree=_dashEdit?dureeDe(_dashEdit):DUREE_DEF;
     if(_dashEdit&&Array.isArray(_dashEdit.members)) _dashEdit.members.forEach(u=>_dashSel.add(u));
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
     const d=dateISO?new Date(dateISO+'T00:00:00'):new Date(Date.now()+3600000);
@@ -1755,6 +1813,11 @@
         <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${hh}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
       </div>
       <div id="dp-cal" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-top:14px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">COMBIEN DE TEMPS ?</div>
+        <div id="dp-fin" style="font-size:11px;color:var(--t3)"></div>
+      </div>
+      <div id="dp-duree" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
       ${E?'':`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">RÉPÉTITION</div>
       <div id="dp-rep" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
       <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>`}
@@ -1766,7 +1829,9 @@
       </div>
       <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
       <div data-pied><button class="btn" style="font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">${E?'Enregistrer les changements':'Planifier la réunion'}</button></div>`);
-    setTimeout(()=>{ dcLabel(); try{ dashRepetMaj(); }catch(e){} const n=$('dp-name'); if(n) n.focus();
+    setTimeout(()=>{ dcLabel(); try{ dashRepetMaj(); }catch(e){} try{ dashDureeMaj(); }catch(e){}
+      try{ const t=$('dp-time'); if(t) t.addEventListener('input',()=>{ try{ dashDureeMaj(); }catch(e){} }); }catch(e){}
+      const n=$('dp-name'); if(n) n.focus();
       try{ const c=$('dp-count'); if(c){ const k=Math.max(0,_dashSel.size-1); c.textContent=k+' sélectionné'+(k>1?'s':''); } }catch(e){} },80);
   }
   function dashTogglePart(el){ const uid=el.dataset.uid; if(_dashSel.has(uid)){ _dashSel.delete(uid); el.classList.remove('sel'); } else { _dashSel.add(uid); el.classList.add('sel'); }
@@ -1787,7 +1852,7 @@
       const col=fs.collection('op_companies').doc(COMP.id).collection('rooms');
       if(E){
         /* on remplace la réunion : les règles n'autorisent pas de la modifier sur place */
-        const d={name,desc,createdBy:ME.uid,members,createdAt:FV(),scheduledAt};
+        const d={name,desc,duree:_dashDuree,createdBy:ME.uid,members,createdAt:FV(),scheduledAt};
         if(E.serie){ d.serie=E.serie; d.repet=E.repet||''; }
         await col.add(d);
         try{ await col.doc(E.id).delete(); }catch(e){}
@@ -1796,6 +1861,7 @@
         if((E.scheduledAt||0)!==scheduledAt) chg.push('déplacée au '+reunionQuand(scheduledAt));
         if(((E.members||[]).length)!==members.length) chg.push('participants modifiés');
         if((E.desc||'')!==desc) chg.push('description mise à jour');
+        if(dureeDe(E)!==_dashDuree) chg.push('durée : '+dureeTexte(_dashDuree));
         const tous=Array.from(new Set([...(E.members||[]),...members]));
         await reunionPrevenir(tous, `${(USER&&USER.name)||'L’organisateur'} a modifié « ${E.name||name} » : ${chg.length?chg.join(', '):'quelques détails'}.${((E.scheduledAt||0)!==scheduledAt)?' Merci de reconfirmer ta présence.':''}`);
         _dashEdit=null;
@@ -1806,7 +1872,7 @@
       }
       const dates=dashRepetDates(); const serie=(dates.length>1)?('s'+Date.now()):'';
       for(const t of (dates.length?dates:[scheduledAt])){
-        const d={name,desc,createdBy:ME.uid,members,createdAt:FV(),scheduledAt:t};
+        const d={name,desc,duree:_dashDuree,createdBy:ME.uid,members,createdAt:FV(),scheduledAt:t};
         if(serie){ d.serie=serie; d.repet=_dashRepet; }
         await col.add(d);
       }
