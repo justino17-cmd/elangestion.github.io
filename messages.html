@@ -131,19 +131,13 @@
     padding:13px 15px;border-radius:14px;background:var(--card);border:1px solid var(--brd2);
     box-shadow:0 14px 38px rgba(0,0,0,.30);opacity:0;pointer-events:none;transition:opacity .12s;display:none}
   #dashhov.on{opacity:1;display:block}
-  /* glisser-déposer d'une réunion : la case visée se signale, et pendant le
-     glissement les blocs laissent passer le curseur vers les cases */
+  /* glisser une réunion : la case visée se signale, le carré suit le pointeur,
+     et pendant le glissement les autres blocs laissent passer le pointeur */
   .survol-depot{outline:2px dashed var(--op);outline-offset:-2px;background-color:var(--tint2)!important}
-  /* les blocs portent leur position en style en ligne : il faut donc du
-     !important pour reprendre la main sur le curseur et le passage du pointeur */
-  #dash-cal.glisse .plbloc{pointer-events:none!important}
-  /* le mode « déplacer en deux clics » : les cases s'allument au survol,
-     les blocs laissent passer le clic vers les cases */
-  #dash-cal.deplace .plbloc{pointer-events:none!important;opacity:.45}
-  #dash-cal.deplace div[onclick^="planCaseClic"]{cursor:crosshair}
-  #dash-cal.deplace div[onclick^="planCaseClic"]:hover{outline:2px dashed var(--op);outline-offset:-2px;background-color:var(--tint2)!important}
-  .plbloc{cursor:grab!important}
-  .plbloc:active{cursor:grabbing!important}
+  #dash-cal.deplace .plbloc{pointer-events:none!important}
+  .plbloc.tirable{touch-action:none;cursor:grab!important}
+  .plbloc.tirable:active{cursor:grabbing!important}
+  .plbloc.attrape{opacity:.88;z-index:9;box-shadow:0 10px 26px rgba(0,0,0,.35);transition:none!important}
   .dstat{cursor:pointer;transition:border-color .15s,transform .12s}
   .dstat:hover{border-color:var(--op);transform:translateY(-1px)}
   .sptab{padding:11px;border-radius:12px;border:none;background:var(--inp);color:var(--t2);font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s}
@@ -1062,8 +1056,8 @@
             sub=soon?'var(--amber)':'var(--blk-blue-sub)';
       const geo=pos?`position:absolute;top:min(${pos.top}%,calc(100% - ${pos.h}px));left:calc(${pos.left}% + 3px);width:calc(${pos.width}% - 6px);height:${pos.h}px;pointer-events:auto;`
                   :'margin-bottom:3px;';
-      return `<div class="plbloc" draggable="${peutBouger(r)?'true':'false'}"
-        ondragstart="planDragStart(event,'${r.id}')" ondragend="planDragFin()"
+      return `<div class="plbloc${peutBouger(r)?' tirable':''}" draggable="false"
+        ${peutBouger(r)?`onpointerdown="planPresse(event,this,'${r.id}')"`:''}
         onclick="event.stopPropagation();rsvpOuvre('${r.id}')"
         onmouseenter="dashHovShow(event,'${r.id}')" onmousemove="dashHovMove(event)" onmouseleave="dashHovHide()"
         style="${geo}border-radius:8px;background:${bg};padding:5px 8px;cursor:pointer;min-width:0;overflow:hidden${soon?';box-shadow:var(--imminent-sh)':''}">
@@ -1081,8 +1075,7 @@
         const hors=d.getMonth()!==moisRef.getMonth();
         const l=duJour(d);
         const weM=(d.getDay()===0||d.getDay()===6);
-        grid+=`<div ${creer?`onclick="planCaseClic(event,this,'${_dstr(d)}',null)" title="Déposer une réunion ici pour la déplacer à ce jour"
-          ondragover="planDragOver(event,this)" ondragleave="planDragLeave(this)" ondrop="planDrop(event,this,'${_dstr(d)}',null)"`:''}
+        grid+=`<div data-jr="${_dstr(d)}" data-hc="" ${creer?`onclick="planCaseClic(event,this,'${_dstr(d)}',null)" title="Glisser une réunion ici pour la déplacer à ce jour"`:''}
           style="border-left:1px solid var(--cal-line);border-top:1px solid var(--cal-line);min-height:92px;min-width:0;overflow:hidden;padding:5px;cursor:pointer;${isT?'background:var(--cal-today);':(weM?'background:var(--cal-we);':'')}${hors?'opacity:.42;':''}">
           <div style="font-size:11.5px;font-weight:800;margin-bottom:4px;${isT?'color:var(--op-tx)':'color:var(--t2)'}">${d.getDate()}</div>
           ${l.slice(0,3).map(r=>bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000)).join('')}
@@ -1164,8 +1157,7 @@
           etq+=`<div style="position:absolute;top:${tDemi}px;right:9px;font-size:9px;font-weight:600;color:var(--t3);opacity:.7">${HH}:30</div>`;
         grid+=`<div data-h="${HH}" style="height:${ROWH}px;position:relative;${hi?'border-top:1px solid var(--cal-line)':''}">${etq}</div>`;
         jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
-          grid+=`<div ${creer?`onclick="planCaseClic(event,this,'${_dstr(d)}',${h})" title="Poser une réunion ici — ou déposer une réunion pour la déplacer"
-            ondragover="planDragOver(event,this)" ondragleave="planDragLeave(this)" ondrop="planDrop(event,this,'${_dstr(d)}',${h})"`
+          grid+=`<div data-jr="${_dstr(d)}" data-hc="${h}" ${creer?`onclick="planCaseClic(event,this,'${_dstr(d)}',${h})" title="Poser une réunion ici — ou glisser une réunion pour la déplacer"`
             :`title="Seuls le patron et les responsables créent des réunions"`}
             style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background-color:var(--cal-today);':(we?'background-color:var(--cal-we);':'')}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
             ${creer?`<div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;display:flex;align-items:center;justify-content:center;color:transparent"
@@ -1262,36 +1254,65 @@
      On attrape le bloc, on le lâche dans une autre case : le jour et l'heure
      changent, la minute suit l'endroit où on lâche (au pas de 5 minutes).
      ══════════════════════════════════════════════════════════════════════ */
-  let _dragRoom=null;
-  function planDragStart(ev,id){
-    _dragRoom=id; try{ dashHovHide(); }catch(e){}
-    try{ ev.dataTransfer.setData('text/plain',id); ev.dataTransfer.effectAllowed='move'; }catch(e){}
-    const c=$('dash-cal'); if(c) c.classList.add('glisse');   // les blocs laissent passer le curseur
+  /* On presse le carré, on le tire, on le lâche sur une case — le carré suit
+     la souris (ou le doigt), la case visée s'allume. Un simple clic sans tirer
+     ouvre la fenêtre de la réunion, comme avant. */
+  let _pd=null;
+  function planPresse(ev,el,id){
+    const r=_dashRooms[id]; if(!peutBouger(r)) return;
+    if(ev.button!==undefined&&ev.button!==0&&ev.pointerType==='mouse') return;
+    _pd={id:id,el:el,x0:ev.clientX,y0:ev.clientY,actif:false,survole:null};
   }
-  function planDragFin(){ _dragRoom=null;
-    const c=$('dash-cal'); if(c) c.classList.remove('glisse');
-    try{ document.querySelectorAll('.survol-depot').forEach(e=>e.classList.remove('survol-depot')); }catch(e){}
-  }
-  function planDragOver(ev,el){ if(!_dragRoom) return; ev.preventDefault();
-    try{ ev.dataTransfer.dropEffect='move'; }catch(e){}
-    el.classList.add('survol-depot'); }
-  function planDragLeave(el){ el.classList.remove('survol-depot'); }
-  async function planDrop(ev,el,dateISO,h){
-    ev.preventDefault(); el.classList.remove('survol-depot');
-    const id=_dragRoom||((ev.dataTransfer&&ev.dataTransfer.getData('text/plain'))||'');
-    planDragFin();
-    if(!id) return;
-    let heure=h, min=0;
-    if(h===null||h===undefined){                       /* vue mois : on garde l'heure d'origine */
-      const r0=_dashRooms[id], d0=r0?new Date(r0.scheduledAt):null;
+  document.addEventListener('pointermove',ev=>{
+    if(!_pd) return;
+    const dx=ev.clientX-_pd.x0, dy=ev.clientY-_pd.y0;
+    if(!_pd.actif){
+      if(Math.hypot(dx,dy)<6) return;                 /* en dessous, c'est un clic */
+      _pd.actif=true; try{ dashHovHide(); }catch(e){}
+      const c=$('dash-cal'); if(c) c.classList.add('deplace');
+      _pd.el.classList.add('attrape');
+    }
+    _pd.el.style.transform='translate('+dx+'px,'+dy+'px)';
+    const sous=document.elementFromPoint(ev.clientX,ev.clientY);
+    const cell=sous&&sous.closest?sous.closest('[data-jr]'):null;
+    if(_pd.survole&&_pd.survole!==cell) _pd.survole.classList.remove('survol-depot');
+    if(cell) cell.classList.add('survol-depot');
+    _pd.survole=cell;
+    ev.preventDefault();
+  },{passive:false});
+  document.addEventListener('pointerup',async ev=>{
+    if(!_pd) return;
+    const pd=_pd; _pd=null;
+    const c=$('dash-cal'); if(c) c.classList.remove('deplace');
+    pd.el.classList.remove('attrape'); pd.el.style.transform='';
+    if(pd.survole) pd.survole.classList.remove('survol-depot');
+    if(!pd.actif) return;                              /* simple clic : la fenêtre s'ouvre normalement */
+    /* on avale le clic qui suit le lâcher, sinon la fenêtre de la réunion s'ouvrirait */
+    const avale=e=>{ e.stopPropagation(); e.preventDefault(); window.removeEventListener('click',avale,true); };
+    window.addEventListener('click',avale,true);
+    setTimeout(()=>{ try{ window.removeEventListener('click',avale,true); }catch(e){} },350);
+    const sous=document.elementFromPoint(ev.clientX,ev.clientY);
+    const cell=sous&&sous.closest?sous.closest('[data-jr]'):null;
+    if(!cell){ toast('Lâche la réunion sur une case du calendrier'); return; }
+    const dateISO=cell.getAttribute('data-jr'), hc=cell.getAttribute('data-hc');
+    let heure, min;
+    if(hc===''){                                       /* vue mois : on garde l'heure d'origine */
+      const r0=_dashRooms[pd.id], d0=r0?new Date(r0.scheduledAt):null;
       heure=d0?d0.getHours():9; min=d0?d0.getMinutes():0;
     } else {
-      const b=el.getBoundingClientRect();
-      const y=Math.max(0,Math.min(b.height,(ev.clientY||0)-b.top));
-      min=Math.min(55,Math.round((y/b.height)*12)*5);   /* au pas de 5 minutes */
+      heure=parseInt(hc,10)||0;
+      const b=cell.getBoundingClientRect();
+      const y=Math.max(0,Math.min(b.height,ev.clientY-b.top));
+      min=Math.min(55,Math.round((y/b.height)*12)*5);  /* au pas de 5 minutes */
     }
-    await reunionDeplace(id,dateISO,heure,min);
-  }
+    await reunionDeplace(pd.id,dateISO,heure,min);
+  });
+  document.addEventListener('pointercancel',()=>{
+    if(!_pd) return; const pd=_pd; _pd=null;
+    const c=$('dash-cal'); if(c) c.classList.remove('deplace');
+    pd.el.classList.remove('attrape'); pd.el.style.transform='';
+    if(pd.survole) pd.survole.classList.remove('survol-depot');
+  });
   /* ══ DÉPLACER EN DEUX CLICS ══
      Le glisser à la souris ne marche pas partout (et jamais au doigt sur
      téléphone). Alors : « Déplacer » dans la fenêtre de la réunion, puis un
@@ -1740,7 +1761,6 @@
       <div style="margin-top:6px">${membres.map(ligne).join('')||'<p class="muted" style="font-size:12px">Aucun participant.</p>'}</div>
       ${(r.createdBy===ME.uid&&o.sans>0)?`<button class="btn ghost block" style="margin-top:12px" onclick="rsvpRelanceTous('${id}')">${o.sans>1?'Relancer les '+o.sans+' personnes sans réponse':'Relancer la personne sans réponse'}</button>`:''}
       <div data-pied>
-        ${peutBouger(r)?`<button class="btn ghost" onclick="deplacerMode('${id}')">Déplacer</button>`:''}
         ${r.createdBy===ME.uid?`<button class="btn ghost" onclick="reunionModifier('${id}')">Modifier</button>
         <button class="btn ghost" style="color:var(--red)" onclick="reunionAnnuler('${id}')">Annuler</button>`:''}
         <button class="btn" style="font-weight:800" onclick="closeSheet();joinRoom('${id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre la réunion</button></div>`);
