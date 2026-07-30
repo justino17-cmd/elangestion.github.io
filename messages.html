@@ -2682,11 +2682,12 @@
      Toutes les photos et tous les documents échangés dans toutes les
      discussions, au même endroit, avec une recherche. Fini la photo perdue
      trois semaines plus tard. */
-  let _docs=[], _docsRech='', _docsCanal=null;
+  let _docs=[], _docsRech='', _docsCanal=null, _docsRetourNom='';
   async function vueDocuments(cid){
     const view=$('view'); _docsCanal=cid||null;
+    if(cid) _docsRetourNom=(_curCh&&_curCh.id===cid?_curCh.name:'')||_docsRetourNom||'';
     view.innerHTML=`<div class="view-h" style="align-items:center;gap:10px">
-        <button class="bk" onclick="showView('disc')" title="Retour aux discussions" style="background:transparent;border:none;color:var(--t1);font-size:24px;cursor:pointer;padding:2px 6px;border-radius:10px;flex:none">${ic('back',26)}</button>
+        <button class="bk" onclick="docsRetour()" title="${cid?'Retour à la conversation':'Retour aux discussions'}" style="background:transparent;border:none;color:var(--t1);font-size:24px;cursor:pointer;padding:2px 6px;border-radius:10px;flex:none">${ic('back',26)}</button>
         <h2 style="margin:0">Documents</h2></div>
       <div class="gsearch">${ms('search',19)}<input id="doc-rech" placeholder="Rechercher un document, une photo…" oninput="_docsRech=this.value.trim().toLowerCase();docsRender()"></div>
       <div id="doc-liste"><p class="muted center">Recherche dans toutes les discussions…</p></div>`;
@@ -2713,6 +2714,15 @@
       _docs.sort((a,b)=>b.d-a.d);
     }catch(e){}
     docsRender();
+  }
+  /* Revenir des documents ne doit pas quitter la conversation : on la rouvre
+     là où on l'avait laissée. */
+  async function docsRetour(){
+    const cid=_docsCanal, nom=_docsRetourNom;
+    showView('disc');
+    if(!cid) return;
+    await new Promise(r=>setTimeout(r,260));
+    try{ openChannel(cid,nom||''); }catch(e){}
   }
   function docsRender(){
     const z=$('doc-liste'); if(!z) return;
