@@ -3345,7 +3345,12 @@
     g.querySelectorAll('.vctl button').forEach(b=>{ b.style.cssText+='border:none;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font-size:12px;padding:4px 7px;cursor:pointer'; });
     /* on rebranche les flux */
     liste.forEach(t=>{ const id='vt-'+t.id.replace(/[^a-zA-Z0-9]/g,'_');
-      const v=$(id); if(v&&t.stream){ try{ v.srcObject=t.stream; const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){} }
+      const v=$(id); if(v&&t.stream){ try{
+        v.muted=!!t.moi;                       // ma propre image : toujours muette (sinon larsen)
+        v.srcObject=t.stream;
+        const jouer=()=>{ const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); };
+        v.onloadedmetadata=jouer; v.oncanplay=jouer; jouer();
+      }catch(e){} }
       if(!t.moi&&!t.ecran){ const a=$('va-'+t.id.replace(/[^a-zA-Z0-9]/g,'_'));
         if(a&&t.stream){ try{ a.srcObject=t.stream; a.muted=!!(_vPairs[t.uid]&&_vPairs[t.uid].muetPourMoi); const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){} } } });
     noteBranche(); noteDessine();
@@ -3356,6 +3361,15 @@
     const b=$('vo-zoom'); if(b){ b.textContent=_vZoom100?'🔍 Ajuster à l\'écran':'🔍 Taille réelle'; b.style.background=_vZoom100?'var(--op)':'#232a3a'; }
     visioTuiles(); }
   function visioDefMaj(){
+    /* LE GARDIEN DES IMAGES : si une vidéo est figée (Safari aime ça) ou a
+       perdu son flux, on la relance — toi compris : tu te vois TOUJOURS. */
+    try{
+      document.querySelectorAll('#visio-grille video[id^=vt-]').forEach(v=>{
+        if(v.id==='vt-moi'&&_vLocal&&v.srcObject!==_vLocal){ v.muted=true; v.srcObject=_vLocal; }
+        if(v.id==='vt-moiE'&&_vEcran&&v.srcObject!==_vEcran){ v.srcObject=_vEcran; }
+        if(v.srcObject&&v.paused){ const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); }
+      });
+    }catch(e){}
     /* LA RÈGLE D'OR (tous navigateurs) : un écran partagé n'est JAMAIS
        agrandi au-delà de sa définition — l'agrandissement, c'est du flou
        fabriqué. S'il reste de la place, on centre ; jamais on n'étire. */
