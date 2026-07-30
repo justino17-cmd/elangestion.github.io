@@ -644,6 +644,43 @@
       <button class="btn block" onclick="closeSheet();opPushSub()">Activer les notifications</button>
       <button class="btn ghost block" style="margin-top:8px" onclick="try{localStorage.setItem('opmsg_push_ask_'+ME.uid,String(Date.now()))}catch(e){};closeSheet()">Plus tard</button>`);
   }catch(e){} }
+  /* ══ LES HEURES DE SILENCE ══
+     Entre deux heures choisies, les notifications arrivent sans son ni
+     vibration : rien ne sonne à table ou la nuit, et tout est là au réveil.
+     Le réglage est partagé avec le service de notifications par une petite
+     base locale, seule mémoire qu'il sait lire quand l'application est fermée. */
+  function silenceLire(){ try{ return JSON.parse(localStorage.getItem('opmsg_silence')||'null')||{on:false,de:'20:00',a:'07:00'}; }catch(e){ return {on:false,de:'20:00',a:'07:00'}; } }
+  function silenceEcrire(v){
+    try{ localStorage.setItem('opmsg_silence',JSON.stringify(v)); }catch(e){}
+    try{ const o=indexedDB.open('opmsg_prefs',1);
+      o.onupgradeneeded=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains('prefs')) db.createObjectStore('prefs'); };
+      o.onsuccess=e=>{ const db=e.target.result; try{ db.transaction('prefs','readwrite').objectStore('prefs').put(v,'silence'); }catch(_){}} ;
+    }catch(e){}
+  }
+  function silenceActif(v){ v=v||silenceLire(); if(!v.on) return false;
+    const n=new Date(), m=n.getHours()*60+n.getMinutes();
+    const p=t=>{ const x=String(t||'').split(':'); return (+x[0]||0)*60+(+x[1]||0); };
+    const de=p(v.de), a=p(v.a);
+    return de<=a ? (m>=de&&m<a) : (m>=de||m<a); }
+  function silenceOuvre(){
+    const v=silenceLire();
+    const opts=(sel)=>{ let h=''; for(let i=0;i<24;i++){ const t=String(i).padStart(2,'0')+':00';
+      h+=`<option value="${t}" ${sel===t?'selected':''}>${t}</option>`; } return h; };
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🌙 Heures de silence</h3>
+      <p class="muted" style="font-size:13px;line-height:1.55;margin-bottom:14px">Pendant ces heures, les notifications arrivent <b>sans son ni vibration</b>. Rien ne sonne le soir ou la nuit — tu retrouves tout au réveil.</p>
+      <div class="field"><label>Activer</label>
+        <select id="sil-on"><option value="1" ${v.on?'selected':''}>Oui</option><option value="0" ${v.on?'':'selected'}>Non</option></select></div>
+      <div class="field"><label>À partir de</label><select id="sil-de">${opts(v.de)}</select></div>
+      <div class="field"><label>Jusqu'à</label><select id="sil-a">${opts(v.a)}</select></div>
+      <button class="btn block" onclick="silenceEnregistrer()">Enregistrer</button>`);
+  }
+  function silenceEnregistrer(){
+    const v={on:$('sil-on').value==='1', de:$('sil-de').value, a:$('sil-a').value};
+    silenceEcrire(v); closeSheet();
+    toast(v.on?('🌙 Silence de '+v.de+' à '+v.a):'Heures de silence désactivées');
+    if(_curView==='prof') viewProfile();
+  }
+  try{ silenceEcrire(silenceLire()); }catch(e){}
   function fontSize(){ return pref('fontsize','m'); }
   function applyFontSize(){ const map={s:'13.5px',m:'15px',l:'17px',xl:'19px'}; let st=$('fsStyle'); if(!st){ st=document.createElement('style'); st.id='fsStyle'; document.head.appendChild(st); } st.textContent='.m{font-size:'+(map[fontSize()]||'15px')+'}'; }
   applyFontSize();
@@ -1883,6 +1920,31 @@
   /* ── Notre calendrier de choix de date : celui du navigateur est minuscule
      et rien ne permet de l'agrandir. Celui-ci est à nous. ── */
   let _dcMois='';
+  /* Le bloc « jour + heure » du tableau de bord, réutilisable dans n'importe
+     quel formulaire : le calendrier maison et la grille des minutes, au lieu
+     du champ du navigateur où il faut taper au clavier. */
+  function champDateHeure(dateISO,heure){
+    const d=dateISO||_dstr(new Date()), h=heure||'09:00';
+    return `<div style="display:flex;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div onclick="dcOuvre()" style="display:flex;align-items:center;gap:7px;padding:11px 12px;border-radius:10px;background:var(--inp);font-size:13px;font-weight:700;cursor:pointer">
+            <span class="ms" style="font-size:16px;color:var(--tile-tx)">calendar_today</span>
+            <span id="dp-datelbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize">—</span>
+            <span style="color:var(--t3);font-size:11px">▾</span></div>
+          <input id="dp-date" type="hidden" value="${esc(d)}"></div>
+        <div style="flex:1;min-width:0">
+          <div onclick="tpOuvre()" style="display:flex;align-items:center;gap:7px;padding:11px 12px;border-radius:10px;background:var(--inp);font-size:13px;font-weight:700;cursor:pointer">
+            <span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span>
+            <span id="dp-timelbl" style="flex:1;min-width:0">${esc(h)}</span>
+            <span style="color:var(--t3);font-size:11px">▾</span></div>
+          <input id="dp-time" type="hidden" value="${esc(h)}"></div>
+      </div>
+      <div id="dp-cal" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
+      <div id="dp-tp" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>`;
+  }
+  /* le moment choisi, en millisecondes — 0 si rien de valable */
+  function momentChoisi(){ const d=(($('dp-date')||{}).value)||'', h=(($('dp-time')||{}).value)||'';
+    if(!d||!h) return 0; const t=new Date(d+'T'+h+':00').getTime(); return (!t||isNaN(t))?0:t; }
   function dcOuvre(){
     const z=$('dp-cal'); if(!z) return;
     const t=$('dp-tp'); if(t) t.style.display='none';         // une seule fenêtre à la fois
@@ -2855,12 +2917,15 @@
       qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouvelle réunion</h3><div id="nrerr"></div>
       <div class="field"><label>Nom</label><input id="nr-name" placeholder="Ex : Réunion hebdo"></div>
-      <div class="field"><label>Date & heure (laisser vide = maintenant)</label><input id="nr-when" type="datetime-local"></div>
+      <div class="field" style="margin-bottom:6px"><label>Date & heure</label></div>
+      ${champDateHeure('',(new Date(Date.now()+3600000)).toTimeString().slice(0,5))}
+      <div style="height:12px"></div>
       <div class="field" style="margin-bottom:6px"><label>Inviter (recevront une alerte)</label></div>
       <div id="nr-members">${chks||'<p class="muted">Aucun autre membre.</p>'}</div>
-      <button class="btn block" style="margin-top:10px" onclick="createRoom()">Créer la réunion</button>`); }
+      <button class="btn block" style="margin-top:10px" onclick="createRoom()">Créer la réunion</button>`);
+    dcLabel(); }
   async function createRoom(){ const name=($('nr-name').value||'').trim(); if(!name){ $('nrerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
-    const whenV=($('nr-when')||{}).value||''; const scheduledAt = whenV ? new Date(whenV).getTime() : null;
+    const scheduledAt = momentChoisi() || null;
     const sel=[...document.querySelectorAll('#nr-members .chk.sel')].map(x=>x.dataset.uid); const members=Array.from(new Set([ME.uid,...sel]));
     const data={name,createdBy:ME.uid,members,createdAt:FV()}; if(scheduledAt) data.scheduledAt=scheduledAt;
     try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').add(data); closeSheet(); openReunions(); if(scheduledAt) toast('Réunion planifiée — les invités seront prévenus.'); }catch(e){ $('nrerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; } }
@@ -2908,6 +2973,7 @@
         <button class="ic" onclick="joinRoom('chat-${id}','Réunion : ${esc(name).replace(/"/g,'')}')" title="Appel">${ic('phone',19)}</button>
       </div>
       <div id="pinbar" style="display:none"></div>
+      <div id="progbar" style="display:none;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)"></div>
       <div id="searchbar" style="display:none;padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg1)"><input id="chsearch" placeholder="Rechercher dans la discussion…" oninput="renderStream()" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-size:15px;font-family:inherit"></div>
       <div class="stream" id="stream"><p class="muted center" style="margin:auto">Chargement…</p></div>
       <div id="replybar" style="display:none;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--brd);background:var(--bg1)"></div>
@@ -2925,6 +2991,7 @@
     try{ document.querySelectorAll('.dsk-chan').forEach(x=>x.classList.toggle('on',x.dataset.cid===id)); }catch(e){}
     applyWall(); bindSwipeReply(); listenCh(id); listenChDoc(id);
     setTimeout(guideConv,600);
+    progEnvoyerDus(); if(_progT) clearInterval(_progT); _progT=setInterval(progEnvoyerDus,60000);
   }
   // Balayage vers la droite sur un message = répondre (comme WhatsApp)
   function bindSwipeReply(){ const s=$('stream'); if(!s) return; let sx=0,sy=0,el=null;
@@ -2933,7 +3000,7 @@
     s.addEventListener('touchend',e=>{ if(!el) return; const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy; const mid=el.getAttribute('data-mid'); el.style.transition='transform .18s'; el.style.transform='translateX(0)';
       if(dx>55&&Math.abs(dy)<45&&mid){ setReply(mid); } el=null; },{passive:true});
   }
-  function closeChat(){ clearTyping(); if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_pinUnsub){_pinUnsub();_pinUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
+  function closeChat(){ clearTyping(); if(_progT){ clearInterval(_progT); _progT=null; } if(_chMsgUnsub){_chMsgUnsub();_chMsgUnsub=null;} if(_readsUnsub){_readsUnsub();_readsUnsub=null;} if(_pinUnsub){_pinUnsub();_pinUnsub=null;} if(_chDocUnsub){_chDocUnsub();_chDocUnsub=null;} $('chat').classList.remove('open'); _curCh=null; _replyTo=null; }
   function chDoc(id){ return chanCol().doc(id); }
   function chMsgs(){ return chDoc(_curCh.id).collection('messages'); }
   // Envoi centralisé : ajoute le message ET met à jour l'aperçu du canal (dernier message + heure)
@@ -3184,9 +3251,48 @@
   function muteChat(id){ toggleMute(id); closeSheet(); toast(isMuted(id)?'Notifications coupées':'Notifications réactivées'); }
   function archiveChat(id){ toggleArch(id); closeSheet(); closeChat(); showView('disc'); toast(isArch(id)?'Conversation archivée':'Désarchivée'); }
   function exportChat(){ if(!_curMsgs.length){ toast('Rien à exporter.'); return; }
+    closeSheet();
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">⬇️ Exporter la conversation</h3>
+      <p class="muted" style="font-size:13px;line-height:1.55;margin-bottom:14px">${_curMsgs.length} message${_curMsgs.length>1?'s':''} de « ${esc((_curCh&&_curCh.name)||'')} ».</p>
+      <button class="btn block" onclick="exportChatPdf()">📄 En PDF (à imprimer ou garder)</button>
+      <button class="btn ghost block" style="margin-top:8px" onclick="exportChatTxt()">📝 En fichier texte</button>`); }
+  function exportChatTxt(){ if(!_curMsgs.length) return;
     let txt='Conversation OP MESSAGES — '+(_curCh&&_curCh.name||'')+'\n\n';
     _curMsgs.forEach(({m,d})=>{ const t=d.toLocaleString('fr-FR'); txt+='['+t+'] '+(m.name||'')+' : '+(m.text||previewOf(m))+'\n'; });
     const blob=new Blob([txt],{type:'text/plain'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='conversation-'+((_curCh&&_curCh.name)||'chat').replace(/[^a-z0-9]/gi,'_')+'.txt'; document.body.appendChild(a); a.click(); a.remove(); closeSheet(); toast('Conversation exportée'); }
+  /* Le PDF : une page propre, datée, avec l'auteur de chaque message —
+     de quoi garder une trace d'un échange (consignes, litige client…). */
+  function exportChatPdf(){ if(!_curMsgs.length) return;
+    const nom=(_curCh&&_curCh.name)||'Conversation';
+    const ent=(MODE==='company'&&COMP&&COMP.name)?COMP.name:'';
+    let jour='';
+    const lignes=_curMsgs.map(({m,d})=>{
+      const j=d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+      let sep=''; if(j!==jour){ jour=j; sep='<div class="jour">'+esc(j)+'</div>'; }
+      const h=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      const corps=m.text?esc(m.text):esc(previewOf(m)||'—');
+      return sep+`<div class="msg"><div class="tete"><b>${esc(m.name||'')}</b><span>${h}</span></div><div class="corps">${corps.replace(/\n/g,'<br>')}</div></div>`;
+    }).join('');
+    const w=window.open('','_blank');
+    if(!w){ toast('Autorise les fenêtres pour créer le PDF.'); return; }
+    w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(nom)}</title>
+      <style>
+        body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:26px;font-size:13px;line-height:1.5}
+        h1{font-size:19px;margin:0 0 3px} .st{color:#666;font-size:12px;margin-bottom:18px}
+        .jour{margin:18px 0 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;border-bottom:1px solid #ddd;padding-bottom:4px}
+        .msg{margin-bottom:9px;page-break-inside:avoid}
+        .tete{font-size:11.5px;color:#444;display:flex;gap:8px} .tete span{color:#888}
+        .corps{margin-top:1px;white-space:pre-wrap}
+        @media print{ body{margin:14mm} }
+      </style></head><body>
+      <h1>${esc(nom)}</h1>
+      <div class="st">${ent?esc(ent)+' · ':''}${_curMsgs.length} message${_curMsgs.length>1?'s':''} · exporté le ${esc(new Date().toLocaleString('fr-FR'))} par ${esc((USER&&USER.name)||'')}</div>
+      ${lignes}
+      </body></html>`);
+    w.document.close();
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },400);
+    closeSheet(); toast('📄 Choisis « Enregistrer en PDF » dans la fenêtre d\'impression');
+  }
   async function openGroupInfo(id){
     openSheet('<p class="muted center">Chargement…</p>');
     let cd; try{ cd=await chDoc(id).get(); }catch(e){ openSheet('<div class="err">'+esc(e.message)+'</div>'); return; }
@@ -3220,6 +3326,66 @@
   function attTile(label,color,icon,fn){ return `<div onclick="${fn}" style="text-align:center;cursor:pointer">
       <div style="width:62px;height:62px;border-radius:50%;background:var(--card2);border:1px solid var(--brd);display:flex;align-items:center;justify-content:center;margin:0 auto 7px;color:${color}">${icon}</div>
       <div style="font-size:12px;color:var(--t2);font-weight:600">${label}</div></div>`; }
+  /* ══ LES MESSAGES PROGRAMMÉS ══
+     Tu écris maintenant, ça part à l'heure dite. Le message attend dans la
+     discussion (invisible pour les autres) ; dès qu'une application de
+     l'équipe est ouverte après l'heure, il est envoyé pour de bon. */
+  function progCol(chId){ return chDoc(chId||_curCh.id).collection('programmes'); }
+  function progForm(){
+    if(!_curCh) return;
+    const t=new Date(Date.now()+3600000);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">⏰ Message programmé</h3><div id="pgerr"></div>
+      <div class="field"><label>Message</label><textarea id="pg-txt" rows="3" placeholder="Ex : RDV au dépôt à 7h30, prenez les combinaisons."></textarea></div>
+      <div class="field" style="margin-bottom:6px"><label>Envoyer le</label></div>
+      ${champDateHeure(_dstr(t),t.toTimeString().slice(0,5))}
+      <div style="height:12px"></div>
+      <button class="btn block" onclick="progEnregistrer()">Programmer l'envoi</button>
+      <button class="btn ghost block" style="margin-top:8px" onclick="progListe()">Voir les messages programmés</button>`);
+    dcLabel();
+  }
+  async function progEnregistrer(){ try{
+    const txt=($('pg-txt').value||'').trim();
+    if(!txt){ $('pgerr').innerHTML='<div class="err">Écris ton message.</div>'; return; }
+    const at=momentChoisi();
+    if(!at){ $('pgerr').innerHTML='<div class="err">Choisis le jour et l\'heure.</div>'; return; }
+    if(at<Date.now()+30000){ $('pgerr').innerHTML='<div class="err">Cette heure est déjà passée — choisis plus tard.</div>'; return; }
+    await progCol().add({uid:ME.uid,name:(USER&&USER.name)||ME.email,text:txt,at:at,cree:Date.now()});
+    closeSheet(); toast('⏰ Programmé pour '+new Date(at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
+    progBarreMaj();
+  }catch(e){ const z=$('pgerr'); if(z) z.innerHTML='<div class="err">'+esc((e&&e.message)||e)+'</div>'; } }
+  async function progListe(){ if(!_curCh) return;
+    openSheet('<p class="muted center">Chargement…</p>');
+    let rows='';
+    try{ const qs=await progCol().get();
+      const l=[]; qs.forEach(d=>l.push({id:d.id,...d.data()}));
+      l.sort((a,b)=>(a.at||0)-(b.at||0));
+      rows=l.map(p=>`<div class="row"><div class="info"><div class="nm">${esc((p.text||'').slice(0,70))}</div>
+        <div class="ds">⏰ ${esc(new Date(p.at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}))}${p.uid===ME.uid?'':' · '+esc(p.name||'')}</div></div>
+        ${p.uid===ME.uid?`<button class="btn ghost sm" onclick="progSupprimer('${p.id}')">Annuler</button>`:''}</div>`).join('');
+    }catch(e){ rows='<div class="err">'+esc((e&&e.message)||e)+'</div>'; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">⏰ Messages programmés</h3>
+      ${rows||'<p class="muted">Aucun message en attente.</p>'}
+      <button class="btn ghost block" style="margin-top:12px" onclick="progForm()">＋ En programmer un</button>`);
+  }
+  async function progSupprimer(id){ try{ await progCol().doc(id).delete(); toast('Message programmé annulé'); progListe(); progBarreMaj(); }catch(e){ alert('Erreur : '+((e&&e.message)||e)); } }
+  /* l'envoi réel : tout message dont l'heure est passée part pour de bon */
+  let _progT=null;
+  async function progEnvoyerDus(){ if(!_curCh) return;
+    try{ const qs=await progCol().get(); const now=Date.now();
+      for(const d of qs.docs){ const p=d.data()||{};
+        if((p.at||0)>now) continue;
+        try{ await addMsgTo(_curCh.id,{uid:p.uid,name:p.name||'',text:p.text||'',ts:FV(),programme:true});
+             await d.ref.delete(); }catch(e){}
+      }
+    }catch(e){}
+    progBarreMaj();
+  }
+  async function progBarreMaj(){ const b=$('progbar'); if(!b||!_curCh) return;
+    try{ const qs=await progCol().get(); const n=qs.size!==undefined?qs.size:(qs.docs||[]).length;
+      if(!n){ b.style.display='none'; b.innerHTML=''; return; }
+      b.style.display='flex'; b.innerHTML=`<span style="flex:1;font-size:12.5px;color:var(--t2)">⏰ ${n} message${n>1?'s':''} programmé${n>1?'s':''}</span>
+        <span onclick="progListe()" style="font-size:12px;font-weight:700;color:var(--op-tx);cursor:pointer">Voir</span>`;
+    }catch(e){ b.style.display='none'; } }
   function openAttach(){ openSheet(`
     <div data-titre="Joindre" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 6px;padding:6px 0 2px">
       ${attTile('Photos','#6ea8f7',ic('image',26),"closeSheet();$('imgpick').click()")}
@@ -3230,6 +3396,7 @@
       ${attTile('Sondage','#f0b432',ic('poll',26),"closeSheet();pollForm()")}
       ${attTile('Événement','#ef5350',ic('cal',26),"closeSheet();eventForm()")}
       ${attTile('Sticker','#f5c518',ic('smile',26),"closeSheet();openStickers()")}
+      ${attTile('Programmé','#8b7cf6','⏰',"closeSheet();progForm()")}
     </div>`); }
   // Envoyer une fiche contact dans la conversation courante
   async function attachContact(){ if(!_curCh) return; openSheet('<p class="muted center">Chargement…</p>');
@@ -3243,16 +3410,17 @@
   // Événement (avec réponse Je viens / Je ne viens pas)
   function eventForm(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">📅 Nouvel événement</h3><div id="everr"></div>
     <div class="field"><label>Titre</label><input id="ev-titre" placeholder="Ex : Réunion chantier / Anniversaire"></div>
-    <div class="field"><label>Date & heure</label><input id="ev-when" type="datetime-local"></div>
-    <div class="field"><label>Lieu (facultatif)</label><input id="ev-lieu" placeholder="Ex : Dépôt, 12 rue des Fleurs"></div>
-    <button class="btn block" onclick="envoyerEvenement()">Envoyer l'événement</button>`); }
+    <div class="field" style="margin-bottom:6px"><label>Date & heure</label></div>
+    ${champDateHeure('',(new Date(Date.now()+3600000)).toTimeString().slice(0,5))}
+    <div class="field" style="margin-top:12px"><label>Lieu (facultatif)</label><input id="ev-lieu" placeholder="Ex : Dépôt, 12 rue des Fleurs"></div>
+    <button class="btn block" onclick="envoyerEvenement()">Envoyer l'événement</button>`);
+    dcLabel(); }
   async function envoyerEvenement(){ try{
-    const titre=($('ev-titre').value||'').trim(); const when=($('ev-when').value||'').trim(); const lieu=($('ev-lieu').value||'').trim();
+    const titre=($('ev-titre').value||'').trim(); const lieu=($('ev-lieu').value||'').trim();
     if(!titre){ $('everr').innerHTML='<div class="err">Donne un titre à l\'événement.</div>'; return; }
-    if(!when){ $('everr').innerHTML='<div class="err">La date est incomplète : choisis le jour ET l\'heure.</div>'; return; }
     if(!_curCh){ $('everr').innerHTML='<div class="err">La discussion s\'est fermée — rouvre-la et recommence.</div>'; return; }
-    const at=new Date(when).getTime();
-    if(!at||isNaN(at)){ $('everr').innerHTML='<div class="err">Cette date n\'est pas valable.</div>'; return; }
+    const at=momentChoisi();
+    if(!at){ $('everr').innerHTML='<div class="err">Choisis le jour ET l\'heure.</div>'; return; }
     await addMsg({uid:ME.uid,name:USER.name||ME.email,event:{titre,at,lieu},ts:FV()});
     closeSheet(); toast('📅 Événement envoyé');
   }catch(e){
@@ -3429,6 +3597,7 @@
     ${toggleLine('Aperçus dans l’app',notifOn(),"togglePref('notif',true);sheetNotif()")}
     <div style="height:10px"></div>
     <button class="btn block" onclick="opPushSub()">${(typeof Notification!=='undefined'&&Notification.permission==='granted'&&localStorage.getItem('opmsg_push_on'))?'✓ Notifications app fermée : activées':'🔔 Activer les notifications (app fermée)'}</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="silenceOuvre()">${(function(){ const v=silenceLire(); return v.on?('🌙 Heures de silence : '+esc(v.de)+' → '+esc(v.a)):'🌙 Heures de silence : désactivées'; })()}</button>
     <p class="muted" style="font-size:12px;margin-top:10px">Tu seras prévenu des nouveaux messages même quand OP MESSAGES est fermée — sur iPhone, installe d'abord l'app sur l'écran d'accueil.</p>`); }
   function sheetAccount(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">👤 Compte</h3>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
