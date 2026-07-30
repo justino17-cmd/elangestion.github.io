@@ -3052,7 +3052,10 @@
     if(_chMsgUnsub)_chMsgUnsub(); if(_readsUnsub){_readsUnsub();_readsUnsub=null;} _curMsgs=[]; _lastMsgCount=0; _reads={};
     _chMsgUnsub=chDoc(id).collection('messages').orderBy('ts','asc').limitToLast(300).onSnapshot(qs=>{
       _curMsgs=[];
-      qs.forEach(doc=>{ const m=doc.data(); if(m.exp && m.exp<Date.now()){ if(m.uid===ME.uid){ try{ doc.ref.delete(); }catch(e){} } return; } const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
+      _progAttente=[];
+      qs.forEach(doc=>{ const m=doc.data(); if(m.exp && m.exp<Date.now()){ if(m.uid===ME.uid){ try{ doc.ref.delete(); }catch(e){} } return; }
+        if(m.programmeAt && m.programmeAt>Date.now()){ _progAttente.push({id:doc.id,...m}); return; }   // pas encore l'heure
+        const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
       if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid){ if(!isMuted(id)){ beep(); if(vibrateOn()&&navigator.vibrate) try{ navigator.vibrate(120); }catch(e){} } if(notifOn() && last.m.mentions && last.m.mentions.includes(ME.uid)) toast('💬 '+(last.m.name||'Quelqu\'un')+' vous a mentionné'); } }
       _lastMsgCount=_curMsgs.length;
       renderStream(); markRead(id);
@@ -3330,7 +3333,11 @@
      Tu écris maintenant, ça part à l'heure dite. Le message attend dans la
      discussion (invisible pour les autres) ; dès qu'une application de
      l'équipe est ouverte après l'heure, il est envoyé pour de bon. */
-  function progCol(chId){ return chDoc(chId||_curCh.id).collection('programmes'); }
+  /* Le message attend dans la discussion elle-même, marqué « programmeAt » :
+     invisible pour tout le monde tant que l'heure n'est pas venue. Aucun
+     nouveau tiroir, donc aucune permission à changer côté Firebase. */
+  let _progAttente=[];
+  function progCol(chId){ return chDoc(chId||_curCh.id).collection('messages'); }
   function progForm(){
     if(!_curCh) return;
     const t=new Date(Date.now()+3600000);
@@ -3349,18 +3356,18 @@
     const at=momentChoisi();
     if(!at){ $('pgerr').innerHTML='<div class="err">Choisis le jour et l\'heure.</div>'; return; }
     if(at<Date.now()+30000){ $('pgerr').innerHTML='<div class="err">Cette heure est déjà passée — choisis plus tard.</div>'; return; }
-    await progCol().add({uid:ME.uid,name:(USER&&USER.name)||ME.email,text:txt,at:at,cree:Date.now()});
+    await progCol().add({uid:ME.uid,name:(USER&&USER.name)||ME.email,text:txt,
+      ts:new Date(at),        // il apparaîtra à sa place, à l'heure dite
+      programmeAt:at, cree:Date.now()});
     closeSheet(); toast('⏰ Programmé pour '+new Date(at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
     progBarreMaj();
   }catch(e){ const z=$('pgerr'); if(z) z.innerHTML='<div class="err">'+esc((e&&e.message)||e)+'</div>'; } }
   async function progListe(){ if(!_curCh) return;
     openSheet('<p class="muted center">Chargement…</p>');
     let rows='';
-    try{ const qs=await progCol().get();
-      const l=[]; qs.forEach(d=>l.push({id:d.id,...d.data()}));
-      l.sort((a,b)=>(a.at||0)-(b.at||0));
+    try{ const l=await progEnAttente();
       rows=l.map(p=>`<div class="row"><div class="info"><div class="nm">${esc((p.text||'').slice(0,70))}</div>
-        <div class="ds">⏰ ${esc(new Date(p.at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}))}${p.uid===ME.uid?'':' · '+esc(p.name||'')}</div></div>
+        <div class="ds">⏰ ${esc(new Date(p.programmeAt).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}))}${p.uid===ME.uid?'':' · '+esc(p.name||'')}</div></div>
         ${p.uid===ME.uid?`<button class="btn ghost sm" onclick="progSupprimer('${p.id}')">Annuler</button>`:''}</div>`).join('');
     }catch(e){ rows='<div class="err">'+esc((e&&e.message)||e)+'</div>'; }
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">⏰ Messages programmés</h3>
@@ -3368,20 +3375,34 @@
       <button class="btn ghost block" style="margin-top:12px" onclick="progForm()">＋ En programmer un</button>`);
   }
   async function progSupprimer(id){ try{ await progCol().doc(id).delete(); toast('Message programmé annulé'); progListe(); progBarreMaj(); }catch(e){ alert('Erreur : '+((e&&e.message)||e)); } }
-  /* l'envoi réel : tout message dont l'heure est passée part pour de bon */
+  /* ceux qui attendent encore leur heure */
+  async function progEnAttente(){ if(!_curCh) return [];
+    const qs=await progCol().get(); const now=Date.now(); const l=[];
+    qs.forEach(d=>{ const p=d.data()||{}; if((p.programmeAt||0)>now) l.push({id:d.id,...p}); });
+    l.sort((a,b)=>(a.programmeAt||0)-(b.programmeAt||0));
+    return l; }
+  /* l'heure est venue : le message devient un vrai message et l'équipe est prévenue */
   let _progT=null;
   async function progEnvoyerDus(){ if(!_curCh) return;
-    try{ const qs=await progCol().get(); const now=Date.now();
+    try{ const qs=await progCol().get(); const now=Date.now(); const chId=_curCh.id;
       for(const d of qs.docs){ const p=d.data()||{};
-        if((p.at||0)>now) continue;
-        try{ await addMsgTo(_curCh.id,{uid:p.uid,name:p.name||'',text:p.text||'',ts:FV(),programme:true});
-             await d.ref.delete(); }catch(e){}
+        if(!p.programmeAt || p.programmeAt>now) continue;
+        try{
+          await d.ref.update({programmeAt:firebase.firestore.FieldValue.delete()});
+          try{ await chanCol().doc(chId).set({lastMsg:(previewOf(p)||'').slice(0,80),lastMsgAt:Date.now(),lastMsgFrom:p.uid,lastMsgName:p.name||''},{merge:true}); }catch(e){}
+          if(p.uid===ME.uid){ try{
+            const cd=await chanCol().doc(chId).get(); const c=cd.data()||{};
+            let dest=(Array.isArray(c.members)&&c.members.length)?c.members:_members.map(m=>m.uid);
+            dest=[...new Set(dest)].filter(u=>u&&u!==ME.uid);
+            opPushNotifyUsers(dest,'💬 '+((c.name||'Général')+(MODE==='company'&&COMP&&COMP.name?' · '+COMP.name:'')),(p.name||'')+' : '+(p.text||'').slice(0,140));
+          }catch(e){} }
+        }catch(e){}
       }
     }catch(e){}
     progBarreMaj();
   }
   async function progBarreMaj(){ const b=$('progbar'); if(!b||!_curCh) return;
-    try{ const qs=await progCol().get(); const n=qs.size!==undefined?qs.size:(qs.docs||[]).length;
+    try{ const l=await progEnAttente(); const n=l.length;
       if(!n){ b.style.display='none'; b.innerHTML=''; return; }
       b.style.display='flex'; b.innerHTML=`<span style="flex:1;font-size:12.5px;color:var(--t2)">⏰ ${n} message${n>1?'s':''} programmé${n>1?'s':''}</span>
         <span onclick="progListe()" style="font-size:12px;font-weight:700;color:var(--op-tx);cursor:pointer">Voir</span>`;
