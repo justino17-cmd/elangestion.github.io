@@ -2867,6 +2867,35 @@
 
   // ========== CHAT (par canal) ==========
   let _chMsgUnsub=null, _curCh=null;
+  /* ══ LE PETIT GUIDE DES DISCUSSIONS ══
+     Trois écrans qui montrent les gestes cachés (réagir, répondre, épingler,
+     photos, vocaux). Affiché UNE SEULE fois par personne : même passé à la
+     première étape, il ne revient jamais. */
+  function guideConvEtape(n){
+    const E=[
+      ['👍','Réagir en un geste',"Touche un message : les émojis apparaissent en haut du menu. Un toucher, et ta réaction est posée — visible par toute l'équipe."],
+      ['↩️','Répondre et épingler',"Glisse un message vers la droite pour y répondre directement. Et dans le menu du message, « Épingler » l'affiche en haut de la discussion, pour tout le monde."],
+      ['🎤','Photos, documents et vocaux',"Le bouton + envoie photos, documents, ta position… Le micro enregistre un message vocal : un appui pour parler, un appui pour envoyer."]
+    ];
+    const et=E[n];
+    const pts=E.map((x,i)=>`<span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:${i===n?'var(--op)':'var(--brd2)'}"></span>`).join('');
+    openSheet(`<div style="text-align:center;padding:6px 2px">
+      <div style="font-size:44px;margin:10px 0 14px">${et[0]}</div>
+      <h3 style="font-family:'Space Mono',monospace;font-size:17px;margin-bottom:10px">${esc(et[1])}</h3>
+      <p class="muted" style="font-size:14px;line-height:1.6;margin-bottom:16px">${esc(et[2])}</p>
+      <div style="display:flex;gap:7px;justify-content:center;margin-bottom:16px">${pts}</div>
+      ${n<E.length-1?`<button class="btn block" onclick="guideConvEtape(${n+1})">Suivant</button>
+        <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Passer</button>`
+        :`<button class="btn block" onclick="closeSheet()">C'est parti !</button>`}
+    </div>`);
+  }
+  function guideConv(){ try{
+    if(!ME) return;
+    const k='opmsg_guide_conv_'+ME.uid;
+    if(localStorage.getItem(k)) return;
+    localStorage.setItem(k,'1');
+    guideConvEtape(0);
+  }catch(e){} }
   function openChannel(id,name){ _curCh={id,name}; _replyTo=null; _starFilter=false;
     _munread.delete(ck(id)); lsSave('opmsg_munread',_munread);
     $('chat').innerHTML=`
@@ -2895,6 +2924,7 @@
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
     try{ document.querySelectorAll('.dsk-chan').forEach(x=>x.classList.toggle('on',x.dataset.cid===id)); }catch(e){}
     applyWall(); bindSwipeReply(); listenCh(id); listenChDoc(id);
+    setTimeout(guideConv,600);
   }
   // Balayage vers la droite sur un message = répondre (comme WhatsApp)
   function bindSwipeReply(){ const s=$('stream'); if(!s) return; let sx=0,sy=0,el=null;
