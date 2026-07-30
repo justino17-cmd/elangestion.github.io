@@ -608,7 +608,19 @@
   function _vapidArr(k){ const p='='.repeat((4-k.length%4)%4); const b=atob((k+p).replace(/-/g,'+').replace(/_/g,'/')); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
   function pushSupported(){ return ('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window); }
   async function opPushSub(quiet){ try{
-    if(!pushSupported()||!ME) return false;
+    if(!ME) return false;
+    /* le bouton ne doit JAMAIS rester muet : si l'appareil ne gère pas les
+       notifications ici, on explique quoi faire au lieu d'abandonner en silence */
+    if(!pushSupported()){
+      if(!quiet){
+        const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+        const installee=!!((window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone);
+        alert(ios&&!installee
+          ?"Sur iPhone / iPad, il faut d'abord installer OP MESSAGES sur l'écran d'accueil :\n\n1. Touche le bouton Partager (le carré avec la flèche)\n2. Choisis « Sur l'écran d'accueil »\n3. Ouvre OP MESSAGES depuis la NOUVELLE icône\n4. Reviens ici (Vous → Activer les notifications)\n\nC'est une règle d'Apple : sans ça, l'iPhone bloque toutes les notifications."
+          :"Ce navigateur ne gère pas les notifications.\n\nSur Android : ouvre OP MESSAGES avec Chrome puis réessaie.\nSur iPhone : installe l'app sur l'écran d'accueil (Partager → Sur l'écran d'accueil).");
+      }
+      return false;
+    }
     if(Notification.permission==='denied'){ if(!quiet) alert('Notifications bloquées — autorise-les dans les réglages du navigateur ou du téléphone.'); return false; }
     if(Notification.permission!=='granted'){ const p=await Notification.requestPermission(); if(p!=='granted') return false; }
     const reg=await navigator.serviceWorker.ready;
