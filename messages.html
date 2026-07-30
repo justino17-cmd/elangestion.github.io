@@ -137,6 +137,11 @@
   /* les blocs portent leur position en style en ligne : il faut donc du
      !important pour reprendre la main sur le curseur et le passage du pointeur */
   #dash-cal.glisse .plbloc{pointer-events:none!important}
+  /* le mode « déplacer en deux clics » : les cases s'allument au survol,
+     les blocs laissent passer le clic vers les cases */
+  #dash-cal.deplace .plbloc{pointer-events:none!important;opacity:.45}
+  #dash-cal.deplace div[onclick^="planCaseClic"]{cursor:crosshair}
+  #dash-cal.deplace div[onclick^="planCaseClic"]:hover{outline:2px dashed var(--op);outline-offset:-2px;background-color:var(--tint2)!important}
   .plbloc{cursor:grab!important}
   .plbloc:active{cursor:grabbing!important}
   .dstat{cursor:pointer;transition:border-color .15s,transform .12s}
@@ -938,6 +943,7 @@
     /* la page « Réunions » se pose PAR-DESSUS l'écran : si on ne la ferme pas,
        cliquer sur un onglet ne change rien à l'écran. On la ferme toujours. */
     try{ if($('page')&&$('page').classList.contains('open')) closePage(); }catch(e){}
+    try{ if(typeof deplacerFin==='function') deplacerFin(); }catch(e){}
     if(_meetTicker){clearInterval(_meetTicker);_meetTicker=null;}
     ['dash','disc','cont','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===v); });
     const m2=$('nv2-meet'); if(m2) m2.classList.remove('on');
@@ -1075,7 +1081,7 @@
         const hors=d.getMonth()!==moisRef.getMonth();
         const l=duJour(d);
         const weM=(d.getDay()===0||d.getDay()===6);
-        grid+=`<div ${creer?`onclick="dashForm('${_dstr(d)}','09:00')" title="Déposer une réunion ici pour la déplacer à ce jour"
+        grid+=`<div ${creer?`onclick="planCaseClic(event,this,'${_dstr(d)}',null)" title="Déposer une réunion ici pour la déplacer à ce jour"
           ondragover="planDragOver(event,this)" ondragleave="planDragLeave(this)" ondrop="planDrop(event,this,'${_dstr(d)}',null)"`:''}
           style="border-left:1px solid var(--cal-line);border-top:1px solid var(--cal-line);min-height:92px;min-width:0;overflow:hidden;padding:5px;cursor:pointer;${isT?'background:var(--cal-today);':(weM?'background:var(--cal-we);':'')}${hors?'opacity:.42;':''}">
           <div style="font-size:11.5px;font-weight:800;margin-bottom:4px;${isT?'color:var(--op-tx)':'color:var(--t2)'}">${d.getDate()}</div>
@@ -1158,7 +1164,7 @@
           etq+=`<div style="position:absolute;top:${tDemi}px;right:9px;font-size:9px;font-weight:600;color:var(--t3);opacity:.7">${HH}:30</div>`;
         grid+=`<div data-h="${HH}" style="height:${ROWH}px;position:relative;${hi?'border-top:1px solid var(--cal-line)':''}">${etq}</div>`;
         jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
-          grid+=`<div ${creer?`onclick="dashForm('${_dstr(d)}','${HH}:00')" title="Poser une réunion ici — ou déposer une réunion pour la déplacer"
+          grid+=`<div ${creer?`onclick="planCaseClic(event,this,'${_dstr(d)}',${h})" title="Poser une réunion ici — ou déposer une réunion pour la déplacer"
             ondragover="planDragOver(event,this)" ondragleave="planDragLeave(this)" ondrop="planDrop(event,this,'${_dstr(d)}',${h})"`
             :`title="Seuls le patron et les responsables créent des réunions"`}
             style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background-color:var(--cal-today);':(we?'background-color:var(--cal-we);':'')}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
@@ -1283,6 +1289,32 @@
       const b=el.getBoundingClientRect();
       const y=Math.max(0,Math.min(b.height,(ev.clientY||0)-b.top));
       min=Math.min(55,Math.round((y/b.height)*12)*5);   /* au pas de 5 minutes */
+    }
+    await reunionDeplace(id,dateISO,heure,min);
+  }
+  /* ══ DÉPLACER EN DEUX CLICS ══
+     Le glisser à la souris ne marche pas partout (et jamais au doigt sur
+     téléphone). Alors : « Déplacer » dans la fenêtre de la réunion, puis un
+     clic sur la case d'arrivée. Échap ou un nouvel appui annule. */
+  let _moveId=null;
+  function deplacerMode(id){
+    try{ closeSheet(); }catch(e){}
+    _moveId=id; const c=$('dash-cal'); if(c) c.classList.add('deplace');
+    const r=_dashRooms[id];
+    toast('Choisis la nouvelle case pour « '+((r&&r.name)||'la réunion')+' » — Échap pour annuler');
+  }
+  function deplacerFin(){ _moveId=null; const c=$('dash-cal'); if(c) c.classList.remove('deplace'); }
+  async function planCaseClic(ev,el,dateISO,h){
+    if(!_moveId){ dashForm(dateISO,(h===null||h===undefined)?'09:00':String(h).padStart(2,'0')+':00'); return; }
+    const id=_moveId; deplacerFin();
+    let heure=h, min=0;
+    if(h===null||h===undefined){                      /* vue mois : on garde l'heure d'origine */
+      const r0=_dashRooms[id], d0=r0?new Date(r0.scheduledAt):null;
+      heure=d0?d0.getHours():9; min=d0?d0.getMinutes():0;
+    } else {
+      const b=el.getBoundingClientRect();
+      const y=Math.max(0,Math.min(b.height,((ev&&ev.clientY)||0)-b.top));
+      min=Math.min(55,Math.round((y/b.height)*12)*5);  /* la minute suit la hauteur du clic */
     }
     await reunionDeplace(id,dateISO,heure,min);
   }
@@ -1708,6 +1740,7 @@
       <div style="margin-top:6px">${membres.map(ligne).join('')||'<p class="muted" style="font-size:12px">Aucun participant.</p>'}</div>
       ${(r.createdBy===ME.uid&&o.sans>0)?`<button class="btn ghost block" style="margin-top:12px" onclick="rsvpRelanceTous('${id}')">${o.sans>1?'Relancer les '+o.sans+' personnes sans réponse':'Relancer la personne sans réponse'}</button>`:''}
       <div data-pied>
+        ${peutBouger(r)?`<button class="btn ghost" onclick="deplacerMode('${id}')">Déplacer</button>`:''}
         ${r.createdBy===ME.uid?`<button class="btn ghost" onclick="reunionModifier('${id}')">Modifier</button>
         <button class="btn ghost" style="color:var(--red)" onclick="reunionAnnuler('${id}')">Annuler</button>`:''}
         <button class="btn" style="font-weight:800" onclick="closeSheet();joinRoom('${id}','${esc((r.name||'').replace(/'/g,''))}')">Rejoindre la réunion</button></div>`);
@@ -3439,6 +3472,7 @@
   $('sheet').addEventListener('click',e=>{ if(e.target.id==='sheet') closeSheet(); });
   /* comme dans n'importe quelle application : Échap ferme la fenêtre */
   document.addEventListener('keydown',e=>{ if(e.key!=='Escape') return;
+    if(typeof _moveId!=='undefined'&&_moveId){ deplacerFin(); toast('Déplacement annulé'); return; }
     if($('sheet')&&$('sheet').classList.contains('open')){ closeSheet(); return; }
     if($('page')&&$('page').classList.contains('open')) closePage(); });
 
