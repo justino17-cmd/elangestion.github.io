@@ -3104,7 +3104,7 @@
     const p={pc:pc,nom:nom||'',streams:{cam:null,ecran:null},ecranIds:new Set(),dc:null,glace:[],pret:false,muetPourMoi:false,ecranSenders:[]};
     _vPairs[uid]=p;
     try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>pc.addTrack(t,_vLocal)); }catch(e){}
-    try{ if(_vEcran) _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); }catch(e){}
+    try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
     pc.onicecandidate=ev=>{ if(ev.candidate) _vDire({type:'ice',a:uid,cand:JSON.stringify(ev.candidate)}); };
     pc.ontrack=ev=>{ const st=ev.streams[0]||new MediaStream([ev.track]);
       if(p.ecranIds.has(st.id)) p.streams.ecran=st;
@@ -3112,13 +3112,21 @@
       else p.streams.ecran=st;
       _vReclasse(p); visioTuiles(); };
     pc.ondatachannel=ev=>_vDcAttache(uid,ev.channel);
-    pc.onnegotiationneeded=async()=>{ try{ if(pc.signalingState!=='stable') return;
-      const off=await pc.createOffer(); await pc.setLocalDescription(off);
-      await _vDire({type:'offre',a:uid,sdp:JSON.stringify(off)}); }catch(e){} };
+    pc.onnegotiationneeded=async()=>{
+      const tenter=async()=>{ if(pc.signalingState!=='stable') return false;
+        const off=await pc.createOffer(); await pc.setLocalDescription(off);
+        await _vDire({type:'offre',a:uid,sdp:JSON.stringify(off)}); return true; };
+      try{ if(await tenter()) return; }catch(e){}
+      /* un échange se chevauchait : on retente une fois, un instant plus tard */
+      setTimeout(async()=>{ try{ await tenter(); }catch(e){} },1200);
+    };
     pc.onconnectionstatechange=()=>{ const st=pc.connectionState;
       if(st==='connected') visioEtat('');
       if(st==='failed'){ visioEtat('connexion difficile'); visioSecoursBtn(); }
-      if(st==='disconnected'||st==='closed'){ setTimeout(()=>{ if(pc.connectionState==='disconnected'||pc.connectionState==='closed'){ delete _vPairs[uid]; visioTuiles(); } },4000); }
+      if(st==='disconnected'){ /* le réseau a toussé : on relance les chemins avant d'abandonner */
+        try{ if(pc.restartIce) pc.restartIce(); }catch(e){}
+        setTimeout(()=>{ if(pc.connectionState==='disconnected'||pc.connectionState==='closed'){ delete _vPairs[uid]; visioTuiles(); } },8000); }
+      if(st==='closed'){ setTimeout(()=>{ if(pc.connectionState==='closed'){ delete _vPairs[uid]; visioTuiles(); } },2000); }
     };
     if(!_vOrdre.includes(uid)) _vOrdre.push(uid);
     visioTuiles();
@@ -3169,16 +3177,50 @@
     }
     if(d.type==='pars'){ const p=_vPairs[d.de]; if(p){ try{ p.pc.close(); }catch(e){} delete _vPairs[d.de]; visioTuiles(); } }
   }
+  /* ── les réglages d'envoi : l'écran a la priorité et un gros débit ── */
+  async function _vRegleEnvoi(p){
+    try{
+      for(const sn of (p.ecranSendersMoi||[])){
+        try{
+          const pr=sn.getParameters(); pr.encodings=pr.encodings&&pr.encodings.length?pr.encodings:[{}];
+          pr.encodings[0].maxBitrate=8000000;            // ~8 Mb/s : de quoi porter du 4K
+          pr.encodings[0].networkPriority='high';
+          pr.degradationPreference='maintain-resolution'; // la définition ne baisse JAMAIS
+          await sn.setParameters(pr);
+        }catch(e){}
+        /* le meilleur codec disponible pour le texte (VP9), si le navigateur sait faire */
+        try{
+          const tr=p.pc.getTransceivers().find(t2=>t2.sender===sn);
+          if(tr&&tr.setCodecPreferences&&RTCRtpSender.getCapabilities){
+            const caps=RTCRtpSender.getCapabilities('video').codecs;
+            const vp9=caps.filter(c=>/VP9/i.test(c.mimeType)), autres=caps.filter(c=>!/VP9/i.test(c.mimeType));
+            if(vp9.length) tr.setCodecPreferences(vp9.concat(autres));
+          }
+        }catch(e){}
+      }
+      /* la caméra reste sobre pour laisser la bande passante à l'écran */
+      for(const sn of p.pc.getSenders()){
+        if(!sn.track||sn.track.kind!=='video') continue;
+        if((p.ecranSendersMoi||[]).includes(sn)) continue;
+        try{ const pr=sn.getParameters(); pr.encodings=pr.encodings&&pr.encodings.length?pr.encodings:[{}];
+          pr.encodings[0].maxBitrate=1200000; await sn.setParameters(pr); }catch(e){}
+      }
+    }catch(e){}
+  }
   /* ── le partage d'écran (plusieurs personnes en même temps) ── */
   async function visioEcran(){
     if(_vEcran){ visioEcranStop(); return; }
     let flux;
-    try{ flux=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:12},audio:false}); }
+    try{ flux=await navigator.mediaDevices.getDisplayMedia({
+      video:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}},audio:false}); }
     catch(e){ return; }   // il a refusé ou fermé le choix d'écran
     _vEcran=flux;
+    /* « detail » : le texte reste NET ; si le réseau manque, on perd des
+       images par seconde, jamais de la définition */
+    try{ flux.getVideoTracks().forEach(t=>{ t.contentHint='detail'; }); }catch(e){}
     const b=$('visio-ecran'); if(b){ b.style.background='#1e7a4e'; b.title='Arrêter le partage'; }
     flux.getVideoTracks().forEach(t=>{ t.onended=()=>visioEcranStop(); });
-    Object.values(_vPairs).forEach(p=>{ try{ flux.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([p.pc.addTrack(t,flux)])); }catch(e){} });
+    Object.values(_vPairs).forEach(p=>{ try{ flux.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([p.pc.addTrack(t,flux)])); _vRegleEnvoi(p); }catch(e){} });
     dcTous({t:'ecranId',id:flux.id});
     if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
     _vGrand='moiE';
