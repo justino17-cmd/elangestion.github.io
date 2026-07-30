@@ -3227,6 +3227,31 @@
     if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
     _vGrand='moiE';
     visioTuiles(); toast('🖥️ Ton écran est partagé');
+    /* Partage de TOUT l'écran : si l'ordinateur bloque l'enregistrement
+       d'écran (autorisation système), l'image reste noire ou vide.
+       On le détecte et on explique quoi activer, au lieu de ne rien dire. */
+    const fluxTest=flux;
+    setTimeout(()=>{ try{
+      if(_vEcran!==fluxTest) return;                      // déjà arrêté ou remplacé
+      const t0=fluxTest.getVideoTracks()[0];
+      const v=$('vt-moiE');
+      const vide=!t0 || t0.muted || !(v&&v.videoWidth>0);
+      if(!vide) return;
+      visioEcranStop();
+      const mac=/Mac/i.test(navigator.platform||navigator.userAgent||'');
+      openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ L'écran partagé est vide</h3>
+        <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">Ce n'est pas une panne : <b>ton ordinateur bloque l'enregistrement de l'écran</b> pour ce navigateur. Il faut l'autoriser une fois :</p>
+        ${mac?`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
+          1. Ouvre <b>Réglages Système</b> (menu )<br>
+          2. <b>Confidentialité et sécurité</b> → <b>Enregistrement de l'écran</b><br>
+          3. Active ton navigateur (Safari ou Chrome)<br>
+          4. <b>Quitte et relance le navigateur</b>, puis reviens partager</div>`
+        :`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
+          Vérifie les autorisations d'enregistrement d'écran de ton système, puis relance le navigateur et réessaie.</div>`}
+        <p class="muted" style="font-size:12px;line-height:1.5;margin-bottom:12px">En attendant, tu peux partager <b>une fenêtre</b> ou <b>un onglet</b> : ça marche souvent sans cette autorisation.</p>
+        <button class="btn block" onclick="closeSheet();visioEcran()">Réessayer le partage</button>
+        <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
+    }catch(e){} },3500);
   }
   function visioEcranStop(){
     if(!_vEcran) return;
@@ -3279,7 +3304,7 @@
         ctl.push(`<button onclick="event.stopPropagation();visioSourdine('${t.uid}')" title="Couper le son pour moi">${p&&p.muetPourMoi?'🔇':'🔈'}</button>`);
         if(typeof peutReunion==='function'&&peutReunion()) ctl.push(`<button onclick="event.stopPropagation();visioMuteLui('${t.uid}')" title="Couper SON micro">🎙✕</button>`);
       }
-      return `<div style="position:relative;border-radius:14px;overflow:hidden;background:#141a26;${taille}" onclick="visioGrand('${t.id}')">
+      return `<div style="position:relative;border-radius:14px;overflow:hidden;background:#141a26;${t.ecran?'display:flex;align-items:center;justify-content:center;':''}${taille}" onclick="visioGrand('${t.id}')">
         ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
             <div style="width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;${avatarStyle(t.nom)}">${ini(t.nom)}</div></div>`
           :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="${(_vZoom100&&t.ecran&&grand===t.id)?'width:auto;height:auto;min-width:0;min-height:0':'width:100%;height:100%'};object-fit:${t.ecran?'contain':'cover'};${(t.moi&&!t.ecran)?'transform:scaleX(-1)':''}"></video>`}
@@ -3313,6 +3338,25 @@
     const b=$('vo-zoom'); if(b){ b.textContent=_vZoom100?'🔍 Ajuster à l\'écran':'🔍 Taille réelle'; b.style.background=_vZoom100?'var(--op)':'#232a3a'; }
     visioTuiles(); }
   function visioDefMaj(){
+    /* LA RÈGLE D'OR (tous navigateurs) : un écran partagé n'est JAMAIS
+       agrandi au-delà de sa définition — l'agrandissement, c'est du flou
+       fabriqué. S'il reste de la place, on centre ; jamais on n'étire. */
+    try{
+      const dpr=window.devicePixelRatio||1;
+      document.querySelectorAll('#visio-grille video[id^=vt-]').forEach(v=>{
+        const id=v.id.slice(3);
+        if(!(id==='moiE'||/_E$/.test(id.replace(/::/,'_')))&&!/E$/.test(id)) return;   // seulement les écrans
+        if(!v.videoWidth) return;
+        const netW=Math.round(v.videoWidth/dpr), netH=Math.round(v.videoHeight/dpr);
+        if(_vZoom100&&_vGrand&&v.id==='vt-'+String(_vGrand).replace(/[^a-zA-Z0-9]/g,'_')){
+          v.style.maxWidth='none'; v.style.maxHeight='none';
+          v.style.width=netW+'px'; v.style.height=netH+'px';   // le vrai 1:1 physique
+        } else if(v.style.width!=='100%'||v.style.maxWidth!==netW+'px'){
+          v.style.width='100%'; v.style.height='100%';
+          v.style.maxWidth=netW+'px'; v.style.maxHeight=netH+'px';
+        }
+      });
+    }catch(e){}
     const e=$('visio-def'); if(!e) return;
     const g=_vGrand; if(!g){ e.textContent=''; return; }
     const v=$('vt-'+String(g).replace(/[^a-zA-Z0-9]/g,'_'));
@@ -3320,10 +3364,10 @@
       /* Safari sur Mac capture en demi-définition : on le dit, une fois */
       try{ const saf=/^((?!chrome|android).)*safari/i.test(navigator.userAgent);
         if(saf && g!=='moi' && v.videoWidth<=1728 && !window._vDefConseil){ window._vDefConseil=1;
-          toast('ℹ️ Safari limite la capture d\'écran — pour un partage plus net sur Mac, utilise Chrome.'); } }catch(_){}
+          toast('ℹ️ Pour un partage encore plus net sur Mac, lance la réunion depuis Chrome — Safari limite la capture.'); } }catch(_){}
     } else e.textContent='';
   }
-  setInterval(()=>{ try{ visioDefMaj(); }catch(e){} },1500);
+  setInterval(()=>{ try{ visioDefMaj(); }catch(e){} },700);
   /* ── les annotations : dessin, texte, gomme ── */
   function noteOutil(o){ _vOutil=o; ['d','l','f','r','q','c2','e','t'].forEach(x=>{ const b=$('vo-'+x); if(b) b.style.background=(x===o)?'var(--op)':'#232a3a'; }); }
   function noteCouleur(c){ _vCouleur=c; document.querySelectorAll('[id^=vo-c-]').forEach(b=>b.style.border='2px solid transparent');
