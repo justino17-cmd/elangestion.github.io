@@ -3270,9 +3270,29 @@
   $('filepick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f||!_curCh) return;
     if(f.size>800000){ alert('Fichier trop volumineux (max 800 Ko).'); e.target.value=''; return; }
     const r=new FileReader(); r.onload=async()=>{ try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,file:{name:f.name,type:f.type||'',data:r.result},ts:FV()}); }catch(err){ alert('Erreur fichier : '+(err.message||err)); } }; r.readAsDataURL(f); e.target.value=''; });
-  function openFile(id){ const f=_files[id]; if(!f) return; const pdf=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name||'');
-    if(pdf){ $('viewer-name').textContent=f.name||'Document'; $('viewer-frame').src=f.data; const _vw=$('viewer').classList.contains('open'); $('viewer').classList.add('open'); if(!_vw) pushBack(); }
-    else { const a=document.createElement('a'); a.href=f.data; a.download=f.name||'fichier'; document.body.appendChild(a); a.click(); a.remove(); } }
+  /* Le fichier reçu est stocké en données brutes : on le reconstruit en vrai
+     fichier pour que le téléphone sache l'ouvrir. */
+  function fichierBlob(f){ const morceaux=String(f.data||'').split(',');
+    const mime=((morceaux[0]||'').match(/data:([^;]+)/)||[])[1]||f.type||'application/octet-stream';
+    const bin=atob(morceaux[1]||''); const arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return new Blob([arr],{type:mime}); }
+  async function openFile(id){ const f=_files[id]; if(!f) return; const pdf=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name||'');
+    const souris=(function(){ try{ return window.matchMedia('(hover: hover) and (pointer: fine)').matches; }catch(e){ return true; } })();
+    if(pdf && souris){ $('viewer-name').textContent=f.name||'Document'; $('viewer-frame').src=f.data; const _vw=$('viewer').classList.contains('open'); $('viewer').classList.add('open'); if(!_vw) pushBack(); return; }
+    try{
+      const blob=fichierBlob(f);
+      /* téléphone / tablette : la fenêtre de partage du système —
+         « Ouvrir dans… », « Enregistrer dans Fichiers »… ça marche partout */
+      if(!souris && navigator.canShare){ try{
+        const fichier=new File([blob],f.name||'fichier',{type:blob.type});
+        if(navigator.canShare({files:[fichier]})){ await navigator.share({files:[fichier],title:f.name||'Fichier'}); return; }
+      }catch(e){ if(e&&e.name==='AbortError') return; } }
+      const url=URL.createObjectURL(blob);
+      const w=window.open(url,'_blank');
+      if(!w){ const a=document.createElement('a'); a.href=url; a.download=f.name||'fichier'; document.body.appendChild(a); a.click(); a.remove(); }
+      setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch(e){} },60000);
+    }catch(e){ toast('Ouverture impossible : '+((e&&e.message)||e)); } }
   function closeViewer(){ $('viewer').classList.remove('open'); $('viewer-frame').src='about:blank'; }
 
   // ========== MENU / MEMBRES ==========
