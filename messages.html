@@ -3066,7 +3066,9 @@
       _curMsgs=[];
       _progAttente=[];
       qs.forEach(doc=>{ const m=doc.data(); if(m.exp && m.exp<Date.now()){ if(m.uid===ME.uid){ try{ doc.ref.delete(); }catch(e){} } return; }
-        if(m.programmeAt && m.programmeAt>Date.now()){ _progAttente.push({id:doc.id,...m}); return; }   // pas encore l'heure
+        if(m.programmeAt && m.programmeAt>Date.now()){ _progAttente.push({id:doc.id,...m});
+          if(m.uid!==ME.uid) return;                       // les autres ne le voient pas encore
+          const dp=new Date(m.programmeAt); _curMsgs.push({id:doc.id,m,d:dp}); return; }   // l'auteur, lui, le voit en attente
         const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
       if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid){ if(!isMuted(id)){ beep(); if(vibrateOn()&&navigator.vibrate) try{ navigator.vibrate(120); }catch(e){} } if(notifOn() && last.m.mentions && last.m.mentions.includes(ME.uid)) toast('💬 '+(last.m.name||'Quelqu\'un')+' vous a mentionné'); } }
       _lastMsgCount=_curMsgs.length;
@@ -3110,7 +3112,8 @@
       let reacts=''; if(m.reactions){ const ps=Object.entries(m.reactions).filter(([e,a])=>a&&a.length).map(([e,a])=>`<span style="background:rgba(127,127,127,.2);border-radius:100px;padding:1px 7px;font-size:12px">${e} ${a.length}</span>`); if(ps.length) reacts=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">${ps.join('')}</div>`; }
       const starTag=_star.has(id)?'<span style="color:#f5c518;font-size:10px"> ★</span>':'';
       const ephTag=m.exp?'<span style="font-size:10px;opacity:.6" title="Éphémère"> ⏱</span>':'';
-      html+=`<div class="m ${mine?'me':'them'}" data-mid="${id}" onclick="msgTap('${id}')" style="cursor:pointer">${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${reacts}${m.fwd?'<span style="font-size:9px;opacity:.55">↪ transféré</span>':''}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}${ephTag}${starTag}</div></div>`;
+      const enAttente=!!(m.programmeAt&&m.programmeAt>Date.now());
+      html+=`<div class="m ${mine?'me':'them'}${enAttente?' attente':''}" data-mid="${id}" onclick="${enAttente?`progListe()`:`msgTap('${id}')`}" style="cursor:pointer${enAttente?';opacity:.72;border:1px dashed currentColor':''}">${enAttente?`<div style="font-size:10.5px;font-weight:800;letter-spacing:.05em;margin-bottom:3px">⏰ PROGRAMMÉ · ${esc(new Date(m.programmeAt).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</div>`:''}${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${reacts}${m.fwd?'<span style="font-size:9px;opacity:.55">↪ transféré</span>':''}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}${ephTag}${starTag}</div></div>`;
       if(id===lastMineId && readReceiptsOn()){ const mt=d.getTime();
         const rd=Object.keys(_reads).filter(u=>u!==ME.uid && (_reads[u]||0)>=mt-2000).length;
         const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé';
@@ -3402,7 +3405,7 @@
         try{
           await d.ref.update({programmeAt:firebase.firestore.FieldValue.delete()});
           try{ await chanCol().doc(chId).set({lastMsg:(previewOf(p)||'').slice(0,80),lastMsgAt:Date.now(),lastMsgFrom:p.uid,lastMsgName:p.name||''},{merge:true}); }catch(e){}
-          if(p.uid===ME.uid){ try{
+          { try{
             const cd=await chanCol().doc(chId).get(); const c=cd.data()||{};
             let dest=(Array.isArray(c.members)&&c.members.length)?c.members:_members.map(m=>m.uid);
             dest=[...new Set(dest)].filter(u=>u&&u!==ME.uid);
