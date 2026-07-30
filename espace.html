@@ -306,7 +306,8 @@
       <div class="field"><label>Mot de passe</label><input id="a-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
       <div id="signup-fields2" class="hide"><div class="field"><label>Confirmer le mot de passe</label><input id="a-pass2" type="password" placeholder="••••••••" autocomplete="new-password"></div></div>
       <button class="btn block" id="a-submit" onclick="authSubmit()">Se connecter</button>
-      <p class="muted center" style="margin-top:14px">« Se connecter » = vous avez déjà un compte. « Créer un compte » = nouveau client.</p>
+      <p class="center" style="margin-top:10px"><a href="#" onclick="motDePasseOublie();return false" style="color:var(--t3);font-size:12.5px;text-decoration:underline">Mot de passe oublié ?</a></p>
+      <p class="muted center" style="margin-top:10px">« Se connecter » = vous avez déjà un compte. « Créer un compte » = nouveau client.</p>
     </div>
     <p class="center" style="margin-top:12px"><a href="#" id="lnk-equipe" onclick="renderTeamAuth();return false" style="color:var(--t3);font-size:12.5px;text-decoration:none">🛠 Équipe TeamOP</a></p>`;
     if(RETOUR_PAIEMENT) authTab('signup');
@@ -332,6 +333,18 @@
         if(RETOUR_PAIEMENT){ location.href=RETOUR_PAIEMENT; return; }
       } else { await auth.signInWithEmailAndPassword(email,pass); }
     }catch(e){ err(authMsg(e)); }
+  }
+  /* Mot de passe oublié : Firebase envoie l'email de réinitialisation.
+     On répond la même chose que le compte existe ou non — pas d'indice
+     donné à un curieux qui testerait des adresses. */
+  async function motDePasseOublie(){
+    const email=($('a-email').value||'').trim();
+    const box=$('auth-err');
+    if(!email){ box.innerHTML='<div class="err">Écris d\'abord ton e-mail dans le champ ci-dessus, puis reclique.</div>'; return; }
+    box.innerHTML='<div class="muted" style="padding:8px 2px">Envoi en cours…</div>';
+    try{ await auth.sendPasswordResetEmail(email); }
+    catch(e){ if((e&&e.code)==='auth/invalid-email'){ box.innerHTML='<div class="err">E-mail invalide.</div>'; return; } }
+    box.innerHTML='<div class="ok">📬 Si un compte existe pour <b>'+esc(email)+'</b>, un e-mail de réinitialisation vient de partir. Regarde aussi les indésirables.</div>';
   }
   function authMsg(e){ const c=(e&&e.code)||'';
     if(c==='auth/email-already-in-use') return 'Cet e-mail a déjà un compte. Connectez-vous.';
