@@ -2674,48 +2674,12 @@
      les derniers documents reçus, et deux raccourcis. */
   async function discSide(entries){
     const z=$('disc-side'); if(!z) return;
-    const auj=new Date(); const j0=new Date(auj.getFullYear(),auj.getMonth(),auj.getDate()).getTime(), j1=j0+86400000;
-    let reunions=[];
-    if(MODE==='company'&&COMP){ try{
-      const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').get();
-      qs.forEach(d=>{ const r=d.data()||{}; if(r.scheduledAt>=j0&&r.scheduledAt<j1) reunions.push(r); });
-      reunions.sort((a,b)=>a.scheduledAt-b.scheduledAt);
-    }catch(e){} }
-    const nonLues=(entries||[]).filter(([id,c])=>c.lastMsgFrom&&c.lastMsgFrom!==ME.uid&&(c.lastMsgAt||0)>getReadTs(id)).length;
-    /* les derniers documents, pris dans les discussions les plus récentes */
-    let derniers=[];
-    try{
-      const recents=(entries||[]).slice(0,6);
-      for(const [id,c] of recents){
-        const qs=await chanCol().doc(id).collection('messages').get();
-        qs.forEach(d=>{ const m=d.data()||{}; if(m.programmeAt&&m.programmeAt>Date.now()) return;
-          const t=(m.ts&&m.ts.toDate)?m.ts.toDate():new Date();
-          if(m.img) derniers.push({n:'Photo',i:'🖼️',q:m.name||'',d:t,cid:id});
-          else if(m.file) derniers.push({n:(m.file.name||'Fichier'),i:'📄',q:m.name||'',d:t,cid:id}); });
-      }
-      derniers.sort((a,b)=>b.d-a.d); derniers=derniers.slice(0,4);
-    }catch(e){}
-    const hh=t=>new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-    z.innerHTML=`
-      <div class="side-c">
-        <div class="side-t">${esc(auj.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}))}</div>
-        <div class="side-l"><span>💬</span><span style="flex:1">Discussions</span><b>${(entries||[]).length}</b></div>
-        <div class="side-l"><span>🔔</span><span style="flex:1">Non lues</span><b style="color:${nonLues?'var(--op-tx)':'inherit'}">${nonLues}</b></div>
-        <div class="side-l"><span>📅</span><span style="flex:1">Réunions aujourd'hui</span><b>${reunions.length}</b></div>
-      </div>
-      ${reunions.length?`<div class="side-c"><div class="side-t">Les réunions du jour</div>
-        ${reunions.slice(0,4).map(r=>`<div class="side-l"><b style="font-variant-numeric:tabular-nums">${esc(hh(r.scheduledAt))}</b>
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'Réunion')}</span>
-          <span style="color:var(--t3);font-size:11.5px">${(r.members||[]).length} pers.</span></div>`).join('')}
-        <button class="btn ghost sm block" style="margin-top:9px" onclick="showView('dash')">Voir le calendrier</button></div>`:''}
-      ${derniers.length?`<div class="side-c"><div class="side-t">Derniers documents</div>
-        ${derniers.map(x=>`<div class="side-l" style="cursor:pointer" onclick="vueDocuments('${x.cid}')"><span>${x.i}</span>
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.n)}</span>
-          <span style="color:var(--t3);font-size:11.5px">${esc(x.d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'}))}</span></div>`).join('')}</div>`:''}
-      <div class="side-c"><div class="side-t">Raccourcis</div>
-        <button class="btn ghost sm block" style="margin-bottom:7px" onclick="newGroup()">＋ Nouveau groupe</button>
-        <button class="btn ghost sm block" style="margin-bottom:7px" onclick="showView('cont')">👥 Contacts</button>
-        <button class="btn ghost sm block" onclick="showView('prof')">⚙️ Mes réglages</button></div>`;
+    z.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+        height:min(62vh,540px);text-align:center;color:var(--t3);padding:20px">
+        <img src="icons/plan-msg.png" alt="" style="width:74px;height:74px;border-radius:20px;opacity:.5;margin-bottom:16px">
+        <div style="font-size:15px;font-weight:700;color:var(--t2)">Choisis une discussion</div>
+        <div style="font-size:12.5px;margin-top:6px;max-width:260px;line-height:1.5">Elle s'ouvrira ici, à côté de ta liste.</div>
+      </div>`;
   }
   /* ══ LE TROMBONE DE L'ENTREPRISE ══
      Toutes les photos et tous les documents échangés dans toutes les
