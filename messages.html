@@ -3181,6 +3181,8 @@
   }catch(e){} }
   try{ window.addEventListener('resize',()=>{ try{ chatPlacer(); }catch(e){} }); }catch(e){}
   function closeChat(){ clearTyping(); if(_progT){ clearInterval(_progT); _progT=null; }
+    /* le partage en direct continue : on peut aller voir une autre
+       discussion sans que l'équipe perde la position */
     try{ const p=$('emojipop'); if(p) p.style.display='none'; emojiSourd(); }catch(e){}
     try{ const c=$('chat'); if(c){ c.style.left=''; c.style.top=''; c.style.borderLeft=''; c.classList.remove('open'); } }catch(e){}
     try{ const v=$('view'); if(v) v.classList.remove('cote'); }catch(e){}
@@ -3354,6 +3356,8 @@
       body+=m.text?linkify(highlightMentions(esc(m.text),m)):'';
       if(m.img) body+=`<img src="${m.img}" onclick="event.stopPropagation();window.open(this.src)">`;
       if(m.audio) body+=`<audio class="voc" controls src="${m.audio}" style="max-width:215px;display:block;margin-top:6px;height:38px" onclick="event.stopPropagation()" onplay="vocSeul(this)" onended="vocSuivant(this)"></audio>`;
+      if(m.locDem) body+=locDemHtml(id,m);
+      if(m.loc) body+=locHtml(id,m);
       if(m.ack) body+=ackHtml(id,m);
       if(m.poll) body+=pollHtml(id,m);
       if(m.event) body+=eventHtml(id,m);
@@ -3409,7 +3413,7 @@
     try{ s.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){}
     const p=s.play(); if(p&&p.catch) p.catch(()=>{});
   }catch(e){} }
-  function previewOf(m){ if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.poll) return '📊 Sondage'; if(m.event) return '📅 '+((m.event&&m.event.titre)||'Événement'); if(m.sticker) return m.sticker; return ''; }
+  function previewOf(m){ if(m.locDem) return '🙋 Demande de position'; if(m.loc) return (m.live&&m.live.jusqu>Date.now())?'🔴 Position en direct':'📍 Position'; if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.poll) return '📊 Sondage'; if(m.event) return '📅 '+((m.event&&m.event.titre)||'Événement'); if(m.sticker) return m.sticker; return ''; }
   /* qui a lu, et quand — la donnée existait, elle n'était pas montrée */
   async function quiALu(mt){
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
@@ -3577,13 +3581,83 @@
       const k='opmsg_relance_'+id; if(localStorage.getItem(k)) return;
       localStorage.setItem(k,'1'); ackRelancer(id,true); });
   }catch(e){} }
+  /* La carte : une tuile OpenStreetMap centrée sur le point, une punaise
+     par-dessus, l'adresse en toutes lettres et un bouton pour ouvrir
+     l'itinéraire dans l'application de cartes du téléphone. */
+  function locTuile(la,lo,z){ z=z||16;
+    const x=Math.floor((lo+180)/360*Math.pow(2,z));
+    const rad=la*Math.PI/180;
+    const y=Math.floor((1-Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2*Math.pow(2,z));
+    return 'https://tile.openstreetmap.org/'+z+'/'+x+'/'+y+'.png'; }
+  function locHtml(id,m){
+    const L=m.loc||{}; if(L.la==null) return '';
+    const live=m.live&&m.live.jusqu>Date.now();
+    const url='https://maps.google.com/?q='+L.la+','+L.lo;
+    const maj=L.maj?new Date(L.maj):null;
+    return `<div style="margin-top:5px;border:1px solid var(--brd2);border-radius:12px;overflow:hidden;max-width:290px">
+      <div onclick="event.stopPropagation();window.open('${url}','_blank')" style="position:relative;height:130px;background:var(--inp);cursor:pointer">
+        <img src="${locTuile(L.la,L.lo)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none'">
+        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);font-size:28px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">📍</span>
+        ${live?`<span style="position:absolute;left:8px;top:8px;background:var(--red);color:#fff;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:999px">🔴 EN DIRECT</span>`:''}
+      </div>
+      <div style="padding:9px 11px">
+        <div style="font-size:13px;font-weight:700">${esc(L.adresse||'Position partagée')}</div>
+        <div style="font-size:11.5px;color:var(--t3);margin-top:2px">
+          ${live?('jusqu\'à '+esc(new Date(m.live.jusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))+(maj?' · mise à jour '+esc(maj.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})):''))
+                :(m.live?'partage terminé':'position à l\'instant de l\'envoi')}
+        </div>
+        <div style="display:flex;gap:7px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn ghost sm" onclick="event.stopPropagation();window.open('${url}','_blank')">Ouvrir la carte</button>
+          <button class="btn ghost sm" onclick="event.stopPropagation();window.open('https://www.google.com/maps/dir/?api=1&destination=${L.la},${L.lo}','_blank')">Itinéraire</button>
+          ${(m.uid===ME.uid&&live)?`<button class="btn ghost sm" onclick="event.stopPropagation();liveStop()">Arrêter</button>`:''}
+        </div>
+      </div></div>`; }
   function pollHtml(id,m){ const p=m.poll||{opts:[]}; const v=_pollVotes[id];
     if(v===undefined){ loadPollVotes(id); return `<div style="font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px">${ic('poll',15)} ${esc(p.q||'')}</div><div class="muted">Chargement du sondage…</div>`; }
     const counts=p.opts.map((_,i)=>Object.values(v).filter(x=>x===i).length); const total=Object.keys(v).length; const my=v[ME.uid];
     let h=`<div style="font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px">${ic('poll',15)} ${esc(p.q||'')}</div>`;
     p.opts.forEach((o,i)=>{ const c=counts[i], pct=total?Math.round(c*100/total):0, sel=my===i;
       h+=`<div onclick="event.stopPropagation();vote('${id}',${i})" style="position:relative;border:1px solid ${sel?'var(--op)':'var(--brd2)'};border-radius:10px;padding:9px 12px;margin-bottom:6px;cursor:pointer;overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(94,130,255,.2)"></div><div style="position:relative;display:flex;justify-content:space-between;gap:8px"><span>${sel?'✓ ':''}${esc(o)}</span><span style="opacity:.7">${c}</span></div></div>`; });
-    h+=`<div class="muted" style="font-size:11px">${total} vote${total>1?'s':''}</div>`; return h; }
+    const dest=ackDestinataires().filter(u=>u!==m.uid).length;
+    h+=`<div onclick="event.stopPropagation();pollQui('${id}')" style="display:flex;align-items:center;gap:6px;margin-top:3px;cursor:pointer">
+      <span class="muted" style="font-size:11px;flex:1">${total} vote${total>1?'s':''}${dest?' sur '+dest:''}</span>
+      <span style="font-size:11px;font-weight:700;color:var(--op-tx)">qui a voté ›</span></div>`; return h; }
+  /* Qui a répondu quoi : chaque personne avec sa réponse, et ceux qui n'ont
+     pas encore voté — le patron voit d'un coup d'œil qui relancer. */
+  async function pollQui(id){
+    openSheet('<p class="muted center">Chargement…</p>');
+    if(!_members.length){ try{ _members=await listMembers(); }catch(e){} }
+    let v={}; try{ const qs=await chMsgs().doc(id).collection('votes').get(); qs.forEach(d=>{ v[d.id]=d.data().opt; }); }catch(e){}
+    const it=_curMsgs.find(x=>x.id===id); const m=(it&&it.m)||{}; const p=m.poll||{opts:[]};
+    const noms={}; _members.forEach(x=>noms[x.uid]=x.name||''); noms[ME.uid]=(USER&&USER.name)||'Moi';
+    const dest=ackDestinataires().filter(u=>u!==m.uid);
+    const COUL=['#3b82f6','#22c55e','#f0b432','#a855f7','#ef5350','#14b8a6','#f97316','#64748b','#8b5cf6','#0ea5e9'];
+    const bulle=(txt,i)=>`<span style="font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;white-space:nowrap;
+      background:${COUL[i%COUL.length]}22;color:${COUL[i%COUL.length]};border:1px solid ${COUL[i%COUL.length]}55">${esc(txt)}</span>`;
+    const ligne=(u,opt)=>`<div class="row"><div class="ava" style="${avatarStyle(noms[u]||'?')}">${ini(noms[u]||'?')}</div>
+      <div class="info"><div class="nm">${esc(noms[u]||'Membre')}</div></div>
+      ${opt!=null?bulle(p.opts[opt]||'—',opt):'<span style="font-size:11px;color:var(--t3)">pas encore voté</span>'}</div>`;
+    const ontVote=dest.filter(u=>v[u]!==undefined), sans=dest.filter(u=>v[u]===undefined);
+    /* le résumé par réponse, avec les noms */
+    const parOpt=p.opts.map((o,i)=>{ const gens=Object.keys(v).filter(u=>v[u]===i);
+      return `<div style="margin-bottom:9px"><div style="display:flex;align-items:center;gap:8px">
+        ${bulle(o,i)}<b style="font-size:12.5px">${gens.length}</b></div>
+        ${gens.length?`<div style="font-size:12px;color:var(--t2);margin-top:3px;line-height:1.5">${gens.map(u=>esc(noms[u]||'Membre')).join(', ')}</div>`:''}</div>`; }).join('');
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:15.5px;margin-bottom:4px">📊 ${esc(p.q||'Sondage')}</h3>
+      <p class="muted" style="font-size:12.5px;margin-bottom:14px">${ontVote.length} sur ${dest.length} ${ontVote.length>1?'ont répondu':'a répondu'}</p>
+      ${parOpt}
+      <div class="form-sec" style="margin:14px 0 6px;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--t3)">PERSONNE PAR PERSONNE</div>
+      ${ontVote.map(u=>ligne(u,v[u])).join('')}${sans.map(u=>ligne(u,null)).join('')}
+      ${(m.uid===ME.uid&&sans.length)?`<button class="btn ghost block" style="margin-top:12px" onclick="pollRelancer('${id}')">🔔 Relancer les ${sans.length} qui n'ont pas voté</button>`:''}`);
+  }
+  async function pollRelancer(id){
+    const it=_curMsgs.find(x=>x.id===id); const m=(it&&it.m)||{}; const p=m.poll||{};
+    let v={}; try{ const qs=await chMsgs().doc(id).collection('votes').get(); qs.forEach(d=>v[d.id]=1); }catch(e){}
+    const sans=ackDestinataires().filter(u=>u!==ME.uid&&v[u]===undefined);
+    if(!sans.length){ toast('Tout le monde a voté ✓'); return; }
+    opPushNotifyUsers(sans,'📊 Sondage en attente'+(COMP&&COMP.name?' · '+COMP.name:''),((USER&&USER.name)||'')+' : '+String(p.q||'').slice(0,120));
+    closeSheet(); toast('🔔 '+sans.length+' personne'+(sans.length>1?'s relancées':' relancée'));
+  }
   async function loadPollVotes(id){ try{ const qs=await chMsgs().doc(id).collection('votes').get(); const v={}; qs.forEach(d=>v[d.id]=d.data().opt); _pollVotes[id]=v; }catch(e){ _pollVotes[id]={}; } renderStream(); }
   async function vote(id,i){ try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:i}); _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=i; renderStream(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
 
@@ -3754,7 +3828,7 @@
     <div data-titre="Joindre" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 6px;padding:6px 0 2px">
       ${attTile('Photos','#6ea8f7',ic('image',26),"closeSheet();$('imgpick').click()")}
       ${attTile('Caméra','#00b3a4',ic('camera',26),"closeSheet();camOuvrir()")}
-      ${attTile('Localisation','#34c77b',ic('location',26),"closeSheet();sendLocation()")}
+      ${attTile('Position','#34c77b',ic('location',26),"closeSheet();locMenu()")}
       ${attTile('Contact','#7c8db0',ic('user',26),"closeSheet();attachContact()")}
       ${attTile('Document','var(--op)',ic('file',26),"closeSheet();$('filepick').click()")}
       ${attTile('Sondage','#f0b432',ic('poll',26),"closeSheet();pollForm()")}
@@ -3809,10 +3883,126 @@
   const STICKERS='😀😂🥳😍😎🤩🥰😘🤗🤔😴🥱😭😡🤯🤒🤠🤖👍👎👏🙌🙏💪✌️🤝👊❤️🔥⭐️🎉🎂🍀☀️🌈⚡️💯✅❌🚀⏰📍🎯💡🍕☕️🍺🎁🐶🐱'.match(/./gu)||[];
   function openStickers(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Stickers</h3><div style="display:flex;flex-wrap:wrap;gap:6px;font-size:34px;line-height:1.4">${STICKERS.map(s=>`<span style="cursor:pointer" onclick="sendSticker('${s}')">${s}</span>`).join('')}</div>`); }
   async function sendSticker(s){ if(!_curCh) return; closeSheet(); try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,sticker:s,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  /* ══ LA POSITION ══
+     Deux façons de la partager : une fois (une carte et l'adresse écrite en
+     toutes lettres), ou en direct pendant un temps choisi. */
+  function locMenu(){
+    if(!_curCh) return;
+    const enCours=_liveId?`<div class="card" style="padding:11px 13px;margin-bottom:12px;font-size:13px">
+        🔴 Tu partages ta position en direct jusqu'à <b>${esc(new Date(_liveJusqu).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))}</b>
+        <button class="btn ghost sm block" style="margin-top:9px" onclick="liveStop()">Arrêter le partage</button></div>`:'';
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">📍 Partager ma position</h3>
+      ${enCours}
+      <button class="btn block" onclick="closeSheet();sendLocation()">📍 Envoyer ma position maintenant</button>
+      <div class="form-sec" style="margin:14px 0 8px;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--t3)">EN DIRECT, PENDANT…</div>
+      <div style="display:flex;gap:8px">
+        ${[15,30,60].map(m=>`<button class="btn ghost sm" style="flex:1" onclick="liveStart(${m})">${m} min</button>`).join('')}
+      </div>
+      <button class="btn ghost block" style="margin-top:14px" onclick="locDemander()">🙋 Demander la position de l'équipe</button>
+      <p class="muted" style="font-size:11.5px;line-height:1.5;margin-top:12px">Ta position se met à jour tant que OP MESSAGES reste ouverte sur ton téléphone. Si tu fermes l'application, le partage s'arrête et les autres voient la dernière position connue.</p>`);
+  }
+  /* l'adresse écrite en toutes lettres, quand le service public répond */
+  async function locAdresse(la,lo){
+    try{
+      const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&lat='+la+'&lon='+lo,{headers:{'Accept':'application/json'}});
+      const j=await r.json(); const a=j&&j.address||{};
+      const rue=[a.house_number,a.road].filter(Boolean).join(' ');
+      const ville=[a.postcode,a.city||a.town||a.village||a.municipality].filter(Boolean).join(' ');
+      return [rue,ville].filter(Boolean).join(', ')||(j&&j.display_name?String(j.display_name).split(',').slice(0,3).join(', '):'');
+    }catch(e){ return ''; }
+  }
   function sendLocation(){ if(!_curCh) return; if(!navigator.geolocation){ toast('Géolocalisation non disponible.'); return; } toast('Localisation en cours…');
-    navigator.geolocation.getCurrentPosition(async p=>{ const la=p.coords.latitude.toFixed(5), lo=p.coords.longitude.toFixed(5); const url='https://maps.google.com/?q='+la+','+lo;
-      try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,text:'📍 Ma position : '+url,ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); }
+    navigator.geolocation.getCurrentPosition(async p=>{
+      const la=+p.coords.latitude.toFixed(5), lo=+p.coords.longitude.toFixed(5);
+      const adresse=await locAdresse(la,lo);
+      try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,loc:{la:la,lo:lo,adresse:adresse,maj:Date.now()},ts:FV()}); }
+      catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
     }, err=>{ toast('Position refusée ou indisponible.'); }, {enableHighAccuracy:true,timeout:8000}); }
+  /* ── demander la position de quelqu'un ──
+     Rien n'est pris à l'insu de personne : la demande arrive comme un
+     message, chacun accepte ou refuse d'un doigt. */
+  async function locDemander(){
+    if(!_curCh) return;
+    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,locDem:true,ts:FV()}); closeSheet(); toast('🙋 Demande envoyée'); }
+    catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
+  }
+  async function locRepondre(id,oui){
+    if(!oui){
+      try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:0,ts:Date.now()}); }catch(e){}
+      _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=0; renderStream(); toast('Refusé — personne ne voit ta position'); return;
+    }
+    if(!navigator.geolocation){ toast('Géolocalisation non disponible.'); return; }
+    toast('Localisation en cours…');
+    navigator.geolocation.getCurrentPosition(async p=>{
+      const la=+p.coords.latitude.toFixed(5), lo=+p.coords.longitude.toFixed(5);
+      const adresse=await locAdresse(la,lo);
+      try{
+        await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:1,ts:Date.now()});
+        _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=1;
+        await addMsg({uid:ME.uid,name:USER.name||ME.email,loc:{la:la,lo:lo,adresse:adresse,maj:Date.now()},repDem:id,ts:FV()});
+      }catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
+    }, ()=>toast('Position refusée ou indisponible.'), {enableHighAccuracy:true,timeout:8000});
+  }
+  function locDemHtml(id,m){
+    const v=_pollVotes[id];
+    if(v===undefined){ loadPollVotes(id); return '<div class="muted" style="font-size:12px;margin-top:4px">…</div>'; }
+    const mien=m.uid===ME.uid;
+    const dest=ackDestinataires().filter(u=>u!==m.uid);
+    const ok=Object.keys(v).filter(u=>u!==m.uid&&v[u]===1).length;
+    const non=Object.keys(v).filter(u=>u!==m.uid&&v[u]===0).length;
+    const maRep=v[ME.uid];
+    let h=`<div style="font-weight:700;font-size:13.5px">🙋 ${esc(m.name||'')} demande où vous êtes</div>`;
+    if(!mien && maRep===undefined){
+      h+=`<div style="display:flex;gap:7px;margin-top:8px">
+        <button onclick="event.stopPropagation();locRepondre('${id}',true)" style="flex:1;border:none;border-radius:10px;padding:9px;background:var(--op);color:#fff;font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit">📍 Envoyer ma position</button>
+        <button onclick="event.stopPropagation();locRepondre('${id}',false)" style="flex:none;border:1px solid var(--brd2);border-radius:10px;padding:9px 13px;background:transparent;color:var(--t2);font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit">Refuser</button></div>`;
+    } else {
+      h+=`<div style="font-size:12px;color:var(--t2);margin-top:5px">${ok} sur ${dest.length||'?'} ${ok>1?'ont partagé':'a partagé'}${non?' · '+non+' ont refusé':''}${(!mien&&maRep!==undefined)?(maRep===1?' · tu as partagé ✓':' · tu as refusé'):''}</div>`;
+    }
+    return h;
+  }
+  /* ── la position en direct ── */
+  let _liveId=null,_liveT=null,_liveJusqu=0,_liveCh=null;
+  async function liveStart(minutes){
+    if(!_curCh) return;
+    if(!navigator.geolocation){ toast('Géolocalisation non disponible.'); return; }
+    closeSheet();
+    navigator.geolocation.getCurrentPosition(async p=>{
+      const la=+p.coords.latitude.toFixed(5), lo=+p.coords.longitude.toFixed(5);
+      const jusqu=Date.now()+minutes*60000;
+      const adresse=await locAdresse(la,lo);
+      try{
+        const ref=await addMsg({uid:ME.uid,name:USER.name||ME.email,loc:{la:la,lo:lo,adresse:adresse,maj:Date.now()},live:{jusqu:jusqu},ts:FV()});
+        _liveId=ref.id; _liveCh=_curCh.id; _liveJusqu=jusqu;
+        toast('🔴 Position partagée pendant '+minutes+' min');
+        if(_liveT) clearInterval(_liveT);
+        _liveT=setInterval(liveMaj,25000);
+      }catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
+    }, ()=>toast('Position refusée ou indisponible.'), {enableHighAccuracy:true,timeout:8000});
+  }
+  function liveMaj(){
+    if(!_liveId||!_liveCh) return;
+    if(Date.now()>_liveJusqu){ liveStop(true); return; }
+    if(!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p=>{
+      const la=+p.coords.latitude.toFixed(5), lo=+p.coords.longitude.toFixed(5);
+      try{ chanCol().doc(_liveCh).collection('messages').doc(_liveId)
+        .update({'loc.la':la,'loc.lo':lo,'loc.maj':Date.now()}); }catch(e){}
+    },()=>{},{enableHighAccuracy:true,timeout:8000});
+  }
+  /* Il s'arrête tout seul quand on ferme l'application : les autres voient
+     alors la dernière position connue, jamais une position figée qui trompe. */
+  try{ window.addEventListener('pagehide',()=>{ try{ if(_liveId){
+      const c=_liveCh,i=_liveId; if(_liveT) clearInterval(_liveT);
+      navigator.sendBeacon && 0; chanCol().doc(c).collection('messages').doc(i).update({'live.jusqu':Date.now()});
+      _liveId=null; _liveCh=null; } }catch(e){} }); }catch(e){}
+  async function liveStop(auto){
+    if(_liveT){ clearInterval(_liveT); _liveT=null; }
+    if(_liveId&&_liveCh){ try{ await chanCol().doc(_liveCh).collection('messages').doc(_liveId).update({'live.jusqu':Date.now()}); }catch(e){} }
+    _liveId=null; _liveCh=null; _liveJusqu=0;
+    if(!auto){ closeSheet(); toast('Partage de position arrêté'); }
+    try{ renderStream(); }catch(e){}
+  }
   function handleImgPick(e){ const f=e.target.files[0]; if(!f||!_curCh) return; const r=new FileReader();
     r.onload=()=>{ const img=new Image(); img.onload=async()=>{ let w=img.width,h=img.height; const mx=1000; if(w>mx||h>mx){ if(w>h){h=h*mx/w;w=mx;}else{w=w*mx/h;h=mx;} }
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
