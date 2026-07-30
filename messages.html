@@ -1415,10 +1415,28 @@
   }
   /* enregistre ma réponse, puis prévient l'organisateur */
   function rsvpCol(id){ return fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).collection('reponses'); }
-  /* on lit les réponses d'une réunion (une par personne, chacune dans son document) */
+  /* On lit les réponses d'une réunion (une par personne, un document chacun).
+     Si le cloud refuse la lecture, on ne se tait PAS : on retient la raison
+     (_rsvpErr) et on affiche quand même la réponse qu'on vient de donner,
+     gardée en mémoire. Sans ça, on clique et il ne se passe rien à l'écran. */
+  let _rsvpErr='', _rsvpLocal={};
   async function rsvpCharge(id){
-    const out={}; try{ const qs=await rsvpCol(id).get(); qs.forEach(d=>{ out[d.id]=d.data(); }); }catch(e){}
+    const out={}; _rsvpErr='';
+    try{ const qs=await rsvpCol(id).get(); qs.forEach(d=>{ out[d.id]=d.data(); }); }
+    catch(e){ _rsvpErr=(e&&(e.code||e.message))||'lecture refusée'; }
+    const loc=_rsvpLocal[id];
+    if(loc) Object.keys(loc).forEach(u=>{ if(!out[u]) out[u]=loc[u]; });
     return out;
+  }
+  /* Un bandeau rouge DANS la fenêtre : bien plus clair qu'une alerte,
+     et il dit quoi faire au lieu de recracher le jargon du cloud. */
+  function rsvpErrAffiche(msg){
+    const z=$('rsvp-err');
+    const perm=/permission|insufficient|denied/i.test(msg);
+    const h=`<div style="margin:10px 0;padding:11px 13px;border-radius:11px;background:rgba(224,82,82,.14);border:1px solid var(--red)">
+      <div style="font-size:12.5px;font-weight:800;color:var(--red)">${esc(msg)}</div>
+      ${perm?`<div style="font-size:11.5px;color:var(--t2);margin-top:6px;line-height:1.5">Le cloud bloque les réponses aux réunions. Il faut ajouter l’autorisation dans les règles Firebase — dis-le-moi, je te donne la ligne exacte à coller.</div>`:''}</div>`;
+    if(z) z.innerHTML=h; else toast(msg);
   }
   async function rsvpRepond(id,etat,min){
     let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r=d.data()||{}; }
@@ -1429,7 +1447,8 @@
     const ma={etat:etat,min:(etat==='retard'?(parseInt(min,10)||15):0),mot:mot,
               nom:(USER&&USER.name)||'',le:Date.now()};
     try{ await rsvpCol(id).doc(ME.uid).set(ma); }
-    catch(e){ alert('Ta réponse n’a pas pu être enregistrée : '+(e.message||e)+'\n\nSi le message parle de permissions, il faut autoriser l’écriture des réponses dans les règles Firebase — je peux te donner la ligne exacte.'); return; }
+    catch(e){ rsvpErrAffiche('Ta réponse n’a pas pu être enregistrée. '+((e&&(e.code||e.message))||'')); return; }
+    _rsvpLocal[id]=Object.assign(_rsvpLocal[id]||{},{[ME.uid]:ma});   // on l'affiche même si la relecture est bloquée
     toast(anc?'Réponse modifiée':'Réponse enregistrée');
     const rep=Object.assign({},dejaLa); rep[ME.uid]=ma;
     rsvpPrevenir(id,Object.assign({},r,{reponses:rep}),etat,ma,!!anc);
@@ -1512,9 +1531,13 @@
         ${sous?`<div style="font-size:10.7px;color:var(--t3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}</div>
         ${pil}${rel}</div>`; };
     const compte=(n,lib,c)=>`<div style="flex:1;text-align:center;padding:10px 6px"><div style="font-size:19px;font-weight:800;line-height:1;color:${c||'var(--t1)'}">${n}</div><div style="font-size:10.3px;color:var(--t3);font-weight:600;margin-top:3px">${lib}</div></div>`;
+    const errLec=_rsvpErr;   // la lecture des réponses a-t-elle été refusée ?
     openSheet(`<div data-titre="${esc(r.name||'Réunion')}" style="margin-bottom:12px">
         <small style="font-size:12.5px;color:var(--t2);display:block">${esc(quand)}${membres.length?' · '+membres.length+' convoqué'+(membres.length>1?'s':''):''}</small>
         ${r.desc?`<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--inp);font-size:12.3px;color:var(--t2);line-height:1.55;white-space:pre-wrap">${esc(r.desc)}</div>`:''}</div>
+      <div id="rsvp-err">${errLec?`<div style="margin:0 0 10px;padding:11px 13px;border-radius:11px;background:rgba(224,82,82,.14);border:1px solid var(--red)">
+        <div style="font-size:12.5px;font-weight:800;color:var(--red)">Les réponses ne peuvent pas être lues (${esc(errLec)})</div>
+        <div style="font-size:11.5px;color:var(--t2);margin-top:6px;line-height:1.5">Ta réponse est bien envoyée, mais le cloud refuse de la relire : c’est pour ça que rien ne s’affiche. Il manque une autorisation dans les règles Firebase.</div></div>`:''}</div>
       ${jeSuisDedans?`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:8px">TA RÉPONSE</div>
         <div style="display:flex;gap:8px">${btn('oui','Présent')}${btn('retard','En retard')}${btn('non','Absent')}</div>
         <div id="rsvp-retard" style="display:none;gap:7px;flex-wrap:wrap;margin-top:9px"></div>
