@@ -3215,7 +3215,25 @@
     let flux;
     try{ flux=await navigator.mediaDevices.getDisplayMedia({
       video:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}},audio:false}); }
-    catch(e){ return; }   // il a refusé ou fermé le choix d'écran
+    catch(e){
+      /* refus ou blocage : on ne reste plus muet, on explique */
+      const nom=(e&&e.name)||'';
+      const mac=/Mac/i.test(navigator.platform||navigator.userAgent||'');
+      if(nom==='NotAllowedError'||nom==='SecurityError'){
+        openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Le partage n'a pas démarré</h3>
+          <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">Soit tu as annulé le choix d'écran — dans ce cas réessaie simplement — soit <b>le navigateur bloque le partage</b>.</p>
+          ${mac?`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
+            Sur Mac, vérifie :<br>
+            1. <b>Réglages Système → Confidentialité et sécurité → Enregistrement de l'écran</b> : ton navigateur activé<br>
+            2. <b>Quitte COMPLÈTEMENT le navigateur</b> (Cmd + Q) et relance-le — sans ça l'autorisation ne s'applique pas<br>
+            3. Le plus fiable : lance la réunion depuis <b>Google Chrome</b></div>`:''}
+          <button class="btn block" onclick="closeSheet();visioEcran()">Réessayer le partage</button>
+          <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
+      } else if(nom){
+        toast('Partage impossible : '+nom+' — essaie depuis Chrome.');
+      }
+      return;
+    }
     _vEcran=flux;
     /* « detail » : le texte reste NET ; si le réseau manque, on perd des
        images par seconde, jamais de la définition */
