@@ -131,6 +131,14 @@
     padding:13px 15px;border-radius:14px;background:var(--card);border:1px solid var(--brd2);
     box-shadow:0 14px 38px rgba(0,0,0,.30);opacity:0;pointer-events:none;transition:opacity .12s;display:none}
   #dashhov.on{opacity:1;display:block}
+  /* glisser-déposer d'une réunion : la case visée se signale, et pendant le
+     glissement les blocs laissent passer le curseur vers les cases */
+  .survol-depot{outline:2px dashed var(--op);outline-offset:-2px;background-color:var(--tint2)!important}
+  /* les blocs portent leur position en style en ligne : il faut donc du
+     !important pour reprendre la main sur le curseur et le passage du pointeur */
+  #dash-cal.glisse .plbloc{pointer-events:none!important}
+  .plbloc{cursor:grab!important}
+  .plbloc:active{cursor:grabbing!important}
   .dstat{cursor:pointer;transition:border-color .15s,transform .12s}
   .dstat:hover{border-color:var(--op);transform:translateY(-1px)}
   .sptab{padding:11px;border-radius:12px;border:none;background:var(--inp);color:var(--t2);font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s}
@@ -403,6 +411,17 @@
   const $=id=>document.getElementById(id);
   const esc=s=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const ROOT=$('root');
+  /* ══ LES RÔLES DANS L'ENTREPRISE ══
+     patron        : tout ; c'est lui qui distribue les rôles
+     responsable   : peut créer, déplacer et annuler des réunions
+     membre        : participe, répond aux réunions, discute — mais n'en crée pas
+     Le rôle est lu sur la fiche du membre à la connexion. */
+  let _monRole='';
+  const ROLES={entreprise:'Patron',responsable:'Responsable',classique:'Membre'};
+  function estPatron(){ return !!IS_OWNER || _monRole==='entreprise'; }
+  function peutReunion(){ return MODE==='company' && HAS_COMPANY && (estPatron() || _monRole==='responsable'); }
+  function peutBouger(r){ return peutReunion() && (estPatron() || !r || r.createdBy===ME.uid); }
+  function refusReunion(){ toast('Seuls le patron et les responsables peuvent créer une réunion.'); }
   let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc',_msgCache={};
   let _members=[];
   let MODE='perso'; // espace ACTIF : 'perso' | 'company' (basculé par le bouton en haut)
@@ -526,7 +545,11 @@
   function setOpAccentCustom(hex){ if(!/^#[0-9a-fA-F]{6}$/.test(hex)) return; localStorage.setItem('opmsg_accent_hex',hex); localStorage.setItem('opmsg_accent','custom'); applyTheme(); }
   try{ if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{ if((localStorage.getItem('opmsg_theme')||'auto')==='auto') applyTheme(); }); } }catch(e){}
   applyTheme();
-  function isPro(){ return MODE==='company' && HAS_COMPANY && (IS_OWNER || (USER&&USER.role==='entreprise')); }
+  /* Les réunions existent dans l'espace entreprise (forfait Business Premium) :
+     tout membre y a droit. Avant, la condition exigeait d'être le patron, ce qui
+     empêchait les employés de voir la liste des réunions. Qui peut en CRÉER est
+     une autre question, réglée par les rôles (voir peutReunion). */
+  function isPro(){ return MODE==='company' && HAS_COMPANY; }
   /* 🎖️ Logo du forfait — espace entreprise : Business Premium · compte perso : gratuit */
   function planMsgBadge(){ return MODE==='company' ? 'icons/plan-msg-premium.png' : 'icons/plan-msg.png'; }
   function planMsgTitle(){ return MODE==='company' ? 'Forfait Business Premium' : 'Compte perso — gratuit'; }
@@ -770,6 +793,10 @@
     if(HAS_COMPANY&&COMP){
       try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=(d.data().ownerUid===ME.uid); COMP.code=d.data().code; } }catch(e){}
       if(IS_OWNER && USER) USER.role='entreprise';
+      /* mon rôle dans cette entreprise */
+      _monRole=IS_OWNER?'entreprise':'classique';
+      try{ const m=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).get();
+        if(m.exists){ const rr=(m.data()||{}).role||''; if(ROLES[rr]) _monRole=rr; } }catch(e){}
       try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
@@ -876,16 +903,12 @@
       <div class="maincol">
       <div class="appbar">
         <button class="ic" onclick="openMenu()">⋯</button>
-        <div class="tt" style="display:flex;align-items:center;gap:8px;justify-content:center">
-          <img src="${planMsgBadge()}" alt="" style="width:26px;height:26px;border-radius:8px">
-          <div><b id="ab-title" style="font-size:13.5px">${esc(MODE==='perso'?(USER.name||'OP MESSAGES'):COMP.name)}</b><span id="ab-sub" style="display:block">${MODE==='perso'?'Compte perso':(IS_OWNER?'Administrateur':'Membre')}</span></div>
-        </div>
+        ${HAS_COMPANY
+          ? `<button class="sptab${MODE==='perso'?' on-perso':''}" style="flex:1" onclick="switchSpace('perso')">Perso</button>
+             <button class="sptab${MODE==='company'?' on-ent':''}" style="flex:1.4" onclick="switchSpace('company')">${esc(COMP.name)}</button>`
+          : `<div class="tt"><b id="ab-title" style="font-size:13.5px">${esc(USER.name||'OP MESSAGES')}</b><span id="ab-sub" style="display:block">Compte perso</span></div>`}
         <button id="th-btn2" class="thbtn" onclick="toggleTheme()"></button>
       </div>
-      ${HAS_COMPANY?`<div style="display:flex;gap:10px;padding:6px 14px 8px">
-        <button class="sptab${MODE==='perso'?' on-perso':''}" style="flex:1" onclick="switchSpace('perso')">Perso</button>
-        <button class="sptab${MODE==='company'?' on-ent':''}" style="flex:1.4" onclick="switchSpace('company')">${esc(COMP.name)}</button>
-      </div>`:''}
       <div class="view" id="view"></div>
       <div class="nav">
         <span id="nav-blob"></span>
@@ -1019,6 +1042,7 @@
      +stat('alerte','notifications_active',upcoming.length,'Alerte'+(upcoming.length>1?'s':'')+' programmée'+(upcoming.length>1?'s':''),true,piedAl);
 
     /* ── la grille ── */
+    const creer=peutReunion();      // le droit de poser ou déplacer une réunion
     const dansPeriode=r=>{ const d=new Date(r.scheduledAt);
       return jours.some(j=>j.toDateString()===d.toDateString()); };
     const duJour=d=>rooms.filter(r=>new Date(r.scheduledAt).toDateString()===d.toDateString())
@@ -1032,7 +1056,9 @@
             sub=soon?'var(--amber)':'var(--blk-blue-sub)';
       const geo=pos?`position:absolute;top:min(${pos.top}%,calc(100% - ${pos.h}px));left:calc(${pos.left}% + 3px);width:calc(${pos.width}% - 6px);height:${pos.h}px;pointer-events:auto;`
                   :'margin-bottom:3px;';
-      return `<div onclick="event.stopPropagation();rsvpOuvre('${r.id}')"
+      return `<div class="plbloc" draggable="${peutBouger(r)?'true':'false'}"
+        ondragstart="planDragStart(event,'${r.id}')" ondragend="planDragFin()"
+        onclick="event.stopPropagation();rsvpOuvre('${r.id}')"
         onmouseenter="dashHovShow(event,'${r.id}')" onmousemove="dashHovMove(event)" onmouseleave="dashHovHide()"
         style="${geo}border-radius:8px;background:${bg};padding:5px 8px;cursor:pointer;min-width:0;overflow:hidden${soon?';box-shadow:var(--imminent-sh)':''}">
         <div style="display:flex;align-items:baseline;gap:5px;min-width:0">
@@ -1049,7 +1075,9 @@
         const hors=d.getMonth()!==moisRef.getMonth();
         const l=duJour(d);
         const weM=(d.getDay()===0||d.getDay()===6);
-        grid+=`<div onclick="dashForm('${_dstr(d)}','09:00')" style="border-left:1px solid var(--cal-line);border-top:1px solid var(--cal-line);min-height:92px;min-width:0;overflow:hidden;padding:5px;cursor:pointer;${isT?'background:var(--cal-today);':(weM?'background:var(--cal-we);':'')}${hors?'opacity:.42;':''}">
+        grid+=`<div ${creer?`onclick="dashForm('${_dstr(d)}','09:00')" title="Déposer une réunion ici pour la déplacer à ce jour"
+          ondragover="planDragOver(event,this)" ondragleave="planDragLeave(this)" ondrop="planDrop(event,this,'${_dstr(d)}',null)"`:''}
+          style="border-left:1px solid var(--cal-line);border-top:1px solid var(--cal-line);min-height:92px;min-width:0;overflow:hidden;padding:5px;cursor:pointer;${isT?'background:var(--cal-today);':(weM?'background:var(--cal-we);':'')}${hors?'opacity:.42;':''}">
           <div style="font-size:11.5px;font-weight:800;margin-bottom:4px;${isT?'color:var(--op-tx)':'color:var(--t2)'}">${d.getDate()}</div>
           ${l.slice(0,3).map(r=>bloc(r,r.scheduledAt-nowMs>0&&r.scheduledAt-nowMs<=15*60000)).join('')}
           ${l.length>3?`<div style="font-size:9.5px;color:var(--t3);text-align:center">+${l.length-3}</div>`:''}</div>`; });
@@ -1130,11 +1158,13 @@
           etq+=`<div style="position:absolute;top:${tDemi}px;right:9px;font-size:9px;font-weight:600;color:var(--t3);opacity:.7">${HH}:30</div>`;
         grid+=`<div data-h="${HH}" style="height:${ROWH}px;position:relative;${hi?'border-top:1px solid var(--cal-line)':''}">${etq}</div>`;
         jours.forEach(d=>{ const isT=d.toDateString()===now.toDateString(), we=estWE(d);
-          grid+=`<div onclick="dashForm('${_dstr(d)}','${HH}:00')" title="Poser une réunion ici"
+          grid+=`<div ${creer?`onclick="dashForm('${_dstr(d)}','${HH}:00')" title="Poser une réunion ici — ou déposer une réunion pour la déplacer"
+            ondragover="planDragOver(event,this)" ondragleave="planDragLeave(this)" ondrop="planDrop(event,this,'${_dstr(d)}',${h})"`
+            :`title="Seuls le patron et les responsables créent des réunions"`}
             style="height:${ROWH}px;border-left:1px solid var(--cal-line);${hi?'border-top:1px solid var(--cal-line);':''}${isT?'background-color:var(--cal-today);':(we?'background-color:var(--cal-we);':'')}padding:3px;cursor:pointer;min-width:0;overflow:hidden">
-            <div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;display:flex;align-items:center;justify-content:center;color:transparent"
+            ${creer?`<div class="dash-cell" style="border:1.5px dashed transparent;border-radius:8px;height:100%;display:flex;align-items:center;justify-content:center;color:transparent"
               onmouseover="this.style.borderColor='var(--pill-brd)';this.style.color='var(--op-tx)'"
-              onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div></div>`; });
+              onmouseout="this.style.borderColor='transparent';this.style.color='transparent'"><span class="ms" style="font-size:16px">add</span></div>`:''}</div>`; });
       });
       grid+=`</div>`;
       /* la couche des réunions : chacune tombe à sa minute exacte */
@@ -1219,6 +1249,62 @@
       i=j+1;
     }
     return {lane:lane,n:n};
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     DÉPLACER UNE RÉUNION EN LA FAISANT GLISSER
+     On attrape le bloc, on le lâche dans une autre case : le jour et l'heure
+     changent, la minute suit l'endroit où on lâche (au pas de 5 minutes).
+     ══════════════════════════════════════════════════════════════════════ */
+  let _dragRoom=null;
+  function planDragStart(ev,id){
+    _dragRoom=id; try{ dashHovHide(); }catch(e){}
+    try{ ev.dataTransfer.setData('text/plain',id); ev.dataTransfer.effectAllowed='move'; }catch(e){}
+    const c=$('dash-cal'); if(c) c.classList.add('glisse');   // les blocs laissent passer le curseur
+  }
+  function planDragFin(){ _dragRoom=null;
+    const c=$('dash-cal'); if(c) c.classList.remove('glisse');
+    try{ document.querySelectorAll('.survol-depot').forEach(e=>e.classList.remove('survol-depot')); }catch(e){}
+  }
+  function planDragOver(ev,el){ if(!_dragRoom) return; ev.preventDefault();
+    try{ ev.dataTransfer.dropEffect='move'; }catch(e){}
+    el.classList.add('survol-depot'); }
+  function planDragLeave(el){ el.classList.remove('survol-depot'); }
+  async function planDrop(ev,el,dateISO,h){
+    ev.preventDefault(); el.classList.remove('survol-depot');
+    const id=_dragRoom||((ev.dataTransfer&&ev.dataTransfer.getData('text/plain'))||'');
+    planDragFin();
+    if(!id) return;
+    let heure=h, min=0;
+    if(h===null||h===undefined){                       /* vue mois : on garde l'heure d'origine */
+      const r0=_dashRooms[id], d0=r0?new Date(r0.scheduledAt):null;
+      heure=d0?d0.getHours():9; min=d0?d0.getMinutes():0;
+    } else {
+      const b=el.getBoundingClientRect();
+      const y=Math.max(0,Math.min(b.height,(ev.clientY||0)-b.top));
+      min=Math.min(55,Math.round((y/b.height)*12)*5);   /* au pas de 5 minutes */
+    }
+    await reunionDeplace(id,dateISO,heure,min);
+  }
+  /* le déplacement : les règles n'autorisent pas de modifier une réunion sur
+     place, on la recrée au nouvel horaire et on prévient tout le monde. */
+  async function reunionDeplace(id,dateISO,h,m){
+    if(!peutReunion()){ refusReunion(); return; }
+    const col=roomCol();
+    let r=null; try{ const d=await col.doc(id).get(); r={id:d.id,...(d.data()||{})}; }catch(e){}
+    if(!r||!r.scheduledAt){ toast('Réunion introuvable'); return; }
+    const quand=new Date(dateISO+'T00:00:00'); quand.setHours(h,m,0,0);
+    const t=quand.getTime();
+    if(t===r.scheduledAt) return;
+    const d={name:r.name||'',desc:r.desc||'',duree:dureeDe(r),createdBy:r.createdBy||ME.uid,
+             members:r.members||[ME.uid],createdAt:FV(),scheduledAt:t};
+    if(r.serie){ d.serie=r.serie; d.repet=r.repet||''; }
+    try{ await col.add(d); }
+    catch(e){ alert('Impossible de déplacer la réunion : '+(e.message||e)); return; }
+    try{ await col.doc(id).delete(); }catch(e){}
+    await reunionPrevenir(r.members||[], `${(USER&&USER.name)||'L’organisateur'} a déplacé « ${r.name||'la réunion'} » : maintenant ${reunionQuand(t)}. Merci de reconfirmer ta présence.`, 'Réunion déplacée');
+    toast('Réunion déplacée au '+reunionQuand(t)+' — les participants sont prévenus');
+    if(_curView==='dash') viewDash();
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -1545,7 +1631,8 @@
       const pair=[ME.uid,org].sort(), dmId='dm_'+pair.join('_');
       const ref=chanCol().doc(dmId);
       const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
-      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:txt,ts:FV(),rsvp:true});
+      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:txt,ts:FV(),rsvp:true},true);
+      try{ opPushNotifyUsers([org],'Réponse à ta réunion',txt); }catch(e){}
     }catch(e){}
   }
   /* relancer ceux qui n'ont pas répondu */
@@ -1555,7 +1642,8 @@
     const txt=`${(USER&&USER.name)||'L’organisateur'} attend ta réponse pour « ${r.name||'la réunion'} »${quand?' · '+quand:''} — Présent, En retard ou Absent ?`;
     try{ const pair=[ME.uid,uid].sort(), dmId='dm_'+pair.join('_');
       const ref=chanCol().doc(dmId); const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
-      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:txt,ts:FV(),rsvp:true});
+      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:txt,ts:FV(),rsvp:true},true);
+      try{ opPushNotifyUsers([uid],'Réponse attendue · '+((COMP&&COMP.name)||''),txt); }catch(e){}
       toast('Relance envoyée'); }catch(e){ toast('Impossible d’envoyer la relance'); }
   }
   async function rsvpRelanceTous(id){
@@ -1626,15 +1714,20 @@
   }
   /* ── Modifier ou annuler une réunion, et prévenir tout le monde ── */
   function roomCol(){ return fs.collection('op_companies').doc(COMP.id).collection('rooms'); }
-  async function reunionPrevenir(membres,texte){
+  /* On prévient les participants de DEUX façons : une trace écrite dans leur
+     conversation privée, et une notification sur leur téléphone — même quand
+     OP MESSAGES est fermée. Le titre dit de quoi il s'agit. */
+  async function reunionPrevenir(membres,texte,titre){
     const dest=(membres||[]).filter(u=>u&&u!==ME.uid);
+    if(!dest.length) return;
     for(const u of dest){
       try{ const pair=[ME.uid,u].sort(), dmId='dm_'+pair.join('_');
         const ref=chanCol().doc(dmId); const d=await ref.get();
         if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
-        await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:texte,ts:FV(),reunion:true});
+        await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:texte,ts:FV(),reunion:true},true);
       }catch(e){}
     }
+    try{ opPushNotifyUsers(dest, titre||('Réunion · '+((COMP&&COMP.name)||'OP MESSAGES')), texte); }catch(e){}
   }
   function reunionQuand(t){ try{ return fmtWhen(t); }catch(e){ return ''; } }
   /* ── Annuler ── */
@@ -1660,7 +1753,7 @@
     const txt=liste.length>1
       ? `${(USER&&USER.name)||'L’organisateur'} a annulé « ${r.name||'la réunion'} » et les ${liste.length-1} suivantes.`
       : `${(USER&&USER.name)||'L’organisateur'} a annulé « ${r.name||'la réunion'} » — ${reunionQuand(r.scheduledAt)}.`;
-    await reunionPrevenir(r.members||[],txt);
+    await reunionPrevenir(r.members||[],txt,'Réunion annulée');
     closeSheet(); toast(liste.length>1?(liste.length+' réunions annulées'):'Réunion annulée');
     if(_curView==='dash') viewDash();
   }
@@ -1834,6 +1927,7 @@
   }
   let _dashEdit=null;
   async function dashForm(dateISO,heure,edit){
+    if(!peutReunion()){ refusReunion(); return; }
     _dashEdit=edit||null;
     _dashSel=new Set([ME.uid]); _dashAlert=true; _dashRepet='une'; _dashRepetN=8;
     _dashDuree=_dashEdit?dureeDe(_dashEdit):DUREE_DEF;
@@ -1841,7 +1935,7 @@
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
     const d=dateISO?new Date(dateISO+'T00:00:00'):new Date(Date.now()+3600000);
     const hh=heure||(String(new Date(Date.now()+3600000).getHours()).padStart(2,'0')+':00');
-    _dpMem=mem.slice(); _dpQ='';
+    _dpMem=mem.slice(); _dpQ=''; _dpOuvert=false;
     const E=_dashEdit;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">${E?'Modifier la réunion':'Nouvelle réunion'}</h3>
       ${(E&&E.serie)?`<p class="muted" style="font-size:11.5px;line-height:1.5;margin-bottom:10px">Cette réunion fait partie d’une série. Seule celle-ci sera modifiée.</p>`:''}
@@ -1889,7 +1983,9 @@
   /* ══ CHOISIR LES PARTICIPANTS ══
      Une barre de recherche, la liste des collègues avec leur nom en clair,
      et les personnes retenues rappelées en haut. Utilisable à 3 comme à 60. */
-  let _dpMem=[], _dpQ='';
+  let _dpMem=[], _dpQ='', _dpOuvert=false;
+  function dpPartBascule(){ _dpOuvert=!_dpOuvert; dpPartRender();
+    if(_dpOuvert) setTimeout(()=>{ const i=$('dp-q'); if(i) i.focus(); },60); }
   function dpNorm(t){ return (t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
   function dpPartRech(v){ _dpQ=(v||'').trim(); dpPartRender();
     const i=$('dp-q'); if(i&&document.activeElement!==i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} } }
@@ -1962,7 +2058,7 @@
       }catch(e){ rates.push(nomComplet+' : '+(e.message||'erreur')); try{ if(sec) await sec.delete(); }catch(_){} }
     }
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){}
-    _dpQ=''; dpPartRender();
+    _dpQ=''; _dpOuvert=true; dpPartRender();
     const accès=TEST_GENS.map(([p,n,i])=>i).join(', ');
     dpMsg(`<span style="color:var(--pres);font-weight:700">${faits?faits+' compte'+(faits>1?'s':'')+' créé'+(faits>1?'s':''):''}${(faits&&deja)?' · ':''}${deja?deja+' déjà existant'+(deja>1?'s':''):''}</span>`
       +`<br><span style="color:var(--t2)">Identifiants : <b>${accès}</b> · mot de passe <b>${TEST_PASS}</b></span>`
@@ -2038,8 +2134,23 @@
           <span class="ms" style="font-size:19px;color:${on?'var(--green)':'var(--brd2)'}">${on?'check_circle':'radio_button_unchecked'}</span></div>`;
       }).join('')
       : `<p class="muted" style="font-size:12px;padding:10px 2px;margin:0">${autres.length?'Personne à ce nom.':'Tu es seul dans l’entreprise pour le moment.'}</p>`;
-    z.innerHTML=`${chips}
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    /* Fermée, la liste ne montre que les personnes retenues et un bouton.
+       Ouverte, elle montre la recherche et les collègues. Une centaine de
+       personnes ne fait donc jamais grandir la fenêtre. */
+    const compte=n?(n+' personne'+(n>1?'s':'')+' convoquée'+(n>1?'s':'')+' · toi comme organisateur')
+                  :'Personne d’autre pour l’instant — tu peux planifier seul.';
+    const bouton=`<div onclick="dpPartBascule()" style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:10px;background:var(--inp);cursor:pointer">
+        <span style="flex:1;min-width:0;font-size:12.5px;font-weight:700">${_dpOuvert?'Fermer la liste':(n?'Modifier les participants':'Choisir les participants')}</span>
+        <span style="font-size:11.5px;color:var(--t2)">${autres.length?(n+'/'+autres.length):'0'}</span>
+        <span style="color:var(--t3);font-size:11px">${_dpOuvert?'▴':'▾'}</span></div>`;
+    if(!_dpOuvert){
+      z.innerHTML=`${chips}${bouton}
+        <div id="dp-msg" style="font-size:11px;margin-top:7px;line-height:1.5"></div>
+        <div style="font-size:11px;color:var(--t2);margin-top:8px">${compte}</div>`;
+      return;
+    }
+    z.innerHTML=`${chips}${bouton}
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
         <div style="flex:1;min-width:0;display:flex;align-items:center;gap:7px;padding:9px 11px;border-radius:10px;background:var(--card)">
           <span class="ms" style="font-size:16px;color:var(--t3)">search</span>
           <input id="dp-q" value="${esc(_dpQ)}" placeholder="Chercher une personne…" autocapitalize="off"
@@ -2048,7 +2159,7 @@
         </div>
         <span onclick="${n===autres.length&&autres.length?'dpPartAucun()':'dpPartTous()'}" style="flex:none;font-size:11px;font-weight:700;color:var(--op-tx);cursor:pointer;padding:6px 8px;white-space:nowrap">${(n===autres.length&&autres.length)?'Tout retirer':'Tout choisir'}</span>
       </div>
-      <div style="max-height:196px;overflow-y:auto;display:flex;flex-direction:column;gap:2px">${lignes}</div>
+      <div style="max-height:210px;overflow-y:auto;display:flex;flex-direction:column;gap:2px">${lignes}</div>
       ${(_dpQ.length>=3&&!vus.length)?`<div onclick="dpAjoutDirect()"
         style="display:flex;align-items:center;gap:9px;margin-top:6px;padding:9px 10px;border-radius:10px;border:1.5px dashed var(--op);color:var(--op-tx);cursor:pointer">
         <span class="ms" style="font-size:18px">person_add</span>
@@ -2058,7 +2169,7 @@
         <div onclick="dpCreerCompte()" style="flex:1;min-width:150px;text-align:center;padding:9px 10px;border-radius:10px;background:var(--tint2);cursor:pointer;font-size:12px;font-weight:700">Créer un compte</div>
         <div onclick="dpGenerer()" title="Crée Sophie, Karim et Léa pour essayer les réunions" style="flex:1;min-width:150px;text-align:center;padding:9px 10px;border-radius:10px;border:1.5px dashed var(--brd2);cursor:pointer;font-size:12px;font-weight:700">Générer 3 personnes de test</div>
       </div>`:''}
-      <div style="font-size:11px;color:var(--t2);margin-top:8px">${n?(n+' personne'+(n>1?'s':'')+' convoquée'+(n>1?'s':'')+' · toi comme organisateur'):'Personne d’autre pour l’instant — tu peux planifier seul.'}</div>`;
+      <div style="font-size:11px;color:var(--t2);margin-top:8px">${compte}</div>`;
   }
   function dashToggleAlert(){ _dashAlert=!_dashAlert; const t=$('dp-toggle'); if(!t) return; t.style.background=_dashAlert?'var(--green)':'var(--brd2)'; const k=t.firstElementChild; if(k) k.style.right=_dashAlert?'2px':'18px'; }
   function dashPrefill(di,h){ const mon=_dashMonday(); const d=new Date(mon); d.setDate(mon.getDate()+di);
@@ -2087,7 +2198,7 @@
         if((E.desc||'')!==desc) chg.push('description mise à jour');
         if(dureeDe(E)!==_dashDuree) chg.push('durée : '+dureeTexte(_dashDuree));
         const tous=Array.from(new Set([...(E.members||[]),...members]));
-        await reunionPrevenir(tous, `${(USER&&USER.name)||'L’organisateur'} a modifié « ${E.name||name} » : ${chg.length?chg.join(', '):'quelques détails'}.${((E.scheduledAt||0)!==scheduledAt)?' Merci de reconfirmer ta présence.':''}`);
+        await reunionPrevenir(tous, `${(USER&&USER.name)||'L’organisateur'} a modifié « ${E.name||name} » : ${chg.length?chg.join(', '):'quelques détails'}.${((E.scheduledAt||0)!==scheduledAt)?' Merci de reconfirmer ta présence.':''}`, 'Réunion modifiée');
         _dashEdit=null;
         try{ closeSheet(); }catch(e){}
         toast('Réunion modifiée — les participants sont prévenus.');
@@ -2101,8 +2212,17 @@
         await col.add(d);
       }
       try{ closeSheet(); }catch(e){}
-      toast(dates.length>1?(dates.length+' réunions planifiées — les participants seront prévenus.')
-                          :(_dashAlert?'Réunion planifiée — les participants seront prévenus.':'Réunion planifiée.'));
+      /* on prévient les convoqués : c'était annoncé mais rien ne partait */
+      const autres=members.filter(u=>u!==ME.uid);
+      if(_dashAlert && autres.length){
+        const t0=(dates.length?dates[0]:scheduledAt);
+        const txt=`${(USER&&USER.name)||'L’organisateur'} t’a convié à « ${name} » — ${reunionQuand(t0)} · ${dureeTexte(_dashDuree)}`
+          +(dates.length>1?` (et ${dates.length-1} autre${dates.length-1>1?'s':''} dans la série)`:'')
+          +`${desc?' — '+desc.slice(0,120):''}. Réponds Présent, En retard ou Absent.`;
+        await reunionPrevenir(members, txt, 'Nouvelle réunion · '+((COMP&&COMP.name)||''));
+      }
+      toast(dates.length>1?(dates.length+' réunions planifiées'+(_dashAlert&&autres.length?' — les participants sont prévenus.':'.'))
+                          :((_dashAlert&&autres.length)?'Réunion planifiée — les participants sont prévenus.':'Réunion planifiée.'));
       if(_curView==='dash') viewDash();
     }catch(e){ alert('Erreur : '+(e.message||e)); }
   }
@@ -2347,7 +2467,38 @@
       <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'video')">${ic('video',18)}Appel vidéo (in-app)</button>
       ${phone?`<a class="btn ghost block" style="text-decoration:none;margin-bottom:10px" href="tel:${esc(phone.replace(/[^0-9+]/g,''))}">${ic('phone',18)}Appeler au téléphone</a>`:''}
       <button class="btn ghost block" style="margin-bottom:10px" onclick="shareContact('${uid}','${nm}')">${ic('users',18)}Partager ce contact</button>
-      ${MODE==='perso'?`<button class="btn ghost block" style="${blk?'color:var(--pres)':'color:var(--red)'}" onclick="blockContact('${uid}','${nm}')">${blk?'Débloquer':'Bloquer'} ${esc(name)}</button>`:''}`); }
+      ${MODE==='perso'?`<button class="btn ghost block" style="${blk?'color:var(--pres)':'color:var(--red)'}" onclick="blockContact('${uid}','${nm}')">${blk?'Débloquer':'Bloquer'} ${esc(name)}</button>`:''}
+      ${(MODE!=='perso'&&estPatron()&&uid!==ME.uid)?`<div id="role-zone" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">SON RÔLE DANS L’ENTREPRISE</div>
+        <div id="role-pills" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><span class="muted" style="font-size:12px">Chargement…</span></div>
+        <div style="font-size:11px;color:var(--t3);margin-top:7px;line-height:1.5">Un <b>responsable</b> peut créer, déplacer et annuler des réunions. Un <b>membre</b> participe et répond, sans en créer.</div>
+      </div>`:''}`);
+    if(MODE!=='perso'&&estPatron()&&uid!==ME.uid) roleCharge(uid,name); }
+  /* ── qui a quel rôle : lecture puis changement ── */
+  async function roleCharge(uid,name){
+    let r='classique';
+    try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).get();
+      if(d.exists){ const rr=(d.data()||{}).role||''; if(ROLES[rr]) r=rr; } }catch(e){}
+    roleRender(uid,name,r);
+  }
+  function roleRender(uid,name,actuel){
+    const z=$('role-pills'); if(!z) return;
+    const patron=(COMP&&COMP.ownerUid===uid)||actuel==='entreprise';
+    if(patron){ z.innerHTML=`<span style="font-size:12px;font-weight:800;padding:7px 13px;border-radius:9px;background:var(--tint2);color:var(--op-tx)">Patron de l’entreprise</span>`; return; }
+    z.innerHTML=[['responsable','Responsable'],['classique','Membre']].map(([k,l])=>
+      `<span onclick="roleChange('${esc(uid)}','${esc((name||'').replace(/'/g,''))}','${k}')" style="font-size:12px;font-weight:700;padding:7px 13px;border-radius:9px;cursor:pointer;
+        border:1.5px solid ${actuel===k?'var(--op)':'var(--brd2)'};color:${actuel===k?'var(--op-tx)':'var(--t2)'};${actuel===k?'background:var(--tint2)':''}">${l}</span>`).join('');
+  }
+  async function roleChange(uid,name,r){
+    if(!estPatron()){ toast('Seul le patron distribue les rôles.'); return; }
+    const z=$('role-pills'); if(z) z.innerHTML='<span class="muted" style="font-size:12px">Enregistrement…</span>';
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).set({role:r},{merge:true}); }
+    catch(e){ toast('Impossible de changer le rôle : '+(e.message||e)); roleCharge(uid,name); return; }
+    roleRender(uid,name,r);
+    toast(name+' est maintenant '+(ROLES[r]||r).toLowerCase());
+    /* on prévient la personne, elle saura ce qu'elle peut faire */
+    try{ await reunionPrevenir([uid], `${(USER&&USER.name)||'Le patron'} t’a donné le rôle « ${ROLES[r]||r} »${r==='responsable'?' : tu peux maintenant créer et déplacer des réunions.':' : tu participes aux réunions sans en créer.'}`, 'Nouveau rôle'); }catch(e){}
+  }
   function blockContact(uid,name){ toggleBlock(uid); closeSheet(); toast(isBlocked(uid)?name+' bloqué':name+' débloqué'); if(_curView==='disc') viewDisc(); if(_curCh) renderStream(); }
   // ---- Partager un contact vers une conversation ----
   let _shareContact=null;
@@ -2542,7 +2693,7 @@
         <button class="bk" onclick="closePage()">${ic('back',26)}</button>
         <div class="ava" style="background:var(--blk-green);color:var(--blk-green-tx);border-radius:11px">${ms('videocam',20)}</div>
         <div class="ti"><b>Réunions</b><span>${esc(COMP.name)}</span></div>
-        <button class="hbtn green" onclick="newRoom()" title="Planifier une réunion">${ms('event',18)}Planifier</button>
+        ${peutReunion()?`<button class="hbtn green" onclick="newRoom()" title="Planifier une réunion">${ms('event',18)}Planifier</button>`:''}
       </div>
       <div class="view" style="padding:14px 14px 30px" id="reun-body"><p class="muted center">Chargement…</p></div>`);
     let sched=[], perm=[];
@@ -2564,10 +2715,10 @@
       <div class="card" style="padding:18px 16px;margin-bottom:18px">
         <div style="font-size:17px;font-weight:800;margin-bottom:4px">Visioconférence d'équipe</div>
         <p class="muted" style="font-size:12.5px;margin-bottom:14px">HD · partage d'écran · sans limite de durée</p>
-        <div style="display:flex;gap:8px">
+        ${peutReunion()?`<div style="display:flex;gap:8px">
           <button class="btn green" style="flex:1" onclick="instantMeeting()">${ms('videocam',17)}Démarrer maintenant</button>
           <button class="btn ghost" style="flex:1" onclick="newRoom()">${ms('event',17)}Planifier</button>
-        </div>
+        </div>`:`<p class="muted" style="font-size:12px;margin:0">Le patron et les responsables ouvrent les réunions — tu reçois l’invitation et tu réponds ici.</p>`}
       </div>`;
     if(upcoming.length){ h+=`<div class="sec-lbl">À venir (${upcoming.length})</div><div class="listbox" style="margin-bottom:14px">`+upcoming.map((r,i)=>{ const mine=(r.members||[]).length; return roomRow(r, esc(fmtWhen(r.scheduledAt))+' · '+esc(fmtCountdown(r.scheduledAt-now))+(mine?' · '+mine+' invité'+(mine>1?'s':''):''), i===0); }).join('')+'</div>'; }
     if(perm.length){ h+=`<div class="sec-lbl">Salles permanentes (${perm.length})</div><div class="listbox" style="margin-bottom:14px">`+perm.map(r=>roomRow(r,'Salle ouverte · partage d\'écran',true)).join('')+'</div>'; }
@@ -2576,12 +2727,14 @@
     const b=$('reun-body'); if(b) b.innerHTML=h;
   }
   async function instantMeeting(){
+    if(!peutReunion()){ refusReunion(); return; }
     const d=new Date(); const name='Réunion du '+d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
     try{ const ref=await fs.collection('op_companies').doc(COMP.id).collection('rooms').add({name,createdBy:ME.uid,members:[ME.uid],createdAt:FV()});
       closePage(); joinRoom(ref.id,name); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   async function delRoom(id){ if(!confirm('Supprimer cette réunion ?')) return;
     try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).delete(); toast('Réunion supprimée'); openReunions(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
-  async function newRoom(){ openSheet('<p class="muted center">Chargement…</p>'); let chks='';
+  async function newRoom(){ if(!peutReunion()){ refusReunion(); return; }
+    openSheet('<p class="muted center">Chargement…</p>'); let chks='';
     try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
       qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouvelle réunion</h3><div id="nrerr"></div>
@@ -2638,8 +2791,9 @@
   function chDoc(id){ return chanCol().doc(id); }
   function chMsgs(){ return chDoc(_curCh.id).collection('messages'); }
   // Envoi centralisé : ajoute le message ET met à jour l'aperçu du canal (dernier message + heure)
-  async function addMsgTo(chId,data){ const ref=await chanCol().doc(chId).collection('messages').add(data);
+  async function addMsgTo(chId,data,sansPush){ const ref=await chanCol().doc(chId).collection('messages').add(data);
     try{ await chanCol().doc(chId).set({lastMsg:(previewOf(data)||'').slice(0,80),lastMsgAt:Date.now(),lastMsgFrom:ME.uid,lastMsgName:USER.name||'',msgCount:firebase.firestore.FieldValue.increment(1)},{merge:true}); }catch(e){}
+    if(sansPush) return ref;      // l'appelant envoie sa propre notification (réunion, rôle…)
     try{ // push aux destinataires (membres du canal, ou toute l'équipe pour le canal Général)
       const cd=await chanCol().doc(chId).get(); const c=cd.data()||{};
       let dest=(Array.isArray(c.members)&&c.members.length)?c.members:_members.map(m=>m.uid);
