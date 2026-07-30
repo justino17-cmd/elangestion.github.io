@@ -3616,8 +3616,21 @@
     if(v===undefined){ loadPollVotes(id); return `<div style="font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px">${ic('poll',15)} ${esc(p.q||'')}</div><div class="muted">Chargement du sondage…</div>`; }
     const counts=p.opts.map((_,i)=>Object.values(v).filter(x=>x===i).length); const total=Object.keys(v).length; const my=v[ME.uid];
     let h=`<div style="font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px">${ic('poll',15)} ${esc(p.q||'')}</div>`;
+    /* qui a voté quoi, directement visible : chaque votant apparaît en
+       pastille sous sa réponse, sans avoir à ouvrir le détail */
+    const noms={}; try{ _members.forEach(x=>noms[x.uid]=x.name||''); }catch(e){}
+    noms[ME.uid]=(USER&&USER.name)||'Moi';
     p.opts.forEach((o,i)=>{ const c=counts[i], pct=total?Math.round(c*100/total):0, sel=my===i;
-      h+=`<div onclick="event.stopPropagation();vote('${id}',${i})" style="position:relative;border:1px solid ${sel?'var(--op)':'var(--brd2)'};border-radius:10px;padding:9px 12px;margin-bottom:6px;cursor:pointer;overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(94,130,255,.2)"></div><div style="position:relative;display:flex;justify-content:space-between;gap:8px"><span>${sel?'✓ ':''}${esc(o)}</span><span style="opacity:.7">${c}</span></div></div>`; });
+      const gens=Object.keys(v).filter(u=>v[u]===i);
+      const pastilles=gens.slice(0,8).map(u=>{ const n=noms[u]||'?';
+        return `<span title="${esc(n)}" style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px 2px 2px;border-radius:999px;background:rgba(255,255,255,.14);font-size:11px;font-weight:700;max-width:120px">
+          <i style="width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-style:normal;font-weight:800;${avatarStyle(n)}">${ini(n)}</i>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((n||'').split(' ')[0])}</span></span>`; }).join('')
+        +(gens.length>8?`<span style="font-size:11px;font-weight:700;opacity:.8;padding:3px 6px">+${gens.length-8}</span>`:'');
+      h+=`<div onclick="event.stopPropagation();vote('${id}',${i})" style="position:relative;border:1px solid ${sel?'var(--op)':'var(--brd2)'};border-radius:10px;padding:9px 12px;margin-bottom:6px;cursor:pointer;overflow:hidden">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(94,130,255,.2)"></div>
+        <div style="position:relative;display:flex;justify-content:space-between;gap:8px"><span>${sel?'✓ ':''}${esc(o)}</span><span style="opacity:.7">${c}</span></div>
+        ${gens.length?`<div style="position:relative;display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${pastilles}</div>`:''}</div>`; });
     const dest=ackDestinataires().filter(u=>u!==m.uid).length;
     h+=`<div onclick="event.stopPropagation();pollQui('${id}')" style="display:flex;align-items:center;gap:6px;margin-top:3px;cursor:pointer">
       <span class="muted" style="font-size:11px;flex:1">${total} vote${total>1?'s':''}${dest?' sur '+dest:''}</span>
@@ -3658,7 +3671,10 @@
     opPushNotifyUsers(sans,'📊 Sondage en attente'+(COMP&&COMP.name?' · '+COMP.name:''),((USER&&USER.name)||'')+' : '+String(p.q||'').slice(0,120));
     closeSheet(); toast('🔔 '+sans.length+' personne'+(sans.length>1?'s relancées':' relancée'));
   }
-  async function loadPollVotes(id){ try{ const qs=await chMsgs().doc(id).collection('votes').get(); const v={}; qs.forEach(d=>v[d.id]=d.data().opt); _pollVotes[id]=v; }catch(e){ _pollVotes[id]={}; } renderStream(); }
+  async function loadPollVotes(id){
+    if(!_members.length){ try{ _members=await listMembers(); }catch(e){} }
+    try{ const qs=await chMsgs().doc(id).collection('votes').get(); const v={}; qs.forEach(d=>v[d.id]=d.data().opt); _pollVotes[id]=v; }catch(e){ _pollVotes[id]={}; }
+    renderStream(); }
   async function vote(id,i){ try{ await chMsgs().doc(id).collection('votes').doc(ME.uid).set({opt:i}); _pollVotes[id]=_pollVotes[id]||{}; _pollVotes[id][ME.uid]=i; renderStream(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
 
   // ---- Infos / gestion de groupe ----
