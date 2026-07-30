@@ -708,6 +708,29 @@
     if(_curView==='prof') viewProfile();
   }
   try{ silenceEcrire(silenceLire()); }catch(e){}
+  /* ══ LE STATUT DE DISPONIBILITÉ ══
+     Chacun annonce s'il est joignable. En intervention et en pause se coupent
+     tout seuls à 20 h : personne ne reste « en intervention » toute la nuit. */
+  const STATUTS={dispo:['🟢','Disponible'],inter:['🔧','En intervention'],pause:['🍽','En pause'],conges:['🏖','En congés']};
+  function statutDe(u){ const st=u&&u.statut; if(!st||!st.code||st.code==='dispo') return null;
+    if(st.jusqu&&st.jusqu<Date.now()) return null; return STATUTS[st.code]?{code:st.code,ic:STATUTS[st.code][0],lbl:STATUTS[st.code][1]}:null; }
+  function statutOuvre(){
+    const b=(code)=>{ const [ic,lbl]=STATUTS[code];
+      return `<button class="btn ghost block" style="margin-bottom:8px" onclick="statutPose('${code}')">${ic} ${lbl}${(code==='inter'||code==='pause')?' <span style="font-size:11px;color:var(--t3)">(se coupe à 20 h)</span>':''}</button>`; };
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">Mon statut</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.5;margin-bottom:14px">Visible par l'équipe dans les contacts — avant d'appeler, chacun sait si tu es en plein traitement chez un client.</p>
+      ${b('dispo')}${b('inter')}${b('pause')}${b('conges')}`);
+  }
+  async function statutPose(code){
+    let jusqu=null;
+    if(code==='inter'||code==='pause'){ const f=new Date(); f.setHours(20,0,0,0); if(f.getTime()<Date.now()) f.setDate(f.getDate()+1); jusqu=f.getTime(); }
+    try{
+      await fs.collection('op_users').doc(ME.uid).set({statut:{code:code,jusqu:jusqu,maj:Date.now()}},{merge:true});
+      if(USER) USER.statut={code:code,jusqu:jusqu};
+      closeSheet(); const [ic,lbl]=STATUTS[code]; toast(ic+' Statut : '+lbl);
+      if(_curView==='prof') viewProfile(); if(_curView==='cont') viewCont();
+    }catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
+  }
   function fontSize(){ return pref('fontsize','m'); }
   function applyFontSize(){ const map={s:'13.5px',m:'15px',l:'17px',xl:'19px'}; let st=$('fsStyle'); if(!st){ st=document.createElement('style'); st.id='fsStyle'; document.head.appendChild(st); } st.textContent='.m{font-size:'+(map[fontSize()]||'15px')+'}'; }
   applyFontSize();
@@ -2765,8 +2788,17 @@
       <div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ms('person_add',24)}</button>`:''}`;
     try{
       const list = MODE==='perso' ? await listMembers() : (await (async()=>{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); const a=[]; qs.forEach(d=>a.push(d.data())); return a; })());
-      _contList=list; renderContList(emptyMsg);
+      _contList=list; renderContList(emptyMsg); statutsCharge();
     }catch(e){ $('cont-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+  }
+  async function statutsCharge(){
+    try{
+      for(const m of _contList){
+        if(m.uid===ME.uid){ m.statut=(USER&&USER.statut)||null; continue; }
+        try{ const d=await fs.collection('op_users').doc(m.uid).get(); m.statut=(d.data()||{}).statut||null; }catch(e){}
+      }
+      renderContList();
+    }catch(e){}
   }
   function renderContList(emptyMsg){
     const box=$('cont-list'); if(!box) return;
@@ -2774,7 +2806,7 @@
     let html=''; list.forEach(m=>{ const on=isOnline(m)||m.uid===ME.uid; const self=m.uid===ME.uid; const nm=esc((m.name||'').replace(/'/g,''));
       html+=`<div class="lrow" style="padding:14px 18px${self?';cursor:default':''}" ${self?'':`onclick="contactActions('${m.uid}','${nm}')"`}>
         <div style="position:relative;flex-shrink:0">${m.photo?`<img class="cava" src="${m.photo}" style="object-fit:cover">`:`<div class="cava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`}<span class="pdot" style="background:${on?'var(--pres)':'var(--off)'}"></span></div>
-        <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div><div style="font-size:13px;color:var(--t2);margin-top:2px">${self?'Vous':(on?'En ligne':'Hors ligne')}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
+        <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div><div style="font-size:13px;color:var(--t2);margin-top:2px">${(function(){ const st=statutDe(m); if(st) return st.ic+' '+st.lbl; return self?'Vous':(on?'En ligne':'Hors ligne'); })()}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
         ${self?'':`<div style="display:flex;align-items:center;gap:8px">
           <button class="rbtn" title="Message" onclick="event.stopPropagation();openDM('${m.uid}','${nm}')">${ms('chat_bubble',18)}</button>
           <button class="rbtn" title="Appeler" onclick="event.stopPropagation();startCall(['${m.uid}'],['${nm}'],'audio')">${ms('call',18)}</button>
@@ -3373,6 +3405,12 @@
         const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé';
         html+=`<div onclick="${rd&&!isDM?`quiALu(${mt})`:''}" style="align-self:flex-end;font-size:10.5px;color:var(--t3);margin:-3px 4px 2px${rd&&!isDM?';cursor:pointer;text-decoration:underline dotted':''}">${rtxt}</div>`; }
     });
+    /* les messages qui attendent le réseau, en fin de conversation */
+    try{ if(_curCh&&!q){ attLire().filter(x=>x.chId===_curCh.id).forEach(x=>{
+      html+=`<div class="m me" style="opacity:.65;border:1px dashed currentColor" onclick="event.stopPropagation()">${esc(x.text)}
+        <div style="font-size:10.5px;font-weight:800;margin-top:4px">🕐 EN ATTENTE DE RÉSEAU
+        <span onclick="attRetirer('${x.id}')" style="margin-left:8px;text-decoration:underline;cursor:pointer;font-weight:700">annuler</span></div></div>`;
+    }); } }catch(e){}
     s.innerHTML=html||(q?'<p class="muted center" style="margin:auto">Aucun résultat.</p>':'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>');
     if(!q) s.scrollTop=s.scrollHeight;
   }
@@ -3392,10 +3430,45 @@
   }
   function pickMention(name){ const inp=$('msg'); if(!inp) return; inp.value=(inp.value||'').replace(/@([\p{L}\p{N}._'’-]{0,24})$/u,'@'+name+' '); $('mentionpop').style.display='none'; inp.focus(); }
   function parseMentions(text){ const out=[]; _members.forEach(m=>{ if(m.uid===ME.uid) return; const n=m.name||''; if(n && text.includes('@'+n)) out.push({uid:m.uid,name:n}); }); return out; }
+  /* ══ LES MESSAGES QUI ATTENDENT LE RÉSEAU ══
+     En cave ou en parking souterrain, pas de réseau : le message ne se perd
+     plus. Il s'affiche avec une petite horloge et part TOUT SEUL dès que le
+     téléphone recapte. La file survit à la fermeture de l'application. */
+  function attCle(){ return 'opmsg_attente_'+((ME&&ME.uid)||'x'); }
+  function attLire(){ try{ return JSON.parse(localStorage.getItem(attCle())||'[]'); }catch(e){ return []; } }
+  function attEcrire(l){ try{ localStorage.setItem(attCle(),JSON.stringify(l)); }catch(e){} }
+  function attRetirer(id){ attEcrire(attLire().filter(x=>x.id!==id)); try{ renderStream(); }catch(e){} toast('Message retiré de la file'); }
+  let _attEnvoi=false;
+  async function attFlush(){
+    if(_attEnvoi||!navigator.onLine||!ME) return;
+    const l=attLire(); if(!l.length) return;
+    _attEnvoi=true;
+    let envoyes=0;
+    for(const it of l.slice()){
+      try{
+        const data={uid:ME.uid,name:(USER&&USER.name)||'',text:it.text,ts:FV()};
+        if(it.replyTo) data.replyTo=it.replyTo;
+        if(it.mentions){ data.mentions=it.mentions; data.mentionNames=it.mentionNames; }
+        await addMsgTo(it.chId,data);
+        attEcrire(attLire().filter(x=>x.id!==it.id)); envoyes++;
+      }catch(e){ break; }   // toujours pas de réseau : on réessaiera
+    }
+    _attEnvoi=false;
+    if(envoyes){ toast('📤 '+envoyes+' message'+(envoyes>1?'s':'')+' en attente envoyé'+(envoyes>1?'s':'')); try{ renderStream(); }catch(e){} }
+  }
+  try{ window.addEventListener('online',()=>setTimeout(attFlush,800)); }catch(e){}
+  setInterval(()=>{ try{ attFlush(); }catch(e){} },25000);
   async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value=''; const mp=$('mentionpop'); if(mp) mp.style.display='none';
     try{ const ep=$('emojipop'); if(ep&&ep.style.display!=='none'){ ep.style.display='none'; emojiSourd(); } }catch(e){}
     const data={uid:ME.uid,name:USER.name||ME.email,text,ts:FV()}; if(_replyTo) data.replyTo=_replyTo;
     const ment=parseMentions(text); if(ment.length){ data.mentions=ment.map(x=>x.uid); data.mentionNames=ment.map(x=>x.name); }
+    /* pas de réseau : le message entre dans la file, rien n'est perdu */
+    if(!navigator.onLine){
+      const l=attLire(); l.push({id:'att'+Math.random().toString(36).slice(2,9),chId:_curCh.id,text:text,
+        replyTo:data.replyTo||null,mentions:data.mentions||null,mentionNames:data.mentionNames||null,ts:Date.now()});
+      attEcrire(l); cancelReply(); clearTyping(); renderStream();
+      toast('🕐 Pas de réseau — il partira tout seul dès que ça recapte'); return;
+    }
     try{ await addMsg(data); cancelReply(); clearTyping(); }catch(e){ alert('Erreur : '+(e.message||e)); } }
   function linkify(html){ return html.replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener" style="color:var(--op-l);text-decoration:underline" onclick="event.stopPropagation()">$1</a>'); }
   function highlightMentions(escText,m){ let s=escText; const names=(m&&m.mentionNames)||[]; const meMention=m&&m.mentions&&m.mentions.includes(ME.uid);
@@ -3439,10 +3512,68 @@
   function cancelReply(){ _replyTo=null; const bar=$('replybar'); if(bar){ bar.style.display='none'; bar.innerHTML=''; } }
   async function react(id,emoji){ closeSheet(); const it=_curMsgs.find(x=>x.id===id); const m=it&&it.m; const has=m&&m.reactions&&m.reactions[emoji]&&m.reactions[emoji].includes(ME.uid);
     try{ await chMsgs().doc(id).update(new firebase.firestore.FieldPath('reactions',emoji), has?firebase.firestore.FieldValue.arrayRemove(ME.uid):firebase.firestore.FieldValue.arrayUnion(ME.uid)); }catch(e){ alert('Erreur : '+(e.message||e)); } }
+  /* ══ « ME LE RAPPELER » ══
+     Un pense-bête personnel : à l'heure choisie, le message revient sous les
+     yeux avec une notification. Personne d'autre ne le voit. Les rappels
+     vivent sur CET appareil. */
+  function rapCle(){ return 'opmsg_rappels_'+((ME&&ME.uid)||'x'); }
+  function rapLire(){ try{ return JSON.parse(localStorage.getItem(rapCle())||'[]'); }catch(e){ return []; } }
+  function rapEcrire(l){ try{ localStorage.setItem(rapCle(),JSON.stringify(l)); }catch(e){} }
+  function rappelForm(mid){
+    closeSheet();
+    const it=_curMsgs.find(x=>x.id===mid); if(!it) return;
+    const t=new Date(Date.now()+3600000);
+    const soir=new Date(); soir.setHours(18,0,0,0); if(soir.getTime()<Date.now()) soir.setDate(soir.getDate()+1);
+    const demain=new Date(Date.now()+86400000); demain.setHours(8,0,0,0);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">⏰ Me le rappeler</h3>
+      <div class="card" style="padding:10px 12px;font-size:13px;margin-bottom:14px;color:var(--t2)">${esc((previewOf(it.m)||'').slice(0,110))}</div>
+      <button class="btn ghost block" style="margin-bottom:8px" onclick="rappelPose('${mid}',${Date.now()+3600000})">Dans 1 heure (${esc(t.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}))})</button>
+      <button class="btn ghost block" style="margin-bottom:8px" onclick="rappelPose('${mid}',${soir.getTime()})">Ce soir à 18 h</button>
+      <button class="btn ghost block" style="margin-bottom:8px" onclick="rappelPose('${mid}',${demain.getTime()})">Demain à 8 h</button>
+      <div class="form-sec" style="margin:12px 0 6px;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--t3)">OU À UN MOMENT PRÉCIS</div>
+      ${champDateHeure(_dstr(new Date(Date.now()+86400000)),'08:00')}
+      <button class="btn block" style="margin-top:12px" onclick="rappelPose('${mid}',0)">Valider ce moment</button>`);
+    dcLabel();
+  }
+  function rappelPose(mid,quand){
+    if(!quand){ quand=momentChoisi(); if(!quand){ toast('Choisis le jour et l\'heure.'); return; } }
+    if(quand<Date.now()+30000){ toast('Ce moment est déjà passé.'); return; }
+    const it=_curMsgs.find(x=>x.id===mid); if(!it||!_curCh) return;
+    const l=rapLire();
+    l.push({id:'r'+Math.random().toString(36).slice(2,9),mid:mid,chId:_curCh.id,chNom:_curCh.name||'',
+      qui:it.m.name||'',texte:(previewOf(it.m)||'').slice(0,140),quand:quand});
+    rapEcrire(l); closeSheet();
+    toast('⏰ Rappel posé pour '+new Date(quand).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
+  }
+  function rappelAnnuler(id){ rapEcrire(rapLire().filter(x=>x.id!==id)); rappelsListe(); toast('Rappel annulé'); }
+  function rappelsListe(){
+    const l=rapLire().sort((a,b)=>a.quand-b.quand);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">⏰ Mes rappels</h3>
+      ${l.length?l.map(r=>`<div class="row"><div class="info"><div class="nm">${esc(r.texte.slice(0,60))}</div>
+        <div class="ds">⏰ ${esc(new Date(r.quand).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))} · ${esc(r.chNom||'discussion')}</div></div>
+        <button class="btn ghost sm" onclick="rappelAnnuler('${r.id}')">Annuler</button></div>`).join('')
+      :'<p class="muted">Aucun rappel en attente. Touche un message → « ⏰ Me le rappeler ».</p>'}`);
+  }
+  function rappelCheck(){
+    if(!ME) return;
+    const l=rapLire(); const now=Date.now();
+    const dus=l.filter(r=>r.quand<=now);
+    if(!dus.length) return;
+    rapEcrire(l.filter(r=>r.quand>now));
+    const r=dus[0];
+    try{ if('Notification' in window && Notification.permission==='granted' && navigator.serviceWorker)
+      navigator.serviceWorker.ready.then(g=>g.showNotification('⏰ Rappel',{body:(r.qui?r.qui+' : ':'')+r.texte,icon:'icons/icon-192.png'})); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">⏰ Tu voulais y repenser</h3>
+      <div class="card" style="padding:12px 13px;font-size:14px;margin-bottom:14px">${r.qui?`<b style="font-size:12px;color:var(--t2)">${esc(r.qui)}</b><br>`:''}${esc(r.texte)}</div>
+      <button class="btn block" onclick="closeSheet();openChannel('${esc(r.chId)}','${esc((r.chNom||'').replace(/'/g,''))}')">Ouvrir la discussion</button>
+      <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">C'est noté</button>`);
+  }
+  setInterval(()=>{ try{ rappelCheck(); }catch(e){} },30000);
   function msgTap(id){ const it=_curMsgs.find(x=>x.id===id); const m=it&&it.m; const mine=m&&m.uid===ME.uid;
     let h=`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">Message</h3>`;
     h+=`<div style="display:flex;gap:10px;justify-content:center;margin-bottom:16px;font-size:27px">${['👍','❤️','😂','😮','😢','🙏'].map(e=>`<span style="cursor:pointer" onclick="react('${id}','${e}')">${e}</span>`).join('')}</div>`;
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="setReply('${id}')">↩️ Répondre</button>`;
+    h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="rappelForm('${id}')">⏰ Me le rappeler</button>`;
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="forwardMsg('${id}')">↪️ Transférer</button>`;
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="starMsg('${id}')">${_star.has(id)?'★ Retirer des importants':'☆ Marquer comme important'}</button>`;
     h+=`<button class="btn ghost block" style="margin-bottom:10px" onclick="epingler('${id}')">Épingler en haut de la discussion</button>`;
@@ -4297,6 +4428,8 @@
     <div style="height:10px"></div>
     <button class="btn block" onclick="opPushSub()">${(typeof Notification!=='undefined'&&Notification.permission==='granted'&&localStorage.getItem('opmsg_push_on'))?'✓ Notifications app fermée : activées':'🔔 Activer les notifications (app fermée)'}</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="silenceOuvre()">${(function(){ const v=silenceLire(); return v.on?('🌙 Heures de silence : '+esc(v.de)+' → '+esc(v.a)):'🌙 Heures de silence : désactivées'; })()}</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="statutOuvre()">${(function(){ const st=statutDe(USER); return st?(st.ic+' Statut : '+st.lbl):'🟢 Statut : disponible'; })()}</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="rappelsListe()">⏰ Mes rappels${(function(){ const n=rapLire().length; return n?' ('+n+')':''; })()}</button>
     <p class="muted" style="font-size:12px;margin-top:10px">Tu seras prévenu des nouveaux messages même quand OP MESSAGES est fermée — sur iPhone, installe d'abord l'app sur l'écran d'accueil.</p>`); }
   function sheetAccount(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">👤 Compte</h3>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
