@@ -1690,6 +1690,7 @@
   let _dcMois='';
   function dcOuvre(){
     const z=$('dp-cal'); if(!z) return;
+    const t=$('dp-tp'); if(t) t.style.display='none';         // une seule fenêtre à la fois
     if(z.style.display==='block'){ z.style.display='none'; return; }
     const v=(($('dp-date')||{}).value)||_dstr(new Date());
     _dcMois=v.slice(0,7)+'-01';
@@ -1701,6 +1702,61 @@
     if(!b) return; if(!v){ b.textContent='Choisir une date'; return; }
     const d=new Date(v+'T00:00:00');
     b.textContent=d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  }
+  /* ══ CHOISIR L'HEURE ET LES MINUTES ══
+     Le champ natif de Safari oblige à taper au clavier. Ici : une colonne
+     d'heures, une colonne de minutes, toutes les minutes disponibles. */
+  function tpVal(){ const v=(($('dp-time')||{}).value)||'09:00'; const m=v.match(/^(\d{1,2}):(\d{2})$/);
+    return m?[Math.min(23,+m[1]),Math.min(59,+m[2])]:[9,0]; }
+  function tpOuvre(){
+    const z=$('dp-tp'); if(!z) return;
+    const c=$('dp-cal'); if(c) c.style.display='none';        // une seule fenêtre à la fois
+    if(z.style.display==='block'){ z.style.display='none'; return; }
+    z.style.display='block'; tpRender();
+  }
+  function tpPose(h,m){
+    const i=$('dp-time'); if(i) i.value=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+    const b=$('dp-timelbl'); if(b) b.textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+    try{ dashDureeMaj(); }catch(e){}
+    try{ dashRepetMaj(); }catch(e){}
+    tpRender();
+  }
+  function tpHeure(h){ const [_,m]=tpVal(); tpPose(h,m); }
+  function tpMinute(m){ const [h]=tpVal(); tpPose(h,m); }
+  function tpPas(n){ const [h,m]=tpVal(); const t=new Date(2000,0,1,h,m+n); tpPose(t.getHours(),t.getMinutes()); }
+  function tpFerme(){ const z=$('dp-tp'); if(z) z.style.display='none'; }
+  function tpRender(){
+    const z=$('dp-tp'); if(!z) return;
+    const [H,M]=tpVal();
+    const pill=(txt,on,fn,gros)=>`<span onclick="${fn}" style="text-align:center;padding:${gros?'8px 0':'7px 0'};border-radius:8px;cursor:pointer;
+      font-size:${gros?'13px':'12px'};font-weight:${on?800:600};
+      ${on?'background:var(--op);color:#fff':'color:var(--t1);background:var(--card)'}">${txt}</span>`;
+    let hs=''; for(let h=0;h<24;h++) hs+=pill(String(h).padStart(2,'0'),h===H,`tpHeure(${h})`,true);
+    let ms=''; for(let m=0;m<60;m++) ms+=pill(String(m).padStart(2,'0'),m===M,`tpMinute(${m})`);
+    z.innerHTML=`<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
+        <b style="font-size:17px;font-weight:800;font-variant-numeric:tabular-nums">${String(H).padStart(2,'0')}:${String(M).padStart(2,'0')}</b>
+        <span onclick="tpPas(-5)" title="5 minutes plus tôt" style="width:26px;height:26px;border-radius:8px;background:var(--card);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-weight:800">−</span>
+        <span onclick="tpPas(5)" title="5 minutes plus tard" style="width:26px;height:26px;border-radius:8px;background:var(--card);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-weight:800">+</span>
+        <span style="flex:1"></span>
+        <span onclick="tpFerme()" style="font-size:11.5px;font-weight:700;color:var(--op-tx);cursor:pointer;padding:4px 8px">Terminé</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">
+        <div style="min-width:0">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--t3);margin-bottom:5px">HEURE</div>
+          <div id="tp-h" style="position:relative;max-height:158px;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:4px">${hs}</div>
+        </div>
+        <div style="min-width:0">
+          <div style="font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--t3);margin-bottom:5px">MINUTES</div>
+          <div id="tp-m" style="position:relative;max-height:158px;overflow-y:auto;display:grid;grid-template-columns:repeat(5,1fr);gap:4px">${ms}</div>
+        </div>
+      </div>`;
+    /* on amène le choix courant sous les yeux */
+    /* on amène le choix courant sous les yeux — mesuré à l'écran, pas via
+       offsetTop qui se compte depuis un ancêtre imprévisible */
+    setTimeout(()=>{ ['tp-h','tp-m'].forEach(id=>{ const c=$(id); if(!c) return;
+      const on=[...c.children].find(e=>/var\(--op\)/.test(e.getAttribute('style')||''));
+      if(!on) return;
+      const dec=(on.getBoundingClientRect().top-c.getBoundingClientRect().top)+c.scrollTop;
+      c.scrollTop=Math.max(0,dec-c.clientHeight/2+on.offsetHeight/2); }); },20);
   }
   function dcRender(){
     const z=$('dp-cal'); if(!z) return;
@@ -1796,7 +1852,7 @@
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
     const d=dateISO?new Date(dateISO+'T00:00:00'):new Date(Date.now()+3600000);
     const hh=heure||(String(new Date(Date.now()+3600000).getHours()).padStart(2,'0')+':00');
-    const parts=mem.filter(m=>m.uid!==ME.uid).map(m=>`<div class="dash-pp${_dashSel.has(m.uid)?' sel':''}" data-uid="${esc(m.uid)}" title="${esc(m.name||'')}" onclick="dashTogglePart(this)" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`).join('');
+    _dpMem=mem.slice(); _dpQ='';
     const E=_dashEdit;
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:14px">${E?'Modifier la réunion':'Nouvelle réunion'}</h3>
       ${(E&&E.serie)?`<p class="muted" style="font-size:11.5px;line-height:1.5;margin-bottom:10px">Cette réunion fait partie d’une série. Seule celle-ci sera modifiée.</p>`:''}
@@ -1810,9 +1866,16 @@
             <span style="color:var(--t3);font-size:11px">▾</span></div>
           <input id="dp-date" type="hidden" value="${_dstr(d)}">
         </div>
-        <label style="flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:600"><span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span><input id="dp-time" type="time" value="${hh}" style="border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;width:100%;outline:none;min-width:0"></label>
+        <div style="flex:1;min-width:0">
+          <div onclick="tpOuvre()" style="display:flex;align-items:center;gap:7px;padding:10px 12px;border-radius:10px;background:var(--inp);font-size:12.5px;font-weight:700;cursor:pointer">
+            <span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span>
+            <span id="dp-timelbl" style="flex:1;min-width:0">${esc(hh)}</span>
+            <span style="color:var(--t3);font-size:11px">▾</span></div>
+          <input id="dp-time" type="hidden" value="${hh}">
+        </div>
       </div>
       <div id="dp-cal" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
+      <div id="dp-tp" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
       <div style="display:flex;align-items:baseline;gap:8px;margin-top:14px">
         <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">COMBIEN DE TEMPS ?</div>
         <div id="dp-fin" style="font-size:11px;color:var(--t3)"></div>
@@ -1821,8 +1884,8 @@
       ${E?'':`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">RÉPÉTITION</div>
       <div id="dp-rep" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
       <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>`}
-      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">PARTICIPANTS</div>
-      <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">${parts||'<span class="muted" style="font-size:11.5px">Aucun autre membre</span>'}<span id="dp-count" style="font-size:11.5px;color:var(--t2);margin-left:4px">0 sélectionné</span></div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">QUI PARTICIPE ?</div>
+      <div id="dp-parts" style="margin-top:8px"></div>
       <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
         <div style="display:flex;align-items:center;gap:8px"><span class="ms f1" style="font-size:17px;color:var(--tile-tx)">notifications_active</span><span style="font-size:12.5px;font-weight:700">Alerter les participants</span></div>
         <div id="dp-toggle" style="width:38px;height:22px;border-radius:999px;background:var(--green);position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:right .15s"></div></div>
@@ -1830,12 +1893,95 @@
       <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
       <div data-pied><button class="btn" style="font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">${E?'Enregistrer les changements':'Planifier la réunion'}</button></div>`);
     setTimeout(()=>{ dcLabel(); try{ dashRepetMaj(); }catch(e){} try{ dashDureeMaj(); }catch(e){}
-      try{ const t=$('dp-time'); if(t) t.addEventListener('input',()=>{ try{ dashDureeMaj(); }catch(e){} }); }catch(e){}
-      const n=$('dp-name'); if(n) n.focus();
-      try{ const c=$('dp-count'); if(c){ const k=Math.max(0,_dashSel.size-1); c.textContent=k+' sélectionné'+(k>1?'s':''); } }catch(e){} },80);
+
+      try{ dpPartRender(); }catch(e){}
+      const n=$('dp-name'); if(n) n.focus(); },80);
   }
-  function dashTogglePart(el){ const uid=el.dataset.uid; if(_dashSel.has(uid)){ _dashSel.delete(uid); el.classList.remove('sel'); } else { _dashSel.add(uid); el.classList.add('sel'); }
-    const c=$('dp-count'); if(c){ const n=Math.max(0,_dashSel.size-1); c.textContent=n+' sélectionné'+(n>1?'s':''); } }
+  /* ══ CHOISIR LES PARTICIPANTS ══
+     Une barre de recherche, la liste des collègues avec leur nom en clair,
+     et les personnes retenues rappelées en haut. Utilisable à 3 comme à 60. */
+  let _dpMem=[], _dpQ='';
+  function dpNorm(t){ return (t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+  function dpPartRech(v){ _dpQ=(v||'').trim(); dpPartRender();
+    const i=$('dp-q'); if(i&&document.activeElement!==i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} } }
+  function dpPartToggle(uid){ if(uid===ME.uid) return;                     // l'organisateur est toujours là
+    if(_dashSel.has(uid)) _dashSel.delete(uid); else _dashSel.add(uid); dpPartRender(); }
+  function dpPartTous(){ _dpMem.forEach(m=>_dashSel.add(m.uid)); dpPartRender(); }
+  /* Ajouter quelqu'un SANS quitter le formulaire : on tape son identifiant ou
+     son numéro dans la barre, et un clic l'ajoute à l'entreprise et à la réunion. */
+  async function dpAjoutDirect(){
+    const raw=_dpQ.trim(); if(raw.length<3) return;
+    const z=$('dp-parts'); const dire=t=>{ const e=$('dp-msg'); if(e){ e.innerHTML=t; } else toast(t.replace(/<[^>]*>/g,'')); };
+    dire('<span style="color:var(--t2)">Recherche…</span>');
+    const isTel=/^[0-9+ .]{6,}$/.test(raw);
+    try{
+      const snap=isTel ? await fs.collection('op_users').where('phone','==',raw).limit(1).get()
+                       : await fs.collection('op_users').where('handle','==',handleOf(raw)).limit(1).get();
+      if(snap.empty){ dire('<span style="color:var(--red)">Personne avec « '+esc(raw)+' ». Il faut d’abord lui créer un compte.</span>'
+        +(IS_OWNER?' <span onclick="dpCreerCompte()" style="color:var(--op-tx);font-weight:700;cursor:pointer;text-decoration:underline">Créer le compte</span>':'')); return; }
+      const u=snap.docs[0].data();
+      if(u.uid===ME.uid){ dire('<span style="color:var(--t2)">C’est toi 🙂</span>'); return; }
+      if(_dpMem.some(m=>m.uid===u.uid)){ _dashSel.add(u.uid); _dpQ=''; dpPartRender(); toast((u.name||'Cette personne')+' est déjà dans l’équipe — ajoutée à la réunion.'); return; }
+      await fs.collection('op_companies').doc(COMP.id).collection('members').doc(u.uid)
+        .set({uid:u.uid,name:u.name||'',phone:u.phone||'',role:'classique',ts:FV()});
+      try{ await fs.collection('op_users').doc(u.uid).collection('invites').doc(COMP.id)
+        .set({companyId:COMP.id,companyName:COMP.name,fromUid:ME.uid,fromName:USER.name||'',ts:FV()}); }catch(e){}
+      _dpMem.push({uid:u.uid,name:u.name||'',handle:u.handle||'',phone:u.phone||''});
+      _dashSel.add(u.uid); _dpQ='';
+      dpPartRender(); toast((u.name||u.handle||'La personne')+' a rejoint l’entreprise et la réunion.');
+    }catch(e){ dire('<span style="color:var(--red)">'+esc(e.message||'Erreur')+'</span>'); }
+  }
+  /* créer un compte tout neuf : on quitte le formulaire, en le disant */
+  function dpCreerCompte(){
+    if(!confirm('Créer un compte pour un nouvel employé ?\n\nLa réunion en cours de saisie sera abandonnée.')) return;
+    closeSheet(); setTimeout(()=>{ try{ addMemberForm(); }catch(e){} },140);
+  }
+  function dpPartAucun(){ _dashSel=new Set([ME.uid]); dpPartRender(); }
+  function dpPartRender(){
+    const z=$('dp-parts'); if(!z) return;
+    const autres=_dpMem.filter(m=>m.uid!==ME.uid);
+    const q=dpNorm(_dpQ);
+    const vus=autres.filter(m=>!q||dpNorm(m.name).includes(q)||dpNorm(m.handle||'').includes(q));
+    const n=Math.max(0,_dashSel.size-1);
+    const choisis=autres.filter(m=>_dashSel.has(m.uid));
+    const chips=choisis.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px">${choisis.map(m=>
+        `<span onclick="dpPartToggle('${esc(m.uid)}')" title="Retirer ${esc(m.name||'')}"
+          style="display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 4px;border-radius:999px;background:var(--tint2);cursor:pointer">
+          <span class="dash-pp" style="width:22px;height:22px;font-size:9px;border:0;${avatarStyle(m.name)}">${ini(m.name)}</span>
+          <span style="font-size:11.5px;font-weight:700">${esc((m.name||'').split(' ')[0])}</span>
+          <span style="font-size:12px;color:var(--t3);font-weight:800">✕</span></span>`).join('')}</div>`:'';
+    const lignes=vus.length?vus.map(m=>{ const on=_dashSel.has(m.uid);
+        return `<div onclick="dpPartToggle('${esc(m.uid)}')"
+          style="display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:10px;cursor:pointer;background:${on?'var(--tint2)':'transparent'}">
+          <span class="dash-pp" style="width:30px;height:30px;border:0;${avatarStyle(m.name)}">${ini(m.name)}</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'Membre')}</span>
+            ${m.handle?`<span style="display:block;font-size:10.5px;color:var(--t3)">${esc(m.handle)}</span>`:''}</span>
+          <span class="ms" style="font-size:19px;color:${on?'var(--green)':'var(--brd2)'}">${on?'check_circle':'radio_button_unchecked'}</span></div>`;
+      }).join('')
+      : `<p class="muted" style="font-size:12px;padding:10px 2px;margin:0">${autres.length?'Personne à ce nom.':'Tu es seul dans l’entreprise pour le moment.'}</p>`;
+    z.innerHTML=`${chips}
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="flex:1;min-width:0;display:flex;align-items:center;gap:7px;padding:9px 11px;border-radius:10px;background:var(--card)">
+          <span class="ms" style="font-size:16px;color:var(--t3)">search</span>
+          <input id="dp-q" value="${esc(_dpQ)}" placeholder="Chercher une personne…" autocapitalize="off"
+            oninput="dpPartRech(this.value)"
+            style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-family:inherit;font-size:12.5px;outline:none">
+        </div>
+        <span onclick="${n===autres.length&&autres.length?'dpPartAucun()':'dpPartTous()'}" style="flex:none;font-size:11px;font-weight:700;color:var(--op-tx);cursor:pointer;padding:6px 8px;white-space:nowrap">${(n===autres.length&&autres.length)?'Tout retirer':'Tout choisir'}</span>
+      </div>
+      <div style="max-height:196px;overflow-y:auto;display:flex;flex-direction:column;gap:2px">${lignes}</div>
+      ${(_dpQ.length>=3&&!vus.length)?`<div onclick="dpAjoutDirect()"
+        style="display:flex;align-items:center;gap:9px;margin-top:6px;padding:9px 10px;border-radius:10px;border:1.5px dashed var(--op);color:var(--op-tx);cursor:pointer">
+        <span class="ms" style="font-size:18px">person_add</span>
+        <span style="font-size:12.5px;font-weight:700">Ajouter « ${esc(_dpQ)} » à l’entreprise et à la réunion</span></div>`:''}
+      <div id="dp-msg" style="font-size:11px;margin-top:7px;line-height:1.5"></div>
+      ${(!autres.length&&IS_OWNER)?`<div onclick="dpCreerCompte()"
+        style="display:flex;align-items:center;gap:9px;margin-top:4px;padding:9px 10px;border-radius:10px;background:var(--tint2);cursor:pointer">
+        <span class="ms" style="font-size:18px;color:var(--tile-tx)">person_add</span>
+        <span style="font-size:12.5px;font-weight:700">Créer un compte pour quelqu’un</span></div>`:''}
+      <div style="font-size:11px;color:var(--t2);margin-top:8px">${n?(n+' personne'+(n>1?'s':'')+' convoquée'+(n>1?'s':'')+' · toi comme organisateur'):'Personne d’autre pour l’instant — tu peux planifier seul.'}</div>`;
+  }
   function dashToggleAlert(){ _dashAlert=!_dashAlert; const t=$('dp-toggle'); if(!t) return; t.style.background=_dashAlert?'var(--green)':'var(--brd2)'; const k=t.firstElementChild; if(k) k.style.right=_dashAlert?'2px':'18px'; }
   function dashPrefill(di,h){ const mon=_dashMonday(); const d=new Date(mon); d.setDate(mon.getDate()+di);
     dashForm(_dstr(d),String(h).padStart(2,'0')+':00'); }
