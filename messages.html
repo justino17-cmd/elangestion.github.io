@@ -337,6 +337,18 @@
 <input type="file" id="filepick" style="display:none">
 <input type="file" id="photopick" accept="image/*" style="display:none">
 <div class="sheet" id="sheet"><div class="sheet-c" id="sheet-c"></div></div>
+<div class="viewer" id="camera"><div class="vbar"><span id="cam-nom" style="font-size:14px;font-weight:600">Appareil photo</span>
+  <span style="display:flex;gap:8px"><button class="btn ghost sm" id="cam-switch" onclick="camChanger()" style="display:none">🔄 Changer</button>
+  <button class="btn ghost sm" onclick="camFermer()">✕ Fermer</button></span></div>
+  <div style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000;position:relative">
+    <video id="cam-video" autoplay playsinline muted style="max-width:100%;max-height:100%"></video>
+    <img id="cam-apercu" style="display:none;max-width:100%;max-height:100%">
+  </div>
+  <div id="cam-pied" style="display:flex;align-items:center;justify-content:center;gap:16px;padding:16px calc(16px + env(safe-area-inset-bottom))">
+    <button class="btn" id="cam-prendre" onclick="camPrendre()" style="min-width:170px">📷 Prendre la photo</button>
+    <button class="btn ghost" id="cam-refaire" onclick="camRefaire()" style="display:none">↺ Refaire</button>
+    <button class="btn" id="cam-envoyer" onclick="camEnvoyer()" style="display:none;min-width:150px">Envoyer</button>
+  </div></div>
 <div class="viewer" id="viewer"><div class="vbar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn ghost sm" onclick="closeViewer()">✕ Fermer</button></div><iframe id="viewer-frame" title="Document"></iframe></div>
 <div class="jitsi" id="jitsi"><div class="vbar"><span id="jitsi-name" style="font-size:14px;font-weight:600">Réunion</span><button class="btn ghost sm" onclick="closeJitsi()">✕ Quitter</button></div><div id="jitsi-box"></div></div>
 <div class="ring" id="ring"></div>
@@ -3410,7 +3422,7 @@
   function openAttach(){ openSheet(`
     <div data-titre="Joindre" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px 6px;padding:6px 0 2px">
       ${attTile('Photos','#6ea8f7',ic('image',26),"closeSheet();$('imgpick').click()")}
-      ${attTile('Caméra','#e8ecf4',ic('camera',26),"closeSheet();$('campick').click()")}
+      ${attTile('Caméra','#e8ecf4',ic('camera',26),"closeSheet();camOuvrir()")}
       ${attTile('Localisation','#34c77b',ic('location',26),"closeSheet();sendLocation()")}
       ${attTile('Contact','#b8c2d4',ic('user',26),"closeSheet();attachContact()")}
       ${attTile('Document','var(--op)',ic('file',26),"closeSheet();$('filepick').click()")}
@@ -3474,6 +3486,71 @@
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
       try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,img:cv.toDataURL('image/jpeg',0.7),ts:FV()}); }catch(err){ alert('Erreur photo : '+(err.message||err)); }
     }; img.src=r.result; }; r.readAsDataURL(f); e.target.value=''; }
+  /* ══ L'APPAREIL PHOTO INTÉGRÉ ══
+     Sur ordinateur et tablette, le bouton « Caméra » n'ouvrait qu'un
+     explorateur de fichiers : la webcam n'était jamais utilisée. Ici on
+     affiche l'image en direct, on prend la photo, on la revoit, on l'envoie.
+     Sur téléphone on laisse l'appareil du système, plus rapide et plus net. */
+  let _camFlux=null, _camFace='environment', _camData='';
+  function camDispo(){ return !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia); }
+  function camTactile(){ try{ return !window.matchMedia('(hover: hover) and (pointer: fine)').matches; }catch(e){ return false; } }
+  async function camOuvrir(){
+    if(!_curCh) return;
+    /* téléphone : l'appareil du système fait mieux (mise au point, flash) */
+    if(camTactile()||!camDispo()){ $('campick').click(); return; }
+    const boite=$('camera'); const _o=boite.classList.contains('open');
+    boite.classList.add('open'); if(!_o) pushBack();
+    camMode('prise');
+    try{
+      _camFlux=await navigator.mediaDevices.getUserMedia({video:{facingMode:_camFace,width:{ideal:1280}},audio:false});
+      $('cam-video').srcObject=_camFlux;
+      try{ const n=await navigator.mediaDevices.enumerateDevices();
+        if(n.filter(d=>d.kind==='videoinput').length>1) $('cam-switch').style.display=''; }catch(e){}
+    }catch(e){
+      camFermer();
+      const m=String((e&&e.name)||e);
+      alert(/NotAllowed|Permission/i.test(m)
+        ? "La caméra est bloquée : autorise-la dans les réglages du navigateur (l'icône à gauche de l'adresse), puis réessaie."
+        : (/NotFound|Devices/i.test(m) ? "Aucune caméra détectée sur cet appareil." : 'Caméra indisponible : '+m));
+    }
+  }
+  function camMode(m){
+    const prise=m==='prise';
+    $('cam-video').style.display=prise?'':'none';
+    $('cam-apercu').style.display=prise?'none':'';
+    $('cam-prendre').style.display=prise?'':'none';
+    $('cam-refaire').style.display=prise?'none':'';
+    $('cam-envoyer').style.display=prise?'none':'';
+    $('cam-nom').textContent=prise?'Appareil photo':'Ta photo';
+  }
+  function camPrendre(){
+    const v=$('cam-video'); if(!v||!v.videoWidth) return;
+    let w=v.videoWidth,h=v.videoHeight; const mx=1000;
+    if(w>mx||h>mx){ if(w>h){ h=h*mx/w; w=mx; } else { w=w*mx/h; h=mx; } }
+    const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    cv.getContext('2d').drawImage(v,0,0,w,h);
+    _camData=cv.toDataURL('image/jpeg',0.7);
+    $('cam-apercu').src=_camData; camMode('apercu');
+  }
+  function camRefaire(){ _camData=''; camMode('prise'); }
+  async function camEnvoyer(){
+    if(!_camData||!_curCh) return;
+    const d=_camData; camFermer();
+    try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,img:d,ts:FV()}); toast('📷 Photo envoyée'); }
+    catch(e){ alert('Erreur photo : '+((e&&e.message)||e)); }
+  }
+  async function camChanger(){
+    _camFace=(_camFace==='environment')?'user':'environment';
+    try{ if(_camFlux) _camFlux.getTracks().forEach(t=>t.stop()); }catch(e){}
+    try{ _camFlux=await navigator.mediaDevices.getUserMedia({video:{facingMode:_camFace,width:{ideal:1280}},audio:false});
+      $('cam-video').srcObject=_camFlux; }catch(e){}
+  }
+  function camFermer(){
+    try{ if(_camFlux) _camFlux.getTracks().forEach(t=>t.stop()); }catch(e){}
+    _camFlux=null; _camData='';
+    try{ $('cam-video').srcObject=null; }catch(e){}
+    $('camera').classList.remove('open'); camMode('prise');
+  }
   $('imgpick').addEventListener('change',handleImgPick);
   $('campick').addEventListener('change',handleImgPick);
   $('filepick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f||!_curCh) return;
@@ -3821,8 +3898,9 @@
 
   // ===== Bouton « retour » du téléphone : ferme l'écran ouvert au lieu de quitter l'app =====
   function pushBack(){ try{ history.pushState({op:1},''); }catch(e){} }
-  function anyOverlayOpen(){ return ['viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
+  function anyOverlayOpen(){ return ['camera','viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
   function closeTopOverlay(){
+    if($('camera')&&$('camera').classList.contains('open')){ camFermer(); return true; }
     if($('viewer')&&$('viewer').classList.contains('open')){ closeViewer(); return true; }
     if($('jitsi')&&$('jitsi').classList.contains('open')){ closeJitsi(); return true; }
     if($('ring')&&$('ring').classList.contains('open')){ declineCall(); return true; }
