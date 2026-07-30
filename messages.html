@@ -385,6 +385,8 @@
     <button onclick="noteCouleur('#ffd54a')" id="vo-c-ffd54a" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#ffd54a;cursor:pointer"></button><button onclick="noteCouleur('#ff5252')" id="vo-c-ff5252" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#ff5252;cursor:pointer"></button><button onclick="noteCouleur('#42a5f5')" id="vo-c-42a5f5" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#42a5f5;cursor:pointer"></button><button onclick="noteCouleur('#ffffff')" id="vo-c-ffffff" style="width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:#ffffff;cursor:pointer"></button>
     <button onclick="noteEffacer()" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px" title="Tout effacer">🗑</button>
     <span style="flex:1"></span>
+    <span id="visio-def" style="font-size:11px;color:#8b93a5;font-variant-numeric:tabular-nums"></span>
+    <button onclick="visioZoom100()" id="vo-zoom" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:12px">🔍 Taille réelle</button>
     <button onclick="visioGrand(null)" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:12px">Quitter le grand écran</button>
   </div>
   <div style="flex:1;min-height:0;position:relative;display:flex">
@@ -3280,7 +3282,7 @@
       return `<div style="position:relative;border-radius:14px;overflow:hidden;background:#141a26;${taille}" onclick="visioGrand('${t.id}')">
         ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
             <div style="width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;${avatarStyle(t.nom)}">${ini(t.nom)}</div></div>`
-          :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="width:100%;height:100%;object-fit:${t.ecran?'contain':'cover'};${(t.moi&&!t.ecran)?'transform:scaleX(-1)':''}"></video>`}
+          :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="${(_vZoom100&&t.ecran&&grand===t.id)?'width:auto;height:auto;min-width:0;min-height:0':'width:100%;height:100%'};object-fit:${t.ecran?'contain':'cover'};${(t.moi&&!t.ecran)?'transform:scaleX(-1)':''}"></video>`}
         ${(!t.moi&&!t.ecran&&t.stream)?`<audio id="va-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay></audio>`:''}
         ${t.ecran&&grand===t.id?`<canvas class="vnote" data-cible="${t.cible}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair"></canvas>`:''}
         <span style="position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;z-index:2">${t.ecran?'🖥️ ':''}${esc((t.nom||'').split(' ')[0]||'')}${t.moi?' (toi)':''}</span>
@@ -3289,7 +3291,7 @@
     let h='';
     if(grand){
       const t=liste.find(x=>x.id===grand);
-      h+=tuile(t,'flex:1;min-height:0');
+      h+=tuile(t,_vZoom100&&t.ecran?'flex:1;min-height:0;overflow:auto':'flex:1;min-height:0');
       const autres=liste.filter(x=>x.id!==grand);
       if(autres.length) h+=`<div style="display:flex;gap:8px;height:96px;flex:none;overflow-x:auto">${autres.map(t2=>tuile(t2,'width:128px;flex:none')).join('')}</div>`;
     } else {
@@ -3305,6 +3307,23 @@
         if(a&&t.stream){ try{ a.srcObject=t.stream; a.muted=!!(_vPairs[t.uid]&&_vPairs[t.uid].muetPourMoi); const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){} } } });
     noteBranche(); noteDessine();
   }
+  /* ── la netteté : taille réelle (1:1) et définition affichée ── */
+  let _vZoom100=false;
+  function visioZoom100(){ _vZoom100=!_vZoom100;
+    const b=$('vo-zoom'); if(b){ b.textContent=_vZoom100?'🔍 Ajuster à l\'écran':'🔍 Taille réelle'; b.style.background=_vZoom100?'var(--op)':'#232a3a'; }
+    visioTuiles(); }
+  function visioDefMaj(){
+    const e=$('visio-def'); if(!e) return;
+    const g=_vGrand; if(!g){ e.textContent=''; return; }
+    const v=$('vt-'+String(g).replace(/[^a-zA-Z0-9]/g,'_'));
+    if(v&&v.videoWidth){ e.textContent=v.videoWidth+'×'+v.videoHeight;
+      /* Safari sur Mac capture en demi-définition : on le dit, une fois */
+      try{ const saf=/^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        if(saf && g!=='moi' && v.videoWidth<=1728 && !window._vDefConseil){ window._vDefConseil=1;
+          toast('ℹ️ Safari limite la capture d\'écran — pour un partage plus net sur Mac, utilise Chrome.'); } }catch(_){}
+    } else e.textContent='';
+  }
+  setInterval(()=>{ try{ visioDefMaj(); }catch(e){} },1500);
   /* ── les annotations : dessin, texte, gomme ── */
   function noteOutil(o){ _vOutil=o; ['d','l','f','r','q','c2','e','t'].forEach(x=>{ const b=$('vo-'+x); if(b) b.style.background=(x===o)?'var(--op)':'#232a3a'; }); }
   function noteCouleur(c){ _vCouleur=c; document.querySelectorAll('[id^=vo-c-]').forEach(b=>b.style.border='2px solid transparent');
