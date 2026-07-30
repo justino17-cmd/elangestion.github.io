@@ -11036,6 +11036,8 @@ function saveRapport(e,id){ e.preventDefault(); const f=e.target; const data=Obj
           clientNom:clientName(it2.clientId),techId:it2.techId||myTechId()||'',declarantId:currentUser.id,
           declarantNom:fullName(currentUser),source:'effectuer',note:it2.titre||''});
         toast('💶 '+eur(mnt)+' au registre — à confirmer ce soir en télécollecte'); }
+      /* et LA FACTURE se fait toute seule : créée payée, envoyée au client */
+      try{ factureAutoIntervention(it2); }catch(e){}
     } }catch(e){}
   syncFactureFromIntervention(db.interventions[ix]);
   // Récurrence / passages (P10) : à la clôture, on propose le passage suivant (modale « Passage suivant »)
@@ -14738,6 +14740,45 @@ views.factures=function(){
 /* ═══════════════ FINANCE : Comptabilité & Télécollecte (admin / DR) ═══════════════ */
 function isFinanceMgr(){ return currentUser && (currentUser.role==='admin'||currentUser.role==='dr'||currentUser.role==='compta'); }
 
+/* ══ LA FACTURE AUTOMATIQUE ══
+   Intervention payée → la facture est créée « Payée » et part au client par
+   e-mail (via le serveur, comme les rapports). Une seule facture par
+   intervention : re-enregistrer met à jour le montant, sans renvoyer l'email.
+   L'argent, lui, est déjà compté au registre — la facture n'ajoute rien. */
+function factureAutoIntervention(it){
+  if(db.factAuto===false) return;
+  const mnt=Number(it.montant)||0; if(mnt<=0) return;
+  db.factures=db.factures||[];
+  const tvaR=(db.factTva!=null&&db.factTva!=='')?Number(db.factTva):20;
+  const ht=Math.round(mnt/(1+tvaR/100)*100)/100;
+  let f=db.factures.find(x=>x.interId===it.id);
+  if(f){ if(f.auto&&f.lignes&&f.lignes[0]){ f.lignes[0].pu=ht; f.tva=tvaR; save(); } return; }
+  f={id:uid(),num:docNum('factures'),clientId:it.clientId,devisId:'',date:todayISO(),statut:'payee',
+     datePaiement:todayISO(),tva:tvaR,interId:it.id,auto:true,
+     notes:'Générée automatiquement — réglée sur place ('+(it.moyenPaiement||'')+')',
+     lignes:[{designation:(it.titre||'Intervention')+' — le '+fmtShort(it.date||todayISO()),qte:1,pu:ht}]};
+  db.factures.push(f);
+  const l=regDeLInter(it.id); if(l) l.factureId=f.id;
+  logEvent('Facture automatique',f.num+' — '+eur(mnt)+' ('+clientName(it.clientId)+')','finance'); save();
+  const c=(db.clients||[]).find(x=>x.id===it.clientId);
+  if(c&&(c.email||'').trim()){
+    const t=docTot(f), soc=(typeof rapportSociete==='function'&&it.rapportModele)?rapportSociete(it.rapportModele):'';
+    const corps='Bonjour,\n\nVeuillez trouver ci-dessous votre facture, réglée ce jour.\n\n'
+      +'Facture '+f.num+' du '+fmtShort(f.date)+'\n'
+      +'— '+(it.titre||'Intervention')+' (le '+fmtShort(it.date||todayISO())+')\n\n'
+      +'Total HT : '+eur(t.ht)+'\nTVA '+tvaR+'% : '+eur(t.tva)+'\nTotal TTC : '+eur(t.ttc)+'\n\n'
+      +'Règlement reçu : '+(it.moyenPaiement||'sur place')+' — le '+fmtShort(todayISO())+'.\n\n'
+      +'Nous vous remercions de votre confiance.\n\nCordialement';
+    srvMail((c.email||'').trim(),'Votre facture '+f.num,corps,'',
+      'facture',null,(typeof intSocMailOpts==='function')?intSocMailOpts(it):undefined)
+      .then(okE=>{ if(okE){ f.mailEnvoye=Date.now(); save(); toast('🧾 Facture '+f.num+' créée et envoyée à '+c.email); }
+        else toast('🧾 Facture '+f.num+' créée — l\'email n\'est pas parti (à renvoyer depuis Factures)'); })
+      .catch(()=>{ toast('🧾 Facture '+f.num+' créée — l\'email n\'est pas parti'); });
+  } else {
+    toast('🧾 Facture '+f.num+' créée — ajoute l\'e-mail du client pour l\'envoi automatique');
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    LE REGISTRE DES ENCAISSEMENTS — un seul tiroir-caisse.
    Un euro encaissé = UNE ligne, quelle que soit la porte par laquelle il
@@ -14906,7 +14947,7 @@ function comptaControle(){
     const badge=juste?(f.rec?'<span class="st st-green">Juste et validée</span>':'<span class="st st-org">Juste — télécollecte non validée</span>')
       :`<span class="st" style="background:rgba(224,82,82,.14);color:var(--red)">Écart ${f.ecart>0?'+':''}${eur(f.ecart)}</span>`;
     return `<div class="card" style="border-left:4px solid ${bord}">
-      <div class="card-head"><h3>${esc(f.p.nom)}</h3>${badge}</div>
+      <div class="card-head" style="cursor:pointer" onclick="ctrlJournee('${esc(f.p.techId||'')}','${esc(f.p.declarantId||'')}','${d}')" title="Voir toute sa journée"><h3>${esc(f.p.nom)} <span style="font-weight:400;color:var(--t3);font-size:12px">· voir sa journée →</span></h3>${badge}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
         <div style="flex:1;min-width:110px;border:1px solid var(--brd);border-radius:11px;padding:9px 12px"><div style="font-size:11.5px;color:var(--t2)">📋 Prévu au planning</div><div style="font-weight:800;font-size:16px;margin-top:2px">${eur(f.prevu)}</div><div style="font-size:11px;color:var(--t3)">${f.ints.length} intervention${f.ints.length>1?'s':''}</div></div>
         <div style="flex:1;min-width:110px;border:1px solid var(--brd);border-radius:11px;padding:9px 12px"><div style="font-size:11.5px;color:var(--t2)">💶 Entré au registre</div><div style="font-weight:800;font-size:16px;margin-top:2px">${eur(f.enc)}</div><div style="font-size:11px;color:var(--t3)">${f.lig.length} ligne${f.lig.length>1?'s':''}</div></div>
@@ -14925,6 +14966,53 @@ function comptaControle(){
     </div>`;
   };
   return nav+kpis+fiches.map(carte).join('');
+}
+/* ══ LA FICHE-JOURNÉE D'UNE PERSONNE ══
+   Un clic sur sa carte du Contrôle : TOUTES ses interventions du jour (payée
+   en quoi, combien, ou rien de saisi), les ajouts du soir, et le comparatif
+   « ce que les interventions ont récolté » / « ce que la télécollecte
+   annonce » — les deux doivent raconter la même chose. */
+function ctrlJournee(techId,declarantId,d){
+  d=d||todayISO();
+  const nom=techId?techName(techId):((db.users||[]).find(u=>u.id===declarantId)?fullName((db.users||[]).find(u=>u.id===declarantId)):'—');
+  const jourFr=new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  const ints=(db.interventions||[]).filter(i=>i.date===d&&techId&&i.techId===techId)
+    .slice().sort((a,b)=>(a.heure||'').localeCompare(b.heure||''));
+  const lig=regLignes({date:d}).filter(l=>l.source!=='compta'&&((techId&&l.techId===techId)||(declarantId&&l.declarantId===declarantId)));
+  const ajouts=lig.filter(l=>!l.interId);
+  const enc=regTotal(lig), prevu=ints.reduce((s,i)=>s+(Number(i.montant)||0),0);
+  const faites=ints.filter(i=>i.statut==='terminee');
+  const rec=(db.telecollectes||[]).find(r=>r.auto&&r.date===d&&((declarantId&&r.declarantId===declarantId)||(techId&&r.techId===techId)));
+  const teleMontant=rec?teleTotal(rec):null;
+  const pareil=rec&&Math.abs(teleMontant-enc)<0.01;
+  const ST_INT={planifiee:['Planifiée','st-grey'],encours:['En cours','st-blue'],terminee:['Terminée','st-green'],annulee:['Annulée','st-red']};
+  const ligneInt=i=>{ const l=regDeLInter(i.id); const st=ST_INT[i.statut]||[i.statut||'—','st-grey'];
+    let paie;
+    if(l) paie=`<span class="st st-green">${(REG_MODES[l.mode]||['',l.mode])[0]} Payé ${eur(l.montant)} en ${(REG_MODES[l.mode]||['',l.mode])[1]}</span>`;
+    else if(i.statut==='terminee'&&(Number(i.montant)||0)>0) paie=`<span class="st st-red">⚠️ ${eur(i.montant)} prévus — rien de saisi</span>`;
+    else if(i.statut==='terminee') paie=`<span class="st st-grey">Sans prix</span>`;
+    else paie='';
+    return `<div class="pl-row" style="cursor:pointer" onclick="closeModal();detailIntervention('${i.id}')">
+      <div class="pl-info"><div class="pl-title">${esc(i.heure||'')} · ${esc(i.titre)}</div>
+      <div class="pl-meta">${esc(clientName(i.clientId))}${(Number(i.montant)||0)>0?' · prévu '+eur(i.montant):''}</div></div>
+      <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="st ${st[1]}">${st[0]}</span>${paie}</span></div>`; };
+  openModal(`<div class="modal-head"><h3>📅 ${esc(nom)} — <span style="text-transform:capitalize">${esc(jourFr)}</span></h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="form-sec">Ses interventions du jour (${ints.length})</div>
+    ${ints.length? ints.map(ligneInt).join('') : '<div style="color:var(--t3);font-size:13px;padding:6px 2px">Aucune intervention planifiée ce jour-là.</div>'}
+    ${ajouts.length?`<div class="form-sec">Ajouté le soir en télécollecte</div>
+      ${ajouts.map(l=>`<div class="pl-row"><div class="pl-info"><div class="pl-title">${esc(l.clientNom||l.note||'Encaissement')}</div><div class="pl-meta">🕒 ${esc(l.heure||'')}</div></div><span class="st st-org">${(REG_MODES[l.mode]||['',l.mode])[0]} ${eur(l.montant)}</span></div>`).join('')}`:''}
+    <div class="form-sec">Le comparatif du soir</div>
+    <div class="card" style="padding:4px 4px;margin-bottom:0">
+      <div class="bdt-row"><span class="bdt-ic">🧰</span><span class="bdt-lbl">Interventions faites</span><span class="bdt-val" style="font-weight:800">${faites.length} / ${ints.length}</span></div>
+      <div class="bdt-row"><span class="bdt-ic">📋</span><span class="bdt-lbl">Prévu au planning</span><span class="bdt-val" style="font-weight:800">${eur(prevu)}</span></div>
+      <div class="bdt-row"><span class="bdt-ic">💶</span><span class="bdt-lbl">Récolté (registre)</span><span class="bdt-val" style="font-weight:800;color:var(--acc)">${eur(enc)}</span></div>
+      <div class="bdt-row" style="border-bottom:none"><span class="bdt-ic">${rec?(pareil?'✅':'⚠️'):'🌙'}</span><span class="bdt-lbl">Télécollecte du soir</span>
+        <span class="bdt-val" style="font-weight:800;color:${rec?(pareil?'var(--acc)':'var(--red)'):'var(--org)'}">${rec?eur(teleMontant)+(pareil?' — identique ✓':' — ÉCART '+eur(teleMontant-enc)):'pas encore validée'}</span></div>
+    </div>
+    ${rec&&rec.photo?`<div style="margin-top:12px"><div class="dt-lbl" style="margin-bottom:6px">Photo du ticket TPE</div><img src="${rec.photo}" onclick="window.open(this.src)" style="max-width:180px;border-radius:10px;border:1px solid var(--brd);cursor:pointer"></div>`:''}
+    <div class="modal-foot" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost" onclick="closeModal();planSel='${d}';planWeekRef='${d}';go('planning')">Planning du jour</button>
+      <button class="btn" onclick="closeModal();regFOrigine='terrain';comptaTab='registre';views.comptabilite()">Le registre</button></div>`);
 }
 function comptaSynthese(){
   const ttc=f=>docTot(f).ttc, tvaOf=f=>docTot(f).tva;
