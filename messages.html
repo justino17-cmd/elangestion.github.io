@@ -256,6 +256,17 @@
   /* viewer + jitsi */
   .viewer,.jitsi{position:fixed;inset:0;z-index:60;background:#0a0e16;display:none;flex-direction:column}
   .viewer.open,.jitsi.open{display:flex}
+  /* L'APPEL RÉDUIT : une vignette dans le coin. On continue de parler et de
+     voir la personne pendant qu'on se sert de l'application. */
+  #visio.mini{inset:auto;right:12px;bottom:calc(86px + env(safe-area-inset-bottom));width:172px;height:238px;
+    border-radius:18px;overflow:hidden;z-index:75;box-shadow:0 12px 36px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2)}
+  #visio.mini .vbar,#visio.mini #visio-outils,#visio.mini #visio-tchat,#visio.mini #visio-barre{display:none!important}
+  #visio.mini #visio-grille{padding:0;gap:0}
+  #visio-minibar{display:none}
+  #visio.mini #visio-minibar{display:flex;position:absolute;left:0;right:0;bottom:0;z-index:4;
+    align-items:center;justify-content:space-between;gap:6px;padding:7px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75))}
+  #visio-minibar button{border:none;border-radius:999px;color:#fff;font-size:15px;cursor:pointer;width:36px;height:36px}
+  @media(min-width:900px){ #visio.mini{width:268px;height:186px;bottom:16px} }
   .vbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;border-bottom:1px solid rgba(255,255,255,.12);color:#eaeef7}
   .vbar .btn.ghost{background:transparent;border-color:rgba(255,255,255,.25);color:#eaeef7}
   .viewer iframe{flex:1;border:none;width:100%;background:#fff}
@@ -370,6 +381,7 @@
     <span id="visio-nom" style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Réunion</span>
     <b id="visio-duree" style="font-size:12.5px;font-variant-numeric:tabular-nums;color:#9fe870">00:00</b></span>
   <span style="display:flex;gap:8px;align-items:center">
+    <span id="visio-reseau" style="display:none;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#8a5a12;color:#ffe3ab"></span>
     <span id="visio-etat" style="font-size:11.5px;color:#8b93a5"></span>
     <button class="btn ghost sm" onclick="visioFermer()">✕ Quitter</button></span></div>
   <div id="visio-outils" style="display:none;align-items:center;gap:7px;padding:7px 12px;background:#0d1220;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap">
@@ -403,7 +415,12 @@
         <button onclick="visioTchatEnvoi()" style="border:none;border-radius:10px;padding:0 13px;background:var(--op);color:#fff;font-size:15px;cursor:pointer">➤</button></div>
     </div>
   </div>
-  <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px calc(12px + env(safe-area-inset-bottom));background:#0a0e16;flex-wrap:wrap">
+  <div id="visio-minibar">
+    <button onclick="event.stopPropagation();visioAgrandir()" title="Revenir en grand" style="background:rgba(255,255,255,.22)">⤢</button>
+    <button onclick="event.stopPropagation();visioFermer()" title="Raccrocher" style="background:#e05252">📞</button></div>
+  <div id="visio-barre" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px calc(12px + env(safe-area-inset-bottom));background:#0a0e16;flex-wrap:wrap">
+    <button id="visio-reduire" onclick="visioReduire()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Réduire en petite fenêtre">🗕</button>
+    <button id="visio-flip" onclick="visioRetourner()" style="display:none;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Caméra avant / arrière">🔄</button>
     <button id="visio-mic" onclick="visioMicro()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Micro">🎤</button>
     <button id="visio-cam" onclick="visioCamera()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Caméra">📷</button>
     <button id="visio-ecran" onclick="visioEcran()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Partager mon écran">🖥️</button>
@@ -3137,7 +3154,7 @@
       html+=`<div class="lrow" onclick="callInfo('${c.id}')">
         <div class="cava" style="${avatarStyle(who)}${grp?';border-radius:11px':''}">${grp?ms('group',20):ini(who)}</div>
         <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${missed?';color:var(--red)':''}">${esc(who)}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;color:${missed?'var(--red)':'var(--t2)'};font-size:13px${missed?';font-weight:600':''}"><span style="color:${icCol};display:inline-flex">${icn}</span>${lbl} · ${c.type==='audio'?'audio':'vidéo'}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;color:${missed?'var(--red)':'var(--t2)'};font-size:13px${missed?';font-weight:600':''}"><span style="color:${icCol};display:inline-flex">${icn}</span>${lbl} · ${c.type==='audio'?'audio':'vidéo'}${(c.duree>0&&!missed)?' · '+dureeTexte(c.duree):''}</div>
         ${(()=>{ const v=callVenus(c); if(!v.length) return '';
           return `<div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ms('group',13)} ${esc(v.join(', '))} ${v.length>1?'ont':'a'} rejoint</div>`; })()}</div>
         <div style="display:flex;align-items:center;gap:14px"><span style="font-size:11.5px;font-weight:600;color:var(--t3)">${d?fmtListTime(d.getTime()):''}</span>
@@ -3179,7 +3196,7 @@
     const out=c.from===ME.uid; const who=(c.members||[]).length>1?('Groupe · '+((c.memberNames||[]).join(', ')||'')):(out?((c.memberNames||[])[0]||'Contact'):(c.fromName||'Contact'));
     const d=c.ts&&c.ts.toDate?c.ts.toDate():null; const missed=c.status==='missed'||c.status==='declined';
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:4px">${esc(who)}</h3>
-      <p class="muted" style="margin-bottom:14px">${out?'Appel sortant':(missed?'Appel manqué':'Appel entrant')} · ${c.type==='audio'?'audio':'vidéo'}${d?' · '+d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</p>
+      <p class="muted" style="margin-bottom:14px">${out?'Appel sortant':(missed?'Appel manqué':'Appel entrant')} · ${c.type==='audio'?'audio':'vidéo'}${(c.duree>0&&!missed)?' · a duré '+dureeTexte(c.duree):''}${d?' · '+d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</p>
       ${(()=>{ const v=callVenus(c), a=callAbsents(c);
         if(!v.length&&!a.length) return '';
         const ligne=(nom,ok)=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 2px">
@@ -3242,7 +3259,7 @@
      s'écrivant de petits mots dans notre base, effacés en sortant.
      L'ancien système reste en secours d'un clic.
      ══════════════════════════════════════════════════════════════════════ */
-  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false,_vMaxGens=1,_vIciRef=null,_vIciT=null,_vCamOn=false;
+  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false,_vMaxGens=1,_vIciRef=null,_vIciT=null,_vCamOn=false,_vMini=false,_vFace='user',_vQualT=null,_vQualVu={},_vFaible=false;
   let _vEcran=null,_vOrdre=[],_vGrand=null,_vNotes={},_vOutil='d',_vCouleur='#ffd54a',_vMsgs=[],_vTchatOn=false,_vTchatNew=0;
   const _vConf={iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
   function _vCol(){ return callsCol(); }
@@ -3288,6 +3305,12 @@
     const relire=async()=>{ try{ const qs=await _vCol().where('room','==',_vRoom).get(); qs.forEach(x=>traite({id:x.id,...(x.data()||{})})); }catch(e){} };
     _vPoll=setInterval(relire,2500); relire();
     _vIciDebut();
+    _vMini=false; _vFace='user'; _vQualVu={}; _vFaible=false;
+    { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
+    { const z=$('visio-reseau'); if(z){ z.style.display='none'; } }
+    visioFlipDispo();
+    if(_vQualT) clearInterval(_vQualT);
+    _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
     /* on inscrit son nom sur la fiche de l'appel : l'historique dira ensuite
        qui a vraiment décroché et qui n'est jamais venu.
        Attention : une même conversation peut avoir PLUSIEURS fiches — quand
@@ -3587,9 +3610,9 @@
   function visioTuiles(){
     const g=$('visio-grille'); if(!g) return;
     const liste=_vListeTuiles();
-    const grand=_vGrand&&liste.some(t=>t.id===_vGrand)?_vGrand:null;
+    const grand=(!_vMini&&_vGrand&&liste.some(t=>t.id===_vGrand))?_vGrand:null;
     const outils=$('visio-outils'); if(outils) outils.style.display=(grand&&grand.endsWith&&(grand==='moiE'||grand.endsWith('::E')))?'flex':'none';
-    if(grand){ g.style.display='flex'; g.style.flexDirection='column'; g.style.alignContent=''; }
+    if(grand||_vMini){ g.style.display='flex'; g.style.flexDirection='column'; g.style.alignContent=''; }
     else { g.style.display='grid'; g.style.alignContent='center'; }
     const tuile=(t,taille)=>{
       const camOff=t.moi&&!t.ecran
@@ -3597,6 +3620,13 @@
         : (t.ecran ? !(t.stream&&t.stream.getVideoTracks&&t.stream.getVideoTracks().length)
                    : ((t.uid&&_vPairs[t.uid]&&_vPairs[t.uid].camOff===true) || !(t.stream&&t.stream.getVideoTracks&&t.stream.getVideoTracks().length)));
       const ctl=[];
+      if(_vMini) return `<div style="position:relative;flex:1;min-height:0;overflow:hidden;background:#141a26">
+        ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+            <div style="width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:23px;font-weight:800;${avatarStyle(t.nom)}">${ini(t.nom)}</div></div>`
+          :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="width:100%;height:100%;object-fit:cover;${(t.moi&&!t.ecran&&_vFace==='user')?'transform:scaleX(-1)':''}"></video>`}
+        ${(!t.moi&&!t.ecran&&t.stream)?`<audio id="va-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay></audio>`:''}
+        <span style="position:absolute;left:6px;top:6px;background:rgba(0,0,0,.6);color:#fff;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px;z-index:2">${esc((t.nom||'').split(' ')[0]||'')}</span>
+      </div>`;
       ctl.push(`<button onclick="event.stopPropagation();visioBouge('${t.id}',-1)" title="Avancer">‹</button>`);
       ctl.push(`<button onclick="event.stopPropagation();visioBouge('${t.id}',1)" title="Reculer">›</button>`);
       ctl.push(`<button onclick="event.stopPropagation();visioGrand('${t.id}')" title="${grand===t.id?'Réduire':'Agrandir'}">${grand===t.id?'🗗':'📌'}</button>`);
@@ -3610,14 +3640,19 @@
         ${micCoupe?`<span style="position:absolute;left:8px;top:8px;z-index:3;background:#e05252;color:#fff;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px">🔇 Micro coupé</span>`:''}
         ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
             <div style="width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;${avatarStyle(t.nom)}">${ini(t.nom)}</div></div>`
-          :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="${(_vZoom100&&t.ecran&&grand===t.id)?'width:auto;height:auto;min-width:0;min-height:0':'width:100%;height:100%'};object-fit:${t.ecran?'contain':'cover'};${(t.moi&&!t.ecran)?'transform:scaleX(-1)':''}"></video>`}
+          :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="${(_vZoom100&&t.ecran&&grand===t.id)?'width:auto;height:auto;min-width:0;min-height:0':'width:100%;height:100%'};object-fit:${t.ecran?'contain':'cover'};${(t.moi&&!t.ecran&&_vFace==='user')?'transform:scaleX(-1)':''}"></video>`}
         ${(!t.moi&&!t.ecran&&t.stream)?`<audio id="va-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay></audio>`:''}
         ${t.ecran&&grand===t.id?`<canvas class="vnote" data-cible="${t.cible}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair"></canvas>`:''}
         <span style="position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;z-index:2">${t.ecran?'🖥️ ':''}${esc((t.nom||'').split(' ')[0]||'')}${t.moi?' (toi)':''}</span>
         <span class="vctl" style="position:absolute;right:6px;top:6px;display:flex;gap:4px;z-index:3">${ctl.join('')}</span>
       </div>`; };
     let h='';
-    if(grand){
+    if(_vMini){
+      /* dans la vignette : une seule image, celle qui compte — la personne en
+         face si elle est là, sinon la mienne */
+      const t=liste.find(x=>!x.moi&&!x.ecran&&x.stream)||liste.find(x=>!x.moi&&!x.ecran)||liste[0];
+      h=t?tuile(t,''):'';
+    } else if(grand){
       const t=liste.find(x=>x.id===grand);
       h+=tuile(t,_vZoom100&&t.ecran?'flex:1;min-height:0;overflow:auto':'flex:1;min-height:0');
       const autres=liste.filter(x=>x.id!==grand);
@@ -3837,6 +3872,89 @@
     _vCamBusy=false;
     visioTuiles();
   }
+  /* ══ RÉDUIRE L'APPEL ══
+     L'appel passe en vignette dans le coin : on garde la voix et l'image, et
+     on peut chercher une adresse, relire un message, ouvrir un document.
+     Un clic sur la vignette et on repasse en grand. */
+  function visioReduire(){
+    if(!_vRoom) return;
+    _vMini=true;
+    const v=$('visio'); if(v){ v.classList.add('mini'); v.onclick=(e)=>{ if(e.target&&e.target.closest&&e.target.closest('#visio-minibar')) return; visioAgrandir(); }; }
+    visioTuiles();
+    toast('Appel réduit — touche la vignette pour revenir en grand');
+  }
+  function visioAgrandir(){
+    _vMini=false;
+    const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; }
+    visioTuiles();
+  }
+  /* ══ LA CAMÉRA AVANT / ARRIÈRE ══
+     Sur le terrain, montrer vaut mieux qu'expliquer : on retourne la caméra
+     et l'autre voit ce qu'on a devant soi. */
+  let _vFlipBusy=false;
+  async function visioRetourner(){
+    if(!_vRoom||_vFlipBusy) return;
+    if(!_vLocal||!_vLocal.getVideoTracks().filter(t=>t.readyState==='live').length){
+      toast('Allume d\'abord la caméra'); return; }
+    _vFlipBusy=true;
+    const vise=_vFace==='user'?'environment':'user';
+    let flux=null;
+    try{ flux=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:vise},width:{ideal:1280}},audio:false}); }
+    catch(e){ toast('Cette caméra n\'est pas disponible'); _vFlipBusy=false; return; }
+    const neuve=flux.getVideoTracks()[0];
+    if(!neuve){ _vFlipBusy=false; return; }
+    const anciennes=_vLocal.getVideoTracks();
+    /* on remplace l'image en cours d'envoi : personne ne voit de coupure */
+    for(const p of Object.values(_vPairs)){
+      for(const sn of (p.camSendersMoi||[])){ try{ await sn.replaceTrack(neuve); }catch(e){} }
+    }
+    anciennes.forEach(t=>{ try{ t.stop(); }catch(e){} try{ _vLocal.removeTrack(t); }catch(e){} });
+    try{ _vLocal.addTrack(neuve); }catch(e){}
+    _vFace=vise; _vCamOn=true;
+    const b=$('visio-flip'); if(b) b.title=(vise==='user')?'Passer sur la caméra arrière':'Revenir sur la caméra avant';
+    toast(vise==='user'?'📷 Caméra avant':'📷 Caméra arrière — montre ce que tu vois');
+    _vFlipBusy=false;
+    visioTuiles();
+  }
+  async function visioFlipDispo(){
+    const b=$('visio-flip'); if(!b) return;
+    let n=0;
+    try{ const l=await navigator.mediaDevices.enumerateDevices(); n=l.filter(d=>d.kind==='videoinput').length; }catch(e){}
+    b.style.display=(n>1)?'':'none';
+  }
+  /* ══ LA CONNEXION ══
+     Sur un chantier le réseau lâche. Plutôt que de croire à un bug, on le dit
+     avant que ça coupe. */
+  async function visioQualite(){
+    if(!_vRoom||!Object.keys(_vPairs).length){ _vReseauAffiche(false); return; }
+    let faible=false;
+    for(const [uid,p] of Object.entries(_vPairs)){
+      let recus=0, perdus=0, rtt=0;
+      try{
+        const st=await p.pc.getStats();
+        st.forEach(r=>{
+          if(r.type==='inbound-rtp'&&!r.isRemote){ recus+=(r.packetsReceived||0); perdus+=(r.packetsLost||0); }
+          if(r.type==='candidate-pair'&&r.nominated&&r.currentRoundTripTime) rtt=Math.max(rtt,r.currentRoundTripTime);
+        });
+      }catch(e){ continue; }
+      const av=_vQualVu[uid]||{recus:0,perdus:0};
+      const dr=recus-av.recus, dp=perdus-av.perdus;
+      _vQualVu[uid]={recus:recus,perdus:perdus};
+      if(dr+dp>30 && dp/(dr+dp) > 0.05) faible=true;
+      if(rtt>0.7) faible=true;
+      const et=p.pc.connectionState;
+      if(et==='disconnected'||et==='failed') faible=true;
+    }
+    _vReseauAffiche(faible);
+  }
+  function _vReseauAffiche(faible){
+    if(faible===_vFaible) return;
+    _vFaible=faible;
+    const z=$('visio-reseau'); if(!z) return;
+    z.style.display=faible?'':'none';
+    z.textContent=faible?'⚠️ Connexion faible':'';
+    if(faible) toast('⚠️ Connexion faible — rapproche-toi du réseau, ça peut couper');
+  }
   function visioSecoursBtn(){ const e=$('visio-etat');
     if(e&&!e.querySelector('button')) e.innerHTML='<button class="btn ghost sm" onclick="visioSecours()">Passer par l\'ancien système</button>'; }
   function visioSecours(){ const room=_vRoom, titre=($('visio-nom')||{}).textContent||'Réunion', audio=_vAudioOnly;
@@ -3847,6 +3965,10 @@
     _vRoom=null; _vIciFin();
     if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
     if(_vPoll){ clearInterval(_vPoll); _vPoll=null; }
+    if(_vQualT){ clearInterval(_vQualT); _vQualT=null; }
+    _vMini=false; _vFaible=false; _vQualVu={};
+    { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
+    { const z=$('visio-reseau'); if(z) z.style.display='none'; }
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
     try{ if(_vEcran) _vEcran.getTracks().forEach(t=>t.stop()); }catch(e){} _vEcran=null;
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
@@ -3865,12 +3987,26 @@
     }
   }
   try{ window.addEventListener('pagehide',()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} }); }catch(e){}
+  /* la durée d'un appel, écrite comme on la dit : « 45 s », « 12 min », « 1 h 05 » */
+  function dureeTexte(sec){
+    sec=Math.max(0,Math.round(sec||0));
+    if(sec<60) return sec+' s';
+    const m=Math.round(sec/60);
+    if(m<60) return m+' min';
+    const h=Math.floor(m/60), r=m%60;
+    return h+' h'+(r?' '+String(r).padStart(2,'0'):'');
+  }
   function appelClore(restants){
     /* s'il reste du monde en ligne, l'appel n'est PAS terminé : on se
        contente de sortir. Le dernier à partir le clôturera. */
     if(restants>0){ if(_activeCall){ _activeCall=null; if(_callDocUnsub){ _callDocUnsub(); _callDocUnsub=null; } } return; }
     if(_activeCall){ const ref=_activeCall.ref, ans=_activeCall.answered; _activeCall=null; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;}
-      ref.get().then(d=>{ if(!d.exists) return; const st=d.data().status; if(st==='ringing') ref.update({status: ans?'ended':'missed'}); else if(st==='answered') ref.update({status:'ended'}); }).catch(()=>{}); }
+      ref.get().then(d=>{ if(!d.exists) return; const x=d.data()||{}; const st=x.status;
+        /* on note aussi COMBIEN DE TEMPS l'appel a duré : l'historique le dira */
+        const t0=(x.ts&&x.ts.toMillis)?x.ts.toMillis():0;
+        const sec=t0?Math.round((Date.now()-t0)/1000):0;
+        if(st==='ringing') ref.update(ans?{status:'ended',duree:sec}:{status:'missed'});
+        else if(st==='answered') ref.update({status:'ended',duree:sec}); }).catch(()=>{}); }
   }
   function loadJitsi(){ return new Promise((res,rej)=>{ if(window.JitsiMeetExternalAPI) return res(); const s=document.createElement('script'); s.src='https://meet.jit.si/external_api.js'; s.onload=res; s.onerror=()=>rej(new Error('jitsi')); document.head.appendChild(s); }); }
   async function openJitsi(roomName,title,audioOnly){
@@ -3946,17 +4082,54 @@
           <div style="font-size:29px;font-weight:800;margin-top:22px;color:#fff">${esc(c.fromName)}</div>
           <div style="font-size:14px;color:#8b93a5;margin-top:6px">vous appelle…</div>
         </div>
-        <div style="display:flex;gap:64px;justify-content:center;align-items:flex-end">
-          <div><button class="ring-btn decline" onclick="declineCall()" style="width:74px;height:74px">${ic('phone',30)}</button>
-            <div style="margin-top:10px;font-size:13px;font-weight:600;color:#b9c2d4">Refuser</div></div>
-          <div><button class="ring-btn accept" onclick="acceptCall('${c.room}','${c.type}')" style="width:74px;height:74px;animation:opTremble 1.1s infinite">${ic('phone',30)}</button>
-            <div style="margin-top:10px;font-size:13px;font-weight:600;color:#b9c2d4">Répondre</div></div>
+        <div style="width:100%;max-width:420px">
+          ${_vRoom?`<div style="background:rgba(255,255,255,.09);border-radius:14px;padding:10px 13px;margin-bottom:16px;font-size:13px;color:#e7ecf7;line-height:1.5">
+            📞 <b>Tu es déjà en ligne.</b> Répondre mettra fin à ton appel en cours${_vMaxGens>=3?' — il continuera sans toi et tu pourras y revenir depuis Appels.':'.'}</div>`:''}
+          <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-bottom:20px">
+            ${MOTS_REFUS.map((m,i)=>`<button onclick="refuserAvecMot(${i})" style="border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#e7ecf7;border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">${esc(m.court)}</button>`).join('')}
+          </div>
+          <div style="display:flex;gap:64px;justify-content:center;align-items:flex-end">
+            <div><button class="ring-btn decline" onclick="declineCall()" style="width:74px;height:74px">${ic('phone',30)}</button>
+              <div style="margin-top:10px;font-size:13px;font-weight:600;color:#b9c2d4">Refuser</div></div>
+            <div><button class="ring-btn accept" onclick="acceptCall('${c.room}','${c.type}')" style="width:74px;height:74px;animation:opTremble 1.1s infinite">${ic('phone',30)}</button>
+              <div style="margin-top:10px;font-size:13px;font-weight:600;color:#b9c2d4">${_vRoom?'Terminer et répondre':'Répondre'}</div></div>
+          </div>
         </div>
       </div>`;
     { const _rw=$('ring').classList.contains('open'); $('ring').classList.add('open'); if(!_rw) pushBack(); } ringStart();
     _ringRefUnsub=ref.onSnapshot(d=>{ if(!d.exists||d.data().status!=='ringing') hideRing(); });
   }
-  function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); visioOuvrir(room,'Appel',type==='audio','appel'); }
+  /* ══ REFUSER AVEC UN MOT ══
+     Ne pas pouvoir décrocher, ce n'est pas ignorer. On refuse en envoyant
+     une phrase : la personne sait à quoi s'en tenir. */
+  const MOTS_REFUS=[
+    {court:'En intervention',texte:'Je suis en intervention, je ne peux pas décrocher.'},
+    {court:'Je rappelle dans 10 min',texte:'Je te rappelle dans 10 minutes.'},
+    {court:'Écris-moi',texte:'Je ne peux pas parler — envoie-moi un message.'}
+  ];
+  async function refuserAvecMot(i){
+    const m=MOTS_REFUS[i]||MOTS_REFUS[0];
+    const r=_ringRef; let c={};
+    try{ if(r){ const d=await r.get(); c=d.data()||{}; } }catch(e){}
+    if(r) r.update({status:'declined'}).catch(()=>{});
+    hideRing();
+    const qui=c.from, nom=c.fromName||'';
+    if(!qui){ toast('Appel refusé'); return; }
+    try{
+      const pair=[ME.uid,qui].sort(), dmId='dm_'+pair.join('_');
+      const ref=chanCol().doc(dmId);
+      const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
+      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:m.texte,ts:FV()},true);
+      try{ opPushNotifyUsers([qui],((USER&&USER.name)||'Un collègue'),m.texte); }catch(e){}
+      toast('Refusé — « '+m.texte+' » envoyé à '+(nom.split(' ')[0]||'la personne'));
+    }catch(e){ toast('Appel refusé'); }
+  }
+  function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing();
+    /* déjà en ligne ? on quitte proprement l'appel en cours avant de prendre
+       le nouveau — s'il reste du monde, il continue et on pourra y revenir */
+    if(_vRoom){ try{ visioFermer(); }catch(e){} }
+    _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub();
+    setTimeout(()=>{ try{ visioOuvrir(room,'Appel',type==='audio','appel'); }catch(e){} },350); }
   function declineCall(){ if(_ringRef) _ringRef.update({status:'declined'}).catch(()=>{}); hideRing(); }
   function hideRing(){ ringStop(); $('ring').classList.remove('open'); _ringRef=null; if(_ringRefUnsub){_ringRefUnsub();_ringRefUnsub=null;} }
   function ringStart(){ ringStop();
