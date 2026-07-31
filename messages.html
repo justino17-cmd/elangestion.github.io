@@ -261,7 +261,7 @@
   #visio.mini{inset:auto;right:12px;bottom:calc(86px + env(safe-area-inset-bottom));width:172px;height:238px;
     border-radius:18px;overflow:hidden;z-index:75;box-shadow:0 12px 36px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2)}
   #visio.mini .vbar,#visio.mini #visio-outils,#visio.mini #visio-tchat,#visio.mini #visio-barre{display:none!important}
-  #visio.mini #visio-grille{padding:0;gap:0}
+  #visio.mini #visio-grille{padding:0!important;gap:0!important}
   #visio-minibar{display:none}
   #visio.mini #visio-minibar{display:flex;position:absolute;left:0;right:0;bottom:0;z-index:4;
     align-items:center;justify-content:space-between;gap:6px;padding:7px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75))}
@@ -3259,7 +3259,7 @@
      s'écrivant de petits mots dans notre base, effacés en sortant.
      L'ancien système reste en secours d'un clic.
      ══════════════════════════════════════════════════════════════════════ */
-  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false,_vMaxGens=1,_vIciRef=null,_vIciT=null,_vCamOn=false,_vMini=false,_vFace='user',_vQualT=null,_vQualVu={},_vFaible=false;
+  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false,_vMaxGens=1,_vIciRef=null,_vIciT=null,_vCamOn=false,_vMini=false,_vFace='user',_vQualT=null,_vQualVu={},_vFaible=false,_vSeulT=null;
   let _vEcran=null,_vOrdre=[],_vGrand=null,_vNotes={},_vOutil='d',_vCouleur='#ffd54a',_vMsgs=[],_vTchatOn=false,_vTchatNew=0;
   const _vConf={iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
   function _vCol(){ return callsCol(); }
@@ -3308,7 +3308,8 @@
     _vMini=false; _vFace='user'; _vQualVu={}; _vFaible=false;
     { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
     { const z=$('visio-reseau'); if(z){ z.style.display='none'; } }
-    visioFlipDispo();
+    visioCamsCompte();
+    _vSeulStop();
     if(_vQualT) clearInterval(_vQualT);
     _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
     /* on inscrit son nom sur la fiche de l'appel : l'historique dira ensuite
@@ -3385,6 +3386,7 @@
     const p={pc:pc,nom:nom||'',streams:{cam:null,ecran:null},ecranIds:new Set(),dc:null,glace:[],pret:false,muetPourMoi:false,ecranSenders:[]};
     _vPairs[uid]=p;
     _vMaxGens=Math.max(_vMaxGens,1+Object.keys(_vPairs).length);   // à trois, l'appel devient un appel de groupe
+    _vSeulStop();                                                  // quelqu'un est là : plus de compte à rebours
     try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>{ const sn=pc.addTrack(t,_vLocal);
       if(t.kind==='video') p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); }); }catch(e){}
     try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
@@ -3470,7 +3472,7 @@
           /* APPEL DE GROUPE : chacun va et vient. On ne coupe rien, la ligne
              reste ouverte et celui qui est parti peut revenir quand il veut. */
           if(Object.keys(_vPairs).length) try{ toast((qui||'Quelqu\'un')+' a quitté l\'appel — il peut revenir quand il veut.'); }catch(e){}
-          else try{ toast('Tu es seul dans l\'appel — les autres peuvent revenir quand ils veulent.'); }catch(e){}
+          else _vSeulDebut();
         } else if(_vDejaVenu && !Object.keys(_vPairs).length){
           /* APPEL À DEUX : plus personne au bout du fil, l'appel est fini. */
           try{ toast((qui?qui+' a raccroché — ':'')+'appel terminé'); }catch(e){}
@@ -3481,6 +3483,26 @@
       return;
     }
   }
+  /* ══ SEUL DANS L'APPEL ══
+     Tout le monde est parti. On laisse une petite minute de battement — le
+     temps qu'un collègue revienne — puis l'appel se termine : rien ne sert
+     de rester en ligne tout seul. */
+  function _vSeulDebut(){
+    _vSeulStop();
+    if(!_vRoom) return;
+    let reste=20;
+    const dire=()=>{ try{ toast('Tu es seul dans l\'appel — il se fermera dans '+reste+' s si personne ne revient'); }catch(e){} };
+    dire();
+    _vSeulT=setInterval(()=>{
+      reste-=10;
+      if(Object.keys(_vPairs).length){ _vSeulStop(); return; }        // quelqu'un est revenu
+      if(reste>0){ dire(); return; }
+      _vSeulStop();
+      try{ toast('Plus personne dans l\'appel — appel terminé'); }catch(e){}
+      try{ if(_vRoom) visioFermer(); }catch(e){}
+    },10000);
+  }
+  function _vSeulStop(){ if(_vSeulT){ clearInterval(_vSeulT); _vSeulT=null; } }
   /* ── les réglages d'envoi : l'écran a la priorité et un gros débit ── */
   async function _vRegleEnvoi(p){
     try{
@@ -3852,7 +3874,7 @@
       if(vt.length){
         Object.values(_vPairs).forEach(p=>{ (p.camSendersMoi||[]).forEach(sn=>{ try{ p.pc.removeTrack(sn); }catch(e){} }); p.camSendersMoi=[]; });
         vt.forEach(t=>{ try{ t.stop(); }catch(e){} try{ _vLocal.removeTrack(t); }catch(e){} });
-        _vCamOn=false; dcTous({t:'cam',on:false});
+        _vCamOn=false; dcTous({t:'cam',on:false}); visioFlipMaj();
         if(b){ b.textContent='🚫'; b.style.background='#e05252'; b.title='Allumer la caméra'; }
         toast('📷 Caméra coupée — personne ne te voit');
       } else {
@@ -3865,6 +3887,7 @@
         try{ _vLocal.addTrack(t); }catch(e){}
         Object.values(_vPairs).forEach(p=>{ try{ p.camSendersMoi=(p.camSendersMoi||[]).concat([p.pc.addTrack(t,_vLocal)]); }catch(e){} });
         _vCamOn=true; _vAudioOnly=false; dcTous({t:'cam',on:true});
+        visioCamsCompte();     // la liste des caméras est enfin complète
         if(b){ b.textContent='📷'; b.style.background='#232a3a'; b.title='Couper la caméra'; }
         toast('📷 Caméra allumée');
       }
@@ -3877,13 +3900,21 @@
      on peut chercher une adresse, relire un message, ouvrir un document.
      Un clic sur la vignette et on repasse en grand. */
   function visioReduire(){
-    if(!_vRoom) return;
+    if(!_vRoom||_vMini) return;
     _vMini=true;
-    const v=$('visio'); if(v){ v.classList.add('mini'); v.onclick=(e)=>{ if(e.target&&e.target.closest&&e.target.closest('#visio-minibar')) return; visioAgrandir(); }; }
+    const v=$('visio'); if(v) v.classList.add('mini');
     visioTuiles();
+    /* « toucher la vignette pour agrandir » ne se branche qu'APRÈS ce clic-ci :
+       sinon le clic sur le bouton Réduire remonterait jusqu'au studio et
+       rouvrirait tout dans la seconde. */
+    setTimeout(()=>{ const w=$('visio'); if(!w||!_vMini) return;
+      w.onclick=(e)=>{ if(!_vMini) return;
+        if(e.target&&e.target.closest&&e.target.closest('#visio-minibar')) return;
+        visioAgrandir(); }; },0);
     toast('Appel réduit — touche la vignette pour revenir en grand');
   }
   function visioAgrandir(){
+    if(!_vMini) return;
     _vMini=false;
     const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; }
     visioTuiles();
@@ -3911,16 +3942,26 @@
     anciennes.forEach(t=>{ try{ t.stop(); }catch(e){} try{ _vLocal.removeTrack(t); }catch(e){} });
     try{ _vLocal.addTrack(neuve); }catch(e){}
     _vFace=vise; _vCamOn=true;
-    const b=$('visio-flip'); if(b) b.title=(vise==='user')?'Passer sur la caméra arrière':'Revenir sur la caméra avant';
+    visioFlipMaj();
     toast(vise==='user'?'📷 Caméra avant':'📷 Caméra arrière — montre ce que tu vois');
     _vFlipBusy=false;
     visioTuiles();
   }
-  async function visioFlipDispo(){
-    const b=$('visio-flip'); if(!b) return;
+  /* Le bouton « retourner la caméra » n'a de sens que si la caméra est
+     ALLUMÉE — et que l'appareil a bien deux caméras. Sur téléphone la liste
+     des caméras est souvent incomplète tant qu'on n'a rien autorisé : on fait
+     donc confiance à l'écran tactile. */
+  let _vMultiCam=false;
+  async function visioCamsCompte(){
     let n=0;
     try{ const l=await navigator.mediaDevices.enumerateDevices(); n=l.filter(d=>d.kind==='videoinput').length; }catch(e){}
-    b.style.display=(n>1)?'':'none';
+    _vMultiCam = (n>1) || ((navigator.maxTouchPoints||0)>0);
+    visioFlipMaj();
+  }
+  function visioFlipMaj(){
+    const b=$('visio-flip'); if(!b) return;
+    b.style.display=(_vRoom&&_vCamOn&&_vMultiCam)?'':'none';
+    b.title=(_vFace==='user')?'Passer sur la caméra arrière':'Revenir sur la caméra avant';
   }
   /* ══ LA CONNEXION ══
      Sur un chantier le réseau lâche. Plutôt que de croire à un bug, on le dit
@@ -3966,6 +4007,7 @@
     if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
     if(_vPoll){ clearInterval(_vPoll); _vPoll=null; }
     if(_vQualT){ clearInterval(_vQualT); _vQualT=null; }
+    _vSeulStop();
     _vMini=false; _vFaible=false; _vQualVu={};
     { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
     { const z=$('visio-reseau'); if(z) z.style.display='none'; }
