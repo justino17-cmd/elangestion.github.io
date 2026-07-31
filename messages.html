@@ -3924,31 +3924,63 @@
     if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
     _vGrand='moiE';
     visioTuiles(); toast('🖥️ Ton écran est partagé');
-    /* Partage de TOUT l'écran : si l'ordinateur bloque l'enregistrement
-       d'écran (autorisation système), l'image reste noire ou vide.
-       On le détecte et on explique quoi activer, au lieu de ne rien dire. */
-    const fluxTest=flux;
-    setTimeout(()=>{ try{
-      if(_vEcran!==fluxTest) return;                      // déjà arrêté ou remplacé
-      const t0=fluxTest.getVideoTracks()[0];
-      const v=$('vt-moiE');
-      const vide=!t0 || t0.muted || !(v&&v.videoWidth>0);
-      if(!vide) return;
-      visioEcranStop();
-      const mac=/Mac/i.test(navigator.platform||navigator.userAgent||'');
-      openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ L'écran partagé est vide</h3>
-        <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">Ce n'est pas une panne : <b>ton ordinateur bloque l'enregistrement de l'écran</b> pour ce navigateur. Il faut l'autoriser une fois :</p>
-        ${mac?`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
-          1. Ouvre <b>Réglages Système</b> (menu )<br>
-          2. <b>Confidentialité et sécurité</b> → <b>Enregistrement de l'écran</b><br>
-          3. Active ton navigateur (Safari ou Chrome)<br>
-          4. <b>Quitte et relance le navigateur</b>, puis reviens partager</div>`
-        :`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
-          Vérifie les autorisations d'enregistrement d'écran de ton système, puis relance le navigateur et réessaie.</div>`}
-        <p class="muted" style="font-size:12px;line-height:1.5;margin-bottom:12px">En attendant, tu peux partager <b>une fenêtre</b> ou <b>un onglet</b> : ça marche souvent sans cette autorisation.</p>
-        <button class="btn block" onclick="closeSheet();visioEcran()">Réessayer le partage</button>
-        <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
-    }catch(e){} },3500);
+    _vEcranVeille(flux);
+  }
+  /* ── la sonde du partage : elle regarde les VRAIES images ──
+     Si l'ordinateur bloque l'enregistrement de l'écran (autorisation
+     système du Mac), les images arrivent NOIRES ou n'arrivent jamais.
+     L'ancien garde-fou se fiait à la tuile affichée et au drapeau
+     « muted » — deux choses qui mentent exactement quand on partage tout
+     l'écran : Safari laisse « muted » collé, et la tuile disparaît dès
+     qu'on réduit le studio ou qu'on part montrer son écran dans une autre
+     application. Résultat : il coupait des partages parfaitement sains.
+     La sonde, elle, lit les pixels : elle ne coupe que si les images sont
+     réellement noires, deux mesures de suite, onglet visible. */
+  function _vEcranVeille(flux){
+    const probe=document.createElement('video');
+    probe.muted=true; probe.playsInline=true; probe.setAttribute('playsinline','');
+    probe.style.cssText='position:fixed;left:-9999px;top:0;width:32px;height:18px;opacity:0;pointer-events:none';
+    try{ probe.srcObject=flux; document.body.appendChild(probe); }catch(e){ return; }
+    const pr=probe.play(); if(pr&&pr.catch) pr.catch(()=>{});
+    const range=()=>{ try{ probe.srcObject=null; probe.remove(); }catch(e){} };
+    let noirs=0, sansImage=0;
+    const verif=()=>{ try{
+      if(_vEcran!==flux){ range(); return; }                 // déjà arrêté ou remplacé
+      const t0=flux.getVideoTracks()[0];
+      if(!t0||t0.readyState!=='live'){ range(); return; }    // le partage s'est fini tout seul
+      /* onglet en arrière-plan : l'utilisateur est parti MONTRER son écran,
+         c'est le fonctionnement normal — on ne juge rien, on repassera */
+      if(document.visibilityState==='hidden'){ setTimeout(verif,3000); return; }
+      if(probe.videoWidth>0){
+        const c=document.createElement('canvas'); c.width=32; c.height=18;
+        const g=c.getContext('2d'); g.drawImage(probe,0,0,32,18);
+        const d=g.getImageData(0,0,32,18).data;
+        let lum=0; for(let i=0;i<d.length;i+=4) lum+=d[i]+d[i+1]+d[i+2];
+        if(lum>0){ range(); return; }                        // de vraies images : tout va bien
+        noirs++;
+        if(noirs>=2){ range(); visioEcranStop(); _vEcranBloqueExplique(); return; }
+      } else {
+        sansImage++;
+        if(sansImage>=3){ range(); visioEcranStop(); _vEcranBloqueExplique(); return; }
+      }
+      setTimeout(verif,3000);
+    }catch(e){ range(); } };                                  // au moindre doute : on laisse le partage vivre
+    setTimeout(verif,3500);
+  }
+  function _vEcranBloqueExplique(){
+    const mac=/Mac/i.test(navigator.platform||navigator.userAgent||'');
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ L'écran partagé est vide</h3>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">Ce n'est pas une panne : <b>ton ordinateur bloque l'enregistrement de l'écran</b> pour ce navigateur. Il faut l'autoriser une fois :</p>
+      ${mac?`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
+        1. Ouvre <b>Réglages Système</b> (menu )<br>
+        2. <b>Confidentialité et sécurité</b> → <b>Enregistrement de l'écran</b><br>
+        3. Active ton navigateur (Safari ou Chrome)<br>
+        4. <b>Quitte et relance le navigateur</b>, puis reviens partager</div>`
+      :`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
+        Vérifie les autorisations d'enregistrement d'écran de ton système, puis relance le navigateur et réessaie.</div>`}
+      <p class="muted" style="font-size:12px;line-height:1.5;margin-bottom:12px">En attendant, tu peux partager <b>une fenêtre</b> ou <b>un onglet</b> : ça marche souvent sans cette autorisation.</p>
+      <button class="btn block" onclick="closeSheet();visioEcran()">Réessayer le partage</button>
+      <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
   }
   function visioEcranStop(){
     if(!_vEcran) return;
