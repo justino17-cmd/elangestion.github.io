@@ -1112,6 +1112,7 @@
     const m2=$('nv2-meet'); if(m2) m2.classList.remove('on');
     if(estBureau() && typeof closeChat==='function'){ try{ closeChat(); }catch(e){} }   // bureau : la section choisie s'affiche (la conversation se ferme)
     try{ badgesMaj(); }catch(e){}
+    try{ appelsVerifie(); }catch(e){}
     setTimeout(()=>{ try{ ['dash','disc','cont','appel','prof'].forEach(x=>{ const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===_curView); }); }catch(e){} },400);   // ré-assure la pastille active après le rendu
     moveNavBlob();
     try{ const vw=$('view'); if(vw) vw.classList.toggle('wide',v==='dash'); }catch(e){}
@@ -3621,6 +3622,37 @@
         if(c.status==='ringing' && c.from!==ME.uid && t>_loginTs-4000 && !_ringRef && !(_activeCall&&_activeCall.ref.id===ch.doc.id)) showRing(ch.doc.ref,c); });
     }, err=>{});
   }
+  /* ══ L'APPEL NE DOIT JAMAIS PASSER INAPERÇU ══
+     Sur téléphone, le navigateur endort l'écoute quand l'application passe
+     en arrière-plan : au retour, un appel en cours n'apparaissait plus.
+     Ici on revérifie dès que l'écran revient, à chaque changement d'onglet,
+     et toutes les 12 secondes — où qu'on soit dans l'application. */
+  async function appelsVerifie(){
+    try{
+      if(!ME||typeof callsCol!=='function') return;
+      /* une sonnerie en cours : l'appelant a-t-il raccroché entre-temps ?
+         (si le téléphone dormait, l'app ne l'a pas vu passer) */
+      if(_ringRef){
+        try{ const d=await _ringRef.get(); const c=d&&d.exists?(d.data()||{}):null;
+          if(!c||c.status!=='ringing') hideRing(); }catch(e){}
+        return;
+      }
+      const qs=await callsCol().where('members','array-contains',ME.uid).get();
+      const now=Date.now();
+      let cible=null;
+      qs.forEach(d=>{ const c=d.data()||{};
+        if(c.status!=='ringing'||c.from===ME.uid) return;
+        const t=(c.ts&&c.ts.toMillis)?c.ts.toMillis():0;
+        if(now-t>90000) return;                       // un appel de plus d'1 min 30 n'est plus « en cours »
+        if(_activeCall&&_activeCall.ref&&_activeCall.ref.id===d.id) return;
+        cible={ref:d.ref,c:c};
+      });
+      if(cible&&!_ringRef) showRing(cible.ref,cible.c);
+    }catch(e){}
+  }
+  try{ document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ try{ startCallListener(); appelsVerifie(); }catch(e){} } }); }catch(e){}
+  try{ window.addEventListener('focus',()=>{ try{ appelsVerifie(); }catch(e){} }); }catch(e){}
+  setInterval(()=>{ try{ if(!document.hidden) appelsVerifie(); }catch(e){} },12000);
   function showRing(ref,c){ _ringRef=ref;
     $('ring').innerHTML=`<div style="text-align:center"><div class="ring-av" style="${avatarStyle(c.fromName)}">${ini(c.fromName)}</div><div style="font-size:20px;font-weight:700;margin-top:14px">${esc(c.fromName)}</div><div class="muted" style="margin-top:2px">Appel ${c.type==='audio'?'audio':'vidéo'} entrant…</div>
       <div style="display:flex;gap:46px;justify-content:center;margin-top:32px"><div><button class="ring-btn decline" onclick="declineCall()">${ic('phone',26)}</button><div class="muted" style="margin-top:6px;font-size:12px">Refuser</div></div><div><button class="ring-btn accept" onclick="acceptCall('${c.room}','${c.type}')">${ic('phone',26)}</button><div class="muted" style="margin-top:6px;font-size:12px">Répondre</div></div></div></div>`;
