@@ -3052,10 +3052,67 @@
       const col=callsCol();
       const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
       const map={}; a.forEach(d=>map[d.id]={id:d.id,...d.data()}); b.forEach(d=>map[d.id]={id:d.id,...d.data()});
+      /* un appel EN COURS s'affiche toujours, même si l'historique a été vidé */
+      _callTous=Object.values(map);
       const _cc=+(localStorage.getItem(callClearKey())||0);
       _callRecents=Object.values(map).filter(c=>tms(c.ts)>_cc).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
       viewAppelList();
+      appelsVivantsMaj();
+      if(_callLiveT) clearInterval(_callLiveT);
+      _callLiveT=setInterval(()=>{ if(!$('call-list')){ clearInterval(_callLiveT); _callLiveT=null; return; } appelsVivantsMaj(); },15000);
     }catch(e){ $('call-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+  }
+  /* ── LES APPELS EN COURS ──
+     Un appel à trois ou plus continue sans ceux qui sont partis. Tant qu'il
+     reste quelqu'un en ligne, il s'affiche en haut de l'onglet Appels avec
+     le nom des présents : un bouton, et on y retourne. */
+  let _callVivants={},_callLiveT=null,_callTous=[];
+  async function appelsVivantsMaj(){
+    const v={};
+    try{
+      const qs=await callsCol().where('type','==','ici').get();
+      const lim=Date.now()-70000;
+      qs.forEach(d=>{ const x=d.data()||{};
+        if(!x.room||!x.ts||x.ts<lim) return;
+        const l=(v[x.room]=v[x.room]||[]);
+        if(l.indexOf(x.nom||'')<0) l.push(x.nom||'');
+      });
+    }catch(e){}
+    _callVivants=v;
+    const z=$('call-live'); if(z) z.innerHTML=appelsVivantsHtml();
+  }
+  function appelsVivantsHtml(){
+    const vus={}, l=[];
+    (_callTous||[]).forEach(c=>{
+      if(!c.room||vus[c.room]) return;
+      const gens=_callVivants[c.room]; if(!gens||!gens.length) return;
+      if(_vRoom===c.room) return;                       // j'y suis déjà
+      vus[c.room]=1; l.push({c:c,gens:gens});
+    });
+    if(!l.length) return '';
+    return '<div class="listbox" style="border-color:var(--op);margin-bottom:12px">'+l.map(x=>{
+      const noms=x.gens.filter(n=>n).join(', ')||'en ligne';
+      const revenir=salleDejaVue(x.c.room);
+      return `<div class="lrow" style="background:var(--tint2)">
+        <div class="cava" style="background:var(--pres);color:#08130c;border-radius:11px">${ms('call',20)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Appel en cours</div>
+          <div style="font-size:13px;color:var(--t2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(noms)} · ${x.gens.length} personne${x.gens.length>1?'s':''} en ligne</div></div>
+        <button class="btn sm" style="flex:none;font-weight:800" onclick="event.stopPropagation();rejoindreAppel('${esc(x.c.id)}')">${revenir?'Revenir':'Rejoindre'}</button>
+      </div>`;
+    }).join('')+'</div>';
+  }
+  /* revenir dans un appel qu'on a quitté (ou en rejoindre un en cours) */
+  async function rejoindreAppel(id){
+    /* la fiche est déjà sous la main : on n'attend pas le réseau pour rentrer */
+    let c=(_callTous||[]).find(x=>x.id===id)||{};
+    if(!c.room){ try{ const d=await callsCol().doc(id).get(); if(d.exists) c={id:d.id,...d.data()}; }catch(e){} }
+    if(!c.room){ alert('Cet appel n\'est plus disponible.'); return; }
+    const out=c.from===ME.uid;
+    const noms = out ? ((c.memberNames||[]).join(', ')) : ([c.fromName].concat((c.memberNames||[]).filter(n=>n&&n!==(USER&&USER.name))).join(', '));
+    if(_callDocUnsub){ _callDocUnsub(); _callDocUnsub=null; }
+    _activeCall={ref:callsCol().doc(id),answered:true,oneToOne:(c.members||[]).length===1};
+    visioOuvrir(c.room, noms||'Appel', (c.type||'video')==='audio', 'appel');
   }
   function viewAppelList(){
     const box=$('call-list'); if(!box) return;
@@ -3071,10 +3128,31 @@
       html+=`<div class="lrow" onclick="callInfo('${c.id}')">
         <div class="cava" style="${avatarStyle(who)}${grp?';border-radius:11px':''}">${grp?ms('group',20):ini(who)}</div>
         <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${missed?';color:var(--red)':''}">${esc(who)}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;color:${missed?'var(--red)':'var(--t2)'};font-size:13px${missed?';font-weight:600':''}"><span style="color:${icCol};display:inline-flex">${icn}</span>${lbl} · ${c.type==='audio'?'audio':'vidéo'}</div></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;color:${missed?'var(--red)':'var(--t2)'};font-size:13px${missed?';font-weight:600':''}"><span style="color:${icCol};display:inline-flex">${icn}</span>${lbl} · ${c.type==='audio'?'audio':'vidéo'}</div>
+        ${(()=>{ const v=callVenus(c); if(!v.length) return '';
+          return `<div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ms('group',13)} ${esc(v.join(', '))} ${v.length>1?'ont':'a'} rejoint</div>`; })()}</div>
         <div style="display:flex;align-items:center;gap:14px"><span style="font-size:11.5px;font-weight:600;color:var(--t3)">${d?fmtListTime(d.getTime()):''}</span>
         <button class="rbtn" title="Rappeler" onclick="event.stopPropagation();recall('${c.id}')">${ms('call',18)}</button></div></div>`; });
-    box.innerHTML = html?`<div class="listbox">${html}</div>`:'<p class="muted center">Aucun appel.</p>';
+    box.innerHTML = '<div id="call-live">'+appelsVivantsHtml()+'</div>'
+      + (html?`<div class="listbox">${html}</div>`:'<p class="muted center">Aucun appel.</p>');
+  }
+  /* ══ QUI A REJOINT L'APPEL ══
+     Chacun inscrit son nom sur la fiche en entrant dans la salle. On sait
+     donc, après coup, qui a vraiment décroché — et qui n'est jamais venu,
+     même si l'appel a bien eu lieu entre les autres. */
+  function callVenus(c){
+    const l=(c.joinNames||[]).filter(n=>n);
+    const moi=(USER&&USER.name)||'';
+    return l.map(n=>n===moi?'Toi':n);
+  }
+  function callAbsents(c){
+    const venus=(c.joins||[]);
+    const tous=[]; const vus={};
+    const ajoute=(uid,nom)=>{ if(!uid||vus[uid]) return; vus[uid]=1; tous.push({uid:uid,nom:nom||''}); };
+    ajoute(c.from,c.fromName);
+    (c.members||[]).forEach((u,i)=>ajoute(u,(c.memberNames||[])[i]));
+    const moi=(USER&&USER.name)||'';
+    return tous.filter(x=>venus.indexOf(x.uid)<0).map(x=>(x.nom===moi?'Toi':(x.nom||'Contact')));
   }
   async function callInfo(id){ openSheet('<p class="muted center">Chargement…</p>');
     let c={}; try{ const d=await callsCol().doc(id).get(); if(d.exists) c=d.data(); }catch(e){}
@@ -3082,6 +3160,15 @@
     const d=c.ts&&c.ts.toDate?c.ts.toDate():null; const missed=c.status==='missed'||c.status==='declined';
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:4px">${esc(who)}</h3>
       <p class="muted" style="margin-bottom:14px">${out?'Appel sortant':(missed?'Appel manqué':'Appel entrant')} · ${c.type==='audio'?'audio':'vidéo'}${d?' · '+d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''}</p>
+      ${(()=>{ const v=callVenus(c), a=callAbsents(c);
+        if(!v.length&&!a.length) return '';
+        const ligne=(nom,ok)=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 2px">
+            <div class="ava" style="width:32px;height:32px;border-radius:10px;font-size:14px;${avatarStyle(nom)}">${ini(nom)}</div>
+            <b style="flex:1;font-size:14px;font-weight:${ok?'700':'600'};color:${ok?'var(--t1)':'var(--t2)'}">${esc(nom)}</b>
+            <span style="font-size:12px;font-weight:700;color:${ok?'var(--pres)':'var(--t3)'}">${ok?'a rejoint':'pas venu'}</span></div>`;
+        return `<div class="card" style="padding:10px 12px;margin-bottom:14px">
+          <div style="font-size:11px;font-weight:800;letter-spacing:.07em;color:var(--t3);margin:2px 2px 4px">PARTICIPANTS</div>
+          ${v.map(n=>ligne(n,true)).join('')}${a.map(n=>ligne(n,false)).join('')}</div>`; })()}
       <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();recall('${id}')">${ic('phone',18)}Rappeler</button>
       <button class="btn ghost block" onclick="closeSheet();recallVideo('${id}')">${ic('video',18)}Rappeler en vidéo</button>`); }
   async function recallVideo(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
@@ -3134,7 +3221,7 @@
      s'écrivant de petits mots dans notre base, effacés en sortant.
      L'ancien système reste en secours d'un clic.
      ══════════════════════════════════════════════════════════════════════ */
-  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false;
+  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false,_vMaxGens=1,_vIciRef=null,_vIciT=null,_vCamOn=false;
   let _vEcran=null,_vOrdre=[],_vGrand=null,_vNotes={},_vOutil='d',_vCouleur='#ffd54a',_vMsgs=[],_vTchatOn=false,_vTchatNew=0;
   const _vConf={iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
   function _vCol(){ return callsCol(); }
@@ -3147,7 +3234,8 @@
        le nom de la salle lui-même — un appel s'appelle « CALL… », une réunion
        « OPMSG… ». Au moindre doute, c'est une réunion : une réunion ne se
        ferme jamais toute seule. */
-    _vGenre=(genre==='appel' && String(room||'').indexOf('OPMSG')!==0)?'appel':'reunion'; _vDejaVenu=false;
+    _vGenre=(genre==='appel' && String(room||'').indexOf('OPMSG')!==0)?'appel':'reunion'; _vDejaVenu=false; _vMaxGens=1;
+    if(_vGenre==='appel') salleVue(room);
     /* un appel et une réunion, ce n'est pas pareil : la pastille le dit */
     const gg=$('visio-genre'); if(gg){ if(genre==='appel'){ gg.textContent='📞 APPEL'; gg.style.background='var(--op)'; }
       else { gg.textContent='📅 RÉUNION'; gg.style.background='#1e7a4e'; } }
@@ -3161,6 +3249,9 @@
       try{ _vLocal=await navigator.mediaDevices.getUserMedia({video:false,audio:true}); _vAudioOnly=true; }
       catch(e2){ visioEtat(''); alert('Caméra et micro refusés — autorise-les dans le navigateur, ou passe par l\'ancien système.'); visioSecoursBtn(); return; }
     }
+    _vCamOn=!!(_vLocal&&_vLocal.getVideoTracks().length);
+    { const b=$('visio-cam'); if(b){ b.textContent=_vCamOn?'📷':'🚫'; b.style.background=_vCamOn?'#232a3a':'#e05252';
+      b.title=_vCamOn?'Couper la caméra':'Allumer la caméra'; } }
     _vT0=Date.now(); if(_vTimer) clearInterval(_vTimer);
     _vTimer=setInterval(()=>{ const s2=Math.floor((Date.now()-_vT0)/1000); const el=$('visio-duree');
       if(el) el.textContent=String(Math.floor(s2/60)).padStart(2,'0')+':'+String(s2%60).padStart(2,'0'); },1000);
@@ -3172,13 +3263,44 @@
     if(_vPoll) clearInterval(_vPoll);
     const relire=async()=>{ try{ const qs=await _vCol().where('room','==',_vRoom).get(); qs.forEach(x=>traite({id:x.id,...(x.data()||{})})); }catch(e){} };
     _vPoll=setInterval(relire,2500); relire();
+    _vIciDebut();
+    /* on inscrit son nom sur la fiche de l'appel : l'historique dira ensuite
+       qui a vraiment décroché et qui n'est jamais venu */
+    if(_vGenre==='appel'&&_activeCall&&_activeCall.ref){
+      try{ await _activeCall.ref.update({
+        joins:firebase.firestore.FieldValue.arrayUnion(ME.uid),
+        joinNames:firebase.firestore.FieldValue.arrayUnion((USER&&USER.name)||'')}); }catch(e){}
+    }
   }
+  /* ── « je suis dans l'appel » ──
+     Un petit mot déposé pendant l'appel et rafraîchi toutes les 15 secondes.
+     C'est lui qui permet à l'onglet Appels d'afficher « appel en cours » et
+     de proposer d'y revenir. Il disparaît dès qu'on raccroche. */
+  async function _vIciDebut(){
+    _vIciFin();
+    if(_vGenre!=='appel'||!_vRoom) return;
+    try{ const r=_vCol().doc();
+      await r.set({sig:1,room:_vRoom,de:ME.uid,nom:(USER&&USER.name)||'',type:'ici',ts:Date.now()});
+      _vIciRef=r;
+    }catch(e){ _vIciRef=null; }
+    _vIciT=setInterval(()=>{ try{ if(_vIciRef&&_vRoom) _vIciRef.update({ts:Date.now()}); }catch(e){} },15000);
+  }
+  function _vIciFin(){
+    if(_vIciT){ clearInterval(_vIciT); _vIciT=null; }
+    const r=_vIciRef; _vIciRef=null;
+    if(r) try{ r.delete(); }catch(e){}
+  }
+  /* les salles où je suis déjà passé : pour dire « Revenir » plutôt que « Rejoindre » */
+  function salleVue(room){ try{ const l=JSON.parse(localStorage.getItem('opmsg_salles')||'[]');
+    if(l.indexOf(room)<0){ l.push(room); localStorage.setItem('opmsg_salles',JSON.stringify(l.slice(-40))); } }catch(e){} }
+  function salleDejaVue(room){ try{ return JSON.parse(localStorage.getItem('opmsg_salles')||'[]').indexOf(room)>=0; }catch(e){ return false; } }
   /* ── le canal de données : tchat, annotations, écrans, sourdines ── */
   function _vDcAttache(uid,dc){
     const p=_vPairs[uid]; if(!p) return;
     p.dc=dc;
     dc.onmessage=ev=>{ try{ visioDonnee(uid,JSON.parse(ev.data)); }catch(e){} };
     dc.onopen=()=>{ try{
+      dc.send(JSON.stringify({t:'cam',on:_vCamOn}));
       if(_vEcran) dc.send(JSON.stringify({t:'ecranId',id:_vEcran.id}));
       (_vNotes[ME.uid]||[]).forEach(n=>dc.send(JSON.stringify({t:'note',cible:ME.uid,note:n})));
     }catch(e){} };
@@ -3190,6 +3312,7 @@
     if(!m||!m.t) return;
     if(m.t==='chat'){ _vMsgs.push({de:uid,nom:m.nom||'',txt:String(m.txt||'').slice(0,500),ts:Date.now()});
       if(!_vTchatOn){ _vTchatNew++; visioTchatBadge(); } visioTchatFil(); return; }
+    if(m.t==='cam'){ const p=_vPairs[uid]; if(!p) return; p.camOff=!m.on; visioTuiles(); return; }
     if(m.t==='ecranId'){ const p=_vPairs[uid]; if(!p) return; p.ecranIds.add(m.id); _vReclasse(p); visioTuiles(); return; }
     if(m.t==='ecranFin'){ const p=_vPairs[uid]; if(!p) return; p.streams.ecran=null; delete _vNotes[uid];
       if(_vGrand===uid+'::E') _vGrand=null; visioTuiles(); return; }
@@ -3206,7 +3329,9 @@
     const pc=new RTCPeerConnection(_vConf);
     const p={pc:pc,nom:nom||'',streams:{cam:null,ecran:null},ecranIds:new Set(),dc:null,glace:[],pret:false,muetPourMoi:false,ecranSenders:[]};
     _vPairs[uid]=p;
-    try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>pc.addTrack(t,_vLocal)); }catch(e){}
+    _vMaxGens=Math.max(_vMaxGens,1+Object.keys(_vPairs).length);   // à trois, l'appel devient un appel de groupe
+    try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>{ const sn=pc.addTrack(t,_vLocal);
+      if(t.kind==='video') p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); }); }catch(e){}
     try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
     pc.onicecandidate=ev=>{ if(ev.candidate) _vDire({type:'ice',a:uid,cand:JSON.stringify(ev.candidate)}); };
     pc.ontrack=ev=>{ const st=ev.streams[0]||new MediaStream([ev.track]);
@@ -3284,11 +3409,19 @@
       /* UN APPEL À DEUX : si l'autre raccroche, il n'y a plus d'appel du tout.
          On ne laisse personne seul dans le studio. Une réunion, elle, reste
          ouverte : les gens arrivent et repartent au fil de l'heure. */
-      if(_vGenre==='appel' && _vDejaVenu && !Object.keys(_vPairs).length){
+      if(_vGenre==='appel'){
         /* une réunion n'arrive jamais ici — voir visioOuvrir */
-        try{ toast((qui?qui+' a raccroché — ':'')+'appel terminé'); }catch(e){}
-        try{ hideRing(); }catch(e){}
-        setTimeout(()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} },250);
+        if(_vMaxGens>=3){
+          /* APPEL DE GROUPE : chacun va et vient. On ne coupe rien, la ligne
+             reste ouverte et celui qui est parti peut revenir quand il veut. */
+          if(Object.keys(_vPairs).length) try{ toast((qui||'Quelqu\'un')+' a quitté l\'appel — il peut revenir quand il veut.'); }catch(e){}
+          else try{ toast('Tu es seul dans l\'appel — les autres peuvent revenir quand ils veulent.'); }catch(e){}
+        } else if(_vDejaVenu && !Object.keys(_vPairs).length){
+          /* APPEL À DEUX : plus personne au bout du fil, l'appel est fini. */
+          try{ toast((qui?qui+' a raccroché — ':'')+'appel terminé'); }catch(e){}
+          try{ hideRing(); }catch(e){}
+          setTimeout(()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} },250);
+        }
       }
       return;
     }
@@ -3426,7 +3559,10 @@
     if(grand){ g.style.display='flex'; g.style.flexDirection='column'; g.style.alignContent=''; }
     else { g.style.display='grid'; g.style.alignContent='center'; }
     const tuile=(t,taille)=>{
-      const camOff=t.moi&&!t.ecran?(!_vLocal||!_vLocal.getVideoTracks().some(x=>x.enabled)):!(t.stream&&t.stream.getVideoTracks&&t.stream.getVideoTracks().length);
+      const camOff=t.moi&&!t.ecran
+        ? (!_vLocal||!_vLocal.getVideoTracks().some(x=>x.enabled&&x.readyState==='live'))
+        : (t.ecran ? !(t.stream&&t.stream.getVideoTracks&&t.stream.getVideoTracks().length)
+                   : ((t.uid&&_vPairs[t.uid]&&_vPairs[t.uid].camOff===true) || !(t.stream&&t.stream.getVideoTracks&&t.stream.getVideoTracks().length)));
       const ctl=[];
       ctl.push(`<button onclick="event.stopPropagation();visioBouge('${t.id}',-1)" title="Avancer">‹</button>`);
       ctl.push(`<button onclick="event.stopPropagation();visioBouge('${t.id}',1)" title="Reculer">›</button>`);
@@ -3627,17 +3763,47 @@
     const b=$('visio-mic'); if(b){ b.textContent=on?'🎤':'🔇'; b.style.background=on?'#232a3a':'#e05252'; }
     toast(on?'🎤 Micro rallumé':'🔇 Micro coupé — personne ne t\'entend');
     visioTuiles(); }
-  function visioCamera(){ if(!_vLocal) return; let on=false;
-    _vLocal.getVideoTracks().forEach(t=>{ t.enabled=!t.enabled; on=t.enabled; });
-    const b=$('visio-cam'); if(b){ b.textContent=on?'📷':'🚫'; b.style.background=on?'#232a3a':'#e05252'; }
-    visioTuiles(); }
+  /* -- LA CAMÉRA : on l'allume et on l'éteint quand on veut --
+     Éteindre, c'est vraiment ARRÊTER la caméra : le voyant du téléphone
+     s'éteint et les autres voient ton rond, pas un carré noir. Rallumer la
+     redemande — même si l'appel avait commencé en audio seulement. */
+  let _vCamBusy=false;
+  async function visioCamera(){
+    if(!_vRoom||_vCamBusy) return; _vCamBusy=true;
+    const b=$('visio-cam');
+    const vt=_vLocal?_vLocal.getVideoTracks().filter(t=>t.readyState==='live'):[];
+    try{
+      if(vt.length){
+        Object.values(_vPairs).forEach(p=>{ (p.camSendersMoi||[]).forEach(sn=>{ try{ p.pc.removeTrack(sn); }catch(e){} }); p.camSendersMoi=[]; });
+        vt.forEach(t=>{ try{ t.stop(); }catch(e){} try{ _vLocal.removeTrack(t); }catch(e){} });
+        _vCamOn=false; dcTous({t:'cam',on:false});
+        if(b){ b.textContent='🚫'; b.style.background='#e05252'; b.title='Allumer la caméra'; }
+        toast('📷 Caméra coupée — personne ne te voit');
+      } else {
+        let flux;
+        try{ flux=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},facingMode:'user'},audio:false}); }
+        catch(e){ toast('Caméra indisponible — autorise-la dans le navigateur.'); _vCamBusy=false; return; }
+        const t=flux.getVideoTracks()[0];
+        if(!t){ _vCamBusy=false; return; }
+        if(!_vLocal) _vLocal=new MediaStream();
+        try{ _vLocal.addTrack(t); }catch(e){}
+        Object.values(_vPairs).forEach(p=>{ try{ p.camSendersMoi=(p.camSendersMoi||[]).concat([p.pc.addTrack(t,_vLocal)]); }catch(e){} });
+        _vCamOn=true; _vAudioOnly=false; dcTous({t:'cam',on:true});
+        if(b){ b.textContent='📷'; b.style.background='#232a3a'; b.title='Couper la caméra'; }
+        toast('📷 Caméra allumée');
+      }
+    }catch(e){}
+    _vCamBusy=false;
+    visioTuiles();
+  }
   function visioSecoursBtn(){ const e=$('visio-etat');
     if(e&&!e.querySelector('button')) e.innerHTML='<button class="btn ghost sm" onclick="visioSecours()">Passer par l\'ancien système</button>'; }
   function visioSecours(){ const room=_vRoom, titre=($('visio-nom')||{}).textContent||'Réunion', audio=_vAudioOnly;
     visioFermer(true); openJitsi(room,titre,audio); }
   async function visioFermer(sansClore){
     if(_vNettoye&&!_vRoom) return; _vNettoye=true;
-    const room=_vRoom; _vRoom=null;
+    const room=_vRoom, restants=Object.keys(_vPairs).length, groupe=(_vGenre==='appel'&&_vMaxGens>=3);
+    _vRoom=null; _vIciFin();
     if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
     if(_vPoll){ clearInterval(_vPoll); _vPoll=null; }
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
@@ -3651,10 +3817,17 @@
     if(room){ try{ await _vCol().add({sig:1,room:room,de:ME.uid,type:'pars',ts:Date.now()}); }catch(e){}
       try{ const qs=await _vCol().where('room','==',room).get();
         for(const d of qs.docs){ const x=d.data()||{}; if(x.sig&&x.de===ME.uid) try{ await d.ref.delete(); }catch(e){} } }catch(e){} }
-    if(!sansClore) appelClore();
+    if(!sansClore){
+      appelClore(restants);
+      /* un appel de groupe continue sans moi : je peux y revenir quand je veux */
+      if(groupe&&restants>0) try{ toast('Tu as quitté l\'appel — tu peux y revenir depuis l\'onglet Appels.'); }catch(e){}
+    }
   }
   try{ window.addEventListener('pagehide',()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} }); }catch(e){}
-  function appelClore(){
+  function appelClore(restants){
+    /* s'il reste du monde en ligne, l'appel n'est PAS terminé : on se
+       contente de sortir. Le dernier à partir le clôturera. */
+    if(restants>0){ if(_activeCall){ _activeCall=null; if(_callDocUnsub){ _callDocUnsub(); _callDocUnsub=null; } } return; }
     if(_activeCall){ const ref=_activeCall.ref, ans=_activeCall.answered; _activeCall=null; if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;}
       ref.get().then(d=>{ if(!d.exists) return; const st=d.data().status; if(st==='ringing') ref.update({status: ans?'ended':'missed'}); else if(st==='answered') ref.update({status:'ended'}); }).catch(()=>{}); }
   }
