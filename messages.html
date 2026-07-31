@@ -282,6 +282,26 @@
   #visio.mini .vbar,#visio.mini #visio-outils,#visio.mini #visio-tchat,#visio.mini #visio-barre{display:none!important}
   #visio.mini #visio-grille{padding:0!important;gap:0!important}
   #visio-minibar{display:none}
+  /* ══ L'APPEL FAÇON TÉLÉPHONE ══
+     Un appel à deux n'est pas une réunion : l'autre personne prend TOUT
+     l'écran, mon image flotte en petite vignette, le nom et la durée sont
+     posés dessus, et les boutons ronds flottent en bas — comme WhatsApp. */
+  #visio.tel .vbar{position:absolute;top:0;left:0;right:0;z-index:5;border-bottom:none;
+    background:linear-gradient(rgba(6,9,16,.72),transparent);padding-bottom:26px}
+  #visio.tel #visio-grille{padding:0!important;gap:0!important}
+  #visio.tel #visio-barre{position:absolute;left:0;right:0;bottom:0;z-index:5;background:transparent;
+    background:linear-gradient(transparent,rgba(6,9,16,.78));padding-top:30px;padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+  #visio.tel #visio-barre button{backdrop-filter:blur(8px)}
+  /* tout tient sur UNE rangée, même sur un petit téléphone */
+  @media(max-width:560px){
+    #visio.tel #visio-barre{gap:8px;padding-left:8px;padding-right:8px}
+    #visio.tel #visio-barre button{width:42px!important;height:42px!important;font-size:16px!important}
+    #visio.tel #visio-barre button[title="Raccrocher"]{width:54px!important;border-radius:21px!important}
+  }
+  #visio.tel #visio-attente{position:absolute;top:calc(54px + env(safe-area-inset-top));left:12px;right:12px;z-index:6;border-radius:14px;border-bottom:none}
+  .vmoi{position:absolute;right:12px;bottom:calc(118px + env(safe-area-inset-bottom));width:104px;height:148px;z-index:4;
+    border-radius:16px;overflow:hidden;background:#141a26;box-shadow:0 10px 26px rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.25)}
+  @media(min-width:900px){ .vmoi{width:170px;height:126px} }
   #visio.mini #visio-minibar{display:flex;position:absolute;left:0;right:0;bottom:0;z-index:4;
     align-items:center;justify-content:space-between;gap:6px;padding:7px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75))}
   #visio-minibar button{border:none;border-radius:999px;color:#fff;font-size:15px;cursor:pointer;width:36px;height:36px}
@@ -401,6 +421,7 @@
     <span id="visio-nom" style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Réunion</span>
     <b id="visio-duree" style="font-size:12.5px;font-variant-numeric:tabular-nums;color:#9fe870">00:00</b></span>
   <span style="display:flex;gap:8px;align-items:center">
+    <span id="visio-moi-attente" style="display:none;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#8a5a12;color:#ffe3ab">⏸ EN ATTENTE</span>
     <span id="visio-reseau" style="display:none;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#8a5a12;color:#ffe3ab"></span>
     <span id="visio-etat" style="font-size:11.5px;color:#8b93a5"></span>
     <button class="btn ghost sm" onclick="visioFermer()">✕ Quitter</button></span></div>
@@ -435,10 +456,18 @@
         <button onclick="visioTchatEnvoi()" style="border:none;border-radius:10px;padding:0 13px;background:var(--op);color:#fff;font-size:15px;cursor:pointer">➤</button></div>
     </div>
   </div>
+  <div id="visio-attente" style="display:none;align-items:center;gap:10px;padding:9px 13px;background:#3a2f12;border-bottom:1px solid rgba(255,255,255,.10);color:#ffe3ab">
+    <span style="font-size:16px">⏸</span>
+    <b id="visio-attente-nom" style="flex:1;min-width:0;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></b>
+    <b id="visio-attente-duree" style="font-size:12.5px;font-variant-numeric:tabular-nums;opacity:.85"></b>
+    <button onclick="visioReprendre()" style="border:none;border-radius:9px;padding:7px 12px;background:#ffd54a;color:#3a2f12;font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit">Reprendre</button>
+    <button onclick="visioAttenteFin()" title="Terminer cet appel" style="border:none;border-radius:9px;padding:7px 10px;background:rgba(255,255,255,.14);color:#ffe3ab;font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit">✕</button>
+  </div>
   <div id="visio-minibar">
     <button onclick="event.stopPropagation();visioAgrandir()" title="Revenir en grand" style="background:rgba(255,255,255,.22)">⤢</button>
     <button onclick="event.stopPropagation();visioFermer()" title="Raccrocher" style="background:#e05252">📞</button></div>
   <div id="visio-barre" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px calc(12px + env(safe-area-inset-bottom));background:#0a0e16;flex-wrap:wrap">
+    <button id="visio-pause" onclick="visioMettreEnAttente()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Mettre en attente et appeler quelqu'un">⏸</button>
     <button id="visio-reduire" onclick="visioReduire()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Réduire en petite fenêtre">🗕</button>
     <button id="visio-flip" onclick="visioRetourner()" style="display:none;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Caméra avant / arrière">🔄</button>
     <button id="visio-mic" onclick="visioMicro()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Micro">🎤</button>
@@ -3516,7 +3545,10 @@
     { const w=$('visio').classList.contains('open'); $('visio').classList.add('open'); if(!w) pushBack(); }
     visioEtat('caméra…');
     try{
-      _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:1280},facingMode:'user'},audio:true});
+      /* un appel patiente déjà : on garde le même micro et la même caméra —
+         deux demandes en même temps se battraient sur certains téléphones */
+      if(_vAttente && _vLocal && _vLocal.getTracks().some(t=>t.readyState==='live')){ /* on réutilise */ }
+      else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:1280},facingMode:'user'},audio:true});
     }catch(e){
       try{ _vLocal=await navigator.mediaDevices.getUserMedia({video:false,audio:true}); _vAudioOnly=true; }
       catch(e2){ visioEtat('');
@@ -3548,6 +3580,8 @@
     { const z=$('visio-reseau'); if(z){ z.style.display='none'; } }
     visioCamsCompte();
     _vSeulStop();
+    { const z=$('visio-moi-attente'); if(z) z.style.display='none'; }
+    visioAttenteBar();
     if(_vQualT) clearInterval(_vQualT);
     _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
     /* on inscrit son nom sur la fiche de l'appel : l'historique dira ensuite
@@ -3606,6 +3640,13 @@
     if(!m||!m.t) return;
     if(m.t==='chat'){ _vMsgs.push({de:uid,nom:m.nom||'',txt:String(m.txt||'').slice(0,500),ts:Date.now()});
       if(!_vTchatOn){ _vTchatNew++; visioTchatBadge(); } visioTchatFil(); return; }
+    if(m.t==='attente'){ const p=_vPairs[uid]; if(!p) return; p.enAttente=!!m.on;
+      const z=$('visio-moi-attente');
+      const qqun=Object.values(_vPairs).some(x=>x.enAttente);
+      if(z){ z.style.display=qqun?'':'none'; z.textContent='⏸ '+(m.on?((m.nom||'On')+' vous a mis en attente'):''); }
+      if(m.on) toast('⏸ '+(m.nom||'Ton correspondant')+' t\'a mis en attente — ne raccroche pas, il revient.');
+      else toast('▶︎ '+(m.nom||'Ton correspondant')+' est de retour');
+      visioTuiles(); return; }
     if(m.t==='cam'){ const p=_vPairs[uid]; if(!p) return; p.camOff=!m.on; visioTuiles(); return; }
     if(m.t==='ecranId'){ const p=_vPairs[uid]; if(!p) return; p.ecranIds.add(m.id); _vReclasse(p); visioTuiles(); return; }
     if(m.t==='ecranFin'){ const p=_vPairs[uid]; if(!p) return; p.streams.ecran=null; delete _vNotes[uid];
@@ -3625,6 +3666,9 @@
     _vPairs[uid]=p;
     _vMaxGens=Math.max(_vMaxGens,1+Object.keys(_vPairs).length);   // à trois, l'appel devient un appel de groupe
     _vSeulStop();                                                  // quelqu'un est là : plus de compte à rebours
+    /* quelqu'un est entré dans la salle : l'appel est décroché, même si la
+       petite mise à jour de la fiche s'est perdue en route */
+    if(_vGenre==='appel'&&_activeCall) _activeCall.answered=true;
     try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>{ const sn=pc.addTrack(t,_vLocal);
       if(t.kind==='video') p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); }); }catch(e){}
     try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
@@ -3874,6 +3918,7 @@
     const outils=$('visio-outils'); if(outils) outils.style.display=(grand&&grand.endsWith&&(grand==='moiE'||grand.endsWith('::E')))?'flex':'none';
     if(grand||_vMini){ g.style.display='flex'; g.style.flexDirection='column'; g.style.alignContent=''; }
     else { g.style.display='grid'; g.style.alignContent='center'; }
+    g.style.position='relative';
     const tuile=(t,taille)=>{
       const camOff=t.moi&&!t.ecran
         ? (!_vLocal||!_vLocal.getVideoTracks().some(x=>x.enabled&&x.readyState==='live'))
@@ -3906,6 +3951,52 @@
         <span style="position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;z-index:2">${t.ecran?'🖥️ ':''}${esc((t.nom||'').split(' ')[0]||'')}${t.moi?' (toi)':''}</span>
         <span class="vctl" style="position:absolute;right:6px;top:6px;display:flex;gap:4px;z-index:3">${ctl.join('')}</span>
       </div>`; };
+    /* l'appel est garé et rien d'autre n'est en cours : on le dit en grand */
+    if(!_vRoom && _vAttente){
+      const v=$('visio'); if(v) v.classList.add('tel');
+      g.style.display='block';
+      g.innerHTML=`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#0a0e16">
+        <div style="width:118px;height:118px;border-radius:40px;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:800;${avatarStyle(_vAttente.nom||'')}">${ini(_vAttente.nom||'')}</div>
+        <b style="font-size:21px;color:#fff">${esc(_vAttente.nom||'Appel')}</b>
+        <span style="font-size:13.5px;color:#ffe3ab">⏸ en attente — le son est coupé des deux côtés</span>
+        <button class="btn" style="margin-top:8px" onclick="visioReprendre()">▶︎ Reprendre l'appel</button></div>`;
+      const n2=$('visio-nom'); if(n2) n2.textContent=_vAttente.nom||'Appel';
+      return;
+    }
+    /* UN APPEL À DEUX : l'autre prend tout l'écran, moi en vignette */
+    const tel = _vGenre==='appel' && !_vMini && !grand
+      && liste.filter(t=>!t.moi&&!t.ecran).length<=1 && !liste.some(t=>t.ecran);
+    { const v=$('visio'); if(v) v.classList.toggle('tel',!!tel); }
+    if(tel){
+      const lui=liste.find(t=>!t.moi&&!t.ecran);
+      const moi=liste.find(t=>t.moi&&!t.ecran);
+      const luiOff = !lui || (lui.uid&&_vPairs[lui.uid]&&_vPairs[lui.uid].camOff===true) || !(lui&&lui.stream&&lui.stream.getVideoTracks&&lui.stream.getVideoTracks().length);
+      const moiOff = !_vLocal||!_vLocal.getVideoTracks().some(x=>x.enabled&&x.readyState==='live');
+      const attente = lui&&lui.uid&&_vPairs[lui.uid]&&_vPairs[lui.uid].enAttente;
+      g.style.display='block';
+      g.innerHTML=`
+        <div style="position:absolute;inset:0;background:#0a0e16">
+          ${lui&&!luiOff?`<video id="vt-${lui.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video>`
+            :`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+                <div style="width:118px;height:118px;border-radius:40px;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:800;${avatarStyle((lui&&lui.nom)||($('visio-nom')||{}).textContent||'')}">${ini((lui&&lui.nom)||($('visio-nom')||{}).textContent||'')}</div>
+                <b style="font-size:21px;color:#fff">${esc((lui&&lui.nom)||'')}</b>
+                <span style="font-size:13px;color:#8b93a5">${attente?'⏸ en attente':(lui?(_vAudioOnly?'appel audio':'caméra coupée'):'en attente de réponse…')}</span></div>`}
+          ${lui&&!lui.moi?`<audio id="va-${lui.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay></audio>`:''}
+        </div>
+        <div class="vmoi" onclick="event.stopPropagation();visioRetourner()" title="Toucher pour retourner la caméra">
+          ${moiOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+              <div style="width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;${avatarStyle((USER&&USER.name)||'Moi')}">${ini((USER&&USER.name)||'Moi')}</div></div>`
+            :`<video id="vt-moi" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;${_vFace==='user'?'transform:scaleX(-1)':''}"></video>`}
+        </div>`;
+      /* on branche les deux flux */
+      if(lui&&lui.stream){ const v=$('vt-'+lui.id.replace(/[^a-zA-Z0-9]/g,'_'));
+        if(v){ try{ v.srcObject=lui.stream; const j=()=>{ const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); }; v.onloadedmetadata=j; j(); }catch(e){} }
+        const a=$('va-'+lui.id.replace(/[^a-zA-Z0-9]/g,'_'));
+        if(a){ try{ a.srcObject=lui.stream; a.muted=!!(_vPairs[lui.uid]&&_vPairs[lui.uid].muetPourMoi); const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){} } }
+      if(moi&&_vLocal&&!moiOff){ const v=$('vt-moi');
+        if(v){ try{ v.srcObject=_vLocal; v.muted=true; const j=()=>{ const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); }; v.onloadedmetadata=j; j(); }catch(e){} } }
+      return;
+    }
     let h='';
     if(_vMini){
       /* dans la vignette : une seule image, celle qui compte — la personne en
@@ -4097,6 +4188,186 @@
       closeSheet(); toast('📞 '+(nom||'La personne')+' est appelé'+((nom||'').match(/^(Sophie|Léa|Logane|Marie|Julie)/)?'e':'')+'…');
     }catch(e){ opAlerte('Erreur : '+((e&&e.message)||e)); }
   }
+  /* ══════════════════════════════════════════════════════════════════
+     LA MISE EN ATTENTE — deux appels vivants en même temps
+     Le premier appel n'est pas raccroché : sa liaison reste ouverte, on
+     coupe juste le son et l'image dans les deux sens, et on prévient la
+     personne. On reprend là où on s'était arrêté, sans rappeler.
+     Un seul appel peut patienter à la fois — comme sur un vrai téléphone.
+     ══════════════════════════════════════════════════════════════════ */
+  let _vAttente=null, _vAttT=null;
+
+  /* on range tout ce qui fait l'appel en cours dans une boîte */
+  function _vBoite(){
+    return {room:_vRoom,local:_vLocal,pairs:_vPairs,vus:_vVus,unsub:_vUnsub,poll:_vPoll,
+      t0:_vT0,audioOnly:_vAudioOnly,genre:_vGenre,dejaVenu:_vDejaVenu,maxGens:_vMaxGens,
+      iciRef:_vIciRef,camOn:_vCamOn,face:_vFace,ecran:_vEcran,ordre:_vOrdre,grand:_vGrand,
+      notes:_vNotes,msgs:_vMsgs,tchatOn:_vTchatOn,tchatNew:_vTchatNew,
+      nom:((($('visio-nom')||{}).textContent)||'Appel'),
+      appel:_activeCall,docUnsub:_callDocUnsub};
+  }
+  function _vBoiteRend(b){
+    _vRoom=b.room; _vLocal=b.local; _vPairs=b.pairs; _vVus=b.vus; _vUnsub=b.unsub; _vPoll=b.poll;
+    _vT0=b.t0; _vAudioOnly=b.audioOnly; _vGenre=b.genre; _vDejaVenu=b.dejaVenu; _vMaxGens=b.maxGens;
+    _vIciRef=b.iciRef; _vCamOn=b.camOn; _vFace=b.face; _vEcran=b.ecran; _vOrdre=b.ordre; _vGrand=b.grand;
+    _vNotes=b.notes; _vMsgs=b.msgs; _vTchatOn=b.tchatOn; _vTchatNew=b.tchatNew;
+    _activeCall=b.appel; _callDocUnsub=b.docUnsub;
+  }
+  /* on coupe (ou on rétablit) ce qui part vers l'appel qui patiente */
+  function _vAttMuet(b,on){
+    Object.values(b.pairs||{}).forEach(p=>{
+      try{ p.pc.getSenders().forEach(sn=>{
+        if(on){ if(sn.track){ sn._opKind=sn.track.kind; try{ sn.replaceTrack(null); }catch(e){} } }
+        else if(sn._opKind){
+          const a=_vLocal?_vLocal.getAudioTracks()[0]:null;
+          const v=_vLocal?_vLocal.getVideoTracks().filter(t=>t.readyState==='live')[0]:null;
+          try{ sn.replaceTrack(sn._opKind==='audio'?(a||null):(v||null)); }catch(e){}
+        }
+      }); }catch(e){}
+      try{ if(p.dc&&p.dc.readyState==='open') p.dc.send(JSON.stringify({t:'attente',on:!!on,nom:(USER&&USER.name)||''})); }catch(e){}
+    });
+  }
+  /* pendant l'attente : on veille juste à savoir si l'autre raccroche */
+  function _vAttVeille(b){
+    b.veilleVus=new Set();
+    const traite=(id,x)=>{
+      if(!x.sig||x.room!==b.room||x.de===ME.uid) return;
+      if(b.veilleVus.has(id)) return; b.veilleVus.add(id);
+      if(x.type!=='pars') return;
+      const p=b.pairs[x.de]; if(p){ try{ p.pc.close(); }catch(e){} delete b.pairs[x.de]; }
+      if(!Object.keys(b.pairs).length && _vAttente===b){
+        const q=x.nom||'La personne';
+        _vAttenteJette(); try{ toast(q+' a raccroché pendant l\'attente'); }catch(e){}
+      }
+    };
+    try{ b.veille=_vCol().where('room','==',b.room).onSnapshot(qs=>{ qs.forEach(d=>traite(d.id,d.data()||{})); },()=>{}); }catch(e){}
+    /* l'écoute directe s'endort quand l'application passe en arrière-plan :
+       on relit aussi la base régulièrement, comme dans le studio */
+    b.veilleT=setInterval(async()=>{ try{ const qs=await _vCol().where('room','==',b.room).get();
+      qs.forEach(d=>traite(d.id,d.data()||{})); }catch(e){} },3000);
+    /* on continue de dire qu'on est dans cet appel */
+    b.iciT=setInterval(()=>{ try{ if(b.iciRef) b.iciRef.update({ts:Date.now()}); }catch(e){} },15000);
+  }
+  function _vAttVeilleFin(b){
+    try{ if(b.veille){ b.veille(); b.veille=null; } }catch(e){}
+    if(b.veilleT){ clearInterval(b.veilleT); b.veilleT=null; }
+    if(b.iciT){ clearInterval(b.iciT); b.iciT=null; }
+  }
+  /* GARER l'appel en cours (sans le raccrocher) */
+  function _vGarer(){
+    if(!_vRoom) return null;
+    const b=_vBoite();
+    _vAttMuet(b,true);
+    if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
+    if(_vPoll){ clearInterval(_vPoll); _vPoll=null; } b.poll=null;
+    if(_vQualT){ clearInterval(_vQualT); _vQualT=null; }
+    if(_vIciT){ clearInterval(_vIciT); _vIciT=null; }
+    _vSeulStop();
+    try{ if(_vUnsub){ _vUnsub(); } }catch(e){} b.unsub=null; _vUnsub=null;
+    _vAttVeille(b);
+    /* les cases redeviennent libres pour le nouvel appel — sans rien fermer */
+    _vRoom=null; _vPairs={}; _vVus=new Set(); _vIciRef=null; _vEcran=null;
+    _vNotes={}; _vMsgs=[]; _vOrdre=[]; _vGrand=null; _vTchatOn=false; _vTchatNew=0;
+    _activeCall=null; _callDocUnsub=null; _vNettoye=true;
+    return b;
+  }
+  /* SORTIR une boîte du garage et la remettre à l'écran */
+  function _vSortir(b){
+    _vAttVeilleFin(b);
+    _vBoiteRend(b);
+    _vNettoye=false;
+    _vAttMuet(b,false);
+    $('visio-nom').textContent=b.nom||'Appel';
+    const gg=$('visio-genre'); if(gg){ if(b.genre==='appel'){ gg.textContent='📞 APPEL'; gg.style.background='var(--op)'; }
+      else { gg.textContent='📅 RÉUNION'; gg.style.background='#1e7a4e'; } }
+    { const be=$('visio-ecran'); if(be) be.style.display=(b.genre==='appel')?'none':''; }
+    { const bb=$('visio-cam'); if(bb){ bb.textContent=_vCamOn?'📷':'🚫'; bb.style.background=_vCamOn?'#232a3a':'#e05252'; } }
+    { const w=$('visio').classList.contains('open'); $('visio').classList.add('open'); if(!w) pushBack(); }
+    if(_vTimer) clearInterval(_vTimer);
+    _vTimer=setInterval(()=>{ const s2=Math.floor((Date.now()-_vT0)/1000); const el=$('visio-duree');
+      if(el) el.textContent=String(Math.floor(s2/60)).padStart(2,'0')+':'+String(s2%60).padStart(2,'0'); },1000);
+    const traite=d=>{ try{ visioTraiter(d); }catch(e){} };
+    try{ _vUnsub=_vCol().where('room','==',_vRoom).onSnapshot(qs=>{ qs.forEach(x=>traite({id:x.id,...(x.data()||{})})); },()=>{}); }catch(e){}
+    const relire=async()=>{ try{ const qs=await _vCol().where('room','==',_vRoom).get(); qs.forEach(x=>traite({id:x.id,...(x.data()||{})})); }catch(e){} };
+    if(_vPoll) clearInterval(_vPoll);
+    _vPoll=setInterval(relire,2500); relire();
+    _vIciDebut();
+    if(_vQualT) clearInterval(_vQualT);
+    _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
+    visioFlipMaj(); visioTuiles(); visioEtat('');
+  }
+  /* le bandeau jaune en haut du studio */
+  function visioAttenteBar(){
+    const z=$('visio-attente'); if(!z) return;
+    if(!_vAttente){ z.style.display='none'; if(_vAttT){ clearInterval(_vAttT); _vAttT=null; } return; }
+    z.style.display='flex';
+    const n=$('visio-attente-nom'); if(n) n.textContent=(_vAttente.nom||'Appel')+' — en attente';
+    const maj=()=>{ const d=$('visio-attente-duree'); if(!d||!_vAttente) return;
+      const s2=Math.floor((Date.now()-_vAttente.t0)/1000);
+      d.textContent=String(Math.floor(s2/60)).padStart(2,'0')+':'+String(s2%60).padStart(2,'0'); };
+    maj(); if(_vAttT) clearInterval(_vAttT); _vAttT=setInterval(maj,1000);
+  }
+  /* mettre l'appel en cours en attente, sans nouvel appel derrière */
+  function visioGarerSeul(){
+    if(_vAttente){ toast('Un appel patiente déjà — reprends-le ou termine-le d\'abord.'); return false; }
+    const b=_vGarer(); if(!b) return false;
+    _vAttente=b; visioAttenteBar(); visioTuiles();
+    toast('⏸ '+(b.nom||'L\'appel')+' patiente — vous vous entendrez de nouveau à la reprise.');
+    return true;
+  }
+  /* le bouton ⏸ du studio : mettre en attente PUIS appeler quelqu'un d'autre */
+  async function visioMettreEnAttente(){
+    if(!_vRoom){ if(_vAttente) visioReprendre(); return; }
+    if(!visioGarerSeul()) return;
+    openSheet('<p class="muted center">Chargement…</p>');
+    let liste=[]; try{ liste=await listMembers(); }catch(e){}
+    const dispo=liste.filter(m=>m.uid&&m.uid!==ME.uid);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">Qui veux-tu appeler ?</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.5;margin-bottom:14px">${esc(_vAttente?(_vAttente.nom||'Ton correspondant'):'')} patiente pendant ce temps.</p>
+      ${dispo.map(m=>`<div class="row" onclick="closeSheet();startCall(['${esc(m.uid)}'],['${esc((m.name||'').replace(/'/g,''))}'],'audio')">
+        <div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>
+        <div class="info"><div class="nm">${esc(m.name||'')}</div><div class="ds">Touche pour l'appeler</div></div>
+        <span class="btn ghost sm">📞</span></div>`).join('')||'<p class="muted">Aucun contact.</p>'}
+      <button class="btn ghost block" style="margin-top:12px" onclick="closeSheet();visioReprendre()">Finalement, reprendre l'appel</button>`);
+  }
+  /* reprendre l'appel qui patiente (en garant l'actuel s'il y en a un) */
+  function visioReprendre(){
+    if(!_vAttente) return;
+    const b=_vAttente; _vAttente=null;
+    const enCours=_vRoom?_vGarer():null;
+    _vSortir(b);
+    if(enCours){ _vAttente=enCours; toast('⏸ '+(enCours.nom||'L\'autre appel')+' patiente à son tour'); }
+    else toast('Reprise de l\'appel avec '+(b.nom||'ton correspondant'));
+    visioAttenteBar();
+  }
+  /* raccrocher l'appel qui patiente sans y revenir */
+  async function visioAttenteFin(){
+    const b=_vAttente; if(!b) return;
+    _vAttente=null; visioAttenteBar();
+    _vAttVeilleFin(b);
+    try{ if(b.iciRef) await b.iciRef.delete(); }catch(e){}
+    Object.values(b.pairs||{}).forEach(p=>{ try{ p.pc.close(); }catch(e){} });
+    try{ await _vCol().add({sig:1,room:b.room,de:ME.uid,type:'pars',ts:Date.now()}); }catch(e){}
+    try{ const qs=await _vCol().where('room','==',b.room).get();
+      for(const d of qs.docs){ const x=d.data()||{}; if(x.sig&&x.de===ME.uid) try{ await d.ref.delete(); }catch(e){} } }catch(e){}
+    if(b.appel){ try{ const ref=b.appel.ref; if(b.docUnsub) b.docUnsub();
+      ref.get().then(d=>{ if(!d.exists) return; const x=d.data()||{}; const t0=(x.ts&&x.ts.toMillis)?x.ts.toMillis():0;
+        const sec=t0?Math.round((Date.now()-t0)/1000):0;
+        if(x.status==='ringing'||x.status==='answered') ref.update({status:'ended',duree:sec}); }).catch(()=>{}); }catch(e){} }
+    toast('Appel avec '+(b.nom||'ton correspondant')+' terminé');
+  }
+  /* l'appel en attente disparaît (l'autre a raccroché) */
+  function _vAttenteJette(){
+    const b=_vAttente; if(!b) return;
+    _vAttente=null; _vAttVeilleFin(b);
+    Object.values(b.pairs||{}).forEach(p=>{ try{ p.pc.close(); }catch(e){} });
+    try{ if(b.iciRef) b.iciRef.delete(); }catch(e){}
+    if(b.appel){ try{ if(b.docUnsub) b.docUnsub(); b.appel.ref.get().then(d=>{ if(!d.exists) return;
+      const x=d.data()||{}; const t0=(x.ts&&x.ts.toMillis)?x.ts.toMillis():0;
+      const sec=t0?Math.round((Date.now()-t0)/1000):0;
+      if(x.status==='ringing'||x.status==='answered') b.appel.ref.update({status:'ended',duree:sec}); }).catch(()=>{}); }catch(e){} }
+    visioAttenteBar();
+  }
   /* ── micro / caméra / secours / fermeture ── */
   function visioMicro(){ if(!_vLocal) return; let on=false;
     _vLocal.getAudioTracks().forEach(t=>{ t.enabled=!t.enabled; on=t.enabled; });
@@ -4271,19 +4542,26 @@
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
     try{ if(_vEcran) _vEcran.getTracks().forEach(t=>t.stop()); }catch(e){} _vEcran=null;
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
-    try{ if(_vLocal) _vLocal.getTracks().forEach(t=>t.stop()); }catch(e){} _vLocal=null;
+    /* le micro et la caméra servent aussi à l'appel qui patiente : on ne les
+       éteint que si plus personne n'en a besoin */
+    if(_vAttente && _vAttente.local===_vLocal){ /* on garde */ }
+    else { try{ if(_vLocal) _vLocal.getTracks().forEach(t=>t.stop()); }catch(e){} _vLocal=null; }
     _vNotes={}; _vMsgs=[]; _vGrand=null; _vOrdre=[];
     const be=$('visio-ecran'); if(be){ be.style.background='#232a3a'; }
     const z=$('visio-tchat'); if(z) z.style.display='none'; _vTchatOn=false;
-    $('visio').classList.remove('open');
+    $('visio').classList.remove('open'); $('visio').classList.remove('tel');
     if(room){ try{ await _vCol().add({sig:1,room:room,de:ME.uid,type:'pars',ts:Date.now()}); }catch(e){}
       try{ const qs=await _vCol().where('room','==',room).get();
         for(const d of qs.docs){ const x=d.data()||{}; if(x.sig&&x.de===ME.uid) try{ await d.ref.delete(); }catch(e){} } }catch(e){} }
     if(!sansClore){
-      appelClore(restants);
+      appelClore(groupe?restants:0);   // un tête-à-tête se clôt dès que je pars ; un groupe, au dernier
       /* un appel de groupe continue sans moi : je peux y revenir quand je veux */
       if(groupe&&restants>0) try{ toast('Tu as quitté l\'appel — tu peux y revenir depuis l\'onglet Appels.'); }catch(e){}
     }
+    /* quelqu'un patientait : on le reprend tout de suite */
+    if(_vAttente){ const b=_vAttente; _vAttente=null; _vNettoye=false;
+      setTimeout(()=>{ try{ _vSortir(b); visioAttenteBar();
+        toast('Reprise de l\'appel avec '+(b.nom||'ton correspondant')); }catch(e){} },300); }
   }
   try{ window.addEventListener('pagehide',()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} }); }catch(e){}
   /* la durée d'un appel, écrite comme on la dit : « 45 s », « 12 min », « 1 h 05 » */
