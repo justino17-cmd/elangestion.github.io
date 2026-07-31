@@ -5154,6 +5154,7 @@
     guideConvEtape(0);
   }catch(e){} }
   function openChannel(id,name){
+    _fenetre=80; try{ nouveauxCache(); }catch(e){}
     brouillonPose();                       // ce qu'on était en train d'écrire ailleurs est mis de côté
     _curCh={id,name}; _replyTo=null; _starFilter=false;
     _munread.delete(ck(id)); lsSave('opmsg_munread',_munread);
@@ -5190,6 +5191,24 @@
     progEnvoyerDus(); if(_progT) clearInterval(_progT); _progT=setInterval(progEnvoyerDus,60000);
     setTimeout(ackRelanceAuto,4000);
   }
+  /* une pastille discrète : « des messages sont arrivés plus bas » */
+  function nouveauxSignale(){
+    const s=$('stream'); if(!s||!s.parentNode) return;
+    let b=$('neufs-bas');
+    if(!b){
+      b=document.createElement('button'); b.id='neufs-bas';
+      b.style.cssText='position:absolute;left:50%;transform:translateX(-50%);bottom:86px;z-index:6;border:none;border-radius:999px;padding:8px 15px;background:var(--op);color:#fff;font-size:12.5px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.25)';
+      b.textContent='Nouveaux messages ↓';
+      b.onclick=()=>{ const z=$('stream'); if(z) z.scrollTop=z.scrollHeight; nouveauxCache(); };
+      try{ const p=s.parentNode; if(getComputedStyle(p).position==='static') p.style.position='relative'; p.appendChild(b); }catch(e){}
+    }
+    b.style.display='';
+  }
+  function nouveauxCache(){ const b=$('neufs-bas'); if(b) b.style.display='none'; }
+  try{ document.addEventListener('scroll',(e)=>{ const z=e.target;
+    if(!z||z.id!=='stream') return;
+    if(z.scrollHeight-z.scrollTop-z.clientHeight<130) nouveauxCache();
+  },true); }catch(e){}
   // Balayage vers la droite sur un message = répondre (comme WhatsApp)
   function bindSwipeReply(){ const s=$('stream'); if(!s) return; let sx=0,sy=0,el=null;
     s.addEventListener('touchstart',e=>{ const t=e.target.closest('.m'); el=t; sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
@@ -5366,10 +5385,12 @@
           const dp=new Date(m.programmeAt); _curMsgs.push({id:doc.id,m,d:dp}); return; }   // l'auteur, lui, le voit en attente
         const d=m.ts&&m.ts.toDate?m.ts.toDate():new Date(); _curMsgs.push({id:doc.id,m,d}); _msgCache[doc.id]=m.text||''; if(m.file)_files[doc.id]=m.file; });
       if(_lastMsgCount && _curMsgs.length>_lastMsgCount){ const last=_curMsgs[_curMsgs.length-1]; if(last && last.m.uid!==ME.uid){ if(!isMuted(id)){ beep(); if(vibrateOn()&&navigator.vibrate) try{ navigator.vibrate(120); }catch(e){} } if(notifOn() && last.m.mentions && last.m.mentions.includes(ME.uid)) toast('💬 '+(last.m.name||'Quelqu\'un')+' vous a mentionné'); } }
+      const premier=(_lastMsgCount===0);
       _lastMsgCount=_curMsgs.length;
-      renderStream(); markRead(id);
+      renderStream(!premier);   // à l'ouverture on va en bas ; ensuite on respecte la lecture
+      markRead(id);
     }, err=>{ const s=$('stream'); if(s) s.innerHTML='<div class="err">'+esc(err.message)+'</div>'; });
-    _readsUnsub=chDoc(id).collection('reads').onSnapshot(qs=>{ _reads={}; qs.forEach(d=>{ _reads[d.id]=d.data().ts||0; }); renderStream(); }, err=>{});
+    _readsUnsub=chDoc(id).collection('reads').onSnapshot(qs=>{ _reads={}; qs.forEach(d=>{ _reads[d.id]=d.data().ts||0; }); renderStream(true); }, err=>{});
     if(_pinUnsub){ _pinUnsub(); _pinUnsub=null; }
     _pinUnsub=chDoc(id).onSnapshot(d=>{ _curChDoc=d.data()||{}; const p=(d.data()||{}).epingle; const b=$('pinbar'); if(!b) return;
       if(!p||!p.texte){ b.style.display='none'; b.innerHTML=''; return; }
@@ -5381,14 +5402,30 @@
         <span onclick="event.stopPropagation();desepingler()" style="font-size:11px;font-weight:700;color:var(--t3);padding:5px 9px;border-radius:8px;cursor:pointer">Retirer</span></div>`;
     }, err=>{});
   }
-  function renderStream(){
+  /* ══ ON NE DESSINE QUE CE QU'ON REGARDE ══
+     Une conversation d'équipe compte vite des centaines de messages. Les
+     redessiner tous à chaque nouveau message bloquait l'écran un tiers de
+     seconde. On n'affiche que les plus récents ; les plus anciens se
+     chargent d'un bouton, sans jamais peser sur le reste. */
+  let _fenetre=80;
+  function plusAnciens(){ const s=$('stream'); const h=s?s.scrollHeight:0;
+    _fenetre+=120; renderStream(true);
+    if(s){ try{ s.scrollTop=s.scrollHeight-h; }catch(e){} } }
+  function renderStream(garde){
     const s=$('stream'); if(!s) return;
+    /* où en est la lecture ? (avant de toucher au contenu) */
+    const enBas = s.scrollHeight-s.scrollTop-s.clientHeight < 130;
+    const posAvant = s.scrollTop, hautAvant = s.scrollHeight;
     const q=(($('chsearch')||{}).value||'').trim().toLowerCase();
     let msgs = q? _curMsgs.filter(x=>(x.m.text||'').toLowerCase().includes(q)) : _curMsgs;
     const clr=_curCh?getClearedAt(_curCh.id):0; if(clr) msgs=msgs.filter(x=>x.d.getTime()>clr);
     if(_block.size) msgs=msgs.filter(x=>!isBlocked(x.m.uid));
     if(_starFilter) msgs=msgs.filter(x=>_star.has(x.id));
+    /* on garde les plus récents : au-delà, un bouton ouvre la suite */
+    let coupes=0;
+    if(!q && msgs.length>_fenetre){ coupes=msgs.length-_fenetre; msgs=msgs.slice(coupes); }
     let html='',lastDay='';
+    if(coupes) html+=`<div style="text-align:center;padding:10px 0"><button class="btn ghost sm" onclick="plusAnciens()">Voir les ${coupes} message${coupes>1?'s':''} plus anciens</button></div>`;
     const vis=msgs.filter(x=>!_hidden.has(x.id)); let lastMineId=null; for(let i=vis.length-1;i>=0;i--){ if(vis[i].m.uid===ME.uid){ lastMineId=vis[i].id; break; } }
     const isDM=_curCh&&(''+_curCh.id).indexOf('dm_')===0;
     msgs.forEach(({id,m,d})=>{
@@ -5424,7 +5461,12 @@
         <span onclick="attRetirer('${x.id}')" style="margin-left:8px;text-decoration:underline;cursor:pointer;font-weight:700">annuler</span></div></div>`;
     }); } }catch(e){}
     s.innerHTML=html||(q?'<p class="muted center" style="margin:auto">Aucun résultat.</p>':'<p class="muted center" style="margin:auto">Aucun message. Dites bonjour 👋</p>');
-    if(!q) s.scrollTop=s.scrollHeight;
+    /* on ne saute en bas QUE si on y était déjà : sinon on reste exactement
+       où on lisait, et une pastille annonce ce qui vient d'arriver */
+    if(!q){
+      if(enBas||!garde) s.scrollTop=s.scrollHeight;
+      else { s.scrollTop=posAvant+(s.scrollHeight-hautAvant); nouveauxSignale(); }
+    }
   }
   function toggleSearch(){ const b=$('searchbar'); if(!b) return; const show=b.style.display==='none'; b.style.display=show?'block':'none'; if(show){ const i=$('chsearch'); if(i){ i.focus(); } } else { const i=$('chsearch'); if(i) i.value=''; renderStream(); } }
   let _ac=null;
