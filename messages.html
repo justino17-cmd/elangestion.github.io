@@ -4785,11 +4785,34 @@
      en arrière-plan : au retour, un appel en cours n'apparaissait plus.
      Ici on revérifie dès que l'écran revient, à chaque changement d'onglet,
      et toutes les 12 secondes — où qu'on soit dans l'application. */
+  /* ══ UNE NOUVELLE VERSION EST PRÊTE ══
+     L'application s'ouvre désormais instantanément depuis la copie gardée sur
+     l'appareil. Quand une version plus fraîche arrive en arrière-plan, on le
+     dit — et on ne recharge JAMAIS pendant un appel ou une saisie. */
+  let _majPrete=false;
+  function majPropose(){
+    if(_majPrete) return; _majPrete=true;
+    const t=$('toast'); if(!t) return;
+    t.innerHTML='Nouvelle version prête — <b style="text-decoration:underline">toucher pour la charger</b>';
+    t.classList.add('show');
+    t.onclick=()=>{ try{ location.reload(); }catch(e){} };
+    clearTimeout(t._h); t._h=setTimeout(()=>{ t.classList.remove('show'); t.onclick=null; },9000);
+  }
+  /* rien en cours : on la prend tout seul au prochain retour sur l'application */
+  try{ document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState!=='visible'||!_majPrete) return;
+    if(_vRoom||_vAttente||_ringRef) return;                       // jamais pendant un appel
+    const a=document.activeElement;
+    if(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')) return;  // jamais pendant une saisie
+    try{ location.reload(); }catch(e){}
+  }); }catch(e){}
+
   /* le service worker nous prévient dès qu'une notification d'appel arrive :
      même en arrière-plan, la page vérifie tout de suite et fait sonner */
   try{ if(navigator.serviceWorker) navigator.serviceWorker.addEventListener('message',ev=>{
     const d=ev.data||{};
     if(d.op==='push'&&d.appel){ try{ appelsVerifie(); }catch(e){} }
+    if(d.op==='maj'){ try{ majPropose(); }catch(e){} }
   }); }catch(e){}
   async function appelsVerifie(){
     try{
@@ -5408,11 +5431,15 @@
   /* le navigateur n'autorise un son qu'après un premier toucher : au premier
      geste, on joue les deux sonneries EN MUET une fraction de seconde — elles
      sont alors autorisées pour de bon, même quand un appel arrive tout seul */
+  /* les sonneries ne sont PAS téléchargées au démarrage : elles attendraient
+     l'ouverture de l'application pour rien. On les prépare au premier geste,
+     en même temps qu'on débloque le son. */
   try{ ['sons/message.mp3','sons/appel.mp3'].forEach(src=>{
-    const a=new Audio(src); a.preload='auto'; _sonFichiers[src]=a; }); }catch(e){}
+    const a=new Audio(src); a.preload='none'; _sonFichiers[src]=a; }); }catch(e){}
   let _audioPret=false;
   function audioDebloque(){
     if(_audioPret) return; _audioPret=true;
+    try{ Object.keys(_sonFichiers).forEach(k=>{ try{ _sonFichiers[k].preload='auto'; _sonFichiers[k].load(); }catch(e){} }); }catch(e){}
     try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
       if(_ac.state==='suspended') _ac.resume(); }catch(e){}
     ['sons/message.mp3','sons/appel.mp3'].forEach(src=>{
