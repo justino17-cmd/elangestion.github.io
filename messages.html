@@ -483,7 +483,7 @@
     <button id="visio-hp" onclick="visioHautParleur()" style="display:none;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Haut-parleur">🔊</button>
     <button id="visio-mic" onclick="visioMicro()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Micro">🎤</button>
     <button id="visio-cam" onclick="visioCamera()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Caméra">📷</button>
-    <button id="visio-ecran" onclick="visioEcran()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Partager mon écran">🖥️</button>
+    <button id="visio-ecran" onclick="visioEcranMenu()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Partager mon écran">🖥️</button>
     <button id="visio-tchat-btn" onclick="visioTchat()" style="position:relative;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Conversation écrite">💬<span id="visio-tchat-badge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:19px;height:19px;border-radius:999px;background:#e05252;color:#fff;font-size:11px;font-weight:800;align-items:center;justify-content:center;padding:0 5px">0</span></button>
     <button id="visio-plus" onclick="visioInviter()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Ajouter quelqu'un à l'appel">👤➕</button>
     <button onclick="visioFermer()" style="width:62px;height:52px;border-radius:26px;border:none;background:#e05252;color:#fff;font-size:21px;cursor:pointer" title="Raccrocher">📞</button>
@@ -3702,7 +3702,7 @@
       else toast('▶︎ '+(m.nom||'Ton correspondant')+' est de retour');
       visioTuiles(); return; }
     if(m.t==='cam'){ const p=_vPairs[uid]; if(!p) return; p.camOff=!m.on; visioTuiles(); return; }
-    if(m.t==='ecranId'){ const p=_vPairs[uid]; if(!p) return; p.ecranIds.add(m.id); _vReclasse(p); visioTuiles(); return; }
+    if(m.t==='ecranId'){ const p=_vPairs[uid]; if(!p) return; p.ecranIds.add(m.id); _vReclasse(p); ecranArrive(uid); visioTuiles(); return; }
     if(m.t==='ecranFin'){ const p=_vPairs[uid]; if(!p) return; p.streams.ecran=null; delete _vNotes[uid];
       if(_vGrand===uid+'::E') _vGrand=null; visioTuiles(); return; }
     if(m.t==='note'){ (_vNotes[m.cible]=_vNotes[m.cible]||[]).push(m.note); noteDessine(); return; }
@@ -3716,7 +3716,12 @@
     _vDejaVenu=true;
     if(_vPairs[uid]) return _vPairs[uid];
     const pc=new RTCPeerConnection(_vConf);
-    const p={pc:pc,nom:nom||'',streams:{cam:null,ecran:null},ecranIds:new Set(),dc:null,glace:[],pret:false,muetPourMoi:false,ecranSenders:[]};
+    const p={pc:pc,nom:nom||'',streams:{cam:null,ecran:null},ecranIds:new Set(),dc:null,glace:[],pret:false,muetPourMoi:false,ecranSenders:[],
+      /* négociation « polie » : si deux offres se croisent, le poli cède et
+         reprend juste après ; l'impoli garde la sienne. Qui est poli ? C'est
+         fixé une fois pour toutes par les identifiants — les deux côtés
+         tombent d'accord sans se parler. */
+      poli:String(ME.uid)<String(uid), faisOffre:false};
     _vPairs[uid]=p;
     _vMaxGens=Math.max(_vMaxGens,1+Object.keys(_vPairs).length);   // à trois, l'appel devient un appel de groupe
     _vSeulStop();                                                  // quelqu'un est là : plus de compte à rebours
@@ -3735,15 +3740,16 @@
       if(p.ecranIds.has(st.id)) p.streams.ecran=st;
       else if(!p.streams.cam||p.streams.cam.id===st.id) p.streams.cam=st;
       else p.streams.ecran=st;
-      _vReclasse(p); visioTuiles(); };
+      _vReclasse(p); ecranArrive(uid); visioTuiles(); };
     pc.ondatachannel=ev=>_vDcAttache(uid,ev.channel);
     pc.onnegotiationneeded=async()=>{
-      const tenter=async()=>{ if(pc.signalingState!=='stable') return false;
-        const off=await pc.createOffer(); await pc.setLocalDescription(off);
-        await _vDire({type:'offre',a:uid,sdp:JSON.stringify(off)}); return true; };
-      try{ if(await tenter()) return; }catch(e){}
-      /* un échange se chevauchait : on retente une fois, un instant plus tard */
-      setTimeout(async()=>{ try{ await tenter(); }catch(e){} },1200);
+      /* on annonce le changement ; si ça se percute avec l'offre d'en face,
+         la règle du poli (voir visioTraiter) départage proprement */
+      try{ p.faisOffre=true;
+        await pc.setLocalDescription();
+        await _vDire({type:'offre',a:uid,sdp:JSON.stringify(pc.localDescription)});
+      }catch(e){}
+      p.faisOffre=false;
     };
     pc.onconnectionstatechange=()=>{ const st=pc.connectionState;
       if(st==='connected') visioEtat('');
@@ -3757,6 +3763,19 @@
     if(!_vOrdre.includes(uid)) _vOrdre.push(uid);
     visioTuiles();
     return p;
+  }
+  /* ── l'écran d'un collègue passe en GRAND tout seul ──
+     Comme sur WhatsApp : quand quelqu'un partage, on le voit tout de suite,
+     pas besoin de chercher la petite tuile. Une seule fois par partage —
+     si tu choisis ensuite une autre disposition, on la respecte. */
+  const _vEcranPin=new Set();
+  function ecranArrive(uid){
+    const p=_vPairs[uid]; if(!p||!p.streams.ecran) return;
+    const cle=uid+'|'+p.streams.ecran.id;
+    if(_vEcranPin.has(cle)) return; _vEcranPin.add(cle);
+    _vGrand=uid+'::E';
+    try{ toast('🖥️ '+((p.nom||'').split(' ')[0]||'Un collègue')+' partage son écran'); }catch(e){}
+    visioTuiles();
   }
   function _vReclasse(p){
     /* si un flux rangé en caméra est en fait un écran annoncé, on le déplace */
@@ -3774,8 +3793,8 @@
       if(ME.uid>d.de && !_vPairs[d.de]){
         const p=_vPair(d.de,d.nom);
         _vDcAttache(d.de,p.pc.createDataChannel('op'));
-        const off=await p.pc.createOffer(); await p.pc.setLocalDescription(off);
-        await _vDire({type:'offre',a:d.de,sdp:JSON.stringify(off)});
+        /* l'offre part toute seule (onnegotiationneeded) : UNE seule source
+           d'offres, sinon deux partaient en même temps au démarrage */
       } else if(ME.uid<d.de && !_vPairs[d.de]){
         await _vDire({type:'salut',a:d.de});
       }
@@ -3783,7 +3802,14 @@
     }
     if(d.type==='offre'){
       const p=_vPair(d.de,d.nom);
-      await p.pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(d.sdp)));
+      /* deux offres qui se croisent : l'impoli ignore celle d'en face (la
+         sienne gagnera), le poli abandonne la sienne et accepte celle-ci */
+      const collision=p.faisOffre||p.pc.signalingState!=='stable';
+      if(collision&&!p.poli) return;
+      try{
+        if(collision){ try{ await p.pc.setLocalDescription({type:'rollback'}); }catch(e){} }
+        await p.pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(d.sdp)));
+      }catch(e){ return; }
       p.pret=true; for(const c of p.glace) try{ await p.pc.addIceCandidate(c); }catch(e){} p.glace=[];
       const rep2=await p.pc.createAnswer(); await p.pc.setLocalDescription(rep2);
       await _vDire({type:'reponse',a:d.de,sdp:JSON.stringify(rep2)});
@@ -3791,9 +3817,21 @@
     }
     if(d.type==='reponse'){
       const p=_vPairs[d.de]; if(!p) return;
-      await p.pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(d.sdp)));
+      if(p.pc.signalingState!=='have-local-offer') return;   // réponse arrivée trop tard : sans objet
+      try{ await p.pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(d.sdp))); }catch(e){ return; }
       p.pret=true; for(const c of p.glace) try{ await p.pc.addIceCandidate(c); }catch(e){} p.glace=[];
       return;
+    }
+    if(d.type==='ecran'){
+      /* l'annonce d'écran passe AUSSI par la salle : même si le petit canal
+         direct traîne, chacun sait que ce flux-là est un écran */
+      const p=_vPairs[d.de]; if(!p) return;
+      p.ecranIds.add(d.eid); _vReclasse(p); ecranArrive(d.de); visioTuiles(); return;
+    }
+    if(d.type==='ecranfin'){
+      const p=_vPairs[d.de]; if(!p) return;
+      p.streams.ecran=null; delete _vNotes[d.de];
+      if(_vGrand===d.de+'::E') _vGrand=null; visioTuiles(); return;
     }
     if(d.type==='ice'){
       const p=_vPairs[d.de]; if(!p) return;
@@ -3860,15 +3898,9 @@
   /* ── les réglages d'envoi : l'écran a la priorité et un gros débit ── */
   async function _vRegleEnvoi(p){
     try{
+      /* d'abord le choix du codec, SANS attendre : il doit être posé avant
+         que l'offre de négociation ne parte, sinon il rate le premier train */
       for(const sn of (p.ecranSendersMoi||[])){
-        try{
-          const pr=sn.getParameters(); pr.encodings=pr.encodings&&pr.encodings.length?pr.encodings:[{}];
-          pr.encodings[0].maxBitrate=8000000;            // ~8 Mb/s : de quoi porter du 4K
-          pr.encodings[0].networkPriority='high';
-          pr.degradationPreference='maintain-resolution'; // la définition ne baisse JAMAIS
-          await sn.setParameters(pr);
-        }catch(e){}
-        /* le meilleur codec disponible pour le texte (VP9), si le navigateur sait faire */
         try{
           const tr=p.pc.getTransceivers().find(t2=>t2.sender===sn);
           if(tr&&tr.setCodecPreferences&&RTCRtpSender.getCapabilities){
@@ -3876,6 +3908,15 @@
             const vp9=caps.filter(c=>/VP9/i.test(c.mimeType)), autres=caps.filter(c=>!/VP9/i.test(c.mimeType));
             if(vp9.length) tr.setCodecPreferences(vp9.concat(autres));
           }
+        }catch(e){}
+      }
+      for(const sn of (p.ecranSendersMoi||[])){
+        try{
+          const pr=sn.getParameters(); pr.encodings=pr.encodings&&pr.encodings.length?pr.encodings:[{}];
+          pr.encodings[0].maxBitrate=8000000;            // ~8 Mb/s : de quoi porter du 4K
+          pr.encodings[0].networkPriority='high';
+          pr.degradationPreference='maintain-resolution'; // la définition ne baisse JAMAIS
+          await sn.setParameters(pr);
         }catch(e){}
       }
       /* la caméra reste sobre pour laisser la bande passante à l'écran */
@@ -3887,13 +3928,40 @@
       }
     }catch(e){}
   }
-  /* ── le partage d'écran (plusieurs personnes en même temps) ── */
-  async function visioEcran(){
+  /* ── le partage d'écran (plusieurs personnes en même temps) ──
+     Le clic ouvre d'abord NOTRE menu : « Tout l'écran » ou « Une fenêtre »,
+     expliqué en français — et on te dit exactement quel bouton choisir dans
+     la fenêtre du navigateur qui suivra. */
+  function visioEcranMenu(){
+    if(_vGenre==='appel'){ if(_vEcran) visioEcranStop(); return; }
+    if(_vEcran){ visioEcranStop(); return; }
+    const saf=/Safari/i.test(navigator.userAgent||'')&&!/Chrome|Chromium|CriOS|Edg\//i.test(navigator.userAgent||'');
+    const choix=(ic,titre,sous,aide,surface)=>`
+      <div onclick="closeSheet();visioEcran('${surface}')" style="display:flex;gap:13px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer">
+        <span style="font-size:26px;line-height:1">${ic}</span>
+        <div style="flex:1;min-width:0"><b style="font-size:15px">${titre}</b>
+          <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:3px">${sous}</div>
+          ${aide?`<div style="font-size:12px;line-height:1.5;margin-top:6px;color:var(--op)">➜ ${aide}</div>`:''}
+        </div><span class="chev">›</span></div>`;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Partager mon écran</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.55;margin-bottom:12px">Choisis ce que les autres verront. ${saf?'Safari demandera ensuite une autorisation : le bouton à choisir est indiqué.':'Le navigateur te demandera ensuite de confirmer ton choix.'}</p>
+      ${choix('🖥️','Tout l\u2019écran','Tout ce que tu vois : toutes les applications, comme si on regardait par-dessus ton épaule.',
+        saf?'Dans la fenêtre Safari, choisis « Autoriser le partage d\u2019écran »':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
+        'monitor')}
+      ${choix('🪟','Une seule fenêtre','Uniquement l\u2019application choisie — le reste de ton écran reste privé.',
+        saf?'Dans la fenêtre Safari, choisis « Autoriser le partage de fenêtre », puis clique la fenêtre à montrer':'Choisis « Fenêtre » puis clique celle à montrer',
+        'window')}
+      <div data-pied><button class="btn ghost block" onclick="closeSheet()">Annuler</button></div>`);
+  }
+  async function visioEcran(surface){
     if(_vGenre==='appel'){ if(_vEcran) visioEcranStop(); return; }   // pas de partage d'écran en appel
     if(_vEcran){ visioEcranStop(); return; }
     let flux;
-    try{ flux=await navigator.mediaDevices.getDisplayMedia({
-      video:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}},audio:false}); }
+    /* le choix fait dans notre menu est passé au navigateur : Chrome ouvre
+       directement le bon volet ; Safari ignore l'indice, sans casse */
+    const contrainte={width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}};
+    if(surface==='monitor'||surface==='window') contrainte.displaySurface=surface;
+    try{ flux=await navigator.mediaDevices.getDisplayMedia({video:contrainte,audio:false}); }
     catch(e){
       /* refus ou blocage : on ne reste plus muet, on explique */
       const nom=(e&&e.name)||'';
@@ -3911,6 +3979,9 @@
       } else if(nom){
         toast('Partage impossible : '+nom+' — essaie depuis Chrome.');
       }
+      /* la Surveillance doit le savoir : on voit alors À DISTANCE pourquoi
+         le partage ne démarre pas chez un client (et chez nous) */
+      try{ if(nom&&nom!=='NotAllowedError') tmPush('erreur','Partage d\u2019\u00e9cran : d\u00e9marrage impossible ('+nom+')',String((e&&e.message)||''),'',0); }catch(_){}
       return;
     }
     _vEcran=flux;
@@ -3921,6 +3992,7 @@
     flux.getVideoTracks().forEach(t=>{ t.onended=()=>visioEcranStop(); });
     Object.values(_vPairs).forEach(p=>{ try{ flux.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([p.pc.addTrack(t,flux)])); _vRegleEnvoi(p); }catch(e){} });
     dcTous({t:'ecranId',id:flux.id});
+    try{ _vDire({type:'ecran',eid:flux.id}); }catch(e){}
     if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
     _vGrand='moiE';
     visioTuiles(); toast('🖥️ Ton écran est partagé');
@@ -3958,10 +4030,14 @@
         let lum=0; for(let i=0;i<d.length;i+=4) lum+=d[i]+d[i+1]+d[i+2];
         if(lum>0){ range(); return; }                        // de vraies images : tout va bien
         noirs++;
-        if(noirs>=2){ range(); visioEcranStop(); _vEcranBloqueExplique(); return; }
+        if(noirs>=2){ range(); visioEcranStop(); _vEcranBloqueExplique();
+          try{ tmPush('erreur','Partage d\u2019\u00e9cran : images noires \u2014 enregistrement d\u2019\u00e9cran bloqu\u00e9 par le syst\u00e8me','','',0); }catch(_){}
+          return; }
       } else {
         sansImage++;
-        if(sansImage>=3){ range(); visioEcranStop(); _vEcranBloqueExplique(); return; }
+        if(sansImage>=3){ range(); visioEcranStop(); _vEcranBloqueExplique();
+          try{ tmPush('erreur','Partage d\u2019\u00e9cran : aucune image re\u00e7ue du navigateur','','',0); }catch(_){}
+          return; }
       }
       setTimeout(verif,3000);
     }catch(e){ range(); } };                                  // au moindre doute : on laisse le partage vivre
@@ -3987,6 +4063,7 @@
     try{ _vEcran.getTracks().forEach(t=>t.stop()); }catch(e){}
     Object.values(_vPairs).forEach(p=>{ (p.ecranSendersMoi||[]).forEach(sn=>{ try{ p.pc.removeTrack(sn); }catch(e){} }); p.ecranSendersMoi=[]; });
     dcTous({t:'ecranFin',id:_vEcran.id});
+    try{ _vDire({type:'ecranfin',eid:_vEcran.id}); }catch(e){}
     _vEcran=null; delete _vNotes[ME.uid];
     if(_vGrand==='moiE') _vGrand=null;
     _vOrdre=_vOrdre.filter(x=>x!=='moiE');
@@ -4190,7 +4267,7 @@
       const dpr=window.devicePixelRatio||1;
       document.querySelectorAll('#visio-grille video[id^=vt-]').forEach(v=>{
         const id=v.id.slice(3);
-        if(!(id==='moiE'||/_E$/.test(id.replace(/::/,'_')))&&!/E$/.test(id)) return;   // seulement les écrans
+        if(!(id==='moiE'||/__E$/.test(id))) return;   // seulement les vraies tuiles d'écran
         if(!v.videoWidth) return;
         const netW=Math.round(v.videoWidth/dpr), netH=Math.round(v.videoHeight/dpr);
         if(_vZoom100&&_vGrand&&v.id==='vt-'+String(_vGrand).replace(/[^a-zA-Z0-9]/g,'_')){
@@ -4826,7 +4903,73 @@
       interfaceConfigOverwrite:{SHOW_JITSI_WATERMARK:false,SHOW_WATERMARK_FOR_GUESTS:false,SHOW_BRAND_WATERMARK:false,JITSI_WATERMARK_LINK:'',MOBILE_APP_PROMO:false,HIDE_DEEP_LINKING_LOGO:true,SHOW_POWERED_BY:false,APP_NAME:'OP MESSAGES',NATIVE_APP_NAME:'OP MESSAGES',PROVIDER_NAME:'OP MESSAGES',DEFAULT_BACKGROUND:'#0a0e16',DISABLE_JOIN_LEAVE_NOTIFICATIONS:true,TOOLBAR_BUTTONS:['microphone','camera','desktop','tileview','hangup','chat','raisehand','participants-pane','settings']}});
     _japi.addEventListener('readyToClose',closeJitsi);
   }
-  function joinRoom(id,name){ visioOuvrir('OPMSG'+((COMP&&COMP.id)||'perso')+id, name||'Réunion', false, 'reunion'); }
+  /* ══ LA PORTE DE LA RÉUNION ══
+     On ne tombe plus dans la salle d'un coup : on se voit d'abord, on
+     choisit caméra et micro, PUIS on entre — comme sur les grandes
+     applications de visio. */
+  let _porteFlux=null,_porteCam=true,_porteMic=true,_porteInfos=null,_porteRefus=false;
+  function joinRoom(id,name){ reunionPorte('OPMSG'+((COMP&&COMP.id)||'perso')+id, name||'Réunion'); }
+  function reunionPorte(room,nom){
+    _porteInfos={room:room,nom:nom}; _porteCam=true; _porteMic=true; _porteRefus=false;
+    const moi=(USER&&USER.name)||'Moi';
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">📅 ${esc(nom)}</h3>
+      <div style="position:relative;border-radius:16px;overflow:hidden;background:#0a0e16;aspect-ratio:4/3;max-height:320px;margin-bottom:8px">
+        <video id="porte-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:none"></video>
+        <div id="porte-avatar" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
+          <div style="width:84px;height:84px;border-radius:30px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;${avatarStyle(moi)}">${ini(moi)}</div>
+          <span id="porte-note" class="muted" style="font-size:12.5px;padding:0 18px;text-align:center">caméra…</span>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12.5px;line-height:1.5;margin:0 0 12px">Voilà comment les autres te verront. Tu peux entrer caméra coupée et l'allumer plus tard, une fois dans la réunion.</p>
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        <button id="porte-cam" class="btn ghost" style="flex:1" onclick="porteCam()">📷 Caméra activée</button>
+        <button id="porte-mic" class="btn ghost" style="flex:1" onclick="porteMic()">🎤 Micro activé</button>
+      </div>
+      <div data-pied style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn block" style="font-weight:800" onclick="porteEntrer()">Rejoindre la réunion</button>
+        <button class="btn ghost block" onclick="porteQuitter()">Annuler</button>
+      </div>`);
+    /* si la porte se ferme autrement (croix, Échap, clic à côté),
+       la caméra de l'aperçu s'éteint quand même */
+    const garde=setInterval(()=>{ const sh=document.getElementById('sheet');
+      if(!document.getElementById('porte-video')||!(sh&&sh.classList.contains('open'))){
+        clearInterval(garde); porteFluxStop(); _porteInfos=null; } },800);
+    porteApercu();
+  }
+  async function porteApercu(){
+    porteFluxStop();
+    if(_porteCam&&!_porteRefus){
+      try{ _porteFlux=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:960},facingMode:'user'},audio:false}); }
+      catch(e){ _porteRefus=true; _porteCam=false; }
+    }
+    porteMaj();
+  }
+  function porteMaj(){
+    if(!_porteInfos){ porteFluxStop(); return; }   // la porte est déjà refermée
+    const v=$('porte-video'), a=$('porte-avatar'), n=$('porte-note');
+    if(v&&a){
+      if(_porteCam&&_porteFlux){ v.srcObject=_porteFlux; v.style.display='';
+        const j=()=>{ const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); }; v.onloadedmetadata=j; j();
+        a.style.display='none'; }
+      else { v.style.display='none'; a.style.display='flex'; try{ v.srcObject=null; }catch(e){}
+        if(n) n.textContent=_porteRefus?'Caméra refusée par le navigateur — tu peux entrer sans image.':'Tu entreras sans image — les autres verront ton rond.'; }
+    }
+    const rouge=(b,off,txtOn,txtOff)=>{ if(!b) return; b.textContent=off?txtOff:txtOn;
+      b.style.background=off?'#e05252':''; b.style.color=off?'#fff':''; b.style.borderColor=off?'#e05252':''; };
+    rouge($('porte-cam'),!_porteCam,'📷 Caméra activée','🚫 Caméra coupée');
+    rouge($('porte-mic'),!_porteMic,'🎤 Micro activé','🔇 Micro coupé');
+  }
+  function porteCam(){ _porteCam=!_porteCam; if(_porteCam) _porteRefus=false; porteApercu(); }
+  function porteMic(){ _porteMic=!_porteMic; porteMaj(); }
+  function porteFluxStop(){ try{ if(_porteFlux) _porteFlux.getTracks().forEach(t=>t.stop()); }catch(e){} _porteFlux=null; }
+  function porteQuitter(){ _porteInfos=null; porteFluxStop(); closeSheet(); }
+  async function porteEntrer(){
+    const inf=_porteInfos; if(!inf) return; _porteInfos=null;
+    porteFluxStop(); closeSheet();
+    await visioOuvrir(inf.room, inf.nom, !_porteCam, 'reunion');
+    /* le choix « micro coupé » est respecté dès la première seconde */
+    if(!_porteMic){ try{ if(_vLocal&&_vLocal.getAudioTracks().some(t=>t.enabled)) visioMicro(); }catch(e){} }
+  }
   function closeJitsi(){ try{ if(_japi){_japi.dispose();_japi=null;} }catch(e){} $('jitsi-box').innerHTML=''; $('jitsi').classList.remove('open');
     appelClore(); }
 
