@@ -1103,8 +1103,41 @@
     _curView=vueArrivee(); renderShell(); showView(_curView); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
     setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') opPushSub(true); else setTimeout(opPushPropose,1500); }catch(e){} },1800);
   }
+  /* ══ TOUT SE MET À JOUR TOUT SEUL ══
+     Les listes ne sont plus une photo prise à l'ouverture de l'onglet : un
+     appel qui se termine, un message qui arrive, une discussion créée —
+     tout apparaît à l'instant, sans rien rouvrir. */
+  let _viveUnsub=[], _viveT=null;
+  function viveRafraichir(){
+    if(_viveT) return;                                   // une seule fois par salve
+    _viveT=setTimeout(()=>{ _viveT=null;
+      try{
+        if(_curView==='disc'){
+          const cherche=document.activeElement&&document.activeElement.id==='disc-search';
+          viewDisc(cherche);
+        }
+        else if(_curView==='appel') viewAppel();
+        try{ badgesMaj(); }catch(e){}
+      }catch(e){}
+    },180);
+  }
+  function viveArrete(){ _viveUnsub.forEach(u=>{ try{ u(); }catch(e){} }); _viveUnsub=[];
+    if(_viveT){ clearTimeout(_viveT); _viveT=null; } }
+  function viveDemarre(){
+    viveArrete();
+    if(!ME||!ME.uid) return;
+    const suit=(q)=>{ try{ _viveUnsub.push(q.onSnapshot(()=>viveRafraichir(),()=>{})); }catch(e){} };
+    try{
+      const ch=chanCol();
+      suit(ch.where('members','array-contains',ME.uid));         // mes discussions
+      if(MODE!=='perso') suit(ch.where('type','==','general'));   // le canal général
+      const cc=callsCol();
+      suit(cc.where('members','array-contains',ME.uid));          // les appels reçus
+      suit(cc.where('from','==',ME.uid));                         // les appels passés
+    }catch(e){}
+  }
   function startSpaceListeners(){
-    startPresence(); startCallListener();
+    startPresence(); startCallListener(); viveDemarre();
     if(_meetWatchUnsub){ _meetWatchUnsub(); _meetWatchUnsub=null; }
     if(MODE==='company'&&HAS_COMPANY) startMeetingWatch(); else { _myMeetings=[]; }
   }
@@ -4719,6 +4752,7 @@
         } }catch(e){} }
     if(!sansClore){
       appelClore(groupe?restants:0);   // un tête-à-tête se clôt dès que je pars ; un groupe, au dernier
+      try{ viveRafraichir(); }catch(e){}   // l'appel apparaît aussitôt dans l'historique
       /* un appel de groupe continue sans moi : je peux y revenir quand je veux */
       if(groupe&&restants>0) try{ toast('Tu as quitté l\'appel — tu peux y revenir depuis l\'onglet Appels.'); }catch(e){}
     }
@@ -5588,7 +5622,9 @@
   try{ window.addEventListener('online',()=>setTimeout(attFlush,800)); }catch(e){}
   setInterval(()=>{ try{ attFlush(); }catch(e){} },25000);
   async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value='';
-    brouillonEcrire(_curCh.id,'');         // envoyé : plus de brouillon const mp=$('mentionpop'); if(mp) mp.style.display='none';
+    brouillonEcrire(_curCh.id,'');         // envoyé : plus de brouillon
+    const mp=$('mentionpop'); if(mp) mp.style.display='none';
+    try{ viveRafraichir(); }catch(e){}     // la liste des discussions suit tout de suite
     try{ const ep=$('emojipop'); if(ep&&ep.style.display!=='none'){ ep.style.display='none'; emojiSourd(); } }catch(e){}
     const data={uid:ME.uid,name:USER.name||ME.email,text,ts:FV()}; if(_replyTo) data.replyTo=_replyTo;
     const ment=parseMentions(text); if(ment.length){ data.mentions=ment.map(x=>x.uid); data.mentionNames=ment.map(x=>x.name); }
