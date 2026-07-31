@@ -480,6 +480,7 @@
     <button id="visio-pause" onclick="visioMettreEnAttente()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Mettre en attente et appeler quelqu'un">⏸</button>
     <button id="visio-reduire" onclick="visioReduire()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Réduire en petite fenêtre">🗕</button>
     <button id="visio-flip" onclick="visioRetourner()" style="display:none;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Caméra avant / arrière">🔄</button>
+    <button id="visio-hp" onclick="visioHautParleur()" style="display:none;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Haut-parleur">🔊</button>
     <button id="visio-mic" onclick="visioMicro()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Micro">🎤</button>
     <button id="visio-cam" onclick="visioCamera()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Caméra">📷</button>
     <button id="visio-ecran" onclick="visioEcran()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Partager mon écran">🖥️</button>
@@ -3591,7 +3592,7 @@
     ecranEveille(true);
     { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
     { const z=$('visio-reseau'); if(z){ z.style.display='none'; } }
-    visioCamsCompte();
+    visioCamsCompte(); visioHPDispo();
     _vSeulStop();
     { const z=$('visio-moi-attente'); if(z) z.style.display='none'; }
     visioAttenteBar();
@@ -3642,6 +3643,7 @@
     dc.onmessage=ev=>{ try{ visioDonnee(uid,JSON.parse(ev.data)); }catch(e){} };
     dc.onopen=()=>{ try{
       dc.send(JSON.stringify({t:'cam',on:_vCamOn}));
+      dc.send(JSON.stringify({t:'mic',on:!!(_vLocal&&_vLocal.getAudioTracks().some(t=>t.enabled)),nom:(USER&&USER.name)||''}));
       if(_vEcran) dc.send(JSON.stringify({t:'ecranId',id:_vEcran.id}));
       (_vNotes[ME.uid]||[]).forEach(n=>dc.send(JSON.stringify({t:'note',cible:ME.uid,note:n})));
     }catch(e){} };
@@ -3653,6 +3655,7 @@
     if(!m||!m.t) return;
     if(m.t==='chat'){ _vMsgs.push({de:uid,nom:m.nom||'',txt:String(m.txt||'').slice(0,500),ts:Date.now()});
       if(!_vTchatOn){ _vTchatNew++; visioTchatBadge(); } visioTchatFil(); return; }
+    if(m.t==='mic'){ const p=_vPairs[uid]; if(!p) return; p.micOff=!m.on; visioTuiles(); return; }
     if(m.t==='attente'){ const p=_vPairs[uid]; if(!p) return; p.enAttente=!!m.on;
       const z=$('visio-moi-attente');
       const qqun=Object.values(_vPairs).some(x=>x.enAttente);
@@ -3958,7 +3961,9 @@
         ctl.push(`<button onclick="event.stopPropagation();visioSourdine('${t.uid}')" title="Couper le son pour moi">${p&&p.muetPourMoi?'🔇':'🔈'}</button>`);
         if(typeof peutReunion==='function'&&peutReunion()) ctl.push(`<button onclick="event.stopPropagation();visioMuteLui('${t.uid}')" title="Couper SON micro">🎙✕</button>`);
       }
-      const micCoupe=t.moi&&!t.ecran&&_vLocal&&!_vLocal.getAudioTracks().some(x=>x.enabled);
+      const micCoupe = t.ecran ? false : (t.moi
+        ? (_vLocal&&!_vLocal.getAudioTracks().some(x=>x.enabled))
+        : !!(t.uid&&_vPairs[t.uid]&&_vPairs[t.uid].micOff));
       return `<div style="position:relative;border-radius:14px;overflow:hidden;background:#141a26;${t.ecran?'display:flex;align-items:center;justify-content:center;':''}${taille}" onclick="visioGrand('${t.id}')">
         ${micCoupe?`<span style="position:absolute;left:8px;top:8px;z-index:3;background:#e05252;color:#fff;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px">🔇 Micro coupé</span>`:''}
         ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
@@ -4002,10 +4007,12 @@
       g.innerHTML=`
         <div style="position:absolute;inset:0;background:#0a0e16" onclick="visioCalmeRelance()">
           ${lui&&!luiOff?`<video id="vt-${lui.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${lui.moi?'muted':''} style="width:100%;height:100%;object-fit:cover;${(lui.moi&&_vFace==='user')?'transform:scaleX(-1)':''}"></video>`
-            :`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+            :`<div style="position:absolute;inset:0;background:radial-gradient(120% 80% at 50% 30%, ${_vAvatarFond((lui&&lui.nom)||'')} 0%, #0a0e16 72%)"></div>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
                 <div style="width:118px;height:118px;border-radius:40px;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:800;${avatarStyle((lui&&lui.nom)||($('visio-nom')||{}).textContent||'')}">${ini((lui&&lui.nom)||($('visio-nom')||{}).textContent||'')}</div>
                 <b style="font-size:21px;color:#fff">${esc((lui&&lui.nom)||'')}</b>
                 <span style="font-size:13px;color:#8b93a5">${attente?'⏸ en attente':(lui?(_vAudioOnly?'appel audio':'caméra coupée'):'en attente de réponse…')}</span></div>`}
+          ${(lui&&!lui.moi&&lui.uid&&_vPairs[lui.uid]&&_vPairs[lui.uid].micOff)?`<span style="position:absolute;left:14px;top:calc(64px + env(safe-area-inset-top));z-index:3;background:#e05252;color:#fff;font-size:11.5px;font-weight:800;padding:4px 11px;border-radius:999px">🔇 Micro coupé</span>`:''}
           ${lui&&!lui.moi?`<audio id="va-${lui.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay></audio>`:''}
         </div>
         <div class="vmoi${_vCoin===1?' hd':(_vCoin===2?' hg':(_vCoin===3?' bg':''))}" onclick="event.stopPropagation();visioEchange()"
@@ -4013,6 +4020,7 @@
           ${moiOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
               <div style="width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;${avatarStyle((moi&&moi.nom)||'Moi')}">${ini((moi&&moi.nom)||'Moi')}</div></div>`
             :`<video id="vt-vignette" autoplay playsinline ${moi&&moi.moi?'muted':''} style="width:100%;height:100%;object-fit:cover;${(moi&&moi.moi&&_vFace==='user')?'transform:scaleX(-1)':''}"></video>`}
+          ${((moi&&moi.moi&&_vLocal&&!_vLocal.getAudioTracks().some(x=>x.enabled))||(moi&&!moi.moi&&moi.uid&&_vPairs[moi.uid]&&_vPairs[moi.uid].micOff))?`<span style="position:absolute;left:6px;bottom:6px;background:#e05252;color:#fff;font-size:12px;padding:2px 6px;border-radius:8px">🔇</span>`:''}
         </div>`;
       /* on branche les deux flux */
       if(lui){ const v=$('vt-'+lui.id.replace(/[^a-zA-Z0-9]/g,'_')); const fx=lui.moi?_vLocal:lui.stream;
@@ -4394,6 +4402,35 @@
       if(x.status==='ringing'||x.status==='answered') b.appel.ref.update({status:'ended',duree:sec}); }).catch(()=>{}); }catch(e){} }
     visioAttenteBar();
   }
+  /* ══ LE HAUT-PARLEUR ══
+     Le navigateur ne laisse choisir la sortie du son que sur ordinateur. Sur
+     téléphone, c'est l'appareil qui décide (haut-parleur si aucun casque) :
+     on cache alors le bouton plutôt que de faire semblant. */
+  let _vHP=false;
+  async function visioHPDispo(){
+    const b=$('visio-hp'); if(!b) return;
+    let ok=false;
+    try{ ok=typeof HTMLMediaElement!=='undefined' && !!HTMLMediaElement.prototype.setSinkId
+      && !((navigator.maxTouchPoints||0)>0); }catch(e){}
+    b.style.display=ok?'':'none';
+    if(ok){ b.textContent=_vHP?'🔊':'🎧'; b.style.background=_vHP?'var(--op)':'#232a3a'; }
+  }
+  async function visioHautParleur(){
+    _vHP=!_vHP;
+    let sortie='default';
+    try{
+      const l=await navigator.mediaDevices.enumerateDevices();
+      const hp=l.filter(d=>d.kind==='audiooutput');
+      if(_vHP){ const g=hp.find(d=>/speaker|haut|parleur/i.test(d.label||'')); if(g) sortie=g.deviceId; }
+      else { const c=hp.find(d=>/head|casque|écouteur|ecouteur/i.test(d.label||'')); if(c) sortie=c.deviceId; }
+    }catch(e){}
+    let n=0;
+    document.querySelectorAll('#visio audio, #visio video').forEach(el=>{
+      try{ if(el.setSinkId){ el.setSinkId(sortie); n++; } }catch(e){}
+    });
+    const b=$('visio-hp'); if(b){ b.textContent=_vHP?'🔊':'🎧'; b.style.background=_vHP?'var(--op)':'#232a3a'; }
+    toast(_vHP?'🔊 Haut-parleur':'🎧 Écouteur');
+  }
   /* ══ PERSONNE NE RÉPOND ══
      Au bout de 45 secondes, on arrête de sonner dans le vide : l'appel
      devient un appel manqué et on propose de rappeler ou d'écrire. */
@@ -4411,6 +4448,11 @@
         <p class="muted" style="font-size:13px;line-height:1.55;margin-bottom:14px">${esc(nom)} n'a pas décroché. L'appel est noté comme manqué.</p>
         <button class="btn ghost block" onclick="closeSheet()">Fermer</button>`); },500);
     },45000);
+  }
+  /* la teinte douce derrière un avatar, tirée de sa couleur */
+  function _vAvatarFond(nom){
+    try{ const st=avatarStyle(nom||''); const m=st.match(/background:\s*([^;]+)/);
+      return m?m[1].trim():'#1b2436'; }catch(e){ return '#1b2436'; }
   }
   /* ══ ON ÉCHANGE LES DEUX IMAGES ══ (comme WhatsApp : on touche sa vignette) */
   let _vEchange=false, _vCoin=0;
@@ -4442,6 +4484,8 @@
   function visioMicro(){ if(!_vLocal) return; let on=false;
     _vLocal.getAudioTracks().forEach(t=>{ t.enabled=!t.enabled; on=t.enabled; });
     const b=$('visio-mic'); if(b){ b.textContent=on?'🎤':'🔇'; b.style.background=on?'#232a3a':'#e05252'; }
+    /* les autres doivent le VOIR, pas le deviner en parlant dans le vide */
+    try{ dcTous({t:'mic',on:on,nom:(USER&&USER.name)||''}); }catch(e){}
     toast(on?'🎤 Micro rallumé':'🔇 Micro coupé — personne ne t\'entend');
     visioTuiles(); }
   /* -- LA CAMÉRA : on l'allume et on l'éteint quand on veut --
@@ -4741,6 +4785,9 @@
           <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-bottom:20px">
             ${MOTS_REFUS.map((m,i)=>`<button onclick="refuserAvecMot(${i})" style="border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#e7ecf7;border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">${esc(m.court)}</button>`).join('')}
           </div>
+          <div style="display:flex;justify-content:center;margin-bottom:14px">
+            <button id="ring-silence" onclick="ringSilence()" style="border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#e7ecf7;border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">🔕 Couper la sonnerie</button>
+          </div>
           <div style="display:flex;gap:64px;justify-content:center;align-items:flex-end">
             <div><button class="ring-btn decline" onclick="declineCall()" style="width:74px;height:74px">${ic('phone',30)}</button>
               <div style="margin-top:10px;font-size:13px;font-weight:600;color:#b9c2d4">Refuser</div></div>
@@ -4783,6 +4830,13 @@
     if(_vRoom){ try{ visioFermer(); }catch(e){} }
     _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub();
     setTimeout(()=>{ try{ visioOuvrir(room,'Appel',type==='audio','appel'); }catch(e){} },350); }
+  /* couper la sonnerie sans refuser : ça continue de sonner chez l'appelant,
+     on garde le choix de décrocher, mais le téléphone se tait ici */
+  function ringSilence(){
+    ringStop();
+    const b=$('ring-silence');
+    if(b){ b.textContent='🔕 Sonnerie coupée'; b.style.opacity='.6'; b.onclick=null; }
+  }
   function declineCall(){ if(_ringRef) _ringRef.update({status:'declined'}).catch(()=>{}); hideRing(); }
   function hideRing(){ ringStop(); $('ring').classList.remove('open'); _ringRef=null; if(_ringRefUnsub){_ringRefUnsub();_ringRefUnsub=null;} }
   /* ══ LES SONS D'UN VRAI TÉLÉPHONE ══
@@ -6686,7 +6740,11 @@
   function pushBack(){ try{ history.pushState({op:1},''); }catch(e){} }
   function anyOverlayOpen(){ return ['visio','camera','viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
   function closeTopOverlay(){
-    if($('visio')&&$('visio').classList.contains('open')){ visioFermer(); return true; }
+    if($('visio')&&$('visio').classList.contains('open')){
+      /* comme sur un téléphone : le bouton retour REDUIT l'appel, il ne
+         raccroche pas. On raccroche avec le bouton rouge. */
+      if(_vRoom&&_vGenre==='appel'&&!_vMini){ visioReduire(); return true; }
+      visioFermer(); return true; }
     if($('camera')&&$('camera').classList.contains('open')){ camFermer(); return true; }
     if($('viewer')&&$('viewer').classList.contains('open')){ closeViewer(); return true; }
     if($('opdlg')&&$('opdlg').classList.contains('open')){ _dlgRepond(null); return true; }
