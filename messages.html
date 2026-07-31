@@ -3055,7 +3055,16 @@
       /* un appel EN COURS s'affiche toujours, même si l'historique a été vidé */
       _callTous=Object.values(map);
       const _cc=+(localStorage.getItem(callClearKey())||0);
-      _callRecents=Object.values(map).filter(c=>tms(c.ts)>_cc).sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
+      /* un appel = UNE ligne : si quelqu'un a été ajouté en cours de route,
+         sa fiche d'invitation ne doit pas faire doublon avec l'appel */
+      const parSalle={}, gardees=[];
+      Object.values(map).filter(c=>tms(c.ts)>_cc).forEach(c=>{
+        if(!c.room){ gardees.push(c); return; }
+        const p=parSalle[c.room];
+        if(!p||tms(c.ts)<tms(p.ts)) parSalle[c.room]=c;
+      });
+      Object.values(parSalle).forEach(c=>gardees.push(c));
+      _callRecents=gardees.sort((x,y)=>tms(y.ts)-tms(x.ts)).slice(0,60);
       viewAppelList();
       appelsVivantsMaj();
       if(_callLiveT) clearInterval(_callLiveT);
@@ -3140,19 +3149,30 @@
      Chacun inscrit son nom sur la fiche en entrant dans la salle. On sait
      donc, après coup, qui a vraiment décroché — et qui n'est jamais venu,
      même si l'appel a bien eu lieu entre les autres. */
-  function callVenus(c){
-    const l=(c.joinNames||[]).filter(n=>n);
-    const moi=(USER&&USER.name)||'';
-    return l.map(n=>n===moi?'Toi':n);
-  }
-  function callAbsents(c){
-    const venus=(c.joins||[]);
-    const tous=[]; const vus={};
+  function callMoi(n){ const moi=(USER&&USER.name)||''; return (n&&n===moi)?'Toi':(n||'Contact'); }
+  /* la liste complète des personnes concernées par l'appel */
+  function callTous(c){
+    const tous=[], vus={};
     const ajoute=(uid,nom)=>{ if(!uid||vus[uid]) return; vus[uid]=1; tous.push({uid:uid,nom:nom||''}); };
     ajoute(c.from,c.fromName);
     (c.members||[]).forEach((u,i)=>ajoute(u,(c.memberNames||[])[i]));
-    const moi=(USER&&USER.name)||'';
-    return tous.filter(x=>venus.indexOf(x.uid)<0).map(x=>(x.nom===moi?'Toi':(x.nom||'Contact')));
+    return tous;
+  }
+  function callVenus(c){
+    const l=(c.joinNames||[]).filter(n=>n);
+    if(l.length) return l.map(callMoi);
+    /* APPELS D'AVANT LA MISE À JOUR : leur fiche ne dit pas qui est entré
+       dans la salle. On le déduit alors de l'issue — un appel « terminé »
+       a forcément été décroché des deux côtés. */
+    if(c.status==='ended'&&(c.members||[]).length===1) return callTous(c).map(x=>callMoi(x.nom));
+    return [];
+  }
+  function callDeduit(c){ return !((c.joinNames||[]).filter(n=>n).length) && callVenus(c).length>0; }
+  function callAbsents(c){
+    /* sans information enregistrée, on n'accuse personne d'être absent */
+    if(!Array.isArray(c.joins)||!c.joins.length) return [];
+    const venus=c.joins;
+    return callTous(c).filter(x=>venus.indexOf(x.uid)<0).map(x=>callMoi(x.nom));
   }
   async function callInfo(id){ openSheet('<p class="muted center">Chargement…</p>');
     let c={}; try{ const d=await callsCol().doc(id).get(); if(d.exists) c=d.data(); }catch(e){}
@@ -3168,7 +3188,8 @@
             <span style="font-size:12px;font-weight:700;color:${ok?'var(--pres)':'var(--t3)'}">${ok?'a rejoint':'pas venu'}</span></div>`;
         return `<div class="card" style="padding:10px 12px;margin-bottom:14px">
           <div style="font-size:11px;font-weight:800;letter-spacing:.07em;color:var(--t3);margin:2px 2px 4px">PARTICIPANTS</div>
-          ${v.map(n=>ligne(n,true)).join('')}${a.map(n=>ligne(n,false)).join('')}</div>`; })()}
+          ${v.map(n=>ligne(n,true)).join('')}${a.map(n=>ligne(n,false)).join('')}
+          ${callDeduit(c)?`<p class="muted" style="font-size:11.5px;line-height:1.5;margin:6px 2px 2px">Appel passé avant la mise à jour : le détail est déduit du fait que l'appel a bien été décroché.</p>`:''}</div>`; })()}
       <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();recall('${id}')">${ic('phone',18)}Rappeler</button>
       <button class="btn ghost block" onclick="closeSheet();recallVideo('${id}')">${ic('video',18)}Rappeler en vidéo</button>`); }
   async function recallVideo(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
@@ -3249,6 +3270,9 @@
       try{ _vLocal=await navigator.mediaDevices.getUserMedia({video:false,audio:true}); _vAudioOnly=true; }
       catch(e2){ visioEtat(''); alert('Caméra et micro refusés — autorise-les dans le navigateur, ou passe par l\'ancien système.'); visioSecoursBtn(); return; }
     }
+    /* Le partage d'écran, c'est pour les RÉUNIONS. Un appel, c'est le
+       téléphone : on se parle, on ne présente pas de document. */
+    { const be=$('visio-ecran'); if(be) be.style.display=(_vGenre==='appel')?'none':''; }
     _vCamOn=!!(_vLocal&&_vLocal.getVideoTracks().length);
     { const b=$('visio-cam'); if(b){ b.textContent=_vCamOn?'📷':'🚫'; b.style.background=_vCamOn?'#232a3a':'#e05252';
       b.title=_vCamOn?'Couper la caméra':'Allumer la caméra'; } }
@@ -3265,11 +3289,19 @@
     _vPoll=setInterval(relire,2500); relire();
     _vIciDebut();
     /* on inscrit son nom sur la fiche de l'appel : l'historique dira ensuite
-       qui a vraiment décroché et qui n'est jamais venu */
-    if(_vGenre==='appel'&&_activeCall&&_activeCall.ref){
-      try{ await _activeCall.ref.update({
-        joins:firebase.firestore.FieldValue.arrayUnion(ME.uid),
-        joinNames:firebase.firestore.FieldValue.arrayUnion((USER&&USER.name)||'')}); }catch(e){}
+       qui a vraiment décroché et qui n'est jamais venu.
+       Attention : une même conversation peut avoir PLUSIEURS fiches — quand
+       on ajoute quelqu'un en cours de route, une nouvelle fiche est créée
+       pour le faire sonner. On signe donc sur toutes les fiches de la salle,
+       sinon la personne ajoutée n'apparaîtrait jamais dans l'historique. */
+    if(_vGenre==='appel'){
+      const maj={joins:firebase.firestore.FieldValue.arrayUnion(ME.uid),
+                 joinNames:firebase.firestore.FieldValue.arrayUnion((USER&&USER.name)||'')};
+      let signe=false;
+      try{ const qs=await callsCol().where('room','==',room).get();
+        for(const d of qs.docs){ const x=d.data()||{}; if(x.sig) continue;
+          try{ await d.ref.update(maj); signe=true; }catch(e){} } }catch(e){}
+      if(!signe&&_activeCall&&_activeCall.ref){ try{ await _activeCall.ref.update(maj); }catch(e){} }
     }
   }
   /* ── « je suis dans l'appel » ──
@@ -3458,6 +3490,7 @@
   }
   /* ── le partage d'écran (plusieurs personnes en même temps) ── */
   async function visioEcran(){
+    if(_vGenre==='appel'){ if(_vEcran) visioEcranStop(); return; }   // pas de partage d'écran en appel
     if(_vEcran){ visioEcranStop(); return; }
     let flux;
     try{ flux=await navigator.mediaDevices.getDisplayMedia({
@@ -3749,9 +3782,17 @@
   async function visioAppelerEnPlus(uid,nom){
     if(!_vRoom) return;
     try{
+      /* on recopie ceux qui sont DÉJÀ dans l'appel : sans ça, la personne
+         ajoutée n'aurait dans son historique que son propre nom */
+      let dj=[], djn=[];
+      try{ const qs=await callsCol().where('room','==',_vRoom).get();
+        qs.forEach(d=>{ const x=d.data()||{}; if(x.sig) return;
+          (x.joins||[]).forEach(u=>{ if(dj.indexOf(u)<0) dj.push(u); });
+          (x.joinNames||[]).forEach(n=>{ if(n&&djn.indexOf(n)<0) djn.push(n); }); }); }catch(e){}
       const ref=callsCol().doc();
       await ref.set({from:ME.uid,fromName:(USER&&USER.name)||ME.email,members:[uid],memberNames:[nom||''],
-        type:_vAudioOnly?'audio':'video',room:_vRoom,status:'ringing',ts:FV(),ajout:true});
+        type:_vAudioOnly?'audio':'video',room:_vRoom,status:'ringing',ts:FV(),ajout:true,
+        joins:dj,joinNames:djn});
       try{ opPushNotifyUsers([uid],'📞 '+((USER&&USER.name)||'Quelqu\'un')+' t\'ajoute à un appel'+(MODE==='company'&&COMP&&COMP.name?' · '+COMP.name:''),
         'Appel en cours — touche « Répondre » pour rejoindre.','/messages.html?appel=1'); }catch(e){}
       closeSheet(); toast('📞 '+(nom||'La personne')+' est appelé'+((nom||'').match(/^(Sophie|Léa|Logane|Marie|Julie)/)?'e':'')+'…');
