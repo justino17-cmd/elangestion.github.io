@@ -408,6 +408,7 @@
     <button id="visio-cam" onclick="visioCamera()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Caméra">📷</button>
     <button id="visio-ecran" onclick="visioEcran()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Partager mon écran">🖥️</button>
     <button id="visio-tchat-btn" onclick="visioTchat()" style="position:relative;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Conversation écrite">💬<span id="visio-tchat-badge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:19px;height:19px;border-radius:999px;background:#e05252;color:#fff;font-size:11px;font-weight:800;align-items:center;justify-content:center;padding:0 5px">0</span></button>
+    <button id="visio-plus" onclick="visioInviter()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Ajouter quelqu'un à l'appel">👤➕</button>
     <button onclick="visioFermer()" style="width:62px;height:52px;border-radius:26px;border:none;background:#e05252;color:#fff;font-size:21px;cursor:pointer" title="Raccrocher">📞</button>
   </div></div>
 <div class="jitsi" id="jitsi"><div class="vbar"><span id="jitsi-name" style="font-size:14px;font-weight:600">Réunion</span><button class="btn ghost sm" onclick="closeJitsi()">✕ Quitter</button></div><div id="jitsi-box"></div></div>
@@ -3415,7 +3416,9 @@
         ctl.push(`<button onclick="event.stopPropagation();visioSourdine('${t.uid}')" title="Couper le son pour moi">${p&&p.muetPourMoi?'🔇':'🔈'}</button>`);
         if(typeof peutReunion==='function'&&peutReunion()) ctl.push(`<button onclick="event.stopPropagation();visioMuteLui('${t.uid}')" title="Couper SON micro">🎙✕</button>`);
       }
+      const micCoupe=t.moi&&!t.ecran&&_vLocal&&!_vLocal.getAudioTracks().some(x=>x.enabled);
       return `<div style="position:relative;border-radius:14px;overflow:hidden;background:#141a26;${t.ecran?'display:flex;align-items:center;justify-content:center;':''}${taille}" onclick="visioGrand('${t.id}')">
+        ${micCoupe?`<span style="position:absolute;left:8px;top:8px;z-index:3;background:#e05252;color:#fff;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px">🔇 Micro coupé</span>`:''}
         ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
             <div style="width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;${avatarStyle(t.nom)}">${ini(t.nom)}</div></div>`
           :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="${(_vZoom100&&t.ecran&&grand===t.id)?'width:auto;height:auto;min-width:0;min-height:0':'width:100%;height:100%'};object-fit:${t.ecran?'contain':'cover'};${(t.moi&&!t.ecran)?'transform:scaleX(-1)':''}"></video>`}
@@ -3565,10 +3568,45 @@
     _vMsgs.push({de:'moi',nom:(USER&&USER.name)||'',txt:txt,ts:Date.now()});
     dcTous({t:'chat',txt:txt,nom:(USER&&USER.name)||''});
     visioTchatFil(); }
+  /* ── AJOUTER QUELQU'UN À UN APPEL EN COURS ──
+     On fait sonner la personne comme un appel normal, dans la même salle :
+     elle décroche et rejoint tout le monde, sans rien couper. */
+  async function visioInviter(){
+    if(!_vRoom){ toast('Aucun appel en cours.'); return; }
+    openSheet('<p class="muted center">Chargement…</p>');
+    let liste=[];
+    try{ liste=await listMembers(); }catch(e){}
+    const dedans=new Set([ME.uid,...Object.keys(_vPairs)]);
+    const dispo=liste.filter(m=>m.uid&&!dedans.has(m.uid));
+    const ligne=m=>{ const st=(typeof statutDe==='function')?statutDe(m):null;
+      return `<div class="row" onclick="visioAppelerEnPlus('${esc(m.uid)}','${esc((m.name||'').replace(/'/g,''))}')">
+        <div class="ava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>
+        <div class="info"><div class="nm">${esc(m.name||'')}</div>
+          <div class="ds">${st?esc(st.ic+' '+st.lbl):'Touche pour l\'appeler'}</div></div>
+        <span class="btn ghost sm">📞 Appeler</span></div>`; };
+    const dedansListe=Object.entries(_vPairs).map(([uid,p])=>`<span style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--inp)">${esc((p.nom||'Invité').split(' ')[0])}</span>`).join(' ');
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">👤➕ Ajouter à l'appel</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.5;margin-bottom:12px">La personne va sonner et rejoindra l'appel en cours — personne n'est coupé.</p>
+      ${dedansListe?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"><span style="font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--t3);align-self:center">DÉJÀ LÀ :</span>${dedansListe}</div>`:''}
+      ${dispo.length?dispo.map(ligne).join(''):'<p class="muted">Tout le monde est déjà dans l\'appel.</p>'}`);
+  }
+  async function visioAppelerEnPlus(uid,nom){
+    if(!_vRoom) return;
+    try{
+      const ref=callsCol().doc();
+      await ref.set({from:ME.uid,fromName:(USER&&USER.name)||ME.email,members:[uid],memberNames:[nom||''],
+        type:_vAudioOnly?'audio':'video',room:_vRoom,status:'ringing',ts:FV(),ajout:true});
+      try{ opPushNotifyUsers([uid],'📞 '+((USER&&USER.name)||'Quelqu\'un')+' t\'ajoute à un appel'+(MODE==='company'&&COMP&&COMP.name?' · '+COMP.name:''),
+        'Appel en cours — touche « Répondre » pour rejoindre.','/messages.html?appel=1'); }catch(e){}
+      closeSheet(); toast('📞 '+(nom||'La personne')+' est appelé'+((nom||'').match(/^(Sophie|Léa|Logane|Marie|Julie)/)?'e':'')+'…');
+    }catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
+  }
   /* ── micro / caméra / secours / fermeture ── */
   function visioMicro(){ if(!_vLocal) return; let on=false;
     _vLocal.getAudioTracks().forEach(t=>{ t.enabled=!t.enabled; on=t.enabled; });
-    const b=$('visio-mic'); if(b){ b.textContent=on?'🎤':'🔇'; b.style.background=on?'#232a3a':'#e05252'; } }
+    const b=$('visio-mic'); if(b){ b.textContent=on?'🎤':'🔇'; b.style.background=on?'#232a3a':'#e05252'; }
+    toast(on?'🎤 Micro rallumé':'🔇 Micro coupé — personne ne t\'entend');
+    visioTuiles(); }
   function visioCamera(){ if(!_vLocal) return; let on=false;
     _vLocal.getVideoTracks().forEach(t=>{ t.enabled=!t.enabled; on=t.enabled; });
     const b=$('visio-cam'); if(b){ b.textContent=on?'📷':'🚫'; b.style.background=on?'#232a3a':'#e05252'; }
