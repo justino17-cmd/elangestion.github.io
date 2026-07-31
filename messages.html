@@ -3108,6 +3108,14 @@
     const room='CALL'+ME.uid.slice(0,6)+Date.now();
     const ref=callsCol().doc();
     try{ await ref.set({from:ME.uid,fromName:USER.name||ME.email,members:ids,memberNames:names||[],type:type||'video',room,status:'ringing',ts:FV()}); }catch(e){ alert('Erreur : '+(e.message||e)); return; }
+    /* LE TÉLÉPHONE DOIT SONNER : on envoie une notification aux appelés.
+       Sans ça, seul un téléphone avec l'application ouverte à l'écran
+       pouvait sonner — c'est ce qui manquait. */
+    try{
+      const qui=(USER&&USER.name)||'Quelqu\'un';
+      opPushNotifyUsers(ids,'📞 '+qui+' t\'appelle'+(MODE==='company'&&COMP&&COMP.name?' · '+COMP.name:''),
+        'Appel '+((type||'video')==='audio'?'audio':'vidéo')+' en cours — ouvre OP MESSAGES pour répondre.');
+    }catch(e){}
     _activeCall={ref,answered:false,oneToOne:ids.length===1};
     if(_callDocUnsub)_callDocUnsub();
     _callDocUnsub=ref.onSnapshot(d=>{ if(!d.exists||!_activeCall) return; const st=d.data().status;
@@ -3622,8 +3630,14 @@
   function acceptCall(room,type){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing(); _activeCall={ref:r,answered:true,oneToOne:false}; if(_callDocUnsub)_callDocUnsub(); visioOuvrir(room,'Appel',type==='audio','appel'); }
   function declineCall(){ if(_ringRef) _ringRef.update({status:'declined'}).catch(()=>{}); hideRing(); }
   function hideRing(){ ringStop(); $('ring').classList.remove('open'); _ringRef=null; if(_ringRefUnsub){_ringRefUnsub();_ringRefUnsub=null;} }
-  function ringStart(){ ringStop(); beep(); _ringT=setInterval(()=>beep(),1100); }
-  function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;} }
+  function ringStart(){ ringStop();
+    /* sur téléphone, le son doit être réveillé, et on vibre en plus :
+       une sonnerie muette ne sert à rien dans une poche */
+    try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); if(_ac.state==='suspended') _ac.resume(); }catch(e){}
+    const sonner=()=>{ sonJoue(sonChoisi(),true);   // l'appel sonne même si les sons sont coupés
+      try{ if(navigator.vibrate) navigator.vibrate([260,140,260]); }catch(e){} };
+    sonner(); _ringT=setInterval(sonner,1400); }
+  function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;} try{ if(navigator.vibrate) navigator.vibrate(0); }catch(e){} }
 
   // ---- Réunions planifiées : invitation, compte à rebours, alerte 5 min ----
   function toast(m){ const t=$('toast'); if(!t) return; t.textContent=m; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),4500); }

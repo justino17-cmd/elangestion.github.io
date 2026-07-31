@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v574';
+const CACHE = 'elan-gestion-v575';
 const ASSETS = [
   './',
   'index.html',
@@ -100,7 +100,8 @@ self.addEventListener('push', e => {
   try { d = e.data.json(); } catch (_) { d = { title: 'TeamOP', body: e.data ? e.data.text() : '' }; }
   e.waitUntil(lireSilence().then(sil => {
     /* un canal d'urgence sonne toujours, silence ou pas */
-    const urgent = d.urgent === true || /^🚨/.test(String(d.title || ''));
+    /* un canal d'urgence ET un appel entrant sonnent toujours */
+    const urgent = d.urgent === true || /^(🚨|📞)/.test(String(d.title || ''));
     const muet = !urgent && enSilence(sil);
     return self.registration.showNotification(d.title || 'TeamOP', {
       body: d.body || '',
