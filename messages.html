@@ -2957,13 +2957,18 @@
   // ---- CONTACTS (membres) ----
   let _contList=[],_contSearch='';
   async function viewCont(){
-    _contSearch='';
+    _contSearch=''; _contSel=new Set(); _contMode=false;
     const showFab = MODE==='perso' || IS_OWNER;
     const fabAction = MODE==='perso' ? 'addContactForm()' : 'addPeopleMenu()';
     const emptyMsg = MODE==='perso' ? 'Aucun contact. Touchez + pour en ajouter avec leur identifiant.' : 'Aucun contact.';
     const hb = MODE === 'perso' ? `<button class="hbtn blue" onclick="addContactForm()">${ms('person_add',18)}Ajouter</button>` : (IS_OWNER?`<button class="hbtn blue" onclick="addPeopleMenu()">${ms('person_add',18)}Inviter</button>`:'');
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Contacts</h2>${hb}</div>
       <div class="gsearch">${ms('search',19)}<input id="cont-search" placeholder="Rechercher un contact…" oninput="_contSearch=this.value.trim().toLowerCase();renderContList()"></div>
+      <div style="overflow:auto;padding:0 2px 12px;-webkit-overflow-scrolling:touch"><div class="seg" id="cont-seg">${
+        [['tous','Tous'],['dispo','Disponibles'],['ligne','En ligne'],['resp','Responsables']]
+          .map(([k,l])=>`<button data-k="${k}" class="${_contFiltre===k?'on':''}" onclick="contFiltre('${k}')">${l}</button>`).join('')
+      }</div></div>
+      <div id="cont-barre"></div>
       <div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ms('person_add',24)}</button>`:''}`;
     try{
       const list = MODE==='perso' ? await listMembers() : (await (async()=>{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); const a=[]; qs.forEach(d=>a.push(d.data())); return a; })());
@@ -2979,19 +2984,121 @@
       renderContList();
     }catch(e){}
   }
+  /* ══ L'ONGLET CONTACTS ══
+     Une liste de noms ne sert à rien. Ici on veut savoir en un coup d'œil
+     QUI fait quoi, QUI est disponible, et pouvoir écrire ou appeler tout de
+     suite — à une personne ou à plusieurs d'un coup. */
+  let _contFiltre='tous', _contSel=new Set(), _contMode=false;
+  function contFiltre(k){ _contFiltre=k;
+    const sg=$('cont-seg'); if(sg) [...sg.querySelectorAll('button')].forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+    renderContList(); }
+  /* les favoris : les 3-4 personnes qu'on appelle tous les jours */
+  function contFavs(){ try{ return new Set(JSON.parse(localStorage.getItem('opmsg_cont_favs')||'[]')); }catch(e){ return new Set(); } }
+  function contEstFav(uid){ return contFavs().has(uid); }
+  function contFav(uid){ const f=contFavs(); if(f.has(uid)) f.delete(uid); else f.add(uid);
+    try{ localStorage.setItem('opmsg_cont_favs',JSON.stringify([...f])); }catch(e){}
+    closeSheet(); renderContList(); toast(f.has(uid)?'⭐ Ajouté aux favoris':'Retiré des favoris'); }
+  /* « En ligne » quand c'est vrai, sinon l'heure de la dernière fois */
+  function contVu(m){
+    const t=m&&m.lastActive;
+    if(!t) return 'Hors ligne';
+    const d=new Date(t), n=new Date();
+    const hh=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    const meme=d.toDateString()===n.toDateString();
+    if(meme) return 'En ligne '+hh;
+    const hier=new Date(n.getTime()-86400000);
+    if(d.toDateString()===hier.toDateString()) return 'En ligne hier '+hh;
+    return 'En ligne le '+d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})+' '+hh;
+  }
+  /* l'ordre de la liste : d'abord ceux qu'on peut déranger tout de suite */
+  const _CONT_RANG={inter:1,pause:2,conges:3};
+  function _contRang(m){
+    const st=statutDe(m);                       // « disponible » ne renvoie rien : c'est l'état normal
+    if(st&&_CONT_RANG[st.code]!==undefined) return _CONT_RANG[st.code];
+    return isOnline(m)?0:4;                     // en ligne et sans statut = disponible ; sinon en dernier
+  }
+  function contTri(list){
+    const favs=contFavs();
+    return list.slice().sort((a,b)=>{
+      if(a.uid===ME.uid) return -1; if(b.uid===ME.uid) return 1;
+      const fa=favs.has(a.uid)?0:1, fb=favs.has(b.uid)?0:1; if(fa!==fb) return fa-fb;
+      const ra=_contRang(a), rb=_contRang(b); if(ra!==rb) return ra-rb;
+      return (a.name||'').localeCompare(b.name||'','fr');
+    });
+  }
+  function contGarde(m){
+    if(_contFiltre==='dispo') return !statutDe(m)&&(isOnline(m)||m.uid===ME.uid);
+    if(_contFiltre==='ligne') return isOnline(m)||m.uid===ME.uid;
+    if(_contFiltre==='resp') return (m.role==='responsable')||(MODE!=='perso'&&m.uid===COMP_owner());
+    return true;
+  }
+  /* choisir plusieurs personnes : un appel ou une discussion en un geste */
+  function contSelToggle(uid){ if(_contSel.has(uid)) _contSel.delete(uid); else _contSel.add(uid);
+    if(!_contSel.size) _contMode=false; renderContList(); }
+  function contSelMode(uid){ _contMode=true; if(uid) _contSel.add(uid); renderContList();
+    if(!_contSel.size){ const z=$('cont-barre');
+      if(z) z.innerHTML=`<div class="card" style="padding:11px 13px;margin:0 0 12px;border-color:var(--op)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <b style="flex:1;font-size:14px">Touche les personnes à réunir</b>
+          <button class="btn ghost sm" onclick="contSelStop()">Annuler</button></div></div>`; } }
+  function contSelStop(){ _contMode=false; _contSel=new Set(); renderContList(); }
+  function _contNoms(){ return [..._contSel].map(u=>{ const m=_contList.find(x=>x.uid===u); return (m&&m.name)||'Contact'; }); }
+  function contSelAppel(type){ const ids=[..._contSel]; if(!ids.length) return; const noms=_contNoms(); contSelStop(); startCall(ids,noms,type||'audio'); }
+  async function contSelGroupe(){
+    const ids=[..._contSel]; if(!ids.length) return;
+    const noms=_contNoms();
+    if(ids.length===1){ const u=ids[0], n=noms[0]; contSelStop(); openDM(u,n); return; }
+    const nom=await opSaisie('Elle réunira '+noms.join(', ')+'.','',
+      {titre:'Nom de la discussion',max:60,placeholder:'Ex. : chantier Camping Les Pins',oui:'Créer'});
+    if(nom===null) return;
+    const n=(nom||'').trim()||noms.slice(0,3).join(', ');
+    const membres=Array.from(new Set([ME.uid,...ids]));
+    try{ const r=await chanCol().add({name:n,type:'group',members:membres,createdBy:ME.uid,createdAt:FV()});
+      contSelStop(); openChannel(r.id,n); }
+    catch(e){ opAlerte(e.message||'Création impossible','Erreur'); }
+  }
+  function contBarre(){
+    const z=$('cont-barre'); if(!z) return;
+    if(!_contMode||!_contSel.size){
+      z.innerHTML=`<button class="btn ghost block" style="margin-bottom:12px;font-weight:700" onclick="contSelMode()">
+        ${ms('done_all',17)} Choisir plusieurs personnes</button>`;
+      return; }
+    const n=_contSel.size;
+    z.innerHTML=`<div class="card" style="padding:11px 13px;margin:0 0 12px;border-color:var(--op)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
+        <b style="flex:1;font-size:14px">${n} personne${n>1?'s':''} choisie${n>1?'s':''}</b>
+        <button class="btn ghost sm" onclick="contSelStop()">Annuler</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn sm" style="flex:1;min-width:120px" onclick="contSelGroupe()">${ms('chat_bubble',16)} ${n>1?'Discussion de groupe':'Écrire'}</button>
+        <button class="btn ghost sm" style="flex:1;min-width:104px" onclick="contSelAppel('audio')">${ms('call',16)} Appel</button>
+        <button class="btn ghost sm" style="flex:1;min-width:104px" onclick="contSelAppel('video')">${ms('videocam',16)} Vidéo</button>
+      </div></div>`;
+  }
   function renderContList(emptyMsg){
     const box=$('cont-list'); if(!box) return;
-    let list=_contList; if(_contSearch) list=list.filter(m=>(m.name||'').toLowerCase().includes(_contSearch));
+    let list=_contList.filter(contGarde);
+    if(_contSearch) list=list.filter(m=>((m.name||'')+' '+(m.poste||'')).toLowerCase().includes(_contSearch));
+    list=contTri(list);
+    const favs=contFavs();
     let html=''; list.forEach(m=>{ const on=isOnline(m)||m.uid===ME.uid; const self=m.uid===ME.uid; const nm=esc((m.name||'').replace(/'/g,''));
-      html+=`<div class="lrow" style="padding:14px 18px${self?';cursor:default':''}" ${self?'':`onclick="contactActions('${m.uid}','${nm}')"`}>
+      const choisi=_contSel.has(m.uid);
+      const clic = self ? '' : (_contMode ? `onclick="contSelToggle('${m.uid}')"` : `onclick="contactActions('${m.uid}','${nm}')"`);
+      const sous=(function(){ const st=statutDe(m); if(st) return st.ic+' '+st.lbl;
+        return self?'Vous':(on?'En ligne':contVu(m)); })();
+      html+=`<div class="lrow" style="padding:14px 18px${self?';cursor:default':''}${choisi?';background:var(--tint2)':''}" ${clic}>
+        ${(_contMode&&!self)?`<div style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid ${choisi?'var(--op)':'var(--brd2)'};background:${choisi?'var(--op)':'transparent'};color:#fff">${choisi?'✓':''}</div>`:''}
         <div style="position:relative;flex-shrink:0">${m.photo?`<img class="cava" src="${m.photo}" style="object-fit:cover">`:`<div class="cava" style="${avatarStyle(m.name)}">${ini(m.name)}</div>`}<span class="pdot" style="background:${on?'var(--pres)':'var(--off)'}"></span></div>
-        <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div><div style="font-size:13px;color:var(--t2);margin-top:2px">${(function(){ const st=statutDe(m); if(st) return st.ic+' '+st.lbl; return self?'Vous':(on?'En ligne':'Hors ligne'); })()}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
-        ${self?'':`<div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${favs.has(m.uid)?'⭐ ':''}${esc(m.name||'')}</div>
+          ${m.poste?`<div style="font-size:12.5px;font-weight:600;color:var(--op-tx);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.poste)}</div>`:''}
+          <div style="font-size:13px;color:var(--t2);margin-top:2px">${sous}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
+        ${(self||_contMode)?'':`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
           <button class="rbtn" title="Message" onclick="event.stopPropagation();openDM('${m.uid}','${nm}')">${ms('chat_bubble',18)}</button>
           <button class="rbtn" title="Appeler" onclick="event.stopPropagation();startCall(['${m.uid}'],['${nm}'],'audio')">${ms('call',18)}</button>
         </div>`}
       </div>`; });
     box.innerHTML = html?`<div class="listbox">${html}</div>`:('<p class="muted center">'+esc(emptyMsg||'Aucun contact.')+'</p>');
+    contBarre();
   }
   function COMP_owner(){ return COMP&&COMP.ownerUid; }
   async function contactActions(uid,name){ openSheet('<p class="muted center">Chargement…</p>'); let phone='',status='',handle='';
@@ -3006,14 +3113,45 @@
       <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'audio')">${ic('phone',18)}Appel audio (in-app)</button>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'video')">${ic('video',18)}Appel vidéo (in-app)</button>
       ${phone?`<a class="btn ghost block" style="text-decoration:none;margin-bottom:10px" href="tel:${esc(phone.replace(/[^0-9+]/g,''))}">${ic('phone',18)}Appeler au téléphone</a>`:''}
+      <button class="btn ghost block" style="margin-bottom:10px" onclick="contFav('${uid}')">${contEstFav(uid)?'★ Retirer des favoris':'☆ Mettre en favori'}</button>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="shareContact('${uid}','${nm}')">${ic('users',18)}Partager ce contact</button>
       ${MODE==='perso'?`<button class="btn ghost block" style="${blk?'color:var(--pres)':'color:var(--red)'}" onclick="blockContact('${uid}','${nm}')">${blk?'Débloquer':'Bloquer'} ${esc(name)}</button>`:''}
+      ${(MODE!=='perso'&&estPatron())?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">SON POSTE</div>
+        <p class="muted" style="font-size:12px;line-height:1.5;margin:6px 0 8px">Ce que la personne fait dans l'entreprise. Il s'affiche sous son nom dans la liste.</p>
+        <button class="btn ghost block" onclick="postePose('${uid}','${nm}')">${(_contList.find(x=>x.uid===uid)||{}).poste?'✏️ '+esc((_contList.find(x=>x.uid===uid)||{}).poste):'+ Indiquer son poste'}</button>
+      </div>`:''}
       ${(MODE!=='perso'&&estPatron()&&uid!==ME.uid)?`<div id="role-zone" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
         <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">SON RÔLE DANS L’ENTREPRISE</div>
         <div id="role-pills" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><span class="muted" style="font-size:12px">Chargement…</span></div>
         <div style="font-size:11px;color:var(--t3);margin-top:7px;line-height:1.5">Un <b>responsable</b> peut créer, déplacer et annuler des réunions. Un <b>membre</b> participe et répond, sans en créer.</div>
       </div>`:''}`);
     if(MODE!=='perso'&&estPatron()&&uid!==ME.uid) roleCharge(uid,name); }
+  /* ── le poste : ce que la personne fait dans l'entreprise ── */
+  const POSTES=['Technicien','Chef d\'équipe','Responsable','Commercial','Secrétaire','Apprenti','Chauffeur','Magasinier'];
+  async function postePose(uid,nom){
+    const m=_contList.find(x=>x.uid===uid)||{};
+    closeSheet();
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">Poste de ${esc(nom)}</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.5;margin-bottom:14px">Touche un poste, ou écris-en un autre.</p>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px">
+        ${POSTES.map(p=>`<button class="btn ${m.poste===p?'':'ghost'} sm" onclick="posteEcrire('${esc(uid)}','${esc(p)}')">${esc(p)}</button>`).join('')}
+      </div>
+      <button class="btn ghost block" style="margin-bottom:9px" onclick="posteLibre('${esc(uid)}')">✏️ Un autre poste…</button>
+      ${m.poste?`<button class="btn ghost block" style="color:var(--red)" onclick="posteEcrire('${esc(uid)}','')">Retirer son poste</button>`:''}`);
+  }
+  async function posteLibre(uid){
+    const t=await opSaisie('','',{titre:'Son poste',max:30,placeholder:'Ex. : technicien hygiéniste',oui:'Enregistrer'});
+    if(t===null) return; posteEcrire(uid,(t||'').trim().slice(0,30));
+  }
+  async function posteEcrire(uid,poste){
+    try{
+      await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid)
+        .set({poste:poste||firebase.firestore.FieldValue.delete()},{merge:true});
+      const m=_contList.find(x=>x.uid===uid); if(m){ if(poste) m.poste=poste; else delete m.poste; }
+      closeSheet(); renderContList(); toast(poste?'Poste enregistré':'Poste retiré');
+    }catch(e){ opAlerte(e.message||'Enregistrement impossible','Erreur'); }
+  }
   /* ── qui a quel rôle : lecture puis changement ── */
   async function roleCharge(uid,name){
     let r='classique';
