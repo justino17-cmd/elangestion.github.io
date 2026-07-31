@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v594';
+const CACHE = 'elan-gestion-v595';
 const ASSETS = [
   './',
   'index.html',
@@ -129,7 +129,15 @@ self.addEventListener('push', e => {
     } else {
       opts.vibrate = [];
     }
-    return self.registration.showNotification(d.title || 'TeamOP', opts);
+    /* si l'application est ouverte quelque part (même en arrière-plan), on la
+       prévient : pour un appel, elle fera sonner SA sonnerie immédiatement */
+    const prevenir = clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(ws => { ws.forEach(w => { try { w.postMessage({ op: 'push', appel: appel, titre: d.title || '' }); } catch (_) {} }); })
+      .catch(() => {});
+    return Promise.all([
+      self.registration.showNotification(d.title || 'TeamOP', opts),
+      prevenir
+    ]);
   }));
 });
 self.addEventListener('notificationclick', e => {

@@ -4785,6 +4785,12 @@
      en arrière-plan : au retour, un appel en cours n'apparaissait plus.
      Ici on revérifie dès que l'écran revient, à chaque changement d'onglet,
      et toutes les 12 secondes — où qu'on soit dans l'application. */
+  /* le service worker nous prévient dès qu'une notification d'appel arrive :
+     même en arrière-plan, la page vérifie tout de suite et fait sonner */
+  try{ if(navigator.serviceWorker) navigator.serviceWorker.addEventListener('message',ev=>{
+    const d=ev.data||{};
+    if(d.op==='push'&&d.appel){ try{ appelsVerifie(); }catch(e){} }
+  }); }catch(e){}
   async function appelsVerifie(){
     try{
       if(!ME||typeof callsCol!=='function') return;
@@ -5402,6 +5408,8 @@
   /* le navigateur n'autorise un son qu'après un premier toucher : au premier
      geste, on joue les deux sonneries EN MUET une fraction de seconde — elles
      sont alors autorisées pour de bon, même quand un appel arrive tout seul */
+  try{ ['sons/message.mp3','sons/appel.mp3'].forEach(src=>{
+    const a=new Audio(src); a.preload='auto'; _sonFichiers[src]=a; }); }catch(e){}
   let _audioPret=false;
   function audioDebloque(){
     if(_audioPret) return; _audioPret=true;
@@ -5422,6 +5430,8 @@
     document.addEventListener('pointerdown',audioDebloque,{capture:true,passive:true});
     document.addEventListener('keydown',audioDebloque,{capture:true});
     document.addEventListener('touchstart',audioDebloque,{capture:true,passive:true});
+    document.addEventListener('touchend',audioDebloque,{capture:true,passive:true});   // les iPhone ne comptent que celui-ci
+    document.addEventListener('click',audioDebloque,{capture:true});
   }catch(e){}
   function sonFichiersArrete(){
     Object.keys(_sonFichiers).forEach(k=>{ const a=_sonFichiers[k];
