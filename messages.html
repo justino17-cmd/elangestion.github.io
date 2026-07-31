@@ -3261,7 +3261,16 @@
      ══════════════════════════════════════════════════════════════════════ */
   let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false,_vMaxGens=1,_vIciRef=null,_vIciT=null,_vCamOn=false,_vMini=false,_vFace='user',_vQualT=null,_vQualVu={},_vFaible=false,_vSeulT=null;
   let _vEcran=null,_vOrdre=[],_vGrand=null,_vNotes={},_vOutil='d',_vCouleur='#ffd54a',_vMsgs=[],_vTchatOn=false,_vTchatNew=0;
-  const _vConf={iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
+  /* ══ LA MISE EN RELATION ══
+     L'image, le son, le dessin et le tchat passent DIRECTEMENT d'un appareil
+     à l'autre : personne au milieu. Il reste une seule chose à faire faire à
+     un serveur — dire à chaque appareil quelle est son adresse publique,
+     sinon deux téléphones sur des réseaux différents ne se trouvent pas.
+     Dès que NOTRE serveur est installé, on le met ici et plus rien du tout
+     ne sort de la maison. */
+  const OP_RELAIS=[];   /* ex. {urls:'stun:relais.teamop.fr:3478'} */
+  const _vConf={iceServers: OP_RELAIS.length ? OP_RELAIS
+    : [{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
   function _vCol(){ return callsCol(); }
   async function _vDire(m){ try{ await _vCol().add(Object.assign({sig:1,room:_vRoom,de:ME.uid,nom:(USER&&USER.name)||'',ts:Date.now()},m)); }catch(e){} }
   function visioEtat(t){ const e=$('visio-etat'); if(e) e.textContent=t||''; }
@@ -3285,7 +3294,11 @@
       _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:1280},facingMode:'user'},audio:true});
     }catch(e){
       try{ _vLocal=await navigator.mediaDevices.getUserMedia({video:false,audio:true}); _vAudioOnly=true; }
-      catch(e2){ visioEtat(''); alert('Caméra et micro refusés — autorise-les dans le navigateur, ou passe par l\'ancien système.'); visioSecoursBtn(); return; }
+      catch(e2){ visioEtat('');
+        alert(genre==='appel'
+          ? 'Caméra et micro refusés — autorise-les dans les réglages du navigateur pour pouvoir appeler.'
+          : 'Caméra et micro refusés — autorise-les dans le navigateur, ou passe par l\'ancien système.');
+        if(genre!=='appel') visioSecoursBtn(); return; }
     }
     /* Le partage d'écran, c'est pour les RÉUNIONS. Un appel, c'est le
        téléphone : on se parle, on ne présente pas de document. */
@@ -3996,8 +4009,23 @@
     z.textContent=faible?'⚠️ Connexion faible':'';
     if(faible) toast('⚠️ Connexion faible — rapproche-toi du réseau, ça peut couper');
   }
-  function visioSecoursBtn(){ const e=$('visio-etat');
-    if(e&&!e.querySelector('button')) e.innerHTML='<button class="btn ghost sm" onclick="visioSecours()">Passer par l\'ancien système</button>'; }
+  /* Un APPEL ne sort JAMAIS de notre système : si la connexion se cabre, on
+     la refait nous-mêmes au lieu de renvoyer les gens ailleurs. */
+  function visioSecoursBtn(){
+    const e=$('visio-etat'); if(!e||e.querySelector('button')) return;
+    if(_vGenre==='appel') e.innerHTML='<button class="btn ghost sm" onclick="visioReconnecte()">Réessayer la connexion</button>';
+    else e.innerHTML='<button class="btn ghost sm" onclick="visioSecours()">Passer par l\'ancien système</button>';
+  }
+  function visioReconnecte(){
+    if(!_vRoom) return;
+    visioEtat('reconnexion…');
+    /* on refait les chemins réseau, et on redit bonjour au cas où le
+       correspondant nous aurait perdus en route */
+    Object.values(_vPairs).forEach(p=>{ try{ if(p.pc.restartIce) p.pc.restartIce(); }catch(e){} });
+    try{ _vDire({type:'salut'}); }catch(e){}
+    toast('On refait la connexion…');
+    setTimeout(()=>{ if(_vRoom&&!_vFaible) visioEtat(''); },5000);
+  }
   function visioSecours(){ const room=_vRoom, titre=($('visio-nom')||{}).textContent||'Réunion', audio=_vAudioOnly;
     visioFermer(true); openJitsi(room,titre,audio); }
   async function visioFermer(sansClore){
