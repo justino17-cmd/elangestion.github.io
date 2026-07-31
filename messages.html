@@ -3933,7 +3933,65 @@
   }
   function toggleSearch(){ const b=$('searchbar'); if(!b) return; const show=b.style.display==='none'; b.style.display=show?'block':'none'; if(show){ const i=$('chsearch'); if(i){ i.focus(); } } else { const i=$('chsearch'); if(i) i.value=''; renderStream(); } }
   let _ac=null;
-  function beep(){ if(!soundOn()) return; try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); const o=_ac.createOscillator(),g=_ac.createGain(); o.connect(g); g.connect(_ac.destination); o.type='sine'; o.frequency.value=660; g.gain.setValueAtTime(.0001,_ac.currentTime); g.gain.exponentialRampToValueAtTime(.12,_ac.currentTime+.02); g.gain.exponentialRampToValueAtTime(.0001,_ac.currentTime+.25); o.start(); o.stop(_ac.currentTime+.26); }catch(e){} }
+  /* ══ LES SONS DE NOTIFICATION ══
+     Huit sonneries, composées par l'application elle-même : aucun fichier à
+     télécharger, elles marchent même sans réseau et ne pèsent rien. Chacun
+     choisit la sienne, l'écoute avant, et règle le volume. */
+  const SONS={
+    cloche:{nom:'Cloche',ic:'🔔',notes:[[880,0,.16,'sine'],[1320,.09,.34,'sine']]},
+    goutte:{nom:'Goutte',ic:'💧',notes:[[1400,0,.09,'sine'],[900,.05,.22,'sine']]},
+    duo:{nom:'Duo',ic:'🎵',notes:[[660,0,.14,'triangle'],[990,.14,.22,'triangle']]},
+    carillon:{nom:'Carillon',ic:'🎐',notes:[[1046,0,.5,'sine'],[1318,.08,.5,'sine'],[1568,.16,.55,'sine']]},
+    toc:{nom:'Toc',ic:'🥁',notes:[[220,0,.09,'square'],[180,.06,.12,'square']]},
+    montee:{nom:'Montée',ic:'📈',notes:[[520,0,.1,'sine'],[700,.07,.1,'sine'],[930,.14,.24,'sine']]},
+    chantier:{nom:'Chantier',ic:'🔧',notes:[[1200,0,.06,'square'],[1200,.12,.06,'square'],[900,.24,.18,'square']]},
+    doux:{nom:'Doux',ic:'🌙',notes:[[523,0,.4,'sine'],[784,.18,.45,'sine']]}
+  };
+  function sonChoisi(){ try{ const v=localStorage.getItem('opmsg_son'); return SONS[v]?v:'cloche'; }catch(e){ return 'cloche'; } }
+  function sonVolume(){ try{ const v=parseFloat(localStorage.getItem('opmsg_son_vol')); return isNaN(v)?0.5:Math.max(0,Math.min(1,v)); }catch(e){ return 0.5; } }
+  function sonJoue(cle,force){
+    if(!force && !soundOn()) return;
+    const d=SONS[cle||sonChoisi()]||SONS.cloche;
+    try{
+      _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
+      if(_ac.state==='suspended'){ try{ _ac.resume(); }catch(e){} }
+      const vol=Math.max(.02,sonVolume())*0.32;
+      d.notes.forEach(([freq,retard,duree,forme])=>{
+        const o=_ac.createOscillator(), g=_ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type=forme||'sine'; o.frequency.value=freq;
+        const t0=_ac.currentTime+retard;
+        g.gain.setValueAtTime(.0001,t0);
+        g.gain.exponentialRampToValueAtTime(vol,t0+.015);
+        g.gain.exponentialRampToValueAtTime(.0001,t0+duree);
+        o.start(t0); o.stop(t0+duree+.02);
+      });
+    }catch(e){}
+  }
+  function beep(){ sonJoue(); }                 // tout l'ancien code continue de marcher
+  function sonEcoute(cle){ sonJoue(cle,true); } // écouter sans changer son choix
+  function sonPose(cle){ try{ localStorage.setItem('opmsg_son',cle); }catch(e){} sonJoue(cle,true); sheetSons(); }
+  function sonVolPose(v){ try{ localStorage.setItem('opmsg_son_vol',String(v)); }catch(e){}
+    const e2=$('son-vol-lbl'); if(e2) e2.textContent=Math.round(v*100)+' %'; sonJoue(sonChoisi(),true); }
+  function sheetSons(){
+    const cur=sonChoisi(), vol=sonVolume();
+    const carte=(cle)=>{ const d=SONS[cle], on=cur===cle;
+      return `<div onclick="sonPose('${cle}')" style="display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:13px;cursor:pointer;margin-bottom:8px;
+        border:1px solid ${on?'var(--op)':'var(--card-brd)'};background:${on?'var(--tint2)':'var(--card)'}">
+        <span style="font-size:20px">${d.ic}</span>
+        <b style="flex:1;font-size:14px">${esc(d.nom)}</b>
+        <span onclick="event.stopPropagation();sonEcoute('${cle}')" title="Écouter" style="font-size:16px;padding:4px 9px;border-radius:9px;background:var(--inp);cursor:pointer">▶︎</span>
+        ${on?'<span style="color:var(--op-tx);font-weight:800;font-size:13px">✓</span>':''}</div>`; };
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">🔊 Son de notification</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.5;margin-bottom:14px">Touche un son pour le choisir, ou ▶︎ pour l'écouter sans le prendre. Ce réglage vaut pour cet appareil.</p>
+      ${Object.keys(SONS).map(carte).join('')}
+      <div style="display:flex;align-items:center;gap:11px;margin:14px 2px 4px">
+        <span style="font-size:13px;font-weight:700;flex:none">Volume</span>
+        <input type="range" min="0" max="1" step="0.05" value="${vol}" oninput="sonVolPose(parseFloat(this.value))" style="flex:1;accent-color:var(--op)">
+        <b id="son-vol-lbl" style="font-size:12.5px;width:44px;text-align:right">${Math.round(vol*100)} %</b>
+      </div>
+      <p class="muted" style="font-size:11.5px;line-height:1.5;margin-top:10px">Ce son est celui que tu entends quand l'application est ouverte. Application fermée, c'est le son de notification de ton téléphone qui joue.</p>`);
+  }
   let _replyTo=null;
   // ---- Mentions @ ----
   function onMsgInput(){ const inp=$('msg'); const pop=$('mentionpop'); if(!inp||!pop) return; signalTyping();
@@ -4965,6 +5023,7 @@
     ${toggleLine('« Entrée » pour envoyer',enterSendOn(),"togglePref('entersend',true);sheetChats()")}`); }
   function sheetNotif(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">🔔 Notifications</h3>
     ${toggleLine('Son des messages',soundOn(),"togglePref('sound',true);sheetNotif()")}
+    ${soundOn()?`<button class="btn ghost block" style="margin:2px 0 10px" onclick="sheetSons()">🔊 Choisir le son : <b>${esc((SONS[sonChoisi()]||{}).nom||'')}</b> ${esc((SONS[sonChoisi()]||{}).ic||'')}</button>`:''}
     ${toggleLine('Vibration',vibrateOn(),"togglePref('vibrate',true);sheetNotif()")}
     ${toggleLine('Aperçus dans l’app',notifOn(),"togglePref('notif',true);sheetNotif()")}
     <div style="height:10px"></div>
