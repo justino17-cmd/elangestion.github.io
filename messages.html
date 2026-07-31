@@ -3142,7 +3142,12 @@
   function visioEtat(t){ const e=$('visio-etat'); if(e) e.textContent=t||''; }
   async function visioOuvrir(room,titre,audioOnly,genre){
     _vRoom=room; _vAudioOnly=!!audioOnly; _vVus=new Set(); _vPairs={}; _vNettoye=false;
-    _vGenre=(genre==='appel')?'appel':'reunion'; _vDejaVenu=false;
+    /* APPEL ou RÉUNION : deux choses très différentes, et on le vérifie DEUX
+       fois. D'abord l'étiquette posée par celui qui ouvre la salle ; ensuite
+       le nom de la salle lui-même — un appel s'appelle « CALL… », une réunion
+       « OPMSG… ». Au moindre doute, c'est une réunion : une réunion ne se
+       ferme jamais toute seule. */
+    _vGenre=(genre==='appel' && String(room||'').indexOf('OPMSG')!==0)?'appel':'reunion'; _vDejaVenu=false;
     /* un appel et une réunion, ce n'est pas pareil : la pastille le dit */
     const gg=$('visio-genre'); if(gg){ if(genre==='appel'){ gg.textContent='📞 APPEL'; gg.style.background='var(--op)'; }
       else { gg.textContent='📅 RÉUNION'; gg.style.background='#1e7a4e'; } }
@@ -3280,6 +3285,7 @@
          On ne laisse personne seul dans le studio. Une réunion, elle, reste
          ouverte : les gens arrivent et repartent au fil de l'heure. */
       if(_vGenre==='appel' && _vDejaVenu && !Object.keys(_vPairs).length){
+        /* une réunion n'arrive jamais ici — voir visioOuvrir */
         try{ toast((qui?qui+' a raccroché — ':'')+'appel terminé'); }catch(e){}
         try{ hideRing(); }catch(e){}
         setTimeout(()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} },250);
