@@ -3134,7 +3134,7 @@
      s'écrivant de petits mots dans notre base, effacés en sortant.
      L'ancien système reste en secours d'un clic.
      ══════════════════════════════════════════════════════════════════════ */
-  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false;
+  let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false;
   let _vEcran=null,_vOrdre=[],_vGrand=null,_vNotes={},_vOutil='d',_vCouleur='#ffd54a',_vMsgs=[],_vTchatOn=false,_vTchatNew=0;
   const _vConf={iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
   function _vCol(){ return callsCol(); }
@@ -3142,6 +3142,7 @@
   function visioEtat(t){ const e=$('visio-etat'); if(e) e.textContent=t||''; }
   async function visioOuvrir(room,titre,audioOnly,genre){
     _vRoom=room; _vAudioOnly=!!audioOnly; _vVus=new Set(); _vPairs={}; _vNettoye=false;
+    _vGenre=(genre==='appel')?'appel':'reunion'; _vDejaVenu=false;
     /* un appel et une réunion, ce n'est pas pareil : la pastille le dit */
     const gg=$('visio-genre'); if(gg){ if(genre==='appel'){ gg.textContent='📞 APPEL'; gg.style.background='var(--op)'; }
       else { gg.textContent='📅 RÉUNION'; gg.style.background='#1e7a4e'; } }
@@ -3195,6 +3196,7 @@
   }
   /* ── les paires ── */
   function _vPair(uid,nom){
+    _vDejaVenu=true;
     if(_vPairs[uid]) return _vPairs[uid];
     const pc=new RTCPeerConnection(_vConf);
     const p={pc:pc,nom:nom||'',streams:{cam:null,ecran:null},ecranIds:new Set(),dc:null,glace:[],pret:false,muetPourMoi:false,ecranSenders:[]};
@@ -3271,7 +3273,19 @@
       if(p.pret){ try{ await p.pc.addIceCandidate(c); }catch(e){} } else p.glace.push(c);
       return;
     }
-    if(d.type==='pars'){ const p=_vPairs[d.de]; if(p){ try{ p.pc.close(); }catch(e){} delete _vPairs[d.de]; visioTuiles(); } }
+    if(d.type==='pars'){
+      const p=_vPairs[d.de]; const qui=(p&&p.nom)||d.nom||'';
+      if(p){ try{ p.pc.close(); }catch(e){} delete _vPairs[d.de]; visioTuiles(); }
+      /* UN APPEL À DEUX : si l'autre raccroche, il n'y a plus d'appel du tout.
+         On ne laisse personne seul dans le studio. Une réunion, elle, reste
+         ouverte : les gens arrivent et repartent au fil de l'heure. */
+      if(_vGenre==='appel' && _vDejaVenu && !Object.keys(_vPairs).length){
+        try{ toast((qui?qui+' a raccroché — ':'')+'appel terminé'); }catch(e){}
+        try{ hideRing(); }catch(e){}
+        setTimeout(()=>{ try{ if(_vRoom) visioFermer(); }catch(e){} },250);
+      }
+      return;
+    }
   }
   /* ── les réglages d'envoi : l'écran a la priorité et un gros débit ── */
   async function _vRegleEnvoi(p){
