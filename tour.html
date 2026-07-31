@@ -124,6 +124,17 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
 .rech{display:flex;align-items:center;gap:9px;background:var(--inset);border:1px solid var(--inpBorder);border-radius:10px;padding:9px 12px}
 .rech input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:13.5px;font-family:inherit}
 .rech svg{color:var(--dim);flex-shrink:0}
+.kpi.clic{cursor:pointer}
+.kpi.clic:hover{border-color:var(--borderHover)}
+.kpi.sel{border-color:#4f7cff}
+.kpi .bars{display:flex;align-items:flex-end;gap:5px;height:38px;margin-top:10px}
+.kpi .bars i{flex:1;background:#4f7cff;border-radius:3px 3px 0 0;display:block;min-height:4px}
+.expl-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:14px}
+.expl-l{display:flex;gap:9px;font-size:12.5px;line-height:1.55;color:var(--muted);margin-top:8px}
+.expl-l b{color:var(--text2);font-weight:600}
+.fiche-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px}
+/* sur téléphone, l'en-tête garde l'essentiel : le badge et le nom passent sous silence */
+@media(max-width:640px){ .hbadge,.hqui{display:none} .hbar{padding:11px 14px} main{padding:22px 14px 70px} }
 </style>
 </head>
 <body>
@@ -153,7 +164,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.31</div>
+    <div class="lg-pied">console interne · v2.32</div>
   </div>
 </div>
 
@@ -180,7 +191,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.31</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.32</div>
 </div>
 
 <div id="toast"></div>
@@ -500,75 +511,236 @@ function incFiltres(){
   });
 }
 function incF(k,v){ INC.f[k]=v; render(); }
-function selIncident(id){ INC.sel=id; render(); }
+function selIncident(id){ INC.sel=id; render(); window.scrollTo(0,0); }
+function incRetour(){ INC.sel=null; render(); window.scrollTo(0,0); }
+
+/* « 180913 ms » ne parle à personne : on traduit en français */
+function msHumain(ms){ ms=Number(ms)||0;
+  if(ms<1000) return 'moins d\u2019une seconde';
+  var sec=Math.round(ms/1000);
+  if(sec<60) return sec+' seconde'+(sec>1?'s':'');
+  var m=Math.floor(sec/60), r=sec%60;
+  return m+' minute'+(m>1?'s':'')+(r?' et '+r+' seconde'+(r>1?'s':''):'');
+}
+/* chaque problème expliqué en français simple, selon ce qu'il est vraiment */
+function incExplique(i){
+  var t=i.type||'', msg=String(i.message||'');
+  var fige=msg.match(/fig[\u00e9e]e?\s+pendant\s+(\d+)\s*ms/i);
+  if(t==='lenteur'&&fige){
+    var ms=Number(fige[1]);
+    var e='L\u2019\u00e9cran du client n\u2019a plus r\u00e9pondu pendant <b>'+msHumain(ms)+'</b> : pendant ce temps, impossible de cliquer ou de taper.';
+    if(ms>=30000) e+=' Une dur\u00e9e aussi longue vient presque toujours d\u2019un t\u00e9l\u00e9phone mis en veille ou d\u2019un onglet laiss\u00e9 en arri\u00e8re-plan \u2014 pas d\u2019une vraie panne. \u00c0 corriger seulement si le client s\u2019en plaint.';
+    else if(ms>=3000) e+=' Quelques secondes de blocage, c\u2019est une vraie g\u00eane : l\u2019application avait trop de travail d\u2019un coup. Si \u00e7a revient souvent sur la m\u00eame page, c\u2019est \u00e0 corriger.';
+    else e+=' Moins de trois secondes : \u00e0 peine perceptible, rien d\u2019inqui\u00e9tant si \u00e7a reste rare.';
+    return e;
+  }
+  if(t==='lenteur') return 'L\u2019application a mis plus de temps que la normale \u00e0 r\u00e9pondre. Le client a attendu, mais rien n\u2019est cass\u00e9. \u00c0 corriger si \u00e7a se r\u00e9p\u00e8te souvent sur la m\u00eame page.';
+  if(t==='erreur') return 'Le code de l\u2019application a plant\u00e9 \u00e0 cet endroit pr\u00e9cis : ce que le client \u00e9tait en train de faire a pu \u00e9chouer. C\u2019est le type de probl\u00e8me le plus s\u00e9rieux \u2014 la trace technique en bas de page dit exactement o\u00f9 \u00e7a a cass\u00e9.';
+  if(t==='reseau') return 'L\u2019appareil du client a perdu la connexion avec notre serveur. Dans la grande majorit\u00e9 des cas, c\u2019est sa connexion internet (wifi faible, 4G qui coupe) \u2014 pas nos serveurs. \u00c0 surveiller seulement si beaucoup de clients sont touch\u00e9s en m\u00eame temps.';
+  return 'Un \u00e9v\u00e9nement inhabituel a \u00e9t\u00e9 enregistr\u00e9 par la surveillance automatique.';
+}
+var GRAV_EXPL={haute:'\u00e0 traiter en priorit\u00e9 \u2014 plusieurs clients touch\u00e9s ou tr\u00e8s fr\u00e9quent',
+  moyenne:'\u00e0 regarder sans urgence \u2014 g\u00eanant mais l\u2019application fonctionne',
+  faible:'pour information \u2014 rare et sans cons\u00e9quence visible'};
+
+/* ── le tableau de bord pleine page ── */
 function vueSurveillance(){
-  if(!INC.loaded) return '<div class="ttl-page">Surveillance</div><div style="height:16px"></div><div class="vide">Chargement des incidents…</div>';
+  if(!INC.loaded) return '<div class="ttl-page">Surveillance</div><div style="height:16px"></div><div class="vide">Chargement des incidents\u2026</div>';
   if(INC.err) return '<div class="ttl-page">Surveillance</div><div style="height:16px"></div><div class="vide">'+esc(INC.err)+'</div>';
-  var l=incFiltres(), ouverts=incOuverts().length;
+  var sel=INC.sel&&INC.list.filter(function(x){ return x.id===INC.sel; })[0];
+  if(sel) return vueIncident(sel);
+  var l=incFiltres();
+
+  /* les chiffres du haut */
+  var deb=new Date(); deb.setDate(1); deb.setHours(0,0,0,0);
+  var corrigesMois=INC.list.filter(function(i){ return i.statut==='corrige'&&(i.lastTs||0)>=deb.getTime(); }).length;
+  var j7=[],max=1;
+  for(var k=6;k>=0;k--){ var d0=new Date(); d0.setHours(0,0,0,0); d0.setDate(d0.getDate()-k); var t0=d0.getTime();
+    var n=INC.list.filter(function(i){ return (i.lastTs||0)>=t0&&(i.lastTs||0)<t0+86400000; }).length;
+    j7.push(n); if(n>max)max=n; }
+  var bars=j7.map(function(n){ return '<i style="height:'+Math.max(10,Math.round(n/max*100))+'%'+(n?'':';opacity:.18')+'" title="'+n+' incident(s)"></i>'; }).join('');
+  var st=INC.f.statut;
+  var kpi=function(filtre,nb,coul,titre,sous){
+    return '<div class="kpi clic'+(st===filtre?' sel':'')+'" onclick="incF(\'statut\',\''+filtre+'\')">'+
+      '<div class="n" style="color:'+coul+'">'+nb+'</div><div class="l">'+titre+'</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45">'+sous+'</div></div>'; };
+  var kpis='<div class="grille-kpi" style="margin-top:18px">'+
+    kpi('nouveau',INC.cnt.nouveau||0,'var(--redText)','Nouveaux','Personne ne s\u2019en est encore occup\u00e9')+
+    kpi('encours',INC.cnt.encours||0,'var(--amber)','En cours','Quelqu\u2019un de l\u2019\u00e9quipe travaille dessus')+
+    kpi('corrige',corrigesMois,'var(--green)','Corrig\u00e9s ce mois','R\u00e9gl\u00e9s et referm\u00e9s')+
+    '<div class="kpi"><div class="n">'+(INC.nbEnt||0)+'</div><div class="l">Entreprises surveill\u00e9es</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45">Leurs applications remontent ici automatiquement</div></div>'+
+    '<div class="kpi clic'+(st===''?' sel':'')+'" onclick="incF(\'statut\',\'\')"><div class="l" style="margin-top:0">7 derniers jours</div><div class="bars">'+bars+'</div>'+
+      '<div style="font-size:12px;color:var(--link);margin-top:8px">Voir tout l\u2019historique</div></div>'+
+  '</div>';
+
+  /* la l\u00e9gende : chaque mot de cette page, expliqu\u00e9 */
+  var pt=function(c){ return '<span class="pt" style="background:'+c+';margin-top:5px"></span>'; };
+  var legende='<div class="carte" style="margin-top:16px"><div class="sec">COMPRENDRE CETTE PAGE</div>'+
+    '<div class="expl-grille">'+
+      '<div><div class="ttl-carte" style="font-size:13px">Les types de probl\u00e8me</div>'+
+        '<div class="expl-l">'+pt('var(--red)')+'<span><b>Erreur</b> \u2014 le code a plant\u00e9, une action du client a pu \u00e9chouer. Le plus s\u00e9rieux.</span></div>'+
+        '<div class="expl-l">'+pt('var(--amber)')+'<span><b>Lenteur</b> \u2014 l\u2019application a mis trop de temps \u00e0 r\u00e9pondre ou l\u2019\u00e9cran s\u2019est fig\u00e9. Rien de cass\u00e9.</span></div>'+
+        '<div class="expl-l">'+pt('var(--gray)')+'<span><b>R\u00e9seau</b> \u2014 la connexion du client a coup\u00e9. Presque toujours son wifi, pas nos serveurs.</span></div></div>'+
+      '<div><div class="ttl-carte" style="font-size:13px">La gravit\u00e9</div>'+
+        '<div class="expl-l">'+pt(GRAV_C.haute)+'<span><b>Haute</b> \u2014 '+GRAV_EXPL.haute+'.</span></div>'+
+        '<div class="expl-l">'+pt(GRAV_C.moyenne)+'<span><b>Moyenne</b> \u2014 '+GRAV_EXPL.moyenne+'.</span></div>'+
+        '<div class="expl-l">'+pt(GRAV_C.faible)+'<span><b>Faible</b> \u2014 '+GRAV_EXPL.faible+'.</span></div></div>'+
+      '<div><div class="ttl-carte" style="font-size:13px">Le suivi</div>'+
+        '<div class="expl-l"><span class="past p-bleu">Nouveau</span><span>vient d\u2019arriver, \u00e0 regarder.</span></div>'+
+        '<div class="expl-l"><span class="past p-ambre">En cours</span><span>quelqu\u2019un s\u2019en occupe d\u00e9j\u00e0.</span></div>'+
+        '<div class="expl-l"><span class="past p-vert">Corrig\u00e9</span><span>r\u00e9gl\u00e9 \u2014 un e-mail peut pr\u00e9venir les clients touch\u00e9s.</span></div>'+
+        '<div class="expl-l"><span class="past p-gris">Ignor\u00e9</span><span>mis de c\u00f4t\u00e9 volontairement (fausse alerte).</span></div></div>'+
+    '</div></div>';
+
   var ents={}; INC.list.forEach(function(i){ (i.entreprises||[]).forEach(function(e){ var n=e.nom||e.entreprise; if(n) ents[n]=1; }); });
   var opt=function(v,cur,txt){ return '<option value="'+esc(v)+'"'+(cur===v?' selected':'')+'>'+esc(txt)+'</option>'; };
   var filtres='<div class="filtres">'+
-    '<select class="sel-f" onchange="incF(\'type\',this.value)">'+opt('',INC.f.type,'Tous les types')+opt('erreur',INC.f.type,'Erreurs')+opt('lenteur',INC.f.type,'Lenteurs')+opt('reseau',INC.f.type,'Réseau')+'</select>'+
-    '<select class="sel-f" onchange="incF(\'grav\',this.value)">'+opt('',INC.f.grav,'Toutes gravités')+opt('haute',INC.f.grav,'Haute')+opt('moyenne',INC.f.grav,'Moyenne')+opt('faible',INC.f.grav,'Faible')+'</select>'+
-    '<select class="sel-f" onchange="incF(\'statut\',this.value)">'+opt('actifs',INC.f.statut,'Nouveaux + en cours')+opt('',INC.f.statut,'Tout, corrigés inclus')+opt('nouveau',INC.f.statut,'Nouveaux')+opt('encours',INC.f.statut,'En cours')+opt('corrige',INC.f.statut,'Corrigés')+opt('ignore',INC.f.statut,'Ignorés')+'</select>'+
+    '<select class="sel-f" onchange="incF(\'type\',this.value)">'+opt('',INC.f.type,'Tous les types')+opt('erreur',INC.f.type,'Erreurs')+opt('lenteur',INC.f.type,'Lenteurs')+opt('reseau',INC.f.type,'R\u00e9seau')+'</select>'+
+    '<select class="sel-f" onchange="incF(\'grav\',this.value)">'+opt('',INC.f.grav,'Toutes gravit\u00e9s')+opt('haute',INC.f.grav,'Haute')+opt('moyenne',INC.f.grav,'Moyenne')+opt('faible',INC.f.grav,'Faible')+'</select>'+
+    '<select class="sel-f" onchange="incF(\'statut\',this.value)">'+opt('actifs',INC.f.statut,'Nouveaux + en cours')+opt('',INC.f.statut,'Tout, corrig\u00e9s inclus')+opt('nouveau',INC.f.statut,'Nouveaux')+opt('encours',INC.f.statut,'En cours')+opt('corrige',INC.f.statut,'Corrig\u00e9s')+opt('ignore',INC.f.statut,'Ignor\u00e9s')+'</select>'+
     '<select class="sel-f" onchange="incF(\'app\',this.value)">'+opt('',INC.f.app,'Toutes les applications')+opt('opgestion',INC.f.app,'OP GESTION')+opt('opmessages',INC.f.app,'OP MESSAGES')+opt('espace',INC.f.app,'Espace client')+'</select>'+
     '<select class="sel-f" onchange="incF(\'ent\',this.value)">'+opt('',INC.f.ent,'Toutes les entreprises')+Object.keys(ents).sort().map(function(n){ return opt(n,INC.f.ent,n); }).join('')+'</select>'+
   '</div>';
+
   var liste=l.length? l.map(function(i){
-      var g=gravite(i), st=i.statut||'nouveau';
-      return '<div class="item'+(INC.sel===i.id?' on':'')+'" onclick="selIncident(\''+jsq(i.id)+'\')">'+
+      var g=gravite(i), stt=i.statut||'nouveau';
+      var noms=(i.entreprises||[]).map(function(e){ return e.nom||e.entreprise; }).filter(Boolean);
+      var qui=noms.length>2?(noms.slice(0,2).join(', ')+' +'+(noms.length-2)):(noms.join(', ')||'\u2014');
+      return '<div class="item" onclick="selIncident(\''+jsq(i.id)+'\')">'+
         '<div style="display:flex;align-items:center;gap:10px">'+
-          '<span class="pt" style="background:'+GRAV_C[g]+'"></span>'+
+          '<span class="pt" style="background:'+GRAV_C[g]+'" title="Gravit\u00e9 '+GRAV_L[g]+'"></span>'+
           '<span style="flex:1;min-width:0;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(incTitre(i))+'</span>'+
-          '<span class="past '+ST_P[st]+'">'+ST_L[st]+'</span></div>'+
+          '<span class="past '+ST_P[stt]+'">'+ST_L[stt]+'</span>'+
+          '<span style="color:var(--dim);display:flex">'+svg('chev',15)+'</span></div>'+
         '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">'+
           '<span class="chip">'+esc(TYPE_L[i.type]||i.type||'Autre')+'</span>'+
-          '<span style="font-size:12px;color:var(--muted)">'+esc(entNom(i))+' · '+esc(APP_L[i.app]||i.app||'—')+' · ×'+(i.count||1)+' · '+esc(fmtAgo(i.lastTs))+'</span></div>'+
+          '<span class="chip">'+esc(APP_L[i.app]||i.app||'\u2014')+'</span>'+
+          '<span style="font-size:12px;color:var(--muted)">'+esc(qui)+' \u00b7 \u00d7'+(i.count||1)+' \u00b7 '+esc(fmtAgo(i.lastTs))+'</span></div>'+
       '</div>';
-    }).join('') : '<div class="vide">Aucun incident ne correspond à ces filtres.</div>';
+    }).join('') : '<div class="vide">Aucun incident ne correspond \u00e0 ces filtres.</div>';
+
+  var ouverts=incOuverts().length;
   return '<div class="ttl-page">Surveillance</div>'+
-    '<div class="desc">Les erreurs, lenteurs et coupures réseau remontées par les applications de vos clients.</div>'+
-    '<div class="mono" style="font-size:12px;color:var(--dim);margin-top:8px">'+l.length+' incident'+(l.length>1?'s':'')+' affiché'+(l.length>1?'s':'')+' · '+ouverts+' ouvert'+(ouverts>1?'s':'')+'</div>'+
-    filtres+
-    '<div class="deux"><div class="col-liste">'+liste+'</div>'+
-    '<div class="col-detail"><div class="col-detail-sticky">'+ficheIncident()+'</div></div></div>';
+    '<div class="desc">Chaque probl\u00e8me rencontr\u00e9 par vos clients remonte ici automatiquement, en direct. Cliquez sur une ligne pour ouvrir le dossier complet du probl\u00e8me.</div>'+
+    kpis+legende+
+    '<div class="mono" style="font-size:12px;color:var(--dim);margin-top:18px">'+l.length+' incident'+(l.length>1?'s':'')+' affich\u00e9'+(l.length>1?'s':'')+' \u00b7 '+ouverts+' ouvert'+(ouverts>1?'s':'')+'</div>'+
+    filtres+liste;
 }
-function ficheIncident(){
-  var i=INC.list.filter(function(x){ return x.id===INC.sel; })[0];
-  if(!i) return '<div class="vide"><span style="color:var(--dim)">'+svg('surveillance',22)+'</span><div style="margin-top:10px">Sélectionnez un incident dans la liste pour afficher son détail.</div></div>';
+
+/* ── la fiche compl\u00e8te d'un probl\u00e8me, seule \u00e0 l'\u00e9cran ── */
+function vueIncident(i){
   var g=gravite(i), st=i.statut||'nouveau';
-  var sect=function(t,l){ return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">'+t+'</div>'+
-    '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">'+l.map(function(x){
-      return '<div style="display:flex;gap:12px;font-size:13px"><span style="color:var(--muted);min-width:104px;flex-shrink:0">'+x[0]+'</span><span style="color:var(--text2);word-break:break-word">'+x[1]+'</span></div>'; }).join('')+'</div></div>'; };
-  var app=(i.appareils||[])[0]||{};
-  return '<div class="carte p24">'+
-    '<div style="display:flex;align-items:center;gap:10px"><span class="mono" style="font-size:12px;color:var(--dim)">INCIDENT #'+esc(String(i.id).slice(-6))+'</span>'+
-      '<span class="past '+ST_P[st]+'">'+ST_L[st]+'</span></div>'+
-    '<div style="font-size:17px;font-weight:700;line-height:1.4;margin-top:10px">'+esc(incTitre(i))+'</div>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+
-      '<span class="chip"><span class="pt" style="background:'+GRAV_C[g]+';margin-right:6px"></span>Gravité '+GRAV_L[g]+'</span>'+
-      '<span class="chip">'+esc(TYPE_L[i.type]||i.type||'Autre')+'</span>'+
-      '<span class="chip">'+esc(APP_L[i.app]||i.app||'—')+'</span></div>'+
-    '<div class="barre-act" style="margin-top:16px"><span style="font-size:12.5px;color:var(--muted);margin-right:4px">Changer le statut :</span>'+
-      '<button class="pill-act amb" onclick="incStatut(\''+jsq(i.id)+'\',\'encours\')">En cours</button>'+
-      '<button class="pill-act vrt" onclick="incStatut(\''+jsq(i.id)+'\',\'corrige\')">Corrigé</button>'+
-      '<button class="pill-act gri" onclick="incStatut(\''+jsq(i.id)+'\',\'ignore\')">Ignoré</button></div>'+
-    sect('CONTEXTE',[['Entreprise',esc((i.entreprises||[]).map(function(e){ return e.nom||e.entreprise; }).filter(Boolean).join(', ')||'—')],
-      ['Appareil',esc(app.ua||app.nom||'—')],['Version',esc(i.version||'—')],['Page',esc(i.src||'—')+(i.line?' · ligne '+esc(String(i.line)):'')]])+
-    sect('FRÉQUENCE',[['Occurrences','×'+(i.count||1)],['Première fois',esc(fmtDate(i.firstTs))],['Dernière fois',esc(fmtDate(i.lastTs))]])+
-    (i.stack?'<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">DÉTAIL TECHNIQUE</div>'+
-      '<div class="code" style="margin-top:10px">'+esc(i.stack)+'</div></div>':'')+
-  '</div>';
+  var ligne=function(k,v){ return '<div style="display:flex;gap:12px;font-size:13px;padding:7px 0;border-top:1px solid var(--hairline)"><span style="color:var(--muted);min-width:118px;flex-shrink:0">'+k+'</span><span style="color:var(--text2);word-break:break-word;min-width:0">'+v+'</span></div>'; };
+  var carte=function(titre,corps,note){ return '<div class="carte"><div class="sec">'+titre+'</div><div style="margin-top:8px">'+corps+'</div>'+(note?'<div style="font-size:12px;color:var(--dim);margin-top:10px;line-height:1.5">'+note+'</div>':'')+'</div>'; };
+
+  var apps=Object.keys(i.appareils||{});
+  var appareils=apps.length? apps.map(function(k){ return ligne(esc(k),(i.appareils[k]||1)+' fois'); }).join('')
+    : '<div style="font-size:13px;color:var(--muted);padding-top:6px">L\u2019appareil n\u2019a pas \u00e9t\u00e9 transmis pour ce probl\u00e8me \u2014 les prochains signalements le pr\u00e9ciseront.</div>';
+
+  var ents=(i.entreprises||[]);
+  var entHtml=ents.length? ents.map(function(e){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--hairline)">'+
+        '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(e.nom||e.entreprise||'\u2014')+'</div>'+
+          (e.email?'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+esc(e.email)+'</div>':'')+'</div>'+
+        '<div style="text-align:right;flex-shrink:0"><div class="mono" style="font-size:12.5px;font-weight:600">\u00d7'+(e.count||1)+'</div>'+
+          '<div style="font-size:11.5px;color:var(--dim);margin-top:2px">'+esc(fmtAgo(e.lastTs))+'</div></div></div>'; }).join('')
+    : '<div style="font-size:13px;color:var(--muted);padding-top:6px">Aucune entreprise identifi\u00e9e.</div>';
+
+  var histo=(i.historique||[]).slice().reverse().map(function(h){
+      return '<div style="display:flex;gap:12px;padding:8px 0;border-top:1px solid var(--hairline);font-size:12.5px">'+
+        '<span class="mono" style="color:var(--dim);flex-shrink:0">'+esc(fmtDate(h.ts))+'</span>'+
+        '<span style="color:var(--text2)"><b>'+esc(h.par||'\u2014')+'</b> \u2014 '+esc(h.action||'')+(h.note?' \u00b7 \u00ab '+esc(h.note)+' \u00bb':'')+'</span></div>'; }).join('')
+    ||'<div style="font-size:13px;color:var(--muted);padding-top:6px">Personne n\u2019a encore agi sur ce dossier.</div>';
+
+  var notes=(i.notes?'<div style="font-size:13px;color:var(--text2);white-space:pre-wrap;line-height:1.6;padding-top:6px">'+esc(i.notes)+'</div>':'')+
+    '<textarea id="inc-note" class="inp" rows="2" placeholder="Ce que vous avez constat\u00e9, la piste \u00e0 suivre\u2026" style="margin-top:10px"></textarea>'+
+    '<div style="display:flex;justify-content:flex-end;margin-top:9px"><button class="pill-act" onclick="incNote(\''+jsq(i.id)+'\')">Enregistrer la note</button></div>';
+
+  var nbMail=ents.filter(function(e){ return e.email; }).length;
+  var freq=ligne('Occurrences','<b>\u00d7'+(i.count||1)+'</b> \u2014 les signalements identiques sont regroup\u00e9s dans ce m\u00eame dossier')+
+    ligne('Premi\u00e8re fois',esc(fmtDate(i.firstTs)))+
+    ligne('Derni\u00e8re fois',esc(fmtDate(i.lastTs))+' ('+esc(fmtAgo(i.lastTs))+')');
+  var ctx=ligne('Application',esc(APP_L[i.app]||i.app||'\u2014'))+
+    ligne('Version signal\u00e9e',i.version?('v'+esc(i.version)):'non transmise')+
+    ligne('Cat\u00e9gorie',esc(i.categorie||'\u2014'))+
+    ligne('Page / fichier',i.src?('<span class="mono" style="font-size:12px">'+esc(String(i.src).split('/').pop())+(i.line?' \u00b7 ligne '+esc(String(i.line)):'')+'</span>'):'non transmis');
+
+  return '<button class="btn-fant" onclick="incRetour()">\u2190 Retour \u00e0 la surveillance</button>'+
+    '<div class="carte p24" style="margin-top:16px">'+
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="mono" style="font-size:12px;color:var(--dim)">DOSSIER #'+esc(String(i.id).slice(-6))+'</span>'+
+        '<span class="past '+ST_P[st]+'">'+ST_L[st]+(i.par&&st!=='nouveau'?' \u2014 '+esc(i.par):'')+'</span></div>'+
+      '<div style="font-size:19px;font-weight:700;line-height:1.4;margin-top:10px">'+esc(incTitre(i))+'</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+
+        '<span class="chip"><span class="pt" style="background:'+GRAV_C[g]+';margin-right:6px"></span>Gravit\u00e9 '+GRAV_L[g]+'</span>'+
+        '<span class="chip">'+esc(TYPE_L[i.type]||i.type||'Autre')+'</span>'+
+        '<span class="chip">'+esc(APP_L[i.app]||i.app||'\u2014')+'</span>'+
+        (i.version?'<span class="chip mono" style="font-size:11px">v'+esc(i.version)+'</span>':'')+'</div>'+
+      '<div style="background:rgba(79,124,255,.07);border:1px solid rgba(79,124,255,.18);border-radius:12px;padding:15px 17px;margin-top:16px">'+
+        '<div class="sec" style="color:var(--link)">CE QUE \u00c7A VEUT DIRE</div>'+
+        '<div style="font-size:13.5px;line-height:1.65;color:var(--text2);margin-top:8px">'+incExplique(i)+'</div>'+
+        '<div style="font-size:12.5px;color:var(--muted);margin-top:8px">Gravit\u00e9 '+GRAV_L[g].toLowerCase()+' : '+GRAV_EXPL[g]+'.</div></div>'+
+      '<div class="barre-act" style="margin-top:16px"><span style="font-size:12.5px;color:var(--muted);margin-right:4px">Suivi :</span>'+
+        (st!=='encours'?'<button class="pill-act amb" onclick="incStatut(\''+jsq(i.id)+'\',\'encours\')">Je m\u2019en occupe</button>':'')+
+        (st!=='corrige'?'<button class="pill-act vrt" onclick="incStatut(\''+jsq(i.id)+'\',\'corrige\')">Marquer corrig\u00e9</button>':'')+
+        (st!=='ignore'?'<button class="pill-act gri" onclick="incStatut(\''+jsq(i.id)+'\',\'ignore\')">Ignorer</button>':'')+
+        '<button class="pill-act" onclick="incCopier(\''+jsq(i.id)+'\')">\ud83d\udccb Copier le dossier complet</button></div>'+
+      (st!=='corrige'&&nbMail?'<div style="font-size:12px;color:var(--dim);margin-top:10px;line-height:1.5">\u00ab Marquer corrig\u00e9 \u00bb enverra automatiquement l\u2019e-mail \u00ab Votre application a \u00e9t\u00e9 am\u00e9lior\u00e9e \u2705 \u00bb aux '+nbMail+' entreprise(s) touch\u00e9e(s) ayant un e-mail.</div>':'')+
+    '</div>'+
+    '<div class="fiche-grille">'+
+      carte('O\u00d9 ET QUAND',ctx+freq)+
+      carte('ENTREPRISES TOUCH\u00c9ES',entHtml,'Les clients chez qui ce probl\u00e8me est apparu, et combien de fois chacun.')+
+      carte('APPAREILS',appareils,'Le t\u00e9l\u00e9phone, la tablette ou l\u2019ordinateur sur lequel le probl\u00e8me est apparu.')+
+      carte('NOTES DE L\u2019\u00c9QUIPE',notes,'Visible par toute l\u2019\u00e9quipe, gard\u00e9 dans le dossier.')+
+      carte('HISTORIQUE DU DOSSIER',histo)+
+    '</div>'+
+    (i.stack?'<div class="carte" style="margin-top:16px"><div class="sec">D\u00c9TAIL TECHNIQUE</div>'+
+      '<div style="font-size:12px;color:var(--dim);margin-top:6px">La trace exacte de l\u2019erreur \u2014 c\u2019est elle qu\u2019il faut donner au d\u00e9veloppeur (le bouton \u00ab Copier le dossier complet \u00bb l\u2019inclut d\u00e9j\u00e0).</div>'+
+      '<div class="code" style="margin-top:10px;white-space:pre-wrap;word-break:break-word">'+esc(i.stack)+'</div></div>':'');
 }
-function incStatut(id,st){
-  apiPost('/api/monitor/status',{id:id,statut:st,note:''}).then(function(x){
-    if(!x.ok){ toast('⚠️ '+(x.d.error||'refusé')); return; }
-    var i=INC.list.filter(function(y){ return y.id===id; })[0]; if(i) i.statut=st;
-    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a marqué l’incident #'+String(id).slice(-6)+' « '+ST_L[st]+' »'});
+
+function incStatut(id,st,note){
+  var i=INC.list.filter(function(y){ return y.id===id; })[0];
+  if(st==='corrige'&&i&&!i.mailEnvoye&&(i.entreprises||[]).some(function(e){ return e.email; })&&
+     !confirm('Marquer corrig\u00e9 ?\nL\u2019e-mail automatique \u00ab Votre application a \u00e9t\u00e9 am\u00e9lior\u00e9e \u2705 \u00bb partira aux entreprises touch\u00e9es.')) return;
+  apiPost('/api/monitor/status',{id:id,statut:st,note:note||''}).then(function(x){
+    if(!x.ok){ toast('\u26a0\ufe0f '+(x.d.error||'refus\u00e9')); return; }
+    if(i){ i.statut=st; if(note) i.notes=(i.notes?i.notes+'\n':'')+note; }
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a marqu\u00e9 l\u2019incident #'+String(id).slice(-6)+' \u00ab '+ST_L[st]+' \u00bb'});
     setBdg('bdg-surv',incOuverts().length);
-    render(); toast('Incident #'+String(id).slice(-6)+' → '+ST_L[st]);
+    render();
+    var n=(x.d.mails||0)+(x.d.mailsSimules||0);
+    toast(st==='corrige'?('\u2713 Corrig\u00e9'+(n?' \u2014 '+n+' e-mail(s) client(s)':'')):(note?'\ud83d\udcdd Note enregistr\u00e9e':'Dossier #'+String(id).slice(-6)+' \u2192 '+ST_L[st]));
     chargerIncidents();
   });
+}
+function incNote(id){
+  var t=$('inc-note'), n=(t&&t.value||'').trim();
+  if(!n){ toast('\u00c9crivez d\u2019abord votre note'); return; }
+  var i=INC.list.filter(function(y){ return y.id===id; })[0];
+  incStatut(id,(i&&i.statut)||'nouveau',n);
+}
+/* le dossier complet en texte, pr\u00eat \u00e0 coller dans Claude Code */
+function incCopier(id){
+  var i=INC.list.filter(function(y){ return y.id===id; })[0]; if(!i) return;
+  var d=['CORRECTION DEMAND\u00c9E \u2014 dossier pr\u00e9par\u00e9 depuis la console TEAM OP',''];
+  d.push('APPLICATION : '+(APP_L[i.app]||i.app||'\u2014')+(i.version?' \u2014 signal\u00e9 en v'+i.version:''));
+  d.push('CAT\u00c9GORIE   : '+(i.categorie||'\u2014'));
+  d.push('TYPE        : '+(TYPE_L[i.type]||i.type||'\u2014')+' \u00b7 gravit\u00e9 '+GRAV_L[gravite(i)]);
+  d.push('MESSAGE     : '+(i.message||''));
+  if(i.src) d.push('FICHIER     : '+i.src+(i.line?' ligne '+i.line:''));
+  d.push('FR\u00c9QUENCE   : '+(i.count||0)+' occurrence(s) \u00b7 premi\u00e8re fois '+fmtDate(i.firstTs)+' \u00b7 derni\u00e8re fois '+fmtDate(i.lastTs));
+  var ap=Object.keys(i.appareils||{}).map(function(k){ return k+' ('+i.appareils[k]+'\u00d7)'; }).join(' \u00b7 ');
+  if(ap) d.push('APPAREILS   : '+ap);
+  if((i.entreprises||[]).length){ d.push(''); d.push('ENTREPRISES TOUCH\u00c9ES :');
+    (i.entreprises||[]).forEach(function(e){ d.push('  \u00b7 '+(e.nom||e.entreprise||'\u2014')+(e.email?' <'+e.email+'>':'')+' \u2014 '+(e.count||0)+'\u00d7'); }); }
+  if(i.stack){ d.push(''); d.push('TRACE TECHNIQUE :'); d.push(i.stack); }
+  if(i.notes){ d.push(''); d.push('NOTES DE L\u2019\u00c9QUIPE :'); d.push(i.notes); }
+  d.push(''); d.push('CE QUE JE VEUX : corrige ce bug, v\u00e9rifie que rien d\u2019autre ne casse, d\u00e9ploie, puis dis-moi ce qui a chang\u00e9.');
+  var txt=d.join('\n');
+  var fini=function(ok){ toast(ok?'\ud83d\udccb Dossier copi\u00e9 \u2014 collez-le dans Claude Code':'\u26a0\ufe0f Copie impossible sur cet appareil'); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function(){ fini(true); },function(){ fini(false); });
+  else fini(false);
 }
 
 /* ══════════ 3. SUPPORT ══════════ */
