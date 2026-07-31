@@ -4711,7 +4711,12 @@
     $('visio').classList.remove('open'); $('visio').classList.remove('tel');
     if(room){ try{ await _vCol().add({sig:1,room:room,de:ME.uid,type:'pars',ts:Date.now()}); }catch(e){}
       try{ const qs=await _vCol().where('room','==',room).get();
-        for(const d of qs.docs){ const x=d.data()||{}; if(x.sig&&x.de===ME.uid) try{ await d.ref.delete(); }catch(e){} } }catch(e){} }
+        for(const d of qs.docs){ const x=d.data()||{};
+          if(x.sig&&x.de===ME.uid){ try{ await d.ref.delete(); }catch(e){} continue; }
+          /* une invitation restée « ça sonne » alors que l'appel se termine :
+             elle devient un appel manqué, elle ne re-sonnera plus jamais */
+          if(!x.sig&&x.ajout&&x.status==='ringing'&&restants===0){ try{ await d.ref.update({status:'missed'}); }catch(e){} }
+        } }catch(e){} }
     if(!sansClore){
       appelClore(groupe?restants:0);   // un tête-à-tête se clôt dès que je pars ; un groupe, au dernier
       /* un appel de groupe continue sans moi : je peux y revenir quand je veux */
@@ -4761,14 +4766,18 @@
 
   // ---- Appel entrant (sonnerie tant que l'app est ouverte) ----
   let _ringRef=null,_ringRefUnsub=null,_ringT=null,_callListenUnsub=null;
+  const _ringVus=new Set();   // les appels qui ont déjà sonné cette session
   function startCallListener(){
     if(_callListenUnsub)_callListenUnsub();
     _callListenUnsub=callsCol().where('members','array-contains',ME.uid).onSnapshot(qs=>{
       qs.docChanges().forEach(ch=>{ if(ch.type==='removed') return; const c=ch.doc.data(); const t=c.ts&&c.ts.toMillis?c.ts.toMillis():Date.now();
-        /* une fiche qui traîne ne doit jamais refaire sonner : au-delà d'une
-           minute, l'appel n'est plus d'actualité */
-        if(c.status==='ringing' && c.from!==ME.uid && t>_loginTs-4000 && (Date.now()-t)<60000
-           && !_ringRef && !(_activeCall&&_activeCall.ref.id===ch.doc.id)) showRing(ch.doc.ref,c); });
+        /* une fiche déjà traitée ne refait pas sonner — on s'en souvient par
+           son numéro, PAS par l'heure : l'horloge d'un téléphone peut dévier
+           et ferait alors rater des appels bien réels */
+        if(c.status==='ringing' && c.from!==ME.uid && t>_loginTs-4000
+           && !_ringVus.has(ch.doc.id)
+           && !_ringRef && !(_activeCall&&_activeCall.ref.id===ch.doc.id)){
+          _ringVus.add(ch.doc.id); showRing(ch.doc.ref,c); } });
     }, err=>{});
   }
   /* ══ L'APPEL NE DOIT JAMAIS PASSER INAPERÇU ══
@@ -4941,14 +4950,18 @@
        une sonnerie muette ne sert à rien dans une poche */
     try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); if(_ac.state==='suspended') _ac.resume(); }catch(e){}
     const vibrer=()=>{ try{ if(navigator.vibrate) navigator.vibrate([600,300,600]); }catch(e){} };
-    let joue=false;
-    try{ _ringA=sonFichier(SONNERIE_APPEL,Math.max(.35,sonVolume()),true); joue=true; }catch(e){}
-    if(joue&&_ringA){ _ringA.onerror=()=>{ joue=false; }; }
+    const secours=()=>{
+      /* le fichier ne peut pas jouer : la cloche composée sonne à sa place —
+         PAS le son choisi, qui peut lui-même être un fichier bloqué */
+      if(!_ringT) return;
+      clearInterval(_ringT);
+      const sonner=()=>{ sonJoue('cloche',true); vibrer(); };
+      sonner(); _ringT=setInterval(sonner,1400);
+    };
+    try{ _ringA=sonFichier(SONNERIE_APPEL,Math.max(.35,sonVolume()),true,secours); }catch(e){ secours(); }
     vibrer(); _ringT=setInterval(vibrer,1900);
-    /* filet : si le fichier n'a pas démarré, l'ancienne sonnerie prend le relais */
-    setTimeout(()=>{ try{ if(_ringT&&(!_ringA||_ringA.paused)){
-      const sonner=()=>{ sonJoue(sonChoisi(),true); vibrer(); };
-      clearInterval(_ringT); sonner(); _ringT=setInterval(sonner,1400); } }catch(e){} },700);
+    /* deuxième filet : toujours muet au bout d'une seconde → secours */
+    setTimeout(()=>{ try{ if(_ringT&&(!_ringA||_ringA.paused)) secours(); }catch(e){} },1000);
   }
   function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;}
     try{ if(_ringA){ _ringA.pause(); _ringA.currentTime=0; _ringA.loop=false; _ringA=null; } }catch(e){}
@@ -5376,15 +5389,40 @@
     try{ sonFichiersArrete(); }catch(e){} }
   /* les sons enregistrés : on garde un lecteur par son, prêt à rejouer */
   const _sonFichiers={};
-  function sonFichier(src,vol,boucle){
+  function sonFichier(src,vol,boucle,siEchec){
     let a=_sonFichiers[src];
     if(!a){ a=new Audio(src); a.preload='auto'; _sonFichiers[src]=a; }
-    a.loop=!!boucle;
+    a.loop=!!boucle; a.muted=false;
     a.volume=Math.max(0,Math.min(1,vol));
     try{ a.currentTime=0; }catch(e){}
-    const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{});
+    const pr=a.play();
+    if(pr&&pr.catch) pr.catch(()=>{ try{ if(siEchec) siEchec(); }catch(e){} });
     return a;
   }
+  /* le navigateur n'autorise un son qu'après un premier toucher : au premier
+     geste, on joue les deux sonneries EN MUET une fraction de seconde — elles
+     sont alors autorisées pour de bon, même quand un appel arrive tout seul */
+  let _audioPret=false;
+  function audioDebloque(){
+    if(_audioPret) return; _audioPret=true;
+    try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
+      if(_ac.state==='suspended') _ac.resume(); }catch(e){}
+    ['sons/message.mp3','sons/appel.mp3'].forEach(src=>{
+      try{
+        let a=_sonFichiers[src];
+        if(!a){ a=new Audio(src); a.preload='auto'; _sonFichiers[src]=a; }
+        a.muted=true;
+        const pr=a.play();
+        if(pr&&pr.then) pr.then(()=>{ try{ a.pause(); a.currentTime=0; }catch(e){} a.muted=false; })
+                          .catch(()=>{ a.muted=false; _audioPret=false; });
+      }catch(e){}
+    });
+  }
+  try{
+    document.addEventListener('pointerdown',audioDebloque,{capture:true,passive:true});
+    document.addEventListener('keydown',audioDebloque,{capture:true});
+    document.addEventListener('touchstart',audioDebloque,{capture:true,passive:true});
+  }catch(e){}
   function sonFichiersArrete(){
     Object.keys(_sonFichiers).forEach(k=>{ const a=_sonFichiers[k];
       try{ a.pause(); a.currentTime=0; }catch(e){} });
@@ -5392,7 +5430,11 @@
   function sonJoue(cle,force){
     if(!force && !soundOn()) return;
     const d=SONS[cle||sonChoisi()]||SONS.teamop;
-    if(d.src){ sonFichier(d.src,Math.max(.05,sonVolume()),false); return; }
+    if(d.src){
+      /* si le navigateur refuse le fichier, la cloche composée sonne à sa
+         place : un message ne doit JAMAIS arriver en silence */
+      sonFichier(d.src,Math.max(.05,sonVolume()),false,()=>{ try{ sonJoue('cloche',true); }catch(e){} });
+      return; }
     try{
       _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
       if(_ac.state==='suspended'){ try{ _ac.resume(); }catch(e){} }
