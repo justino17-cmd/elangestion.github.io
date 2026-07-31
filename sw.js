@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v576';
+const CACHE = 'elan-gestion-v577';
 const ASSETS = [
   './',
   'index.html',
@@ -103,19 +103,42 @@ self.addEventListener('push', e => {
     /* un canal d'urgence ET un appel entrant sonnent toujours */
     const urgent = d.urgent === true || /^(🚨|📞)/.test(String(d.title || ''));
     const muet = !urgent && enSilence(sil);
-    return self.registration.showNotification(d.title || 'TeamOP', {
+    const appel = /^📞/.test(String(d.title || ''));
+    const opts = {
       body: d.body || '',
       icon: 'icons/icon-192.png',
       badge: 'icons/icon-192.png',
       silent: muet,
-      vibrate: muet ? [] : undefined,
-      data: { url: d.url || '/app.html' }
-    });
+      data: { url: d.url || '/app.html', appel: appel }
+    };
+    if (appel) {
+      /* un appel : la notification RESTE affichée jusqu'à ce qu'on réponde
+         ou qu'on refuse, avec ses deux boutons — comme un vrai téléphone */
+      opts.requireInteraction = true;
+      opts.tag = 'opmsg-appel';
+      opts.renotify = true;
+      opts.vibrate = muet ? [] : [400, 200, 400, 200, 400];
+      opts.actions = [
+        { action: 'repondre', title: '📞 Répondre' },
+        { action: 'refuser', title: '✕ Refuser' }
+      ];
+    } else if (!muet) {
+      opts.vibrate = undefined;
+    } else {
+      opts.vibrate = [];
+    }
+    return self.registration.showNotification(d.title || 'TeamOP', opts);
   }));
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || '/app.html';
+  const dd = e.notification.data || {};
+  /* « Refuser » : on n'ouvre rien, l'appel deviendra un appel manqué */
+  if (e.action === 'refuser') return;
+  let url = dd.url || '/app.html';
+  /* « Répondre » ou clic sur la fiche d'appel : on ouvre l'application
+     directement sur l'appel en cours */
+  if (dd.appel) url = '/messages.html?appel=1';
   e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
     for (const w of ws) { if ('focus' in w) { try { w.navigate(url); } catch (_) {} return w.focus(); } }
     return clients.openWindow(url);
