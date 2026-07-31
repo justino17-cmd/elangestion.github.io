@@ -2501,7 +2501,11 @@
 
   // ---- DISCUSSIONS (canaux/groupes) ----
   let _discSearch='';
-  function discSearchInput(v){ _discSearch=(v||'').trim().toLowerCase(); viewDisc(true); }
+  function discSearchInput(v){
+    try{ if(_rechT) clearTimeout(_rechT); _rechT=setTimeout(()=>{ try{ rechPartout(v); }catch(e){} },420); }catch(e){}
+    return _discSearchInput(v);
+  }
+  function _discSearchInput(v){ _discSearch=(v||'').trim().toLowerCase(); viewDisc(true); }
   /* Le compteur de la pastille « Messages » : il vit sa vie, même quand on
      est sur le tableau de bord ou dans les réglages. */
   async function badgesMaj(){ try{
@@ -2526,7 +2530,8 @@
   try{ setInterval(()=>{ try{ badgesMaj(); }catch(e){} },60000); }catch(e){}
   async function viewDisc(keepFocus){
     const view=$('view'); try{ view.classList.add('discview'); }catch(e){} view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?'':`<button class="hbtn neutral" onclick="showView('cont')">${ms('edit_square',18)}Nouveau message</button>`}</div>
-      <div class="gsearch">${ms('search',19)}<input id="disc-search" placeholder="Rechercher une discussion…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
+      <div class="gsearch">${ms('search',19)}<input id="disc-search" placeholder="Rechercher une discussion ou un message…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
+      <div id="disc-partout"></div>
       <div class="disc-2col"><div id="disc-list"><p class="muted center">Chargement…</p></div>
       <aside id="disc-side"></aside></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ms('add',25)}</button>`;
     if(keepFocus){ const si=$('disc-search'); if(si){ si.focus(); try{ si.setSelectionRange(si.value.length,si.value.length); }catch(e){} } }
@@ -2746,6 +2751,85 @@
      Ce qui compte aujourd'hui, sans changer de page : les réunions du jour,
      les derniers documents reçus, et deux raccourcis. */
   async function discSide(){ const z=$('disc-side'); if(z) z.innerHTML=''; }
+  /* ══ LA RECHERCHE PARTOUT ══
+     Une seule barre qui fouille TOUTES les conversations : le code d'un
+     portail, une facture, une adresse — on retrouve le message et on saute
+     dessus d'un clic, même s'il date de plusieurs mois. */
+  let _rechTout=[], _rechMot='', _rechEnCours=false, _rechT=null;
+  async function rechPartout(mot){
+    _rechMot=(mot||'').trim().toLowerCase();
+    const z=$('disc-partout'); if(!z) return;
+    if(_rechMot.length<2){ z.innerHTML=''; _rechTout=[]; return; }
+    if(_rechEnCours) return;
+    _rechEnCours=true;
+    z.innerHTML='<p class="muted" style="font-size:12px;margin:6px 2px">Recherche dans toutes les discussions…</p>';
+    const mot2=_rechMot;
+    try{
+      const ch=chanCol(); const map={};
+      if(MODE==='perso'){ (await ch.where('members','array-contains',ME.uid).get()).forEach(d=>map[d.id]=d.data()); }
+      else { const [gen,grp]=await Promise.all([ch.where('type','==','general').get(), ch.where('members','array-contains',ME.uid).get()]);
+        gen.forEach(d=>map[d.id]=d.data()); grp.forEach(d=>map[d.id]=d.data()); }
+      const noms={}; try{ (await listMembers()).forEach(m=>noms[m.uid]=m.name||''); }catch(e){}
+      const trouves=[];
+      for(const [cid,c] of Object.entries(map)){
+        let nomCanal=c.type==='general'?'Général':(c.name||'Discussion');
+        if(c.type==='dm'){ const o=(c.members||[]).find(u=>u!==ME.uid); nomCanal=noms[o]||'Message privé'; }
+        try{ const qs=await ch.doc(cid).collection('messages').get();
+          qs.forEach(d=>{ const m=d.data()||{};
+            if(m.programmeAt&&m.programmeAt>Date.now()) return;      // pas encore envoyé
+            const txt=String(m.text||'');
+            if(!txt.toLowerCase().includes(mot2)) return;
+            const t=(m.ts&&m.ts.toDate)?m.ts.toDate():new Date();
+            trouves.push({cid:cid,canal:nomCanal,mid:d.id,qui:m.name||'',txt:txt,d:t});
+          });
+        }catch(e){}
+      }
+      if(mot2!==_rechMot){ _rechEnCours=false; return rechPartout(_rechMot); }   // la frappe a continué
+      trouves.sort((a,b)=>b.d-a.d);
+      _rechTout=trouves;
+      rechRender();
+    }catch(e){ z.innerHTML='<p class="muted" style="font-size:12px;margin:6px 2px">Recherche impossible pour le moment.</p>'; }
+    _rechEnCours=false;
+  }
+  function rechRender(){
+    const z=$('disc-partout'); if(!z) return;
+    const l=_rechTout;
+    if(!_rechMot||_rechMot.length<2){ z.innerHTML=''; return; }
+    if(!l.length){ z.innerHTML=`<p class="muted" style="font-size:12.5px;margin:8px 2px">Aucun message ne contient « ${esc(_rechMot)} ».</p>`; return; }
+    /* on met le mot cherché en évidence dans un extrait du message */
+    const extrait=(txt)=>{
+      const i=txt.toLowerCase().indexOf(_rechMot);
+      const a=Math.max(0,i-38), b=Math.min(txt.length,i+_rechMot.length+58);
+      const av=esc(txt.slice(a,i)), mot=esc(txt.slice(i,i+_rechMot.length)), ap=esc(txt.slice(i+_rechMot.length,b));
+      return (a>0?'…':'')+av+'<mark style="background:rgba(94,130,255,.35);color:inherit;border-radius:4px;padding:0 2px">'+mot+'</mark>'+ap+(b<txt.length?'…':'');
+    };
+    z.innerHTML=`<div style="font-size:11px;font-weight:800;letter-spacing:.07em;color:var(--t3);margin:10px 2px 6px">
+        ${l.length} MESSAGE${l.length>1?'S':''} TROUVÉ${l.length>1?'S':''}</div>
+      <div class="listbox">${l.slice(0,60).map(x=>`
+        <div class="row" onclick="rechAller('${esc(x.cid)}','${esc((x.canal||'').replace(/'/g,''))}','${esc(x.mid)}')">
+          <div class="ava" style="${avatarStyle(x.qui||x.canal)}">${ini(x.qui||x.canal)}</div>
+          <div class="info"><div class="nm">${esc(x.qui||'')} · <span style="font-weight:600;color:var(--t2)">${esc(x.canal)}</span></div>
+            <div class="ds">${extrait(x.txt)}</div></div>
+          <div style="font-size:11px;color:var(--t3);white-space:nowrap">${esc(x.d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'}))}</div>
+        </div>`).join('')}</div>
+      ${l.length>60?`<p class="muted" style="font-size:11.5px;margin:8px 2px">Les 60 plus récents sont affichés — précise ta recherche pour en voir d'autres.</p>`:''}`;
+  }
+  /* ouvrir la discussion et sauter sur le message trouvé */
+  let _rechCible=null;
+  function rechAller(cid,nom,mid){
+    _rechCible=mid;
+    openChannel(cid,nom||'');
+    setTimeout(rechSurligne,900); setTimeout(rechSurligne,1900);
+  }
+  function rechSurligne(){
+    if(!_rechCible) return;
+    const el=document.querySelector('#stream .m[data-mid="'+_rechCible+'"]');
+    if(!el) return;
+    try{ el.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){ el.scrollIntoView(); }
+    el.style.transition='box-shadow .3s'; el.style.boxShadow='0 0 0 3px var(--op)';
+    setTimeout(()=>{ try{ el.style.boxShadow=''; }catch(e){} },2600);
+    _rechCible=null;
+  }
   /* ══ LE TROMBONE DE L'ENTREPRISE ══
      Toutes les photos et tous les documents échangés dans toutes les
      discussions, au même endroit, avec une recherche. Fini la photo perdue
