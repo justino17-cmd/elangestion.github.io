@@ -3916,7 +3916,7 @@
       const starTag=_star.has(id)?'<span style="color:#f5c518;font-size:10px"> ★</span>':'';
       const ephTag=m.exp?'<span style="font-size:10px;opacity:.6" title="Éphémère"> ⏱</span>':'';
       const enAttente=!!(m.programmeAt&&m.programmeAt>Date.now());
-      html+=`<div class="m ${mine?'me':'them'}${enAttente?' attente':''}" data-mid="${id}" onclick="${enAttente?`progListe()`:`msgTap('${id}')`}" style="cursor:pointer${enAttente?';opacity:.72;border:1px dashed currentColor':''}">${enAttente?`<div style="font-size:10.5px;font-weight:800;letter-spacing:.05em;margin-bottom:3px">⏰ PROGRAMMÉ · ${esc(new Date(m.programmeAt).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</div>`:''}${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${reacts}${m.fwd?'<span style="font-size:9px;opacity:.55">↪ transféré</span>':''}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}${ephTag}${starTag}</div></div>`;
+      html+=`<div class="m ${mine?'me':'them'}${enAttente?' attente':''}" data-mid="${id}" onclick="${enAttente?`progModifier('${id}')`:`msgTap('${id}')`}" style="cursor:pointer${enAttente?';opacity:.72;border:1px dashed currentColor':''}">${enAttente?`<div style="font-size:10.5px;font-weight:800;letter-spacing:.05em;margin-bottom:3px">⏰ PROGRAMMÉ · ${esc(new Date(m.programmeAt).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))} · ✏️ modifier</div>`:''}${mine?'':`<div class="who">${esc(m.name||'')}</div>`}${body}${reacts}${m.fwd?'<span style="font-size:9px;opacity:.55">↪ transféré</span>':''}${m.edited?'<span style="font-size:9px;opacity:.55"> · modifié</span>':''}<div class="t">${time}${ephTag}${starTag}</div></div>`;
       if(id===lastMineId && readReceiptsOn()){ const mt=d.getTime();
         const rd=Object.keys(_reads).filter(u=>u!==ME.uid && (_reads[u]||0)>=mt-2000).length;
         const rtxt=rd? (isDM?'Vu':'Vu par '+rd) : 'Envoyé';
@@ -4439,17 +4439,29 @@
      nouveau tiroir, donc aucune permission à changer côté Firebase. */
   let _progAttente=[];
   function progCol(chId){ return chDoc(chId||_curCh.id).collection('messages'); }
-  function progForm(){
+  /* Le même formulaire sert à créer ET à modifier : on peut changer le
+     texte, le jour et l'heure tant que le message n'est pas parti. */
+  let _progEdit=null;
+  function progForm(edit){
     if(!_curCh) return;
-    const t=new Date(Date.now()+3600000);
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">⏰ Message programmé</h3><div id="pgerr"></div>
-      <div class="field"><label>Message</label><textarea id="pg-txt" rows="3" placeholder="Ex : RDV au dépôt à 7h30, prenez les combinaisons."></textarea></div>
+    _progEdit=edit||null;
+    const q=_progEdit?new Date(_progEdit.programmeAt):new Date(Date.now()+3600000);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${_progEdit?'✏️ Modifier le message programmé':'⏰ Message programmé'}</h3><div id="pgerr"></div>
+      <div class="field"><label>Message</label><textarea id="pg-txt" rows="3" placeholder="Ex : RDV au dépôt à 7h30, prenez les combinaisons.">${_progEdit?esc(_progEdit.text||''):''}</textarea></div>
       <div class="field" style="margin-bottom:6px"><label>Envoyer le</label></div>
-      ${champDateHeure(_dstr(t),t.toTimeString().slice(0,5))}
+      ${champDateHeure(_dstr(q),q.toTimeString().slice(0,5))}
       <div style="height:12px"></div>
-      <button class="btn block" onclick="progEnregistrer()">Programmer l'envoi</button>
-      <button class="btn ghost block" style="margin-top:8px" onclick="progListe()">Voir les messages programmés</button>`);
+      <button class="btn block" onclick="progEnregistrer()">${_progEdit?'Enregistrer les changements':"Programmer l'envoi"}</button>
+      ${_progEdit?`<button class="btn ghost block" style="margin-top:8px" onclick="progSupprimer('${_progEdit.id}')">Annuler ce message programmé</button>`
+                 :`<button class="btn ghost block" style="margin-top:8px" onclick="progListe()">Voir les messages programmés</button>`}`);
     dcLabel();
+  }
+  async function progModifier(id){
+    try{ const l=await progEnAttente(); const p=l.find(x=>x.id===id);
+      if(!p){ toast('Ce message est déjà parti.'); progListe(); return; }
+      if(p.uid!==ME.uid){ toast('Seul son auteur peut le modifier.'); return; }
+      progForm(p);
+    }catch(e){ alert('Erreur : '+((e&&e.message)||e)); }
   }
   async function progEnregistrer(){ try{
     const txt=($('pg-txt').value||'').trim();
@@ -4457,25 +4469,38 @@
     const at=momentChoisi();
     if(!at){ $('pgerr').innerHTML='<div class="err">Choisis le jour et l\'heure.</div>'; return; }
     if(at<Date.now()+30000){ $('pgerr').innerHTML='<div class="err">Cette heure est déjà passée — choisis plus tard.</div>'; return; }
-    await progCol().add({uid:ME.uid,name:(USER&&USER.name)||ME.email,text:txt,
-      ts:new Date(at),        // il apparaîtra à sa place, à l'heure dite
-      programmeAt:at, cree:Date.now()});
-    closeSheet(); toast('⏰ Programmé pour '+new Date(at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
+    if(_progEdit){
+      /* modification : on vérifie qu'il n'est pas parti entre-temps */
+      const l=await progEnAttente(); const encore=l.find(x=>x.id===_progEdit.id);
+      if(!encore){ $('pgerr').innerHTML='<div class="err">Trop tard : ce message vient de partir.</div>'; _progEdit=null; return; }
+      await progCol().doc(_progEdit.id).update({text:txt,ts:new Date(at),programmeAt:at,modifie:Date.now()});
+      _progEdit=null; closeSheet();
+      toast('✏️ Modifié — il partira le '+new Date(at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
+    } else {
+      await progCol().add({uid:ME.uid,name:(USER&&USER.name)||ME.email,text:txt,
+        ts:new Date(at),        // il apparaîtra à sa place, à l'heure dite
+        programmeAt:at, cree:Date.now()});
+      closeSheet(); toast('⏰ Programmé pour '+new Date(at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
+    }
     progBarreMaj();
+    try{ renderStream(); }catch(e){}
   }catch(e){ const z=$('pgerr'); if(z) z.innerHTML='<div class="err">'+esc((e&&e.message)||e)+'</div>'; } }
   async function progListe(){ if(!_curCh) return;
     openSheet('<p class="muted center">Chargement…</p>');
     let rows='';
     try{ const l=await progEnAttente();
-      rows=l.map(p=>`<div class="row"><div class="info"><div class="nm">${esc((p.text||'').slice(0,70))}</div>
+      rows=l.map(p=>`<div class="row"${p.uid===ME.uid?` onclick="progModifier('${p.id}')" style="cursor:pointer"`:''}>
+        <div class="info"><div class="nm">${esc((p.text||'').slice(0,70))}</div>
         <div class="ds">⏰ ${esc(new Date(p.programmeAt).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}))}${p.uid===ME.uid?'':' · '+esc(p.name||'')}</div></div>
-        ${p.uid===ME.uid?`<button class="btn ghost sm" onclick="progSupprimer('${p.id}')">Annuler</button>`:''}</div>`).join('');
+        ${p.uid===ME.uid?`<span style="display:flex;gap:6px;align-items:center">
+          <button class="btn ghost sm" onclick="event.stopPropagation();progModifier('${p.id}')">✏️ Modifier</button>
+          <button class="btn ghost sm" onclick="event.stopPropagation();progSupprimer('${p.id}')">Annuler</button></span>`:''}</div>`).join('');
     }catch(e){ rows='<div class="err">'+esc((e&&e.message)||e)+'</div>'; }
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">⏰ Messages programmés</h3>
       ${rows||'<p class="muted">Aucun message en attente.</p>'}
       <button class="btn ghost block" style="margin-top:12px" onclick="progForm()">＋ En programmer un</button>`);
   }
-  async function progSupprimer(id){ try{ await progCol().doc(id).delete(); toast('Message programmé annulé'); progListe(); progBarreMaj(); }catch(e){ alert('Erreur : '+((e&&e.message)||e)); } }
+  async function progSupprimer(id){ try{ _progEdit=null; await progCol().doc(id).delete(); toast('Message programmé annulé'); progListe(); progBarreMaj(); try{ renderStream(); }catch(e){} }catch(e){ alert('Erreur : '+((e&&e.message)||e)); } }
   /* ceux qui attendent encore leur heure */
   async function progEnAttente(){ if(!_curCh) return [];
     const qs=await progCol().get(); const now=Date.now(); const l=[];
