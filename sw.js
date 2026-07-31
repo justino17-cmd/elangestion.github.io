@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v595';
+const CACHE = 'elan-gestion-v596';
 const ASSETS = [
   './',
   'index.html',
@@ -46,26 +46,48 @@ self.addEventListener('activate', e => {
   );
 });
 
+/* Prévenir les onglets ouverts qu'une version plus fraîche est arrivée. */
+function annonceMaj(chemin) {
+  return clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then(ws => { ws.forEach(w => { try { w.postMessage({ op: 'maj', chemin: chemin }); } catch (_) {} }); })
+    .catch(() => {});
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  const url = new URL(req.url);
   // tour.html (Tour de contrôle, page privée) : jamais mise en cache, toujours fraîche
-  if (new URL(req.url).pathname.endsWith('/tour.html')) return;
-  // Stratégie : réseau d'abord, repli sur le cache (utile hors-ligne)
-  // Pour les pages HTML : on contourne aussi le cache HTTP du navigateur
-  // afin que les mises à jour arrivent immédiatement.
+  if (url.pathname.endsWith('/tour.html')) return;
+  if (url.origin !== self.location.origin) return;   // le reste du web ne nous regarde pas
+
   const isDoc = req.mode === 'navigate' || req.destination === 'document';
+
+  /* ══ L'APPLICATION S'OUVRE INSTANTANÉMENT ══
+     On sert D'ABORD la copie gardée ici — affichage immédiat, même réseau
+     poussif — puis on va chercher la version fraîche en arrière-plan. Si elle
+     a changé, on prévient l'onglet : il proposera de la charger.
+     Avant, on attendait le réseau à CHAQUE ouverture : 160 Ko avant le
+     moindre pixel. */
   e.respondWith(
-    fetch(isDoc ? new Request(req.url, { cache: 'no-store' }) : req)
-      .then(res => {
-        const url = new URL(req.url);
-        if (url.origin === self.location.origin) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+    caches.match(req).then(garde => {
+      const frais = fetch(req).then(res => {
+        if (res && res.ok) {
+          const copie = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copie)).catch(() => {});
+          if (isDoc && garde) {
+            /* la page a-t-elle vraiment changé ? on compare avant de déranger */
+            Promise.all([garde.clone().text(), res.clone().text()])
+              .then(([a, b]) => { if (a !== b) annonceMaj(url.pathname); })
+              .catch(() => {});
+          }
         }
         return res;
-      })
-      .catch(() => caches.match(req).then(r => r || caches.match('app.html')))
+      }).catch(() => null);
+
+      if (garde) { frais; return garde; }          // ← instantané
+      return frais.then(r => r || caches.match('app.html'));
+    })
   );
 });
 
