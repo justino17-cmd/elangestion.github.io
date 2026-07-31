@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v592';
+const CACHE = 'elan-gestion-v593';
 const ASSETS = [
   './',
   'index.html',
@@ -29,7 +29,9 @@ const ASSETS = [
   'icons/plan-gestion-premium.png',
   'icons/plan-msg.png',
   'icons/plan-msg-pro.png',
-  'icons/plan-msg-premium.png'
+  'icons/plan-msg-premium.png',
+  'sons/message.mp3',
+  'sons/appel.mp3'
 ];
 
 self.addEventListener('install', e => {

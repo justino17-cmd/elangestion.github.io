@@ -4930,14 +4930,28 @@
         o.start(t0); o.stop(t0+d+.02); });
     }catch(e){}
   }
+  /* ══ LA SONNERIE D'APPEL ══
+     Un appel n'est pas un message : il a sa propre sonnerie, qui tourne en
+     boucle jusqu'à ce qu'on décroche. Si le fichier n'arrive pas (réseau
+     coupé au tout premier appel), on retombe sur le son de l'application. */
+  const SONNERIE_APPEL='sons/appel.mp3';
+  let _ringA=null;
   function ringStart(){ ringStop();
     /* sur téléphone, le son doit être réveillé, et on vibre en plus :
        une sonnerie muette ne sert à rien dans une poche */
     try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); if(_ac.state==='suspended') _ac.resume(); }catch(e){}
-    const sonner=()=>{ sonJoue(sonChoisi(),true);   // l'appel sonne même si les sons sont coupés
-      try{ if(navigator.vibrate) navigator.vibrate([260,140,260]); }catch(e){} };
-    sonner(); _ringT=setInterval(sonner,1400); }
+    const vibrer=()=>{ try{ if(navigator.vibrate) navigator.vibrate([600,300,600]); }catch(e){} };
+    let joue=false;
+    try{ _ringA=sonFichier(SONNERIE_APPEL,Math.max(.35,sonVolume()),true); joue=true; }catch(e){}
+    if(joue&&_ringA){ _ringA.onerror=()=>{ joue=false; }; }
+    vibrer(); _ringT=setInterval(vibrer,1900);
+    /* filet : si le fichier n'a pas démarré, l'ancienne sonnerie prend le relais */
+    setTimeout(()=>{ try{ if(_ringT&&(!_ringA||_ringA.paused)){
+      const sonner=()=>{ sonJoue(sonChoisi(),true); vibrer(); };
+      clearInterval(_ringT); sonner(); _ringT=setInterval(sonner,1400); } }catch(e){} },700);
+  }
   function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;}
+    try{ if(_ringA){ _ringA.pause(); _ringA.currentTime=0; _ringA.loop=false; _ringA=null; } }catch(e){}
     /* on coupe net : plus de sonnerie qui traine apres avoir decroche */
     try{ if(_ac&&_ac.state==='running'){ const g=_ac.createGain(); g.gain.value=0; } }catch(e){}
     sonArrete();
@@ -5343,6 +5357,9 @@
      télécharger, elles marchent même sans réseau et ne pèsent rien. Chacun
      choisit la sienne, l'écoute avant, et règle le volume. */
   const SONS={
+    /* La sonnerie choisie par la maison : un vrai son, pas une note fabriquée.
+       Elle est en tête de liste et c'est celle qui joue par défaut. */
+    teamop:{nom:'TEAM OP',ic:'🔔',src:'sons/message.mp3'},
     cloche:{nom:'Cloche',ic:'🔔',notes:[[880,0,.16,'sine'],[1320,.09,.34,'sine']]},
     goutte:{nom:'Goutte',ic:'💧',notes:[[1400,0,.09,'sine'],[900,.05,.22,'sine']]},
     duo:{nom:'Duo',ic:'🎵',notes:[[660,0,.14,'triangle'],[990,.14,.22,'triangle']]},
@@ -5352,13 +5369,30 @@
     chantier:{nom:'Chantier',ic:'🔧',notes:[[1200,0,.06,'square'],[1200,.12,.06,'square'],[900,.24,.18,'square']]},
     doux:{nom:'Doux',ic:'🌙',notes:[[523,0,.4,'sine'],[784,.18,.45,'sine']]}
   };
-  function sonChoisi(){ try{ const v=localStorage.getItem('opmsg_son'); return SONS[v]?v:'cloche'; }catch(e){ return 'cloche'; } }
+  function sonChoisi(){ try{ const v=localStorage.getItem('opmsg_son'); return SONS[v]?v:'teamop'; }catch(e){ return 'teamop'; } }
   function sonVolume(){ try{ const v=parseFloat(localStorage.getItem('opmsg_son_vol')); return isNaN(v)?0.5:Math.max(0,Math.min(1,v)); }catch(e){ return 0.5; } }
   let _sonOsc=[];
-  function sonArrete(){ _sonOsc.forEach(o=>{ try{ o.stop(0); }catch(e){} try{ o.disconnect(); }catch(e){} }); _sonOsc=[]; }
+  function sonArrete(){ _sonOsc.forEach(o=>{ try{ o.stop(0); }catch(e){} try{ o.disconnect(); }catch(e){} }); _sonOsc=[];
+    try{ sonFichiersArrete(); }catch(e){} }
+  /* les sons enregistrés : on garde un lecteur par son, prêt à rejouer */
+  const _sonFichiers={};
+  function sonFichier(src,vol,boucle){
+    let a=_sonFichiers[src];
+    if(!a){ a=new Audio(src); a.preload='auto'; _sonFichiers[src]=a; }
+    a.loop=!!boucle;
+    a.volume=Math.max(0,Math.min(1,vol));
+    try{ a.currentTime=0; }catch(e){}
+    const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{});
+    return a;
+  }
+  function sonFichiersArrete(){
+    Object.keys(_sonFichiers).forEach(k=>{ const a=_sonFichiers[k];
+      try{ a.pause(); a.currentTime=0; }catch(e){} });
+  }
   function sonJoue(cle,force){
     if(!force && !soundOn()) return;
-    const d=SONS[cle||sonChoisi()]||SONS.cloche;
+    const d=SONS[cle||sonChoisi()]||SONS.teamop;
+    if(d.src){ sonFichier(d.src,Math.max(.05,sonVolume()),false); return; }
     try{
       _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
       if(_ac.state==='suspended'){ try{ _ac.resume(); }catch(e){} }
@@ -5378,6 +5412,11 @@
   }
   function beep(){ sonJoue(); }                 // tout l'ancien code continue de marcher
   function sonEcoute(cle){ sonJoue(cle,true); } // écouter sans changer son choix
+  /* écouter la sonnerie d'appel : deux secondes suffisent */
+  function sonEcouteAppel(){
+    try{ const a=sonFichier(SONNERIE_APPEL,Math.max(.35,sonVolume()),false);
+      setTimeout(()=>{ try{ a.pause(); a.currentTime=0; }catch(e){} },2600); }catch(e){}
+  }
   function sonPose(cle){ try{ localStorage.setItem('opmsg_son',cle); }catch(e){} sonJoue(cle,true); sheetSons(); }
   function sonVolPose(v){ try{ localStorage.setItem('opmsg_son_vol',String(v)); }catch(e){}
     const e2=$('son-vol-lbl'); if(e2) e2.textContent=Math.round(v*100)+' %'; sonJoue(sonChoisi(),true); }
@@ -5393,6 +5432,12 @@
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">🔊 Son de notification</h3>
       <p class="muted" style="font-size:12.5px;line-height:1.5;margin-bottom:14px">Touche un son pour le choisir, ou ▶︎ pour l'écouter sans le prendre. Ce réglage vaut pour cet appareil.</p>
       ${Object.keys(SONS).map(carte).join('')}
+      <div style="display:flex;align-items:center;gap:11px;background:var(--inp);border-radius:13px;padding:11px 13px;margin-bottom:8px">
+        <span style="font-size:20px">📞</span>
+        <div style="flex:1"><b style="font-size:14px">Sonnerie d'appel</b>
+          <div class="muted" style="font-size:11.5px;margin-top:2px">Elle est la même pour tout le monde et ne se règle pas ici.</div></div>
+        <span onclick="sonEcouteAppel()" title="Écouter" style="font-size:16px;padding:4px 9px;border-radius:9px;background:var(--card);cursor:pointer">▶︎</span>
+      </div>
       <div style="display:flex;align-items:center;gap:11px;margin:14px 2px 4px">
         <span style="font-size:13px;font-weight:700;flex:none">Volume</span>
         <input type="range" min="0" max="1" step="0.05" value="${vol}" oninput="sonVolPose(parseFloat(this.value))" style="flex:1;accent-color:var(--op)">
