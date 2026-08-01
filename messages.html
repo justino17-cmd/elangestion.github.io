@@ -3932,25 +3932,44 @@
      Le clic ouvre d'abord NOTRE menu : « Tout l'écran » ou « Une fenêtre »,
      expliqué en français — et on te dit exactement quel bouton choisir dans
      la fenêtre du navigateur qui suivra. */
+  function estSafari(){ return /Safari/i.test(navigator.userAgent||'')&&!/Chrome|Chromium|CriOS|Edg\//i.test(navigator.userAgent||''); }
+  function estMac(){ return /Mac/i.test(String(navigator.platform||'')+' '+String(navigator.userAgent||'')); }
+  /* Le raccourci qui ouvre PILE le bon panneau des réglages du Mac.
+     On passe par un cadre invisible : jamais de navigation de la page —
+     quitter la page en pleine réunion couperait l'appel. */
+  function macReglagesEcran(){
+    try{ const f=document.createElement('iframe'); f.style.display='none';
+      f.src='x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
+      document.body.appendChild(f); setTimeout(()=>{ try{ f.remove(); }catch(e){} },2500);
+      toast('⚙️ Réglages du Mac — Enregistrement de l\u2019écran');
+    }catch(e){}
+  }
   function visioEcranMenu(){
     if(_vGenre==='appel'){ if(_vEcran) visioEcranStop(); return; }
     if(_vEcran){ visioEcranStop(); return; }
-    const saf=/Safari/i.test(navigator.userAgent||'')&&!/Chrome|Chromium|CriOS|Edg\//i.test(navigator.userAgent||'');
-    const choix=(ic,titre,sous,aide,surface)=>`
+    const saf=estSafari(), mac=estMac();
+    const choix=(ic,titre,sous,aide,surface,alerte)=>`
       <div onclick="closeSheet();visioEcran('${surface}')" style="display:flex;gap:13px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer">
         <span style="font-size:26px;line-height:1">${ic}</span>
         <div style="flex:1;min-width:0"><b style="font-size:15px">${titre}</b>
           <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:3px">${sous}</div>
           ${aide?`<div style="font-size:12px;line-height:1.5;margin-top:6px;color:var(--op)">➜ ${aide}</div>`:''}
+          ${alerte?`<div style="font-size:12px;line-height:1.5;margin-top:6px;color:#e0a352">⚠️ ${alerte}</div>`:''}
         </div><span class="chev">›</span></div>`;
+    /* Sur Mac, « tout l'écran » demande une autorisation du SYSTÈME que le
+       navigateur ne réclame pas tout seul. « Une fenêtre », non : elle marche
+       toujours. On le dit avant, pas après l'échec — et on met la solution
+       qui marche en premier. */
+    const bloc1=choix('🪟','Une seule fenêtre','Uniquement l\u2019application choisie — le reste de ton écran reste privé.',
+      saf?'Dans la fenêtre Safari : « Autoriser le partage de fenêtre », puis clique la fenêtre à montrer':'Choisis « Fenêtre » puis clique celle à montrer',
+      'window', mac?'':'');
+    const bloc2=choix('🖥️','Tout l\u2019écran','Tout ce que tu vois : toutes les applications, comme si on regardait par-dessus ton épaule.',
+      saf?'Dans la fenêtre Safari : « Autoriser le partage d\u2019écran »':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
+      'monitor', mac?'Demande en plus une autorisation du Mac, une seule fois — si rien n\u2019apparaît, le bouton de réparation s\u2019affichera.':'');
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Partager mon écran</h3>
       <p class="muted" style="font-size:12.5px;line-height:1.55;margin-bottom:12px">Choisis ce que les autres verront. ${saf?'Safari demandera ensuite une autorisation : le bouton à choisir est indiqué.':'Le navigateur te demandera ensuite de confirmer ton choix.'}</p>
-      ${choix('🖥️','Tout l\u2019écran','Tout ce que tu vois : toutes les applications, comme si on regardait par-dessus ton épaule.',
-        saf?'Dans la fenêtre Safari, choisis « Autoriser le partage d\u2019écran »':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
-        'monitor')}
-      ${choix('🪟','Une seule fenêtre','Uniquement l\u2019application choisie — le reste de ton écran reste privé.',
-        saf?'Dans la fenêtre Safari, choisis « Autoriser le partage de fenêtre », puis clique la fenêtre à montrer':'Choisis « Fenêtre » puis clique celle à montrer',
-        'window')}
+      ${mac?bloc1+bloc2:bloc2+bloc1}
+      ${mac?`<div style="margin-top:2px"><button class="btn ghost block" onclick="macReglagesEcran()">⚙️ Vérifier l\u2019autorisation du Mac</button></div>`:''}
       <div data-pied><button class="btn ghost block" onclick="closeSheet()">Annuler</button></div>`);
   }
   async function visioEcran(surface){
@@ -3958,24 +3977,25 @@
     if(_vEcran){ visioEcranStop(); return; }
     let flux;
     /* le choix fait dans notre menu est passé au navigateur : Chrome ouvre
-       directement le bon volet ; Safari ignore l'indice, sans casse */
+       directement le bon volet. Safari, lui, ne connaît pas ce réglage et
+       peut refuser tout net s'il le voit : on ne le lui donne pas. */
     const contrainte={width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}};
-    if(surface==='monitor'||surface==='window') contrainte.displaySurface=surface;
-    try{ flux=await navigator.mediaDevices.getDisplayMedia({video:contrainte,audio:false}); }
+    if(!estSafari()&&(surface==='monitor'||surface==='window')) contrainte.displaySurface=surface;
+    _vEcranDernier=surface||'';
+    /* Sur Mac, après « Autoriser le partage d'écran », le SYSTÈME attend
+       encore qu'on désigne l'écran (petite fenêtre discrète en haut). Tant
+       que rien n'est choisi, il ne se passe rien — on le dit, au lieu de
+       laisser croire que c'est cassé. */
+    const attenteT=setTimeout(()=>{ try{
+      toast('👀 Le Mac attend ton choix : regarde la petite fenêtre en haut de l\u2019écran et désigne l\u2019écran à partager.');
+    }catch(e){} },8000);
+    try{ flux=await navigator.mediaDevices.getDisplayMedia({video:contrainte,audio:false}); clearTimeout(attenteT); }
     catch(e){
+      clearTimeout(attenteT);
       /* refus ou blocage : on ne reste plus muet, on explique */
       const nom=(e&&e.name)||'';
-      const mac=/Mac/i.test(navigator.platform||navigator.userAgent||'');
       if(nom==='NotAllowedError'||nom==='SecurityError'){
-        openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Le partage n'a pas démarré</h3>
-          <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">Soit tu as annulé le choix d'écran — dans ce cas réessaie simplement — soit <b>le navigateur bloque le partage</b>.</p>
-          ${mac?`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
-            Sur Mac, vérifie :<br>
-            1. <b>Réglages Système → Confidentialité et sécurité → Enregistrement de l'écran</b> : ton navigateur activé<br>
-            2. <b>Quitte COMPLÈTEMENT le navigateur</b> (Cmd + Q) et relance-le — sans ça l'autorisation ne s'applique pas<br>
-            3. Le plus fiable : lance la réunion depuis <b>Google Chrome</b></div>`:''}
-          <button class="btn block" onclick="closeSheet();visioEcran()">Réessayer le partage</button>
-          <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
+        ecranSecours('Le partage n\u2019a pas démarré : soit tu as annulé, soit le navigateur l\u2019a refusé.');
       } else if(nom){
         toast('Partage impossible : '+nom+' — essaie depuis Chrome.');
       }
@@ -4022,7 +4042,7 @@
       if(!t0||t0.readyState!=='live'){ range(); return; }    // le partage s'est fini tout seul
       /* onglet en arrière-plan : l'utilisateur est parti MONTRER son écran,
          c'est le fonctionnement normal — on ne juge rien, on repassera */
-      if(document.visibilityState==='hidden'){ setTimeout(verif,3000); return; }
+      if(document.visibilityState==='hidden'){ setTimeout(verif,2000); return; }
       if(probe.videoWidth>0){
         const c=document.createElement('canvas'); c.width=32; c.height=18;
         const g=c.getContext('2d'); g.drawImage(probe,0,0,32,18);
@@ -4039,24 +4059,47 @@
           try{ tmPush('erreur','Partage d\u2019\u00e9cran : aucune image re\u00e7ue du navigateur','','',0); }catch(_){}
           return; }
       }
-      setTimeout(verif,3000);
+      setTimeout(verif,2000);
     }catch(e){ range(); } };                                  // au moindre doute : on laisse le partage vivre
-    setTimeout(verif,3500);
+    setTimeout(verif,2500);
   }
   function _vEcranBloqueExplique(){
-    const mac=/Mac/i.test(navigator.platform||navigator.userAgent||'');
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ L'écran partagé est vide</h3>
-      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">Ce n'est pas une panne : <b>ton ordinateur bloque l'enregistrement de l'écran</b> pour ce navigateur. Il faut l'autoriser une fois :</p>
-      ${mac?`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
-        1. Ouvre <b>Réglages Système</b> (menu )<br>
-        2. <b>Confidentialité et sécurité</b> → <b>Enregistrement de l'écran</b><br>
-        3. Active ton navigateur (Safari ou Chrome)<br>
-        4. <b>Quitte et relance le navigateur</b>, puis reviens partager</div>`
-      :`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
-        Vérifie les autorisations d'enregistrement d'écran de ton système, puis relance le navigateur et réessaie.</div>`}
-      <p class="muted" style="font-size:12px;line-height:1.5;margin-bottom:12px">En attendant, tu peux partager <b>une fenêtre</b> ou <b>un onglet</b> : ça marche souvent sans cette autorisation.</p>
-      <button class="btn block" onclick="closeSheet();visioEcran()">Réessayer le partage</button>
-      <button class="btn ghost block" style="margin-top:8px" onclick="closeSheet()">Plus tard</button>`);
+    ecranSecours('L\u2019image de ton écran est restée vide : ton Mac n\u2019a pas laissé le navigateur enregistrer l\u2019écran.');
+  }
+  /* ══ LA SORTIE DE SECOURS ══
+     Un mur d'explications ne sert à rien en pleine réunion. Ici, la première
+     chose proposée est celle qui MARCHE TOUT DE SUITE — partager une fenêtre,
+     qui ne demande aucune autorisation du système. La réparation définitive
+     vient ensuite, avec le bouton qui ouvre le bon panneau du Mac. */
+  let _vEcranDernier='';
+  function ecranSecours(motif){
+    const mac=estMac(), saf=estSafari();
+    const etaitTout=_vEcranDernier!=='window';
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Le partage d\u2019écran n\u2019a pas fonctionné</h3>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:14px">${esc(motif)}</p>
+      ${(mac&&etaitTout)?`
+        <div style="background:rgba(30,122,78,.14);border:1px solid rgba(30,122,78,.5);border-radius:14px;padding:13px 15px;margin-bottom:12px">
+          <b style="font-size:14px">Ce qui marche tout de suite</b>
+          <div class="muted" style="font-size:12.5px;line-height:1.55;margin-top:4px">Partager <b>une fenêtre</b> ne demande aucune autorisation du Mac. Tu choisis l\u2019application à montrer, et c\u2019est parti.</div>
+          <button class="btn block" style="margin-top:10px;font-weight:800" onclick="closeSheet();visioEcran('window')">🪟 Partager une fenêtre à la place</button>
+        </div>
+        <div class="card" style="padding:13px 15px;font-size:13px;line-height:1.65;margin-bottom:10px">
+          <b>Pour débloquer « tout l\u2019écran » (une seule fois)</b>
+          <div style="margin-top:7px">1. Ouvre <b>Réglages Système → Confidentialité et sécurité → Enregistrement de l\u2019écran</b></div>
+          <div>2. Active <b>${saf?'Safari':'ton navigateur'}</b> dans la liste</div>
+          <div>3. <b>Quitte complètement ${saf?'Safari':'le navigateur'}</b> (Cmd + Q) puis rouvre — sans ça, l\u2019autorisation ne s\u2019applique pas</div>
+          <div>4. Reviens ici et repartage</div>
+          <button class="btn ghost block" style="margin-top:10px" onclick="macReglagesEcran()">⚙️ Ouvrir ce réglage sur le Mac</button>
+        </div>
+        <p class="muted" style="font-size:12px;line-height:1.5;margin-bottom:10px">Si le partage de tout l\u2019écran reste capricieux sur Safari, <b>Google Chrome</b> le gère mieux.</p>`
+      :`<div class="card" style="padding:13px 15px;font-size:13px;line-height:1.65;margin-bottom:12px">
+          Vérifie que ton système autorise ce navigateur à enregistrer l\u2019écran, relance-le, puis réessaie.
+          Tu peux aussi partager <b>une seule fenêtre</b> : c\u2019est presque toujours accepté.</div>
+        <button class="btn block" style="font-weight:800" onclick="closeSheet();visioEcran('window')">🪟 Partager une fenêtre</button>`}
+      <div data-pied style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn ghost block" onclick="closeSheet();visioEcran('monitor')">Réessayer tout l\u2019écran</button>
+        <button class="btn ghost block" onclick="closeSheet()">Plus tard</button>
+      </div>`);
   }
   function visioEcranStop(){
     if(!_vEcran) return;
@@ -4197,12 +4240,14 @@
 
         </div>
         <div class="vmoi${_vCoin===1?' hd':(_vCoin===2?' hg':(_vCoin===3?' bg':''))}" onclick="event.stopPropagation();visioEchange()"
-             ondblclick="event.stopPropagation();visioCoin()" title="Toucher pour échanger les images · double-toucher pour la déplacer">
+             ondblclick="event.stopPropagation();visioCoin()" title="Toucher pour échanger les images · glisser pour la déplacer">
           ${moiOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
               <div style="width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;${avatarStyle((moi&&moi.nom)||'Moi')}">${ini((moi&&moi.nom)||'Moi')}</div></div>`
             :`<video id="vt-vignette" autoplay playsinline ${moi&&moi.moi?'muted':''} style="width:100%;height:100%;object-fit:cover;${(moi&&moi.moi&&_vFace==='user')?'transform:scaleX(-1)':''}"></video>`}
           ${((moi&&moi.moi&&_vLocal&&!_vLocal.getAudioTracks().some(x=>x.enabled))||(moi&&!moi.moi&&moi.uid&&_vPairs[moi.uid]&&_vPairs[moi.uid].micOff))?`<span style="position:absolute;left:6px;bottom:6px;background:#e05252;color:#fff;font-size:12px;padding:2px 6px;border-radius:8px">🔇</span>`:''}
         </div>`;
+      /* la vignette se déplace au doigt et s'aimante au coin le plus proche */
+      try{ const vm=g.querySelector('.vmoi'); if(vm) vmoiGlisse(vm); }catch(e){}
       /* on branche les deux flux */
       if(lui){ const v=$('vt-'+lui.id.replace(/[^a-zA-Z0-9]/g,'_')); const fx=lui.moi?_vLocal:lui.stream;
         if(v&&fx){ try{ v.srcObject=fx; v.muted=!!lui.moi; const j=()=>{ const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); }; v.onloadedmetadata=j; j(); }catch(e){} }
@@ -4213,10 +4258,14 @@
     }
     let h='';
     if(_vMini){
-      /* dans la vignette : une seule image, celle qui compte — la personne en
-         face si elle est là, sinon la mienne */
-      const t=liste.find(x=>!x.moi&&!x.ecran&&x.stream)||liste.find(x=>!x.moi&&!x.ecran)||liste[0];
-      h=t?tuile(t,''):'';
+      /* FACETIME : la fenêtre réduite garde TOUT LE MONDE — les collègues
+         empilés, et moi en dernier. L'écran partagé, lui, attend le retour
+         en grand : illisible en timbre-poste. */
+      const cams=liste.filter(x=>!x.ecran);
+      const eux=cams.filter(x=>!x.moi), moi=cams.find(x=>x.moi);
+      const montre=eux.slice(0,3).concat(moi?[moi]:[]);
+      h=montre.map(t=>tuile(t,'')).join('');
+      try{ const v=$('visio'); if(v&&v.classList.contains('mini')) v.style.height=(montre.length>=4?'340px':(montre.length===3?'300px':'238px')); }catch(e){}
     } else if(grand){
       const t=liste.find(x=>x.id===grand);
       h+=tuile(t,_vZoom100&&t.ecran?'flex:1;min-height:0;overflow:auto':'flex:1;min-height:0');
@@ -4637,6 +4686,44 @@
   }
   /* ══ ON ÉCHANGE LES DEUX IMAGES ══ (comme WhatsApp : on touche sa vignette) */
   let _vEchange=false, _vCoin=0;
+  /* ══ LA VIGNETTE SE DÉPLACE AU DOIGT ══
+     Comme FaceTime : on la prend, on la pose où on veut, elle s'aimante au
+     coin le plus proche. Un simple toucher (sans bouger) échange toujours
+     les images. */
+  function vmoiGlisse(el){
+    if(el._glisseOk) return; el._glisseOk=true;
+    let dep=null;
+    el.addEventListener('pointerdown',e=>{
+      dep={x:e.clientX,y:e.clientY,gx:e.clientX-el.getBoundingClientRect().left,gy:e.clientY-el.getBoundingClientRect().top,bouge:false};
+      try{ el.setPointerCapture(e.pointerId); }catch(err){}
+    });
+    el.addEventListener('pointermove',e=>{
+      if(!dep) return;
+      if(!dep.bouge && Math.abs(e.clientX-dep.x)<9 && Math.abs(e.clientY-dep.y)<9) return;
+      dep.bouge=true;
+      el.style.transition='none';
+      el.style.left=(e.clientX-dep.gx)+'px'; el.style.top=(e.clientY-dep.gy)+'px';
+      el.style.right='auto'; el.style.bottom='auto';
+    });
+    const fin=e=>{
+      if(!dep) return; const b=dep.bouge; dep=null;
+      if(!b) return;                       // simple toucher : le clic « échanger » suit son cours
+      /* on lâche : aimant vers le coin le plus proche */
+      const r=el.getBoundingClientRect();
+      const cx=r.left+r.width/2, cy=r.top+r.height/2;
+      const droite=cx>window.innerWidth/2, bas=cy>window.innerHeight/2;
+      _vCoin = bas ? (droite?0:3) : (droite?1:2);
+      el.style.transition=''; el.style.left=''; el.style.top=''; el.style.right=''; el.style.bottom='';
+      el.classList.remove('hg','hd','bg');
+      if(_vCoin===1) el.classList.add('hd'); else if(_vCoin===2) el.classList.add('hg'); else if(_vCoin===3) el.classList.add('bg');
+      /* le clic qui suit ce glisser ne doit PAS échanger les images */
+      const stop=ev=>{ ev.stopPropagation(); ev.preventDefault(); el.removeEventListener('click',stop,true); };
+      el.addEventListener('click',stop,true);
+      setTimeout(()=>{ try{ el.removeEventListener('click',stop,true); }catch(err){} },400);
+    };
+    el.addEventListener('pointerup',fin);
+    el.addEventListener('pointercancel',()=>{ dep=null; });
+  }
   function visioEchange(){ _vEchange=!_vEchange; visioTuiles(); }
   function visioCoin(){ _vCoin=(_vCoin+1)%4;
     const v=document.querySelector('.vmoi'); if(!v) return;
@@ -4724,7 +4811,7 @@
   function visioAgrandir(){
     if(!_vMini) return;
     _vMini=false;
-    const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; }
+    const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; v.style.height=''; }
     visioTuiles();
   }
   /* ══ LA CAMÉRA AVANT / ARRIÈRE ══
@@ -5693,14 +5780,19 @@
     try{ Object.keys(_sonFichiers).forEach(k=>{ try{ _sonFichiers[k].preload='auto'; _sonFichiers[k].load(); }catch(e){} }); }catch(e){}
     try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
       if(_ac.state==='suspended') _ac.resume(); }catch(e){}
+    /* Déverrouiller SANS BRUIT : on lance et on coupe DANS LE MÊME geste.
+       L'ancienne façon (jouer en sourdine puis remettre le son plus tard)
+       laissait une course : au clic suivant, les deux sonneries partaient
+       en même temps, à voix haute. Plus jamais. */
     ['sons/message.mp3','sons/appel.mp3'].forEach(src=>{
       try{
         let a=_sonFichiers[src];
         if(!a){ a=new Audio(src); a.preload='auto'; _sonFichiers[src]=a; }
-        a.muted=true;
+        a.muted=true; a.volume=0;
         const pr=a.play();
-        if(pr&&pr.then) pr.then(()=>{ try{ a.pause(); a.currentTime=0; }catch(e){} a.muted=false; })
-                          .catch(()=>{ a.muted=false; _audioPret=false; });
+        try{ a.pause(); a.currentTime=0; }catch(e){}
+        a.muted=false; a.volume=1;
+        if(pr&&pr.catch) pr.catch(()=>{});
       }catch(e){}
     });
   }
