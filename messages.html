@@ -3631,6 +3631,7 @@
      ══════════════════════════════════════════════════════════════════════ */
   let _vRoom=null,_vLocal=null,_vPairs={},_vVus=new Set(),_vUnsub=null,_vPoll=null,_vT0=0,_vTimer=null,_vAudioOnly=false,_vNettoye=false,_vGenre='reunion',_vDejaVenu=false,_vMaxGens=1,_vIciRef=null,_vIciT=null,_vCamOn=false,_vMini=false,_vFace='user',_vQualT=null,_vQualVu={},_vFaible=false,_vSeulT=null;
   let _vEcran=null,_vOrdre=[],_vGrand=null,_vNotes={},_vOutil='d',_vCouleur='#ffd54a',_vMsgs=[],_vTchatOn=false,_vTchatNew=0;
+  let _vEcranDem=0;   // le numéro de la demande de partage en cours (anti-doublon)
   /* ══ LA MISE EN RELATION ══
      L'image, le son, le dessin et le tchat passent DIRECTEMENT d'un appareil
      à l'autre : personne au milieu. Il reste une seule chose à faire faire à
@@ -4200,41 +4201,77 @@
     if(_vEcran){ visioEcranStop(); return; }                         // re-clic : stop
     if(!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)){
       toast('Cet appareil ne sait pas partager son écran'); return; }
-    let flux;
+
+    const dem=++_vEcranDem;      // cette demande-ci ; une plus récente la périme
+    let dit=false;               // UN SEUL message par clic, jamais deux
+    const dire=(m,j)=>{ if(dem!==_vEcranDem) return;
+      if(!dit){ dit=true; toast(m); }
+      if(j!==undefined){ try{ tmPush('erreur','Partage d\u2019\u00e9cran : '+m,String(j||''),'',0); }catch(_){} } };
+
     /* PENDANT QUE LE NAVIGATEUR ET LE MAC POSENT LEURS QUESTIONS, le bouton
-       pulse en bleu : on voit que l'application attend, sans aucun message.
-       Il ne s'arrête que quand la réponse arrive — accord ou refus. */
+       pulse en bleu : on voit que l'application attend, sans aucun message. */
     const bAtt=$('visio-ecran'); if(bAtt) bAtt.classList.add('attend');
     const finAttente=()=>{ const b2=$('visio-ecran'); if(b2) b2.classList.remove('attend'); };
+
+    /* ══ LE MAC QUI NE REND PAS LA MAIN ══
+       Défaut connu de Safari sur Mac (WebKit 259823, revenu dans Safari 18.0) :
+       après qu'on a désigné l'écran, le sélecteur du système ne prévient pas
+       toujours Safari — la demande reste alors en l'air une minute entière,
+       sans rien afficher. C'était ÇA, « il ne se passe rien ».
+       On ne coupe RIEN : au bout de 12 secondes on le DIT, et on donne le
+       geste qui débloque (recliquer). Si la réponse finit par arriver, même
+       une minute plus tard, le partage démarre normalement. */
+    let muet=setTimeout(()=>{ muet=null;
+      if(dem===_vEcranDem && !_vEcran)
+        dire('Le Mac n\u2019a pas répondu — reclique sur Partager','pendante 12s · '+(navigator.userAgent||'').slice(-60));
+    },12000);
+    const finMuet=()=>{ if(muet){ clearTimeout(muet); muet=null; } };
+
+    let flux=null;
     try{
       flux=await navigator.mediaDevices.getDisplayMedia(estSafari()
         ? {video:true}                                               // Safari refuse le moindre réglage
         : {video:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:60}},audio:false});
-      finAttente();
     }catch(e){
-      finAttente();
       const nom=(e&&e.name)||'';
-      toast(nom==='NotAllowedError'?'Partage annulé':'Partage impossible ('+(nom||'?')+')');
-      try{ tmPush('erreur','Partage d\u2019\u00e9cran : '+(nom||'?'),String((e&&e.message)||''),'',0); }catch(_){}
+      dire(nom==='NotAllowedError'?'Partage annulé':'Partage impossible ('+(nom||'?')+')',(e&&e.message)||'');
       return;
+    }finally{ finMuet(); finAttente(); }
+
+    /* PLUS JAMAIS DE SORTIE MUETTE après un partage accordé */
+    if(dem!==_vEcranDem){
+      try{ flux.getTracks().forEach(t=>t.stop()); }catch(e){}
+      try{ tmPush('erreur','Partage d\u2019\u00e9cran : réponse périmée ignorée','','',0); }catch(_){}
+      return; }
+    if(!_vRoom){
+      try{ flux.getTracks().forEach(t=>t.stop()); }catch(e){}
+      dire('Partage impossible : la réunion s\u2019est fermée','_vRoom null au retour');
+      return; }
+
+    let souci='';
+    try{
+      _vEcran=flux;
+      /* « detail » : le texte reste NET ; si le réseau manque, on perd des
+         images par seconde, jamais de la définition */
+      try{ flux.getVideoTracks().forEach(t=>{ t.contentHint='detail'; }); }catch(e){}
+      const b=$('visio-ecran'); if(b){ b.classList.remove('attend'); b.style.background='#e01e3c'; b.title='Arrêter le partage'; }
+      flux.getVideoTracks().forEach(t=>{ t.onended=()=>visioEcranStop(); });
+      Object.values(_vPairs).forEach(p=>{ try{ flux.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([p.pc.addTrack(t,flux)])); _vRegleEnvoi(p); }catch(e){} });
+      dcTous({t:'ecranId',id:flux.id});
+      try{ _vDire({type:'ecran',eid:flux.id}); }catch(e){}
+      if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
+      _vGrand='moiE'; _vPinManuel=true;
+      visioTuiles();
+    }catch(e){
+      souci=(e&&e.name)||'erreur';
+      try{ tmPush('erreur','Partage d\u2019\u00e9cran : affichage ('+souci+')',String((e&&e.message)||''),'',0); }catch(_){}
     }
-    /* la réunion s'est refermée pendant la demande : on rend tout de suite */
-    if(!_vRoom){ try{ flux.getTracks().forEach(t=>t.stop()); }catch(e){} finAttente(); return; }
-    _vEcran=flux;
-    /* « detail » : le texte reste NET ; si le réseau manque, on perd des
-       images par seconde, jamais de la définition */
-    try{ flux.getVideoTracks().forEach(t=>{ t.contentHint='detail'; }); }catch(e){}
-    const b=$('visio-ecran'); if(b){ b.classList.remove('attend'); b.style.background='#e01e3c'; b.title='Arrêter le partage'; }
-    flux.getVideoTracks().forEach(t=>{ t.onended=()=>visioEcranStop(); });
-    Object.values(_vPairs).forEach(p=>{ try{ flux.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([p.pc.addTrack(t,flux)])); _vRegleEnvoi(p); }catch(e){} });
-    dcTous({t:'ecranId',id:flux.id});
-    try{ _vDire({type:'ecran',eid:flux.id}); }catch(e){}
-    if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
-    _vGrand='moiE';
-    visioTuiles(); toast('\ud83d\udd34 Ton écran est EN DIRECT');
+    dit=true;   // le partage est parti : le succès l'emporte sur tout message précédent
+    toast(souci?'\ud83d\udd34 Écran EN DIRECT (affichage à rafraîchir)':'\ud83d\udd34 Ton écran est EN DIRECT');
   }
   function visioEcranStop(){
     if(!_vEcran) return;
+    _vEcranDem++;   // une demande encore en l'air ne réactivera pas le partage
     try{ _vEcran.getTracks().forEach(t=>t.stop()); }catch(e){}
     Object.values(_vPairs).forEach(p=>{ (p.ecranSendersMoi||[]).forEach(sn=>{ try{ p.pc.removeTrack(sn); }catch(e){} }); p.ecranSendersMoi=[]; });
     dcTous({t:'ecranFin',id:_vEcran.id});
@@ -4497,10 +4534,8 @@
     const g=_vGrand; if(!g){ e.textContent=''; return; }
     const v=$('vt-'+String(g).replace(/[^a-zA-Z0-9]/g,'_'));
     if(v&&v.videoWidth){ e.textContent=v.videoWidth+'×'+v.videoHeight;
-      /* Safari sur Mac capture en demi-définition : on le dit, une fois */
-      try{ const saf=/^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-        if(saf && g!=='moi' && v.videoWidth<=1728 && !window._vDefConseil){ window._vDefConseil=1;
-          toast('ℹ️ Pour un partage encore plus net sur Mac, lance la réunion depuis Chrome — Safari limite la capture.'); } }catch(_){}
+      /* (l'ancien conseil « passe par Chrome » a été retiré : il se déclenchait
+         juste après un partage réussi et brouillait le message important) */
     } else e.textContent='';
   }
   setInterval(()=>{ try{ visioDefMaj(); }catch(e){} },700);
