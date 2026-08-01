@@ -278,6 +278,7 @@
   /* L'APPEL RÉDUIT : une vignette dans le coin. On continue de parler et de
      voir la personne pendant qu'on se sert de l'application. */
   #visio.mini{inset:auto;right:12px;bottom:calc(86px + env(safe-area-inset-bottom));width:172px;height:238px;
+    transition:right .18s,left .18s,top .18s,bottom .18s;touch-action:none;
     border-radius:18px;overflow:hidden;z-index:75;box-shadow:0 12px 36px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2)}
   #visio.mini .vbar,#visio.mini #visio-outils,#visio.mini #visio-tchat,#visio.mini #visio-barre{display:none!important}
   #visio.mini #visio-grille{padding:0!important;gap:0!important}
@@ -476,6 +477,7 @@
   </div>
   <div id="visio-minibar">
     <button onclick="event.stopPropagation();visioAgrandir()" title="Revenir en grand" style="background:rgba(255,255,255,.22)">⤢</button>
+    <button id="visio-flot" onclick="event.stopPropagation();visioFlottant()" title="Continuer par-dessus les autres applications" style="background:rgba(255,255,255,.22)">⧉</button>
     <button onclick="event.stopPropagation();visioFermer()" title="Raccrocher" style="background:#e05252">📞</button></div>
   <div id="visio-barre" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px calc(12px + env(safe-area-inset-bottom));background:#0a0e16;flex-wrap:wrap">
     <button id="visio-reduire" onclick="visioReduire()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Réduire en petite fenêtre">🗕</button>
@@ -3959,7 +3961,7 @@
     if(_vEcran){ visioEcranStop(); return; }
     const saf=estSafari(), mac=estMac();
     const choix=(ic,titre,sous,aide,surface,alerte)=>`
-      <div onclick="closeSheet();visioEcran('${surface}')" style="display:flex;gap:13px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer">
+      <div onclick="visioEcranDuMenu('${surface}')" style="display:flex;gap:13px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer">
         <span style="font-size:26px;line-height:1">${ic}</span>
         <div style="flex:1;min-width:0"><b style="font-size:15px">${titre}</b>
           <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:3px">${sous}</div>
@@ -3980,7 +3982,16 @@
       <p class="muted" style="font-size:12.5px;line-height:1.55;margin-bottom:12px">Choisis ce que les autres verront. ${saf?'Safari demandera ensuite une autorisation : le bouton à choisir est indiqué.':'Le navigateur te demandera ensuite de confirmer ton choix.'}</p>
       ${mac?bloc1+bloc2:bloc2+bloc1}
       ${mac?`<div style="margin-top:2px"><button class="btn ghost block" onclick="macReglagesEcran()">⚙️ Vérifier l\u2019autorisation du Mac</button></div>`:''}
+      <div style="margin-top:8px"><button class="btn ghost block" onclick="ecranDiagnostic()">\ud83d\udd0d Tester mon partage (r\u00e9sultat \u00e0 m\u2019envoyer)</button></div>
+      <div id="ecran-diag" style="display:none;font-family:'Space Mono',monospace;font-size:11.5px;line-height:1.6;background:var(--inp);border-radius:12px;padding:12px 13px;margin-top:8px;white-space:pre-wrap;word-break:break-word"></div>
       <div data-pied><button class="btn ghost block" onclick="closeSheet()">Annuler</button></div>`);
+  }
+  /* le geste du doigt ne doit RIEN traverser : on demande l'écran tout de
+     suite, la fenêtre se ferme juste après. Safari est intraitable là-dessus. */
+  function visioEcranDuMenu(surface){
+    const p=visioEcran(surface);
+    try{ closeSheet(); }catch(e){}
+    return p;
   }
   async function visioEcran(surface){
     if(_vGenre==='appel'){ if(_vEcran) visioEcranStop(); return; }   // pas de partage d'écran en appel
@@ -3991,8 +4002,12 @@
        il est connu pour refuser tout net un partage dès qu'on lui impose
        taille ou cadence — c'était ÇA, le partage qui ne marchait pas sur
        le Mac, plein écran comme fenêtre. Nature, il accepte. */
-    const contrainte=estSafari()?true:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}};
-    if(!estSafari()&&(surface==='monitor'||surface==='window')) contrainte.displaySurface=surface;
+    const saf=estSafari();
+    const contrainte=saf?true:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}};
+    if(!saf&&(surface==='monitor'||surface==='window')) contrainte.displaySurface=surface;
+    /* SAFARI : la demande la plus nue possible — {video:true}, sans même la
+       clé audio. La moindre option en plus et il refuse sans rien dire. */
+    const demande=saf?{video:true}:{video:contrainte,audio:false};
     _vEcranDernier=surface||'';
     /* Sur Mac, après « Autoriser le partage d'écran », le SYSTÈME attend
        encore qu'on désigne l'écran (petite fenêtre discrète en haut). Tant
@@ -4002,7 +4017,16 @@
       toast('👀 Le Mac attend ton choix : regarde la petite fenêtre en haut de l\u2019écran et désigne l\u2019écran à partager.');
       tmPush('erreur','Partage d\u2019\u00e9cran : le navigateur attend un choix depuis 8 s ('+_vEcranDernier+')','','',0);
     }catch(e){} },8000);
-    try{ flux=await navigator.mediaDevices.getDisplayMedia({video:contrainte,audio:false}); clearTimeout(attenteT); }
+    /* IL ARRIVE QUE LE NAVIGATEUR NE RÉPONDE JAMAIS : ni accord, ni refus.
+       Sans ce compte à rebours, on restait bloqué pour toujours, sans rien
+       afficher — c'est exactement « il ne se passe rien ». */
+    let jamais=false;
+    const limite=new Promise(r=>setTimeout(()=>{ jamais=true; r(null); },20000));
+    try{ flux=await Promise.race([navigator.mediaDevices.getDisplayMedia(demande),limite]);
+      clearTimeout(attenteT);
+      if(jamais||!flux){ ecranSecours('Le navigateur n\u2019a jamais r\u00e9pondu \u00e0 la demande de partage (20 s).','sans r\u00e9ponse');
+        try{ tmPush('erreur','Partage d\u2019\u00e9cran : aucune r\u00e9ponse du navigateur en 20 s ('+_vEcranDernier+')','','',0); }catch(_){}
+        return; } }
     catch(e){
       clearTimeout(attenteT);
       /* refus ou blocage : on ne reste plus muet, on explique */
@@ -4082,6 +4106,57 @@
   function _vEcranBloqueExplique(){
     ecranSecours('L\u2019image de ton écran est restée vide : ton Mac n\u2019a pas laissé le navigateur enregistrer l\u2019écran.');
   }
+  /* ══ LE TEST QUI DIT LA VÉRITÉ ══
+     Au lieu de deviner à distance, on demande à l'ordinateur lui-même :
+     est-ce qu'il sait partager, est-ce qu'il répond, et est-ce que les
+     images arrivent vraiment ? Le résultat s'affiche en toutes lettres —
+     Justin me l'envoie et je sais exactement quoi corriger. */
+  async function ecranDiagnostic(){
+    const z=$('ecran-diag'); if(!z) return;
+    z.style.display='block'; z.textContent='Test en cours\u2026 (autorise le partage quand on te le demande)';
+    const l=[];
+    const nav2=navigator.userAgent||'';
+    l.push('navigateur : '+(estSafari()?'Safari':'autre')+(estMac()?' \u00b7 Mac':''));
+    l.push('sait partager : '+(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia?'oui':'NON'));
+    l.push('page s\u00e9curis\u00e9e : '+(window.isSecureContext?'oui':'NON'));
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){ z.textContent=l.join('\n'); return; }
+    const t0=Date.now();
+    let flux=null, err=null, jamais=false;
+    const limite=new Promise(r=>setTimeout(()=>{ jamais=true; r(null); },20000));
+    try{ flux=await Promise.race([navigator.mediaDevices.getDisplayMedia({video:true}),limite]); }
+    catch(e){ err=e; }
+    const dt=Math.round((Date.now()-t0)/100)/10;
+    if(err){ l.push('r\u00e9ponse : REFUS apr\u00e8s '+dt+' s'); l.push('nom de l\u2019erreur : '+((err&&err.name)||'?'));
+      l.push('message : '+String((err&&err.message)||'').slice(0,120)); z.textContent=l.join('\n');
+      try{ tmPush('erreur','Diagnostic partage : refus '+((err&&err.name)||'?'),String((err&&err.message)||''),'',0); }catch(_){}
+      return; }
+    if(jamais||!flux){ l.push('r\u00e9ponse : AUCUNE en 20 s \u2014 le navigateur ne r\u00e9pond pas'); z.textContent=l.join('\n');
+      try{ tmPush('erreur','Diagnostic partage : aucune r\u00e9ponse en 20 s','','',0); }catch(_){}
+      return; }
+    l.push('r\u00e9ponse : ACCORD\u00c9 en '+dt+' s');
+    const t=flux.getVideoTracks()[0];
+    l.push('type d\u2019image : '+((t&&t.label)||'?'));
+    try{ const r=t&&t.getSettings?t.getSettings():{}; l.push('taille annonc\u00e9e : '+(r.width||'?')+' \u00d7 '+(r.height||'?')); }catch(e){}
+    /* on regarde les VRAIES images pendant 3 secondes */
+    const v=document.createElement('video'); v.muted=true; v.playsInline=true;
+    v.style.cssText='position:fixed;left:-9999px;width:64px;height:36px;opacity:0';
+    document.body.appendChild(v); v.srcObject=flux;
+    try{ const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){}
+    await new Promise(r=>setTimeout(r,3000));
+    l.push('images re\u00e7ues : '+(v.videoWidth?(v.videoWidth+' \u00d7 '+v.videoHeight):'AUCUNE'));
+    if(v.videoWidth){
+      const c=document.createElement('canvas'); c.width=32; c.height=18;
+      const g=c.getContext('2d'); g.drawImage(v,0,0,32,18);
+      const d=g.getImageData(0,0,32,18).data; let lum=0;
+      for(let i=0;i<d.length;i+=4) lum+=d[i]+d[i+1]+d[i+2];
+      l.push('contenu : '+(lum>0?'de vraies images \u2705':'TOUT NOIR \u2014 le Mac bloque l\u2019enregistrement d\u2019\u00e9cran'));
+    }
+    try{ flux.getTracks().forEach(x=>x.stop()); v.srcObject=null; v.remove(); }catch(e){}
+    l.push('');
+    l.push('\u2192 envoie cette capture \u00e0 Claude');
+    z.textContent=l.join('\n');
+    try{ tmPush('erreur','Diagnostic partage : '+l.join(' | '),'','',0); }catch(_){}
+  }
   /* ══ LA SORTIE DE SECOURS ══
      Un mur d'explications ne sert à rien en pleine réunion. Ici, la première
      chose proposée est celle qui MARCHE TOUT DE SUITE — partager une fenêtre,
@@ -4113,6 +4188,8 @@
           Tu peux aussi partager <b>une seule fenêtre</b> : c\u2019est presque toujours accepté.</div>
         <button class="btn block" style="font-weight:800" onclick="closeSheet();visioEcran('window')">🪟 Partager une fenêtre</button>`}
       ${detail?`<p class="muted" style="font-size:11px;margin-bottom:8px">d\u00e9tail technique \u00e0 me transmettre : <b>${esc(String(detail))}</b></p>`:''}
+      <button class="btn ghost block" style="margin-bottom:8px" onclick="ecranDiagnostic()">\ud83d\udd0d Tester mon partage et afficher le r\u00e9sultat</button>
+      <div id="ecran-diag" style="display:none;font-family:'Space Mono',monospace;font-size:11.5px;line-height:1.6;background:var(--inp);border-radius:12px;padding:12px 13px;margin-bottom:10px;white-space:pre-wrap;word-break:break-word"></div>
       <div data-pied style="display:flex;flex-direction:column;gap:8px">
         <button class="btn ghost block" onclick="closeSheet();visioEcran('monitor')">Réessayer tout l\u2019écran</button>
         <button class="btn ghost block" onclick="closeSheet()">Plus tard</button>
@@ -4292,6 +4369,7 @@
       h=liste.map(t=>tuile(t,'aspect-ratio:4/3')).join('');
     }
     g.innerHTML=h;
+    try{ pipMaj(); }catch(e){}
     try{ const st=document.createElement('style'); }catch(e){}
     g.querySelectorAll('.vctl button').forEach(b=>{ b.style.cssText+='border:none;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font-size:12px;padding:4px 7px;cursor:pointer'; });
     /* on rebranche les flux */
@@ -4703,6 +4781,44 @@
   }
   /* ══ ON ÉCHANGE LES DEUX IMAGES ══ (comme WhatsApp : on touche sa vignette) */
   let _vEchange=false, _vCoin=0;
+  /* ══ LA FENÊTRE RÉDUITE SE DÉPLACE AU DOIGT ══
+     Comme la vignette : on la prend, on la pose, elle s'aimante au coin le
+     plus proche. Toucher sans bouger = revenir en grand (déjà en place). */
+  function miniGlisse(el){
+    if(el._miniGlisseOk) return; el._miniGlisseOk=true;
+    let dep=null;
+    el.addEventListener('pointerdown',e=>{
+      if(!_vMini) return;
+      if(e.target&&e.target.closest&&e.target.closest('#visio-minibar')) return;  // les boutons gardent leur rôle
+      const r=el.getBoundingClientRect();
+      dep={x:e.clientX,y:e.clientY,gx:e.clientX-r.left,gy:e.clientY-r.top,bouge:false};
+      try{ el.setPointerCapture(e.pointerId); }catch(err){}
+    },true);
+    el.addEventListener('pointermove',e=>{
+      if(!dep||!_vMini) return;
+      if(!dep.bouge && Math.abs(e.clientX-dep.x)<9 && Math.abs(e.clientY-dep.y)<9) return;
+      dep.bouge=true;
+      el.style.transition='none';
+      el.style.left=(e.clientX-dep.gx)+'px'; el.style.top=(e.clientY-dep.gy)+'px';
+      el.style.right='auto'; el.style.bottom='auto';
+    },true);
+    const fin=()=>{
+      if(!dep) return; const b=dep.bouge; dep=null;
+      if(!b) return;                       // simple toucher : on revient en grand
+      const r=el.getBoundingClientRect();
+      const droite=(r.left+r.width/2)>window.innerWidth/2, bas=(r.top+r.height/2)>window.innerHeight/2;
+      el.style.transition=''; el.style.left=''; el.style.top=''; el.style.right=''; el.style.bottom='';
+      el.style[droite?'right':'left']='12px'; el.style[droite?'left':'right']='auto';
+      el.style[bas?'bottom':'top']=bas?'calc(86px + env(safe-area-inset-bottom))':'calc(78px + env(safe-area-inset-top))';
+      el.style[bas?'top':'bottom']='auto';
+      _miniCoin={droite:droite,bas:bas};
+      /* le toucher qui suit ce glisser ne doit PAS agrandir */
+      _miniGlisseFini=Date.now();
+    };
+    el.addEventListener('pointerup',fin,true);
+    el.addEventListener('pointercancel',()=>{ dep=null; },true);
+  }
+  let _miniCoin=null, _miniGlisseFini=0;
   /* ══ LA VIGNETTE SE DÉPLACE AU DOIGT ══
      Comme FaceTime : on la prend, on la pose où on veut, elle s'aimante au
      coin le plus proche. Un simple toucher (sans bouger) échange toujours
@@ -4814,7 +4930,7 @@
   function visioReduire(){
     if(!_vRoom||_vMini) return;
     _vMini=true;
-    const v=$('visio'); if(v) v.classList.add('mini');
+    const v=$('visio'); if(v){ v.classList.add('mini'); miniGlisse(v); }
     visioTuiles();
     /* « toucher la vignette pour agrandir » ne se branche qu'APRÈS ce clic-ci :
        sinon le clic sur le bouton Réduire remonterait jusqu'au studio et
@@ -4822,14 +4938,92 @@
     setTimeout(()=>{ const w=$('visio'); if(!w||!_vMini) return;
       w.onclick=(e)=>{ if(!_vMini) return;
         if(e.target&&e.target.closest&&e.target.closest('#visio-minibar')) return;
+        if(Date.now()-_miniGlisseFini<400) return;   // on vient de la déplacer, pas de la toucher
         visioAgrandir(); }; },0);
     toast('Appel réduit — touche la vignette pour revenir en grand');
   }
   function visioAgrandir(){
     if(!_vMini) return;
     _vMini=false;
-    const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; v.style.height=''; }
+    const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null;
+      v.style.height=''; v.style.left=''; v.style.top=''; v.style.right=''; v.style.bottom=''; v.style.transition=''; }
+    _miniCoin=null;
     visioTuiles();
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     L'APPEL PAR-DESSUS LES AUTRES APPLICATIONS — façon FaceTime
+     Le navigateur sait sortir une vidéo dans une petite fenêtre qui reste
+     au-dessus de TOUT : mails, Safari, agenda… On y met l'image de la
+     personne en face (ou l'écran partagé s'il y en a un). Le son continue
+     de toute façon, même sans image.
+     Règle imposée par les navigateurs : cette fenêtre ne peut s'ouvrir
+     qu'après un vrai geste — d'où le bouton ⧉. Sur les navigateurs qui
+     l'autorisent, elle s'ouvrira aussi toute seule quand on part sur une
+     autre application.
+     ══════════════════════════════════════════════════════════════════ */
+  let _pipVideo=null;
+  function pipDispo(){ try{ return !!(document.pictureInPictureEnabled&&!document.querySelector('video[disablepictureinpicture]')); }catch(e){ return false; } }
+  /* la meilleure image à sortir : l'écran partagé d'abord, sinon la personne
+     en face, sinon moi — il faut une image, une fenêtre vide ne sert à rien */
+  function pipFlux(){
+    try{
+      for(const p of Object.values(_vPairs)){ if(p.streams&&p.streams.ecran&&p.streams.ecran.getVideoTracks().length) return p.streams.ecran; }
+      if(_vEcran&&_vEcran.getVideoTracks().length) return _vEcran;
+      for(const p of Object.values(_vPairs)){ if(p.streams&&p.streams.cam&&p.streams.cam.getVideoTracks().length&&!p.camOff) return p.streams.cam; }
+      if(_vLocal&&_vLocal.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')) return _vLocal;
+    }catch(e){}
+    return null;
+  }
+  async function visioFlottant(){
+    if(!_vRoom){ toast('Aucun appel en cours'); return; }
+    if(document.pictureInPictureElement){ try{ await document.exitPictureInPicture(); }catch(e){} return; }
+    if(!pipDispo()){ toast('Ce navigateur ne sait pas faire flotter l\u2019appel — garde l\u2019onglet ouvert.'); return; }
+    const flux=pipFlux();
+    if(!flux){ toast('Allume une caméra pour faire flotter l\u2019appel'); return; }
+    try{
+      if(!_pipVideo){
+        _pipVideo=document.createElement('video');
+        _pipVideo.muted=true; _pipVideo.playsInline=true; _pipVideo.autoplay=true;
+        _pipVideo.setAttribute('playsinline','');
+        _pipVideo.style.cssText='position:fixed;left:-9999px;top:0;width:320px;height:200px;opacity:0;pointer-events:none';
+        document.body.appendChild(_pipVideo);
+        /* on la referme proprement : la fenêtre réduite reprend la main */
+        _pipVideo.addEventListener('leavepictureinpicture',()=>{ try{ if(_vRoom&&!_vMini) visioReduire(); }catch(e){} });
+      }
+      if(_pipVideo.srcObject!==flux) _pipVideo.srcObject=flux;
+      const pr=_pipVideo.play(); if(pr&&pr.catch) pr.catch(()=>{});
+      await new Promise(r=>{ if(_pipVideo.videoWidth) return r();
+        _pipVideo.onloadedmetadata=()=>r(); setTimeout(r,900); });
+      await _pipVideo.requestPictureInPicture();
+      if(!_vMini) visioReduire();
+      toast('\ud83d\udcf1 L\u2019appel reste par-dessus les autres applications');
+    }catch(e){
+      toast('Le navigateur a refusé la fenêtre flottante — garde l\u2019onglet ouvert.');
+      try{ tmPush('erreur','Fen\u00eatre flottante refus\u00e9e ('+((e&&e.name)||'?')+')',String((e&&e.message)||''),'',0); }catch(_){}
+    }
+  }
+  /* on part sur une autre application : si le navigateur l'autorise sans
+     nouveau geste, l'appel se met à flotter tout seul */
+  try{ document.addEventListener('visibilitychange',()=>{ try{
+    if(document.visibilityState!=='hidden') return;
+    if(!_vRoom||document.pictureInPictureElement) return;
+    if(!pipDispo()||!pipFlux()) return;
+    if(!(navigator.userActivation&&navigator.userActivation.isActive)) return;  // sans geste récent, le navigateur refuse
+    visioFlottant();
+  }catch(e){} }); }catch(e){}
+  /* l'image sortie doit rester la bonne : si l'écran partagé arrive ou
+     s'arrête pendant que la fenêtre flotte, on change de source */
+  function pipMaj(){
+    try{
+      if(!document.pictureInPictureElement||!_pipVideo) return;
+      const f=pipFlux(); if(f&&_pipVideo.srcObject!==f){ _pipVideo.srcObject=f;
+        const pr=_pipVideo.play(); if(pr&&pr.catch) pr.catch(()=>{}); }
+    }catch(e){}
+  }
+  /* raccrocher referme la fenêtre flottante : rien ne survit à l'appel */
+  function pipFerme(){
+    try{ if(document.pictureInPictureElement) document.exitPictureInPicture(); }catch(e){}
+    try{ if(_pipVideo){ _pipVideo.srcObject=null; } }catch(e){}
   }
   /* ══ LA CAMÉRA AVANT / ARRIÈRE ══
      Sur le terrain, montrer vaut mieux qu'expliquer : on retourne la caméra
@@ -4950,6 +5144,7 @@
     _vMini=false; _vFaible=false; _vQualVu={};
     { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
     { const z=$('visio-reseau'); if(z) z.style.display='none'; }
+    try{ pipFerme(); }catch(e){}
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
     /* le micro et la caméra servent aussi à l'appel qui patiente : on ne les
