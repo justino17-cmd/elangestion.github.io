@@ -480,6 +480,7 @@
       <button id="vv-g" class="vv on" onclick="visioVue('galerie')" title="Tout le monde en mosaïque">⊞ Galerie</button>
       <button id="vv-i" class="vv" onclick="visioVue('intervenant')" title="Celui qui parle en grand">▣ Intervenant</button>
       <button class="vv" onclick="visioPlein()" title="Plein écran">⛶</button></span>
+    <span id="visio-ver" style="font-family:'Space Mono',monospace;font-size:9.5px;color:#5b6a8e;letter-spacing:.04em" title="Version de l'application"></span>
     <button class="btn ghost sm" onclick="visioFermer()">✕ Quitter</button></span></div>
   <div id="visio-outils" style="display:none;align-items:center;gap:7px;padding:7px 12px;background:#0d1220;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap">
     <span style="font-size:11px;font-weight:800;letter-spacing:.06em;color:#8b93a5">ANNOTER :</span>
@@ -567,6 +568,11 @@
   var TM_APP='opmessages', TM_KEY='top_monitor_q', TM_URL='https://api.teamop.fr/api/monitor/report';
   var tmLastSend=0, tmSending=false, tmT=Date.now();
   function tmCat(){ return 'Messages'; }
+  /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
+     chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
+     — plus jamais de doute « es-tu bien à jour ? ». */
+  const APP_VERSION='612';
+  try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
     try{ if(typeof COMP!=='undefined'&&COMP&&COMP.name) nom=String(COMP.name).trim(); }catch(_){ }
@@ -3707,6 +3713,7 @@
     _vIciDebut();
     _vMini=false; _vFace='user'; _vQualVu={}; _vFaible=false; _vEchange=false; _vCoin=0;
     _vVue='galerie'; _vPinManuel=false; _vMainMoi=false; _vReacs={};
+    try{ const vz=$('visio-ver'); if(vz) vz.textContent='v'+(window.OPMSG_VERSION||'?'); }catch(e){}
     try{ vueBoutonsMaj(); const bm=$('visio-main'); if(bm) bm.style.background='rgba(255,255,255,.09)';
       const bp=$('visio-parts-btn'); if(bp) bp.style.background='rgba(255,255,255,.09)';
       const pp=$('visio-parts'); if(pp) pp.style.display='none';
@@ -5456,6 +5463,18 @@
   let _majPrete=false;
   function majPropose(){
     if(_majPrete) return; _majPrete=true;
+    /* SI RIEN N'EST EN COURS, ON LA PREND IMMÉDIATEMENT.
+       Avant, la copie gardée sur l'appareil était servie en premier et la
+       version fraîche n'arrivait qu'au rechargement SUIVANT : on pouvait
+       essayer une correction déjà livrée sans jamais l'avoir reçue. */
+    try{
+      if(!_vRoom&&!_vAttente&&!_ringRef&&document.visibilityState==='visible'){
+        const a=document.activeElement;
+        const ecrit=a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA');
+        const ouvert=(($('sheet')||{}).classList||{contains:()=>false}).contains('open');
+        if(!ecrit&&!ouvert){ setTimeout(()=>{ try{ location.reload(); }catch(e){} },400); return; }
+      }
+    }catch(e){}
     const t=$('toast'); if(!t) return;
     t.innerHTML='Nouvelle version prête — <b style="text-decoration:underline">toucher pour la charger</b>';
     t.classList.add('show');
