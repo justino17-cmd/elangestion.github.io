@@ -468,6 +468,16 @@
         <button onclick="visioTchatEnvoi()" style="border:none;border-radius:10px;padding:0 13px;background:var(--op);color:#fff;font-size:15px;cursor:pointer">➤</button></div>
     </div>
   </div>
+  <div id="visio-consigne" style="display:none;position:absolute;left:12px;right:12px;top:calc(60px + env(safe-area-inset-top));z-index:9;
+       align-items:flex-start;gap:12px;padding:14px 16px;border-radius:16px;background:#1b3a86;color:#fff;box-shadow:0 14px 40px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.25)">
+    <span style="font-size:26px;line-height:1.1">↗</span>
+    <div style="flex:1;min-width:0">
+      <b style="font-size:15px;display:block;margin-bottom:3px">Dernière étape : clique en HAUT À DROITE</b>
+      <span style="font-size:13px;line-height:1.5;opacity:.95">Ton Mac attend ton feu vert. Clique le bouton violet
+        <b>« Partager tout l’écran »</b> tout en haut à droite de ton écran — le partage démarrera aussitôt.</span>
+    </div>
+    <button onclick="consigneCache()" title="Masquer" style="border:none;background:rgba(255,255,255,.18);color:#fff;border-radius:9px;width:30px;height:30px;font-size:15px;cursor:pointer;flex-shrink:0">✕</button>
+  </div>
   <div id="visio-attente" style="display:none;align-items:center;gap:10px;padding:9px 13px;background:#3a2f12;border-bottom:1px solid rgba(255,255,255,.10);color:#ffe3ab">
     <span style="font-size:16px">⏸</span>
     <b id="visio-attente-nom" style="flex:1;min-width:0;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></b>
@@ -3953,6 +3963,16 @@
       }
     }catch(e){}
   }
+  /* ══ LA CONSIGNE DU MAC ══
+     Elle reste affichée tant que le système n'a pas eu son dernier clic. */
+  let _consigneT=null;
+  function consigneMontre(){
+    const z=$('visio-consigne'); if(!z) return;
+    z.style.display=estMac()?'flex':'none';
+    /* filet : si l'utilisateur ne fait rien, elle ne reste pas éternellement */
+    clearTimeout(_consigneT); _consigneT=setTimeout(consigneCache,45000);
+  }
+  function consigneCache(){ const z=$('visio-consigne'); if(z) z.style.display='none'; clearTimeout(_consigneT); }
   /* ── le partage d'écran (plusieurs personnes en même temps) ──
      Le clic ouvre d'abord NOTRE menu : « Tout l'écran » ou « Une fenêtre »,
      expliqué en français — et on te dit exactement quel bouton choisir dans
@@ -3989,7 +4009,7 @@
       saf?'Dans la fenêtre Safari : « Autoriser le partage de fenêtre », puis clique la fenêtre à montrer':'Choisis « Fenêtre » puis clique celle à montrer',
       'window', mac?'':'');
     const bloc2=choix('🖥️','Tout l\u2019écran','Tout ce que tu vois : toutes les applications, comme si on regardait par-dessus ton épaule.',
-      saf?'Dans la fenêtre Safari : « Autoriser le partage d\u2019écran »':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
+      saf?'1) Safari : « Autoriser le partage d\u2019écran »  2) puis le bouton violet « Partager tout l\u2019écran » en HAUT À DROITE':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
       'monitor', mac?'Sur Mac, la première fois, autorise l\u2019enregistrement d\u2019écran si le système le demande.':'');
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Partager mon écran</h3>
       <p class="muted" style="font-size:12px;line-height:1.5;margin:0 0 10px;padding:8px 11px;background:var(--inp);border-radius:10px">Une fois lancé, le partage <b>ne s\u2019arrête jamais tout seul</b> : pour l\u2019arrêter, retouche le bouton 🖥️.</p>
@@ -4027,6 +4047,11 @@
        encore qu'on désigne l'écran (petite fenêtre discrète en haut). Tant
        que rien n'est choisi, il ne se passe rien — on le dit, au lieu de
        laisser croire que c'est cassé. */
+    /* macOS (et Safari) posent une DERNIÈRE question, dans leur propre
+       bandeau tout en haut de l'écran : « Partager tout l'écran », avec un
+       bouton violet à cliquer. Tant qu'on ne clique pas, il ne se passe
+       rien — et rien à l'écran ne le disait. Maintenant si. */
+    try{ consigneMontre(); }catch(e){}
     const attenteT=setTimeout(()=>{ try{
       toast('👀 Le Mac attend ton choix : regarde la petite fenêtre en haut de l\u2019écran et désigne l\u2019écran à partager.');
       tmPush('erreur','Partage d\u2019\u00e9cran : le navigateur attend un choix depuis 8 s ('+_vEcranDernier+')','','',0);
@@ -4037,12 +4062,12 @@
     let jamais=false;
     const limite=new Promise(r=>setTimeout(()=>{ jamais=true; r(null); },20000));
     try{ flux=await Promise.race([navigator.mediaDevices.getDisplayMedia(demande),limite]);
-      clearTimeout(attenteT);
+      clearTimeout(attenteT); consigneCache();
       if(jamais||!flux){ ecranSecours('Le navigateur n\u2019a jamais r\u00e9pondu \u00e0 la demande de partage (20 s).','sans r\u00e9ponse');
         try{ tmPush('erreur','Partage d\u2019\u00e9cran : aucune r\u00e9ponse du navigateur en 20 s ('+_vEcranDernier+')','','',0); }catch(_){}
         return; } }
     catch(e){
-      clearTimeout(attenteT);
+      clearTimeout(attenteT); consigneCache();
       /* refus ou blocage : on ne reste plus muet, on explique */
       const nom=(e&&e.name)||'';
       if(nom==='NotAllowedError'||nom==='SecurityError'){
@@ -4229,7 +4254,9 @@
     visioSons();
     const liste=_vListeTuiles();
     const grand=(!_vMini&&_vGrand&&liste.some(t=>t.id===_vGrand))?_vGrand:null;
-    const outils=$('visio-outils'); if(outils) outils.style.display=(grand&&grand.endsWith&&(grand==='moiE'||grand.endsWith('::E')))?'flex':'none';
+    /* les outils de dessin servent dès qu'un écran est à l'image — plus
+       besoin de l'épingler d'abord pour les voir apparaître */
+    const outils=$('visio-outils'); if(outils) outils.style.display=(!_vMini&&liste.some(t=>t.ecran))?'flex':'none';
     if(grand||_vMini){ g.style.display='flex'; g.style.flexDirection='column'; g.style.alignContent=''; }
     else { g.style.display='grid'; g.style.alignContent='center'; }
     g.style.position='relative';
@@ -4261,7 +4288,7 @@
         ${camOff?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
             <div style="width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;${avatarStyle(t.nom)}">${ini(t.nom)}</div></div>`
           :`<video id="vt-${t.id.replace(/[^a-zA-Z0-9]/g,'_')}" autoplay playsinline ${t.moi?'muted':''} style="${(_vZoom100&&t.ecran&&grand===t.id)?'width:auto;height:auto;min-width:0;min-height:0':'width:100%;height:100%'};object-fit:${t.ecran?'contain':'cover'};${(t.moi&&!t.ecran&&_vFace==='user')?'transform:scaleX(-1)':''}"></video>`}
-        ${t.ecran&&grand===t.id?`<canvas class="vnote" data-cible="${t.cible}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair"></canvas>`:''}
+        ${t.ecran?`<canvas class="vnote" data-cible="${t.cible}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair"></canvas>`:''}
         <span style="position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.55);color:#fff;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;z-index:2">${t.ecran?'🖥️ ':''}${esc((t.nom||'').split(' ')[0]||'')}${t.moi?' (toi)':''}</span>
         <span class="vctl" style="position:absolute;right:6px;top:6px;display:flex;gap:4px;z-index:3">${ctl.join('')}</span>
       </div>`; };
@@ -4411,18 +4438,27 @@
   function noteOutil(o){ _vOutil=o; ['d','l','f','r','q','c2','e','t'].forEach(x=>{ const b=$('vo-'+x); if(b) b.style.background=(x===o)?'var(--op)':'#232a3a'; }); }
   function noteCouleur(c){ _vCouleur=c; document.querySelectorAll('[id^=vo-c-]').forEach(b=>b.style.border='2px solid transparent');
     const b=$('vo-c-'+c.replace('#','')); if(b) b.style.border='2px solid #fff'; }
-  function noteEffacer(){ const cv=document.querySelector('canvas.vnote'); if(!cv) return;
+  function noteEffacer(){
+    /* on efface l'écran affiché en grand ; sinon le seul écran présent */
+    const cvs=[...document.querySelectorAll('canvas.vnote')];
+    const cv=cvs.find(c=>c.closest('div')&&c.closest('div').offsetHeight>240)||cvs[0];
+    if(!cv) return;
     const cible=cv.dataset.cible; _vNotes[cible]=[]; dcTous({t:'clear',cible:cible}); noteDessine(); }
   function noteBranche(){
-    const cv=document.querySelector('canvas.vnote'); if(!cv||cv._ok) return; cv._ok=true;
+    /* plusieurs écrans peuvent être partagés en même temps : chacun a sa
+       zone de dessin, on les branche toutes */
+    document.querySelectorAll('canvas.vnote').forEach(c=>noteBrancheUn(c));
+  }
+  function noteBrancheUn(cv){
+    if(!cv||cv._ok) return; cv._ok=true;
     const cible=cv.dataset.cible;
     const pos=e=>{ const r=cv.getBoundingClientRect(); return [ (e.clientX-r.left)/r.width, (e.clientY-r.top)/r.height ]; };
     let trait=null;
     cv.addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation();
       const [x,y]=pos(e);
       if(_vOutil==='t'){ noteTexte(cible,x,y); return; }
-      if(_vOutil==='d') trait={t:'d',pts:[[x,y]],c:_vCouleur,w:3};
-      else trait={t:_vOutil,x1:x,y1:y,x2:x,y2:y,c:_vCouleur,w:3};   // ligne, flèche, rectangle, carré, cercle, ellipse
+      if(_vOutil==='d') trait={t:'d',pts:[[x,y]],c:_vCouleur,w:3,_cible:cible};
+      else trait={t:_vOutil,x1:x,y1:y,x2:x,y2:y,c:_vCouleur,w:3,_cible:cible};   // ligne, flèche, rectangle, carré, cercle, ellipse
       try{ cv.setPointerCapture(e.pointerId); }catch(_){ } });
     cv.addEventListener('pointermove',e=>{ if(!trait) return; e.preventDefault();
       const [x,y]=pos(e);
@@ -4433,13 +4469,23 @@
       if(ok){ (_vNotes[cible]=_vNotes[cible]||[]).push(trait); dcTous({t:'note',cible:cible,note:trait}); }
       trait=null; noteDessine(); };
     cv.addEventListener('pointerup',fin); cv.addEventListener('pointercancel',fin);
+    /* LE RESTE DU BUG : bloquer « pointerdown » ne suffit pas — le clic
+       remonte quand même jusqu'à la tuile et l'agrandit / la dé-épingle
+       en plein dessin. On l'arrête ici, une bonne fois. */
+    cv.addEventListener('click',e=>{ e.stopPropagation(); e.preventDefault(); },true);
+    cv.addEventListener('dblclick',e=>{ e.stopPropagation(); e.preventDefault(); },true);
   }
   function noteDessine(enCours){
-    const cv=document.querySelector('canvas.vnote'); if(!cv) return;
-    const r=cv.getBoundingClientRect(); cv.width=r.width; cv.height=r.height;
+    document.querySelectorAll('canvas.vnote').forEach(c=>noteDessineUn(c,enCours));
+  }
+  function noteDessineUn(cv,enCours){
+    if(!cv) return;
+    const r=cv.getBoundingClientRect(); if(!r.width||!r.height) return;
+    cv.width=r.width; cv.height=r.height;
     const g=cv.getContext('2d'); g.clearRect(0,0,cv.width,cv.height);
     const cible=cv.dataset.cible;
-    const toutes=(_vNotes[cible]||[]).concat(enCours?[enCours]:[]);
+    /* le trait en cours n'appartient qu'à la zone où on dessine */
+    const toutes=(_vNotes[cible]||[]).concat((enCours&&enCours._cible===cible)?[enCours]:[]);
     toutes.forEach(n=>{
       g.strokeStyle=n.c; g.fillStyle=n.c; g.lineWidth=n.w||3; g.lineCap='round'; g.lineJoin='round';
       if(n.t==='d'){ g.beginPath();
@@ -5120,6 +5166,7 @@
     try{ pipFerme(); }catch(e){}
     /* la réunion est finie : on coupe tout, sans condition —
        sauf si un appel patiente encore, qui a besoin du micro */
+    try{ consigneCache(); }catch(e){}
     if(!_vAttente) try{ toutCouper(); }catch(e){}
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
