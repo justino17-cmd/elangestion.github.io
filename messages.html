@@ -571,7 +571,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='613';
+  const APP_VERSION='614';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -1302,6 +1302,8 @@
           </div>
           <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(USER.name||'')}</div><div style="font-size:10.5px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(role)}${MODE!=='perso'&&COMP?' · '+esc(COMP.name):''}</div></div>
         </div>
+        <div style="text-align:center;font-family:'Space Mono',monospace;font-size:9.5px;color:var(--t3);letter-spacing:.06em;padding:8px 0 2px"
+             title="Version de l'application installée sur cet appareil">v${window.OPMSG_VERSION||'?'}</div>
       </aside>
       <div class="maincol">
       <div class="appbar">
@@ -4055,6 +4057,20 @@
      la fenêtre du navigateur qui suivra. */
   function estSafari(){ return /Safari/i.test(navigator.userAgent||'')&&!/Chrome|Chromium|CriOS|Edg\//i.test(navigator.userAgent||''); }
   function estMac(){ return /Mac/i.test(String(navigator.platform||'')+' '+String(navigator.userAgent||'')); }
+  /* le numéro de Safari : 18.0 par exemple. Sert à reconnaître les versions
+     dont le partage d'écran est cassé par Apple lui-même. */
+  function versionSafari(){ try{ const m=(navigator.userAgent||'').match(/Version\/(\d+)\.(\d+)/);
+    return m?(parseInt(m[1],10)+parseInt(m[2],10)/10):0; }catch(e){ return 0; } }
+  /* Safari 18.0 sur Mac : défaut connu d'Apple — le sélecteur d'écran du
+     système ne rend pas la main au navigateur (WebKit 259823, réparé en 18.1) */
+  function safariPartageCasse(){ const v=versionSafari(); return estMac()&&estSafari()&&v>=18&&v<18.1; }
+  function conseilPartage(){
+    if(safariPartageCasse())
+      return 'Ton Safari (version '+versionSafari().toFixed(1)+') a un défaut connu sur le partage d\u2019écran, corrigé par Apple. Mets Safari à jour (menu  › Réglages Système › Général › Mise à jour), ou ouvre la réunion dans Chrome.';
+    if(estMac()&&estSafari())
+      return 'Si ça recommence : vérifie  › Réglages Système › Confidentialité et sécurité › Enregistrement de l\u2019écran, puis quitte Safari (Cmd+Q) et rouvre.';
+    return '';
+  }
   /* ══════════════════════════════════════════════════════════════════
      LA RÉUNION PRO — mélange Zoom + Teams
      Vue Galerie / Intervenant, contour vert sur qui parle, panneau
@@ -4229,8 +4245,12 @@
        geste qui débloque (recliquer). Si la réponse finit par arriver, même
        une minute plus tard, le partage démarre normalement. */
     let muet=setTimeout(()=>{ muet=null;
-      if(dem===_vEcranDem && !_vEcran)
+      if(dem===_vEcranDem && !_vEcran){
         dire('Le Mac n\u2019a pas répondu — reclique sur Partager','pendante 12s · '+(navigator.userAgent||'').slice(-60));
+        /* deuxième échec de suite : on donne le vrai remède, une fois */
+        _vEcranRates++;
+        if(_vEcranRates>=2 && conseilPartage()) setTimeout(()=>{ try{ partageAide(); }catch(e){} },1200);
+      }
     },12000);
     const finMuet=()=>{ if(muet){ clearTimeout(muet); muet=null; } };
 
@@ -4242,6 +4262,8 @@
     }catch(e){
       const nom=(e&&e.name)||'';
       dire(nom==='NotAllowedError'?'Partage annulé':'Partage impossible ('+(nom||'?')+')',(e&&e.message)||'');
+      if(nom!=='NotAllowedError'){ _vEcranRates++;
+        if(conseilPartage()) setTimeout(()=>{ try{ partageAide(); }catch(e2){} },1200); }
       return;
     }finally{ finMuet(); finAttente(); }
 
@@ -4267,7 +4289,7 @@
       dcTous({t:'ecranId',id:flux.id});
       try{ _vDire({type:'ecran',eid:flux.id}); }catch(e){}
       if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
-      _vGrand='moiE'; _vPinManuel=true;
+      _vGrand='moiE'; _vPinManuel=true; _vEcranRates=0;
       visioTuiles();
     }catch(e){
       souci=(e&&e.name)||'erreur';
@@ -4275,6 +4297,24 @@
     }
     dit=true;   // le partage est parti : le succès l'emporte sur tout message précédent
     toast(souci?'\ud83d\udd34 Écran EN DIRECT (affichage à rafraîchir)':'\ud83d\udd34 Ton écran est EN DIRECT');
+  }
+  let _vEcranRates=0;
+  /* L'AIDE : elle ne s'ouvre qu'après deux échecs, et elle dit ce qui
+     débloque VRAIMENT — pas une liste de suppositions. */
+  function partageAide(){
+    const c=conseilPartage(); if(!c) return;
+    const info='navigateur : '+(estSafari()?('Safari '+versionSafari().toFixed(1)):'autre')
+      +(estMac()?' · Mac':'')+' · application v'+(window.OPMSG_VERSION||'?');
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Le partage ne démarre pas</h3>
+      <p style="font-size:13.5px;line-height:1.65;margin:0 0 12px">${esc(c)}</p>
+      ${safariPartageCasse()?`<div class="card" style="padding:12px 14px;font-size:13px;line-height:1.7;margin-bottom:12px">
+        <b>En attendant, ce qui marche tout de suite :</b><br>
+        1. Ouvre <b>Google Chrome</b><br>
+        2. Va sur <b>teamop.fr</b> et rejoins la même réunion<br>
+        3. Le partage y fonctionne du premier coup</div>`:''}
+      <p class="muted" style="font-family:'Space Mono',monospace;font-size:11px;margin-bottom:10px">${esc(info)}</p>
+      <div data-pied><button class="btn ghost block" onclick="closeSheet()">Fermer</button></div>`);
+    try{ tmPush('erreur','Partage bloqué · '+info,'','',0); }catch(e){}
   }
   function visioEcranStop(){
     if(!_vEcran) return;
