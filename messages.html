@@ -436,6 +436,15 @@
     <span id="visio-reseau" style="display:none;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:#8a5a12;color:#ffe3ab"></span>
     <span id="visio-etat" style="font-size:11.5px;color:#8b93a5"></span>
     <button class="btn ghost sm" onclick="visioFermer()">✕ Quitter</button></span></div>
+  <!-- LA BARRE DE PARTAGE : visible tout le temps où l'on partage -->
+  <div id="visio-pbar" style="display:none;align-items:center;gap:10px;padding:9px 13px;background:#0f7a45;color:#fff;border-bottom:1px solid rgba(255,255,255,.12)">
+    <span style="width:9px;height:9px;border-radius:50%;background:#61f0a5;box-shadow:0 0 0 4px rgba(97,240,165,.22);flex-shrink:0"></span>
+    <b id="visio-pbar-txt" style="font-size:13.5px;white-space:nowrap">Tu partages</b>
+    <span id="visio-pbar-info" style="flex:1;min-width:0;font-size:12px;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    <button onclick="visioEcranBascule()" title="Passer de tout l'écran à une fenêtre, sans couper"
+      style="border:none;border-radius:9px;padding:6px 11px;background:rgba(255,255,255,.18);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit;flex-shrink:0">Changer</button>
+    <button onclick="visioEcranStop()" style="border:none;border-radius:9px;padding:6px 12px;background:rgba(255,255,255,.22);color:#fff;font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit;flex-shrink:0">Arrêter</button>
+  </div>
   <div id="visio-outils" style="display:none;align-items:center;gap:7px;padding:7px 12px;background:#0d1220;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap">
     <span style="font-size:11px;font-weight:800;letter-spacing:.06em;color:#8b93a5">ANNOTER :</span>
     <button onclick="noteOutil('d')" id="vo-d" title="Main levée" style="border:none;border-radius:9px;padding:6px 11px;background:#232a3a;color:#fff;cursor:pointer;font-size:14px">✏️</button>
@@ -468,7 +477,7 @@
         <button onclick="visioTchatEnvoi()" style="border:none;border-radius:10px;padding:0 13px;background:var(--op);color:#fff;font-size:15px;cursor:pointer">➤</button></div>
     </div>
   </div>
-  <div id="visio-consigne" style="display:none;position:absolute;left:12px;right:12px;top:calc(60px + env(safe-area-inset-top));z-index:9;
+  <div id="visio-consigne" style="display:none;position:absolute;left:12px;right:12px;top:calc(108px + env(safe-area-inset-top));z-index:9;
        align-items:flex-start;gap:12px;padding:14px 16px;border-radius:16px;background:#1b3a86;color:#fff;box-shadow:0 14px 40px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.25)">
     <span style="font-size:26px;line-height:1.1">↗</span>
     <div style="flex:1;min-width:0">
@@ -485,6 +494,30 @@
     <button onclick="visioReprendre()" style="border:none;border-radius:9px;padding:7px 12px;background:#ffd54a;color:#3a2f12;font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit">Reprendre</button>
     <button onclick="visioAttenteFin()" title="Terminer cet appel" style="border:none;border-radius:9px;padding:7px 10px;background:rgba(255,255,255,.14);color:#ffe3ab;font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit">✕</button>
   </div>
+  <!-- LA FENÊTRE TÉMOIN : ce que les autres voient VRAIMENT -->
+  <div id="visio-temoin" style="display:none;position:absolute;right:12px;bottom:calc(96px + env(safe-area-inset-bottom));z-index:8;
+       width:172px;border-radius:13px;overflow:hidden;background:#0a0e16;border:1px solid rgba(255,255,255,.25);box-shadow:0 12px 32px rgba(0,0,0,.5)">
+    <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.13em;color:#8b93a5;padding:6px 9px 4px">CE QUE LES AUTRES VOIENT</div>
+    <video id="visio-temoin-v" autoplay playsinline muted style="width:100%;height:96px;object-fit:contain;background:#000;display:block"></video>
+    <div style="display:flex;align-items:center;gap:6px;padding:6px 9px">
+      <span id="visio-temoin-pt" style="width:7px;height:7px;border-radius:50%;background:#3ecf8e;flex-shrink:0"></span>
+      <span id="visio-temoin-txt" style="font-size:10.5px;color:#3ecf8e;font-family:'Space Mono',monospace">…</span>
+    </div>
+  </div>
+  <!-- L'ALERTE IMAGE NOIRE : on constate, on ne coupe JAMAIS -->
+  <div id="visio-noir" style="display:none;position:absolute;left:12px;right:12px;top:calc(110px + env(safe-area-inset-top));z-index:9;
+       gap:11px;padding:13px 15px;border-radius:14px;background:#3a1e1e;border:1px solid #7a3535;color:#fff;box-shadow:0 12px 34px rgba(0,0,0,.5)">
+    <span style="font-size:20px;flex-shrink:0">⚠️</span>
+    <div style="flex:1;min-width:0">
+      <b style="font-size:14px;color:#ff8f8f">Les autres voient du noir</b>
+      <div style="font-size:12.5px;line-height:1.5;margin-top:3px;opacity:.92">Ton Mac n'autorise pas ce navigateur à enregistrer l'écran. Ton partage continue — à toi de choisir :</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px">
+        <button onclick="visioEcranBascule('window')" style="border:none;border-radius:9px;padding:7px 12px;background:#4f7cff;color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit">🪟 Partager une fenêtre</button>
+        <button onclick="macReglagesEcran()" style="border:none;border-radius:9px;padding:7px 12px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit">⚙️ Réglage du Mac</button>
+      </div>
+    </div>
+    <button onclick="document.getElementById('visio-noir').style.display='none'" style="border:none;background:rgba(255,255,255,.14);color:#fff;border-radius:8px;width:28px;height:28px;font-size:14px;cursor:pointer;flex-shrink:0">✕</button>
+  </div>
   <div id="visio-minibar">
     <button onclick="event.stopPropagation();visioAgrandir()" title="Revenir en grand" style="background:rgba(255,255,255,.22)">⤢</button>
     <button id="visio-flot" onclick="event.stopPropagation();visioFlottant()" title="Continuer par-dessus les autres applications" style="background:rgba(255,255,255,.22)">⧉</button>
@@ -495,7 +528,7 @@
     <button id="visio-hp" onclick="visioHautParleur()" style="display:none;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:19px;cursor:pointer" title="Haut-parleur">🔊</button>
     <button id="visio-mic" onclick="visioMicro()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Micro">🎤</button>
     <button id="visio-cam" onclick="visioCamera()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Caméra">📷</button>
-    <button id="visio-ecran" onclick="visioEcranMenu()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Partager mon écran">🖥️</button>
+    <button id="visio-ecran" onclick="visioEcranBouton()" oncontextmenu="event.preventDefault();visioEcranMenu();return false" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Partager mon écran (appui long : choisir)">🖥️</button>
     <button id="visio-tchat-btn" onclick="visioTchat()" style="position:relative;width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Conversation écrite">💬<span id="visio-tchat-badge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:19px;height:19px;border-radius:999px;background:#e05252;color:#fff;font-size:11px;font-weight:800;align-items:center;justify-content:center;padding:0 5px">0</span></button>
     <button id="visio-plus" onclick="visioInviter()" style="width:52px;height:52px;border-radius:50%;border:none;background:#232a3a;color:#fff;font-size:21px;cursor:pointer" title="Ajouter quelqu'un à l'appel">👤➕</button>
     <button onclick="visioFermer()" style="width:62px;height:52px;border-radius:26px;border:none;background:#e05252;color:#fff;font-size:21px;cursor:pointer" title="Raccrocher">📞</button>
@@ -3891,6 +3924,7 @@
     try{ if(typeof _porteFlux!=='undefined'&&_porteFlux){ _porteFlux.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); _porteFlux=null; } }catch(e){}
     _vCamOn=false;
     try{ if(document.pictureInPictureElement) document.exitPictureInPicture(); }catch(e){}
+    try{ partageBarreCache(); temoinCoupe(); consigneCache(); }catch(e){}
     try{ ecranEveille(false); }catch(e){}
     try{ const b=$('visio-ecran'); if(b){ b.style.background='#232a3a'; b.title='Partager mon écran'; } }catch(e){}
   }
@@ -3989,34 +4023,166 @@
       toast('⚙️ Réglages du Mac — Enregistrement de l\u2019écran');
     }catch(e){}
   }
+  /* ══════════════════════════════════════════════════════════════════
+     LE PARTAGE D'ÉCRAN, DE A À Z
+     Le navigateur garde la main sur le CHOIX de l'écran — aucune
+     application web ne peut le remplacer. Tout le reste est à nous :
+     la rapidité, le guidage, la preuve de ce que les autres voient,
+     et un arrêt propre.
+     ══════════════════════════════════════════════════════════════════ */
+
+  /* ── RAPIDITÉ : l'application se souvient de ton dernier choix ── */
+  function partageModeLu(){ try{ const v=localStorage.getItem('opmsg_partage_mode'); return (v==='window'||v==='monitor')?v:'monitor'; }catch(e){ return 'monitor'; } }
+  function partageModePose(m){ try{ if(m==='window'||m==='monitor') localStorage.setItem('opmsg_partage_mode',m); }catch(e){} }
+  const MODE_NOM={monitor:'tout l\u2019écran',window:'une fenêtre'};
+  /* un clic = on relance tout de suite le dernier mode choisi ;
+     un appui long (ou clic droit) = le menu pour changer */
+  let _partageLong=null;
+  function visioEcranBouton(){
+    if(_vEcran){ visioEcranStop(); return; }        // il partage déjà : on arrête
+    visioEcran(partageModeLu());                    // sinon : direct, sans passer par le menu
+  }
+  try{ const b=document.getElementById('visio-ecran');
+    if(b){
+      const armer=()=>{ clearTimeout(_partageLong); _partageLong=setTimeout(()=>{ _partageLong=null;
+        try{ if(!_vEcran) visioEcranMenu(); }catch(e){} },550); };
+      const desarmer=()=>{ clearTimeout(_partageLong); };
+      b.addEventListener('pointerdown',armer);
+      b.addEventListener('pointerup',desarmer);
+      b.addEventListener('pointerleave',desarmer);
+      b.addEventListener('pointercancel',desarmer);
+    } }catch(e){}
+
+  /* ── CHANGER DE MODE SANS COUPER ──
+     On demande le nouvel écran, puis on REMPLACE l'image en direct :
+     personne ne voit de coupure, la connexion n'est pas renégociée. */
+  let _vEcranBusy=false;
+  async function visioEcranBascule(vers){
+    if(!_vEcran||_vEcranBusy) return;
+    const cible=vers||((_vEcranDernier==='window')?'monitor':'window');
+    _vEcranBusy=true;
+    let neuf=null;
+    try{ consigneMontre();
+      neuf=await navigator.mediaDevices.getDisplayMedia(estSafari()?{video:true}:{video:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30},displaySurface:cible},audio:false});
+    }catch(e){ consigneCache(); _vEcranBusy=false;
+      toast('Changement annulé — ton partage continue'); return; }
+    consigneCache();
+    if(!_vRoom||!_vEcran){ try{ neuf.getTracks().forEach(t=>t.stop()); }catch(e){} _vEcranBusy=false; return; }
+    const piste=neuf.getVideoTracks()[0];
+    if(!piste){ _vEcranBusy=false; return; }
+    try{ piste.contentHint='detail'; }catch(e){}
+    /* on glisse la nouvelle image à la place de l'ancienne, en direct */
+    for(const p of Object.values(_vPairs)){
+      for(const sn of (p.ecranSendersMoi||[])){ try{ await sn.replaceTrack(piste); }catch(e){} }
+    }
+    try{ _vEcran.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){}
+    /* le nouveau flux garde l'identité annoncée : rien à re-signaler */
+    _vEcran=neuf;
+    _vEcranDernier=cible; partageModePose(cible);
+    neuf.getVideoTracks().forEach(t=>{ t.onended=()=>visioEcranStop(); });
+    try{ dcTous({t:'ecranId',id:neuf.id}); _vDire({type:'ecran',eid:neuf.id}); }catch(e){}
+    temoinBranche(); partageBarreMaj(); visioTuiles();
+    toast('🖥️ Tu partages maintenant '+MODE_NOM[cible]);
+    _vEcranBusy=false;
+  }
+
+  /* ── LA BARRE DE PARTAGE ── */
+  let _pbarT=null;
+  function partageBarreMontre(){
+    const b=$('visio-pbar'); if(!b) return;
+    b.style.display='flex'; partageBarreMaj();
+    clearInterval(_pbarT); _pbarT=setInterval(partageBarreMaj,1000);
+  }
+  function partageBarreCache(){ const b=$('visio-pbar'); if(b) b.style.display='none';
+    clearInterval(_pbarT); _pbarT=null;
+    const n=$('visio-noir'); if(n) n.style.display='none'; }
+  function partageBarreMaj(){
+    if(!_vEcran) return partageBarreCache();
+    const t=$('visio-pbar-txt'); if(t) t.textContent='Tu partages '+(MODE_NOM[_vEcranDernier]||'ton écran');
+    const i=$('visio-pbar-info');
+    if(i){ const n=Object.keys(_vPairs).length;
+      const sec=Math.floor((Date.now()-(_vEcranT0||Date.now()))/1000);
+      const duree=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');
+      i.textContent='· '+(n?(n+' personne'+(n>1?'s':'')+' regarde'+(n>1?'nt':'')):'personne d\u2019autre pour l\u2019instant')+' · '+duree; }
+  }
+  let _vEcranT0=0;
+
+  /* ── LA FENÊTRE TÉMOIN : la preuve, pas la promesse ──
+     Elle est VISIBLE : le navigateur décode donc vraiment les images (une
+     vidéo cachée, Safari ne la décode pas — c'était l'erreur d'avant).
+     Elle n'arrête JAMAIS le partage : elle constate, c'est tout. */
+  let _temoinT=null;
+  function temoinBranche(){
+    const z=$('visio-temoin'), v=$('visio-temoin-v'); if(!z||!v) return;
+    if(!_vEcran){ temoinCoupe(); return; }
+    z.style.display='block';
+    try{ if(v.srcObject!==_vEcran){ v.srcObject=_vEcran; const pr=v.play(); if(pr&&pr.catch) pr.catch(()=>{}); } }catch(e){}
+    clearInterval(_temoinT); _temoinT=setInterval(temoinMaj,2000);
+    setTimeout(temoinMaj,1200);
+  }
+  function temoinCoupe(){
+    clearInterval(_temoinT); _temoinT=null;
+    const z=$('visio-temoin'), v=$('visio-temoin-v');
+    if(v){ try{ v.srcObject=null; }catch(e){} }
+    if(z) z.style.display='none';
+    const n=$('visio-noir'); if(n) n.style.display='none';
+  }
+  let _temoinNoirs=0;
+  function temoinMaj(){
+    const v=$('visio-temoin-v'), pt=$('visio-temoin-pt'), tx=$('visio-temoin-txt'), al=$('visio-noir');
+    if(!v||!_vEcran){ temoinCoupe(); return; }
+    const piste=_vEcran.getVideoTracks()[0];
+    let ips=0; try{ const st=piste&&piste.getSettings?piste.getSettings():{}; ips=Math.round(st.frameRate||0); }catch(e){}
+    if(!v.videoWidth){
+      if(pt) pt.style.background='#ffb454';
+      if(tx){ tx.style.color='#ffb454'; tx.textContent='image en attente…'; }
+      return;
+    }
+    /* on lit les vraies images de la fenêtre témoin */
+    let noir=false;
+    try{
+      const c=document.createElement('canvas'); c.width=32; c.height=18;
+      const g=c.getContext('2d'); g.drawImage(v,0,0,32,18);
+      const d=g.getImageData(0,0,32,18).data;
+      let lum=0; for(let i=0;i<d.length;i+=4) lum+=d[i]+d[i+1]+d[i+2];
+      noir=(lum===0);
+    }catch(e){ noir=false; }                 // au moindre doute : on ne crie pas au loup
+    if(noir) _temoinNoirs++; else _temoinNoirs=0;
+    const mauvais=_temoinNoirs>=2;
+    if(pt) pt.style.background=mauvais?'#ff6b6b':'#3ecf8e';
+    if(tx){ tx.style.color=mauvais?'#ff8f8f':'#3ecf8e';
+      tx.textContent=mauvais?'image noire':(v.videoWidth+' × '+v.videoHeight+(ips?(' · '+ips+' img/s'):'')); }
+    if(al) al.style.display=(mauvais&&estMac())?'flex':'none';
+    if(mauvais&&_temoinNoirs===2){ try{ tmPush('erreur','Partage d\u2019\u00e9cran : image noire constat\u00e9e ('+_vEcranDernier+')','','',0); }catch(_){} }
+  }
+
   function visioEcranMenu(){
     if(_vGenre==='appel'){ if(_vEcran) visioEcranStop(); return; }
-    if(_vEcran){ visioEcranStop(); return; }
-    const saf=estSafari(), mac=estMac();
-    const choix=(ic,titre,sous,aide,surface,alerte)=>`
-      <div onclick="visioEcranDuMenu('${surface}')" style="display:flex;gap:13px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer">
+    if(_vEcran){ visioEcranBascule(); return; }      // déjà en train de partager : on propose de changer
+    const saf=estSafari(), mac=estMac(), cur=partageModeLu();
+    const choix=(ic,titre,sous,aide,surface,alerte,fiable)=>`
+      <div onclick="visioEcranDuMenu('${surface}')" style="display:flex;gap:13px;align-items:flex-start;background:${cur===surface?'var(--tint2)':'var(--card)'};border:1px solid ${cur===surface?'var(--op)':'var(--line)'};border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer">
         <span style="font-size:26px;line-height:1">${ic}</span>
-        <div style="flex:1;min-width:0"><b style="font-size:15px">${titre}</b>
+        <div style="flex:1;min-width:0">
+          <b style="font-size:15px">${titre}</b>${fiable?'<span style="background:rgba(30,122,78,.22);color:#3ecf8e;font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px;margin-left:7px;letter-spacing:.03em">LE PLUS FIABLE</span>':''}
           <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:3px">${sous}</div>
           ${aide?`<div style="font-size:12px;line-height:1.5;margin-top:6px;color:var(--op)">➜ ${aide}</div>`:''}
           ${alerte?`<div style="font-size:12px;line-height:1.5;margin-top:6px;color:#e0a352">⚠️ ${alerte}</div>`:''}
         </div><span class="chev">›</span></div>`;
-    /* Sur Mac, « tout l'écran » demande une autorisation du SYSTÈME que le
-       navigateur ne réclame pas tout seul. « Une fenêtre », non : elle marche
-       toujours. On le dit avant, pas après l'échec — et on met la solution
-       qui marche en premier. */
-    const bloc1=choix('🪟','Une seule fenêtre','Uniquement l\u2019application choisie — le reste de ton écran reste privé.',
-      saf?'Dans la fenêtre Safari : « Autoriser le partage de fenêtre », puis clique la fenêtre à montrer':'Choisis « Fenêtre » puis clique celle à montrer',
-      'window', mac?'':'');
-    const bloc2=choix('🖥️','Tout l\u2019écran','Tout ce que tu vois : toutes les applications, comme si on regardait par-dessus ton épaule.',
+    const tout=choix('🖥️','Tout l\u2019écran','Tout ce que tu vois. Marche avec toutes les applications, sans exception.',
       saf?'1) Safari : « Autoriser le partage d\u2019écran »  2) puis le bouton violet « Partager tout l\u2019écran » en HAUT À DROITE':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
-      'monitor', mac?'Sur Mac, la première fois, autorise l\u2019enregistrement d\u2019écran si le système le demande.':'');
+      'monitor','',true);
+    const fen=choix('🪟','Une seule fenêtre','Uniquement l\u2019application choisie — le reste de ton écran reste privé.',
+      saf?'Safari : « Autoriser le partage de fenêtre », puis clique la fenêtre à montrer':'Choisis « Fenêtre » puis clique celle à montrer',
+      'window', (saf&&mac)?'macOS ne sait pas capturer certaines fenêtres — c\u2019est une limite d\u2019Apple. Si la tienne n\u2019apparaît pas ou reste noire, prends « Tout l\u2019écran ».':'',false);
+    /* l'onglet n'existe que sur Chrome : on ne propose pas ce qui échouera */
+    const onglet=saf?'':choix('🌐','Un onglet du navigateur','Un site, un document en ligne — le plus net pour du texte.',
+      'Choisis « Onglet » puis celui à montrer','browser','',false);
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Partager mon écran</h3>
-      <p class="muted" style="font-size:12px;line-height:1.5;margin:0 0 10px;padding:8px 11px;background:var(--inp);border-radius:10px">Une fois lancé, le partage <b>ne s\u2019arrête jamais tout seul</b> : pour l\u2019arrêter, retouche le bouton 🖥️.</p>
-      <p class="muted" style="font-size:12.5px;line-height:1.55;margin-bottom:12px">Choisis ce que les autres verront. ${saf?'Safari demandera ensuite une autorisation : le bouton à choisir est indiqué.':'Le navigateur te demandera ensuite de confirmer ton choix.'}</p>
-      ${mac?bloc1+bloc2:bloc2+bloc1}
+      <p class="muted" style="font-size:12px;line-height:1.5;margin:0 0 10px;padding:8px 11px;background:var(--inp);border-radius:10px">Ton choix est retenu : la prochaine fois, un simple appui sur 🖥️ relancera <b>${esc(MODE_NOM[cur]||'')}</b> tout de suite. Appui long pour revenir ici.</p>
+      ${tout}${fen}${onglet}
       ${mac?`<div style="margin-top:2px"><button class="btn ghost block" onclick="macReglagesEcran()">⚙️ Vérifier l\u2019autorisation du Mac</button></div>`:''}
-      <div style="margin-top:8px"><button class="btn ghost block" onclick="ecranDiagnostic()">\ud83d\udd0d Tester mon partage (r\u00e9sultat \u00e0 m\u2019envoyer)</button></div>
+      <div style="margin-top:8px"><button class="btn ghost block" onclick="ecranDiagnostic()">\ud83d\udd0d Tester mon partage (résultat à m\u2019envoyer)</button></div>
       <div id="ecran-diag" style="display:none;font-family:'Space Mono',monospace;font-size:11.5px;line-height:1.6;background:var(--inp);border-radius:12px;padding:12px 13px;margin-top:8px;white-space:pre-wrap;word-break:break-word"></div>
       <div data-pied><button class="btn ghost block" onclick="closeSheet()">Annuler</button></div>`);
   }
@@ -4038,7 +4204,7 @@
        le Mac, plein écran comme fenêtre. Nature, il accepte. */
     const saf=estSafari();
     const contrainte=saf?true:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}};
-    if(!saf&&(surface==='monitor'||surface==='window')) contrainte.displaySurface=surface;
+    if(!saf&&(surface==='monitor'||surface==='window'||surface==='browser')) contrainte.displaySurface=surface;
     /* SAFARI : la demande la plus nue possible — {video:true}, sans même la
        clé audio. La moindre option en plus et il refuse sans rien dire. */
     const demande=saf?{video:true}:{video:contrainte,audio:false};
@@ -4094,7 +4260,9 @@
     try{ _vDire({type:'ecran',eid:flux.id}); }catch(e){}
     if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
     _vGrand='moiE';
-    visioTuiles(); toast('🖥️ Ton écran est partagé');
+    _vEcranT0=Date.now(); partageModePose(_vEcranDernier);
+    partageBarreMontre(); temoinBranche(); _temoinNoirs=0;
+    visioTuiles(); toast('🖥️ Tu partages '+(MODE_NOM[_vEcranDernier]||'ton écran'));
     /* PLUS AUCUNE SURVEILLANCE AUTOMATIQUE.
        Une sonde lisait les images dans une vidéo cachée pour deviner si le
        partage était vide — mais Safari ne décode pas une vidéo invisible :
@@ -4202,7 +4370,8 @@
     _vEcran=null; delete _vNotes[ME.uid];
     if(_vGrand==='moiE') _vGrand=null;
     _vOrdre=_vOrdre.filter(x=>x!=='moiE');
-    const b=$('visio-ecran'); if(b){ b.style.background='#232a3a'; b.title='Partager mon écran'; }
+    const b=$('visio-ecran'); if(b){ b.style.background='#232a3a'; b.title='Partager mon écran (appui long : choisir)'; }
+    partageBarreCache(); temoinCoupe(); consigneCache();
     visioTuiles(); toast('Partage d\'écran arrêté');
   }
   /* ── les tuiles : ordre, grand écran, sourdines ── */
@@ -5166,7 +5335,7 @@
     try{ pipFerme(); }catch(e){}
     /* la réunion est finie : on coupe tout, sans condition —
        sauf si un appel patiente encore, qui a besoin du micro */
-    try{ consigneCache(); }catch(e){}
+    try{ consigneCache(); partageBarreCache(); temoinCoupe(); }catch(e){}
     if(!_vAttente) try{ toutCouper(); }catch(e){}
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
