@@ -3871,6 +3871,19 @@
      Tant qu'un appel est en cours OU qu'un appel patiente, l'appareil en a
      besoin. Dès que ce n'est plus le cas, on les rend : le voyant orange du
      téléphone ou du Mac doit s'éteindre tout seul. */
+  /* ══ TOUT COUPER : micro, caméra, écran ══
+     Un seul geste, appelé par TOUS les chemins de sortie — le bouton
+     Quitter, la croix, le retour arrière, la fermeture de l'onglet. Rien
+     ne doit rester allumé quand la réunion est finie. */
+  function toutCouper(){
+    try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); } }catch(e){} _vEcran=null;
+    try{ if(_vLocal){ _vLocal.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); } }catch(e){} _vLocal=null;
+    try{ if(typeof _porteFlux!=='undefined'&&_porteFlux){ _porteFlux.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); _porteFlux=null; } }catch(e){}
+    _vCamOn=false;
+    try{ if(document.pictureInPictureElement) document.exitPictureInPicture(); }catch(e){}
+    try{ ecranEveille(false); }catch(e){}
+    try{ const b=$('visio-ecran'); if(b){ b.style.background='#232a3a'; b.title='Partager mon écran'; } }catch(e){}
+  }
   function mediaLibere(force){
     if(!force && (_vRoom || _vAttente)) return;
     try{ if(_vLocal) _vLocal.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){}
@@ -3882,10 +3895,10 @@
      caméra, ÉCRAN PARTAGÉ et aperçu de la porte compris */
   try{ setInterval(()=>{ try{
     if(_vRoom||_vAttente) return;
-    if(_vLocal&&_vLocal.getTracks().some(t=>t.readyState==='live')) mediaLibere();
-    if(_vEcran){ try{ _vEcran.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){} _vEcran=null; }
-    if(typeof _porteFlux!=='undefined'&&_porteFlux&&!document.getElementById('porte-video')){
-      try{ _porteFlux.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){} _porteFlux=null; }
+    const vivant=(_vLocal&&_vLocal.getTracks().some(t=>t.readyState==='live'))
+      || (_vEcran&&_vEcran.getTracks().some(t=>t.readyState==='live'))
+      || (typeof _porteFlux!=='undefined'&&_porteFlux&&!document.getElementById('porte-video'));
+    if(vivant) toutCouper();
   }catch(e){} },5000); }catch(e){}
   /* ══ SEUL DANS L'APPEL ══
      Tout le monde est parti. On laisse une petite minute de battement — le
@@ -3977,8 +3990,9 @@
       'window', mac?'':'');
     const bloc2=choix('🖥️','Tout l\u2019écran','Tout ce que tu vois : toutes les applications, comme si on regardait par-dessus ton épaule.',
       saf?'Dans la fenêtre Safari : « Autoriser le partage d\u2019écran »':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
-      'monitor', mac?'Demande en plus une autorisation du Mac, une seule fois — si rien n\u2019apparaît, le bouton de réparation s\u2019affichera.':'');
+      'monitor', mac?'Sur Mac, la première fois, autorise l\u2019enregistrement d\u2019écran si le système le demande.':'');
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Partager mon écran</h3>
+      <p class="muted" style="font-size:12px;line-height:1.5;margin:0 0 10px;padding:8px 11px;background:var(--inp);border-radius:10px">Une fois lancé, le partage <b>ne s\u2019arrête jamais tout seul</b> : pour l\u2019arrêter, retouche le bouton 🖥️.</p>
       <p class="muted" style="font-size:12.5px;line-height:1.55;margin-bottom:12px">Choisis ce que les autres verront. ${saf?'Safari demandera ensuite une autorisation : le bouton à choisir est indiqué.':'Le navigateur te demandera ensuite de confirmer ton choix.'}</p>
       ${mac?bloc1+bloc2:bloc2+bloc1}
       ${mac?`<div style="margin-top:2px"><button class="btn ghost block" onclick="macReglagesEcran()">⚙️ Vérifier l\u2019autorisation du Mac</button></div>`:''}
@@ -4056,55 +4070,14 @@
     if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
     _vGrand='moiE';
     visioTuiles(); toast('🖥️ Ton écran est partagé');
-    _vEcranVeille(flux);
-  }
-  /* ── la sonde du partage : elle regarde les VRAIES images ──
-     Si l'ordinateur bloque l'enregistrement de l'écran (autorisation
-     système du Mac), les images arrivent NOIRES ou n'arrivent jamais.
-     L'ancien garde-fou se fiait à la tuile affichée et au drapeau
-     « muted » — deux choses qui mentent exactement quand on partage tout
-     l'écran : Safari laisse « muted » collé, et la tuile disparaît dès
-     qu'on réduit le studio ou qu'on part montrer son écran dans une autre
-     application. Résultat : il coupait des partages parfaitement sains.
-     La sonde, elle, lit les pixels : elle ne coupe que si les images sont
-     réellement noires, deux mesures de suite, onglet visible. */
-  function _vEcranVeille(flux){
-    const probe=document.createElement('video');
-    probe.muted=true; probe.playsInline=true; probe.setAttribute('playsinline','');
-    probe.style.cssText='position:fixed;left:-9999px;top:0;width:32px;height:18px;opacity:0;pointer-events:none';
-    try{ probe.srcObject=flux; document.body.appendChild(probe); }catch(e){ return; }
-    const pr=probe.play(); if(pr&&pr.catch) pr.catch(()=>{});
-    const range=()=>{ try{ probe.srcObject=null; probe.remove(); }catch(e){} };
-    let noirs=0, sansImage=0;
-    const verif=()=>{ try{
-      if(_vEcran!==flux){ range(); return; }                 // déjà arrêté ou remplacé
-      const t0=flux.getVideoTracks()[0];
-      if(!t0||t0.readyState!=='live'){ range(); return; }    // le partage s'est fini tout seul
-      /* onglet en arrière-plan : l'utilisateur est parti MONTRER son écran,
-         c'est le fonctionnement normal — on ne juge rien, on repassera */
-      if(document.visibilityState==='hidden'){ setTimeout(verif,2000); return; }
-      if(probe.videoWidth>0){
-        const c=document.createElement('canvas'); c.width=32; c.height=18;
-        const g=c.getContext('2d'); g.drawImage(probe,0,0,32,18);
-        const d=g.getImageData(0,0,32,18).data;
-        let lum=0; for(let i=0;i<d.length;i+=4) lum+=d[i]+d[i+1]+d[i+2];
-        if(lum>0){ range(); return; }                        // de vraies images : tout va bien
-        noirs++;
-        if(noirs>=2){ range(); visioEcranStop(); _vEcranBloqueExplique();
-          try{ tmPush('erreur','Partage d\u2019\u00e9cran : images noires \u2014 enregistrement d\u2019\u00e9cran bloqu\u00e9 par le syst\u00e8me','','',0); }catch(_){}
-          return; }
-      } else {
-        sansImage++;
-        if(sansImage>=3){ range(); visioEcranStop(); _vEcranBloqueExplique();
-          try{ tmPush('erreur','Partage d\u2019\u00e9cran : aucune image re\u00e7ue du navigateur','','',0); }catch(_){}
-          return; }
-      }
-      setTimeout(verif,2000);
-    }catch(e){ range(); } };                                  // au moindre doute : on laisse le partage vivre
-    setTimeout(verif,2500);
-  }
-  function _vEcranBloqueExplique(){
-    ecranSecours('L\u2019image de ton écran est restée vide : ton Mac n\u2019a pas laissé le navigateur enregistrer l\u2019écran.');
+    /* PLUS AUCUNE SURVEILLANCE AUTOMATIQUE.
+       Une sonde lisait les images dans une vidéo cachée pour deviner si le
+       partage était vide — mais Safari ne décode pas une vidéo invisible :
+       elle voyait du noir sur un partage sain et l'ARRÊTAIT au bout de cinq
+       secondes. Le partage démarre, le partage vit. C'est celui qui regarde
+       qui sait si l'image est bonne, pas un mouchard. */
+    if(estMac()&&estSafari()) setTimeout(()=>{ try{ if(_vEcran===flux)
+      toast('Si les autres voient du noir : 🖥️ → Tester mon partage'); }catch(e){} },6000);
   }
   /* ══ LE TEST QUI DIT LA VÉRITÉ ══
      Au lieu de deviner à distance, on demande à l'ordinateur lui-même :
@@ -5145,6 +5118,9 @@
     { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
     { const z=$('visio-reseau'); if(z) z.style.display='none'; }
     try{ pipFerme(); }catch(e){}
+    /* la réunion est finie : on coupe tout, sans condition —
+       sauf si un appel patiente encore, qui a besoin du micro */
+    if(!_vAttente) try{ toutCouper(); }catch(e){}
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
     /* le micro et la caméra servent aussi à l'appel qui patiente : on ne les
@@ -5174,7 +5150,7 @@
       setTimeout(()=>{ try{ _vSortir(b); visioAttenteBar();
         toast('Reprise de l\'appel avec '+(b.nom||'ton correspondant')); }catch(e){} },300); }
   }
-  try{ window.addEventListener('pagehide',()=>{ try{ if(_vRoom) visioFermer(); }catch(e){}
+  try{ window.addEventListener('pagehide',()=>{ try{ toutCouper(); }catch(e){} try{ if(_vRoom) visioFermer(); }catch(e){}
     try{ mediaLibere(true); }catch(e){} }); }catch(e){}
   /* la durée d'un appel, écrite comme on la dit : « 45 s », « 12 min », « 1 h 05 » */
   function dureeTexte(sec){
