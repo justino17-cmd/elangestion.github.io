@@ -3643,7 +3643,7 @@
       /* un appel patiente déjà : on garde le même micro et la même caméra —
          deux demandes en même temps se battraient sur certains téléphones */
       if(_vAttente && _vLocal && _vLocal.getTracks().some(t=>t.readyState==='live')){ /* on réutilise */ }
-      else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:1280},facingMode:'user'},audio:true});
+      else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30},facingMode:'user'},audio:true});
       /* la salle s'est refermée pendant la demande : on rend tout de suite */
       if(!_vRoom){ try{ _vLocal.getTracks().forEach(t=>t.stop()); }catch(e){} _vLocal=null; return; }
     }catch(e){
@@ -3656,7 +3656,12 @@
     }
     /* Le partage d'écran, c'est pour les RÉUNIONS. Un appel, c'est le
        téléphone : on se parle, on ne présente pas de document. */
-    { const be=$('visio-ecran'); if(be) be.style.display=(_vGenre==='appel')?'none':''; }
+    /* le partage d'écran n'existe pas sur les téléphones (iPhone, Android) :
+       on ne montre pas un bouton qui ne peut pas marcher — on peut quand
+       même RECEVOIR l'écran des autres, ça oui */
+    { const be=$('visio-ecran');
+      const sait=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia);
+      if(be) be.style.display=(_vGenre==='appel'||!sait)?'none':''; }
     _vCamOn=!!(_vLocal&&_vLocal.getVideoTracks().length);
     { const b=$('visio-cam'); if(b){ b.textContent=_vCamOn?'📷':'🚫'; b.style.background=_vCamOn?'#232a3a':'#e05252';
       b.title=_vCamOn?'Couper la caméra':'Allumer la caméra'; } }
@@ -3782,6 +3787,8 @@
       sonAppel('debut'); _vT0=Date.now(); visioEtat(''); }
     try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>{ const sn=pc.addTrack(t,_vLocal);
       if(t.kind==='video') p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); }); }catch(e){}
+    /* la qualité se règle dès la connexion, pas seulement au partage d'écran */
+    setTimeout(()=>{ try{ _vRegleEnvoi(p); }catch(e){} },1200);
     try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
     pc.onicecandidate=ev=>{ if(ev.candidate) _vDire({type:'ice',a:uid,cand:JSON.stringify(ev.candidate)}); };
     pc.ontrack=ev=>{ const st=ev.streams[0]||new MediaStream([ev.track]);
@@ -3982,18 +3989,19 @@
       for(const sn of (p.ecranSendersMoi||[])){
         try{
           const pr=sn.getParameters(); pr.encodings=pr.encodings&&pr.encodings.length?pr.encodings:[{}];
-          pr.encodings[0].maxBitrate=8000000;            // ~8 Mb/s : de quoi porter du 4K
+          pr.encodings[0].maxBitrate=20000000;           // ~20 Mb/s : le 4K respire
           pr.encodings[0].networkPriority='high';
           pr.degradationPreference='maintain-resolution'; // la définition ne baisse JAMAIS
           await sn.setParameters(pr);
         }catch(e){}
       }
-      /* la caméra reste sobre pour laisser la bande passante à l'écran */
+      /* la caméra aussi a droit à la qualité : 8 Mb/s, de quoi porter
+         du 1080p60 ou du 4K raisonnable */
       for(const sn of p.pc.getSenders()){
         if(!sn.track||sn.track.kind!=='video') continue;
         if((p.ecranSendersMoi||[]).includes(sn)) continue;
         try{ const pr=sn.getParameters(); pr.encodings=pr.encodings&&pr.encodings.length?pr.encodings:[{}];
-          pr.encodings[0].maxBitrate=1200000; await sn.setParameters(pr); }catch(e){}
+          pr.encodings[0].maxBitrate=8000000; await sn.setParameters(pr); }catch(e){}
       }
     }catch(e){}
   }
@@ -4159,31 +4167,21 @@
   function visioEcranMenu(){
     if(_vGenre==='appel'){ if(_vEcran) visioEcranStop(); return; }
     if(_vEcran){ visioEcranBascule(); return; }      // déjà en train de partager : on propose de changer
-    const saf=estSafari(), mac=estMac(), cur=partageModeLu();
-    const choix=(ic,titre,sous,aide,surface,alerte,fiable)=>`
-      <div onclick="visioEcranDuMenu('${surface}')" style="display:flex;gap:13px;align-items:flex-start;background:${cur===surface?'var(--tint2)':'var(--card)'};border:1px solid ${cur===surface?'var(--op)':'var(--line)'};border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer">
-        <span style="font-size:26px;line-height:1">${ic}</span>
+    const saf=estSafari(), cur=partageModeLu();
+    /* UN MENU QUI VA À L'ESSENTIEL : trois choix, une ligne chacun.
+       Les explications n'ont rien à faire ici — elles arrivent au moment
+       où elles servent (le bandeau du Mac) ou quand ça coince (le secours). */
+    const choix=(ic,titre,sous,surface,fiable)=>`
+      <div onclick="visioEcranDuMenu('${surface}')" style="display:flex;gap:13px;align-items:center;background:${cur===surface?'var(--tint2)':'var(--card)'};border:1px solid ${cur===surface?'var(--op)':'var(--line)'};border-radius:14px;padding:14px 15px;margin-bottom:9px;cursor:pointer">
+        <span style="font-size:24px;line-height:1">${ic}</span>
         <div style="flex:1;min-width:0">
-          <b style="font-size:15px">${titre}</b>${fiable?'<span style="background:rgba(30,122,78,.22);color:#3ecf8e;font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px;margin-left:7px;letter-spacing:.03em">LE PLUS FIABLE</span>':''}
-          <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:3px">${sous}</div>
-          ${aide?`<div style="font-size:12px;line-height:1.5;margin-top:6px;color:var(--op)">➜ ${aide}</div>`:''}
-          ${alerte?`<div style="font-size:12px;line-height:1.5;margin-top:6px;color:#e0a352">⚠️ ${alerte}</div>`:''}
+          <b style="font-size:15px">${titre}</b>${fiable?'<span style="background:rgba(30,122,78,.22);color:#3ecf8e;font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px;margin-left:7px">LE PLUS FIABLE</span>':''}
+          <div class="muted" style="font-size:12.5px;margin-top:2px">${sous}</div>
         </div><span class="chev">›</span></div>`;
-    const tout=choix('🖥️','Tout l\u2019écran','Tout ce que tu vois. Marche avec toutes les applications, sans exception.',
-      saf?'1) Safari : « Autoriser le partage d\u2019écran »  2) puis le bouton violet « Partager tout l\u2019écran » en HAUT À DROITE':'Choisis « Écran entier » puis clique sur l\u2019image de l\u2019écran',
-      'monitor','',true);
-    const fen=choix('🪟','Une seule fenêtre','Uniquement l\u2019application choisie — le reste de ton écran reste privé.',
-      saf?'Safari : « Autoriser le partage de fenêtre », puis clique la fenêtre à montrer':'Choisis « Fenêtre » puis clique celle à montrer',
-      'window', (saf&&mac)?'macOS ne sait pas capturer certaines fenêtres — c\u2019est une limite d\u2019Apple. Si la tienne n\u2019apparaît pas ou reste noire, prends « Tout l\u2019écran ».':'',false);
-    /* l'onglet n'existe que sur Chrome : on ne propose pas ce qui échouera */
-    const onglet=saf?'':choix('🌐','Un onglet du navigateur','Un site, un document en ligne — le plus net pour du texte.',
-      'Choisis « Onglet » puis celui à montrer','browser','',false);
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Partager mon écran</h3>
-      <p class="muted" style="font-size:12px;line-height:1.5;margin:0 0 10px;padding:8px 11px;background:var(--inp);border-radius:10px">Ton choix est retenu : la prochaine fois, un simple appui sur 🖥️ relancera <b>${esc(MODE_NOM[cur]||'')}</b> tout de suite. Appui long pour revenir ici.</p>
-      ${tout}${fen}${onglet}
-      ${mac?`<div style="margin-top:2px"><button class="btn ghost block" onclick="macReglagesEcran()">⚙️ Vérifier l\u2019autorisation du Mac</button></div>`:''}
-      <div style="margin-top:8px"><button class="btn ghost block" onclick="ecranDiagnostic()">\ud83d\udd0d Tester mon partage (résultat à m\u2019envoyer)</button></div>
-      <div id="ecran-diag" style="display:none;font-family:'Space Mono',monospace;font-size:11.5px;line-height:1.6;background:var(--inp);border-radius:12px;padding:12px 13px;margin-top:8px;white-space:pre-wrap;word-break:break-word"></div>
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">🖥️ Partager mon écran</h3>
+      ${choix('🖥️','Tout l\u2019écran','Toutes tes applications','monitor',true)}
+      ${choix('🪟','Une seule fenêtre','Une seule application'+(saf?' — certaines ne marchent pas sur Safari':''),'window',false)}
+      ${saf?'':choix('🌐','Un onglet','Un site, un document en ligne','browser',false)}
       <div data-pied><button class="btn ghost block" onclick="closeSheet()">Annuler</button></div>`);
   }
   /* le geste du doigt ne doit RIEN traverser : on demande l'écran tout de
@@ -4218,22 +4216,17 @@
        bouton violet à cliquer. Tant qu'on ne clique pas, il ne se passe
        rien — et rien à l'écran ne le disait. Maintenant si. */
     try{ consigneMontre(); }catch(e){}
-    const attenteT=setTimeout(()=>{ try{
-      toast('👀 Le Mac attend ton choix : regarde la petite fenêtre en haut de l\u2019écran et désigne l\u2019écran à partager.');
-      tmPush('erreur','Partage d\u2019\u00e9cran : le navigateur attend un choix depuis 8 s ('+_vEcranDernier+')','','',0);
-    }catch(e){} },8000);
-    /* IL ARRIVE QUE LE NAVIGATEUR NE RÉPONDE JAMAIS : ni accord, ni refus.
-       Sans ce compte à rebours, on restait bloqué pour toujours, sans rien
-       afficher — c'est exactement « il ne se passe rien ». */
-    let jamais=false;
-    const limite=new Promise(r=>setTimeout(()=>{ jamais=true; r(null); },20000));
-    try{ flux=await Promise.race([navigator.mediaDevices.getDisplayMedia(demande),limite]);
-      clearTimeout(attenteT); consigneCache();
-      if(jamais||!flux){ ecranSecours('Le navigateur n\u2019a jamais r\u00e9pondu \u00e0 la demande de partage (20 s).','sans r\u00e9ponse');
-        try{ tmPush('erreur','Partage d\u2019\u00e9cran : aucune r\u00e9ponse du navigateur en 20 s ('+_vEcranDernier+')','','',0); }catch(_){}
-        return; } }
+    /* ON ATTEND LE TEMPS QU'IL FAUT. Le Mac enchaîne DEUX étapes (la
+       question de Safari, puis son bouton violet en haut à droite) : ça
+       peut prendre une minute, et c'est normal. L'ancien compte à rebours
+       de 20 s abandonnait la demande pendant que tu y répondais — le Mac
+       lançait alors une capture que l'application avait déjà oubliée :
+       voyant allumé, rien à l'écran. Il n'y a PLUS de compte à rebours ;
+       le bandeau te guide, et il attend avec toi. */
+    try{ flux=await navigator.mediaDevices.getDisplayMedia(demande);
+      consigneCache(); }
     catch(e){
-      clearTimeout(attenteT); consigneCache();
+      consigneCache();
       /* refus ou blocage : on ne reste plus muet, on explique */
       const nom=(e&&e.name)||'';
       if(nom==='NotAllowedError'||nom==='SecurityError'){
@@ -5095,7 +5088,7 @@
         toast('📷 Caméra coupée — personne ne te voit');
       } else {
         let flux;
-        try{ flux=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},facingMode:'user'},audio:false}); }
+        try{ flux=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30},facingMode:'user'},audio:false}); }
         catch(e){ toast('Caméra indisponible — autorise-la dans le navigateur.'); _vCamBusy=false; return; }
         const t=flux.getVideoTracks()[0];
         if(!t){ _vCamBusy=false; return; }
@@ -5224,7 +5217,7 @@
     _vFlipBusy=true;
     const vise=_vFace==='user'?'environment':'user';
     let flux=null;
-    try{ flux=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:vise},width:{ideal:1280}},audio:false}); }
+    try{ flux=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:vise},width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}},audio:false}); }
     catch(e){ toast('Cette caméra n\'est pas disponible'); _vFlipBusy=false; return; }
     const neuve=flux.getVideoTracks()[0];
     if(!neuve){ _vFlipBusy=false; return; }
@@ -5435,7 +5428,7 @@
   async function porteApercu(){
     porteFluxStop();
     if(_porteCam&&!_porteRefus){
-      try{ _porteFlux=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:960},facingMode:'user'},audio:false}); }
+      try{ _porteFlux=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1920},facingMode:'user'},audio:false}); }
       catch(e){ _porteRefus=true; _porteCam=false; }
     }
     porteMaj();
