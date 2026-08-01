@@ -3589,6 +3589,7 @@
     /* un appel et une réunion, ce n'est pas pareil : la pastille le dit */
     const gg=$('visio-genre'); if(gg){ if(genre==='appel'){ gg.textContent='📞 APPEL'; gg.style.background='var(--op)'; }
       else { gg.textContent='📅 RÉUNION'; gg.style.background='#1e7a4e'; } }
+    try{ if(_vEcran) _vEcran.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){}
     _vEcran=null; _vOrdre=['moi']; _vGrand=null; _vNotes={}; _vMsgs=[]; _vTchatOn=false; _vTchatNew=0;
     $('visio-nom').textContent=titre||'Réunion';
     { const w=$('visio').classList.contains('open'); $('visio').classList.add('open'); if(!w) pushBack(); }
@@ -3598,6 +3599,8 @@
          deux demandes en même temps se battraient sur certains téléphones */
       if(_vAttente && _vLocal && _vLocal.getTracks().some(t=>t.readyState==='live')){ /* on réutilise */ }
       else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:1280},facingMode:'user'},audio:true});
+      /* la salle s'est refermée pendant la demande : on rend tout de suite */
+      if(!_vRoom){ try{ _vLocal.getTracks().forEach(t=>t.stop()); }catch(e){} _vLocal=null; return; }
     }catch(e){
       try{ _vLocal=await navigator.mediaDevices.getUserMedia({video:false,audio:true}); _vAudioOnly=true; }
       catch(e2){ visioEtat('');
@@ -3873,8 +3876,15 @@
     try{ if(_vEcran) _vEcran.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){} _vEcran=null;
     try{ ecranEveille(false); }catch(e){}
   }
-  /* garde-fou : si plus rien n'est en cours, l'appareil est rendu */
-  try{ setInterval(()=>{ try{ if(!_vRoom&&!_vAttente&&_vLocal&&_vLocal.getTracks().some(t=>t.readyState==='live')) mediaLibere(); }catch(e){} },5000); }catch(e){}
+  /* garde-fou : si plus rien n'est en cours, l'appareil est rendu — micro,
+     caméra, ÉCRAN PARTAGÉ et aperçu de la porte compris */
+  try{ setInterval(()=>{ try{
+    if(_vRoom||_vAttente) return;
+    if(_vLocal&&_vLocal.getTracks().some(t=>t.readyState==='live')) mediaLibere();
+    if(_vEcran){ try{ _vEcran.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){} _vEcran=null; }
+    if(typeof _porteFlux!=='undefined'&&_porteFlux&&!document.getElementById('porte-video')){
+      try{ _porteFlux.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); }catch(e){} _porteFlux=null; }
+  }catch(e){} },5000); }catch(e){}
   /* ══ SEUL DANS L'APPEL ══
      Tout le monde est parti. On laisse une petite minute de battement — le
      temps qu'un collègue revienne — puis l'appel se termine : rien ne sert
@@ -3977,9 +3987,11 @@
     if(_vEcran){ visioEcranStop(); return; }
     let flux;
     /* le choix fait dans notre menu est passé au navigateur : Chrome ouvre
-       directement le bon volet. Safari, lui, ne connaît pas ce réglage et
-       peut refuser tout net s'il le voit : on ne le lui donne pas. */
-    const contrainte={width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}};
+       directement le bon volet. SAFARI, LUI, N'A DROIT À AUCUN RÉGLAGE :
+       il est connu pour refuser tout net un partage dès qu'on lui impose
+       taille ou cadence — c'était ÇA, le partage qui ne marchait pas sur
+       le Mac, plein écran comme fenêtre. Nature, il accepte. */
+    const contrainte=estSafari()?true:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30,max:30}};
     if(!estSafari()&&(surface==='monitor'||surface==='window')) contrainte.displaySurface=surface;
     _vEcranDernier=surface||'';
     /* Sur Mac, après « Autoriser le partage d'écran », le SYSTÈME attend
@@ -3988,6 +4000,7 @@
        laisser croire que c'est cassé. */
     const attenteT=setTimeout(()=>{ try{
       toast('👀 Le Mac attend ton choix : regarde la petite fenêtre en haut de l\u2019écran et désigne l\u2019écran à partager.');
+      tmPush('erreur','Partage d\u2019\u00e9cran : le navigateur attend un choix depuis 8 s ('+_vEcranDernier+')','','',0);
     }catch(e){} },8000);
     try{ flux=await navigator.mediaDevices.getDisplayMedia({video:contrainte,audio:false}); clearTimeout(attenteT); }
     catch(e){
@@ -3995,15 +4008,18 @@
       /* refus ou blocage : on ne reste plus muet, on explique */
       const nom=(e&&e.name)||'';
       if(nom==='NotAllowedError'||nom==='SecurityError'){
-        ecranSecours('Le partage n\u2019a pas démarré : soit tu as annulé, soit le navigateur l\u2019a refusé.');
-      } else if(nom){
-        toast('Partage impossible : '+nom+' — essaie depuis Chrome.');
+        ecranSecours('Le partage n\u2019a pas démarré : soit tu as annulé, soit le navigateur l\u2019a refusé.',nom);
+      } else {
+        ecranSecours('Le partage n\u2019a pas pu démarrer.',nom||'inconnu');
       }
-      /* la Surveillance doit le savoir : on voit alors À DISTANCE pourquoi
+      /* la Surveillance doit TOUT savoir : on voit alors À DISTANCE pourquoi
          le partage ne démarre pas chez un client (et chez nous) */
-      try{ if(nom&&nom!=='NotAllowedError') tmPush('erreur','Partage d\u2019\u00e9cran : d\u00e9marrage impossible ('+nom+')',String((e&&e.message)||''),'',0); }catch(_){}
+      try{ tmPush('erreur','Partage d\u2019\u00e9cran : d\u00e9marrage impossible ('+(nom||'?')+' \u00b7 '+_vEcranDernier+')',String((e&&e.message)||''),'',0); }catch(_){}
       return;
     }
+    /* la réunion s'est refermée PENDANT que le Mac demandait son accord :
+       ce partage n'a plus de destinataire, on l'éteint sur-le-champ */
+    if(!_vRoom){ try{ flux.getTracks().forEach(t=>t.stop()); }catch(e){} return; }
     _vEcran=flux;
     /* « detail » : le texte reste NET ; si le réseau manque, on perd des
        images par seconde, jamais de la définition */
@@ -4072,7 +4088,7 @@
      qui ne demande aucune autorisation du système. La réparation définitive
      vient ensuite, avec le bouton qui ouvre le bon panneau du Mac. */
   let _vEcranDernier='';
-  function ecranSecours(motif){
+  function ecranSecours(motif,detail){
     const mac=estMac(), saf=estSafari();
     const etaitTout=_vEcranDernier!=='window';
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">🖥️ Le partage d\u2019écran n\u2019a pas fonctionné</h3>
@@ -4096,6 +4112,7 @@
           Vérifie que ton système autorise ce navigateur à enregistrer l\u2019écran, relance-le, puis réessaie.
           Tu peux aussi partager <b>une seule fenêtre</b> : c\u2019est presque toujours accepté.</div>
         <button class="btn block" style="font-weight:800" onclick="closeSheet();visioEcran('window')">🪟 Partager une fenêtre</button>`}
+      ${detail?`<p class="muted" style="font-size:11px;margin-bottom:8px">d\u00e9tail technique \u00e0 me transmettre : <b>${esc(String(detail))}</b></p>`:''}
       <div data-pied style="display:flex;flex-direction:column;gap:8px">
         <button class="btn ghost block" onclick="closeSheet();visioEcran('monitor')">Réessayer tout l\u2019écran</button>
         <button class="btn ghost block" onclick="closeSheet()">Plus tard</button>
@@ -4913,22 +4930,27 @@
   async function visioFermer(sansClore){
     if(_vNettoye&&!_vRoom) return; _vNettoye=true;
     const room=_vRoom, restants=Object.keys(_vPairs).length, groupe=(_vGenre==='appel'&&_vMaxGens>=3);
-    _vRoom=null; _vIciFin();
+    _vRoom=null;
+    /* PREMIER GESTE, AVANT TOUT LE RESTE : éteindre l'écran partagé.
+       Si une étape plus bas casse, les voyants du Mac doivent déjà être
+       éteints — c'était le bug du « je suis encore en partage d'écran ». */
+    try{ if(_vEcran){ try{ dcTous({t:'ecranFin',id:_vEcran.id}); }catch(e){}
+      _vEcran.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); } }catch(e){} _vEcran=null;
+    try{ _vIciFin(); }catch(e){}
     if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
     if(_vPoll){ clearInterval(_vPoll); _vPoll=null; }
     if(_vQualT){ clearInterval(_vQualT); _vQualT=null; }
-    sonnerieSortante(false); visioSansReponse(false);
+    try{ sonnerieSortante(false); }catch(e){} try{ visioSansReponse(false); }catch(e){}
     if(_vCalmeT){ clearTimeout(_vCalmeT); _vCalmeT=null; }
     { const v=$('visio'); if(v) v.classList.remove('calme'); }
     _vEchange=false; _vCoin=0;
     if(!_vAttente) ecranEveille(false);
-    if(room&&_vGenre==='appel') sonAppel('fin');
-    _vSeulStop();
+    try{ if(room&&_vGenre==='appel') sonAppel('fin'); }catch(e){}
+    try{ _vSeulStop(); }catch(e){}
     _vMini=false; _vFaible=false; _vQualVu={};
     { const v=$('visio'); if(v){ v.classList.remove('mini'); v.onclick=null; } }
     { const z=$('visio-reseau'); if(z) z.style.display='none'; }
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
-    try{ if(_vEcran) _vEcran.getTracks().forEach(t=>t.stop()); }catch(e){} _vEcran=null;
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
     /* le micro et la caméra servent aussi à l'appel qui patiente : on ne les
        éteint que si plus personne n'en a besoin */
@@ -5125,12 +5147,16 @@
       let cible=null;
       qs.forEach(d=>{ const c=d.data()||{};
         if(c.status!=='ringing'||c.from===ME.uid) return;
+        /* DÉJÀ SONNÉ CETTE SESSION : on ne resonne JAMAIS — c'était le bug
+           de la sonnerie fantôme : chaque clic d'onglet refaisait sonner un
+           vieil appel resté « en train de sonner » sur sa fiche */
+        if(_ringVus.has(d.id)) return;
         const t=(c.ts&&c.ts.toMillis)?c.ts.toMillis():0;
         if(now-t>90000) return;                       // un appel de plus d'1 min 30 n'est plus « en cours »
         if(_activeCall&&_activeCall.ref&&_activeCall.ref.id===d.id) return;
-        cible={ref:d.ref,c:c};
+        cible={ref:d.ref,c:c,id:d.id};
       });
-      if(cible&&!_ringRef) showRing(cible.ref,cible.c);
+      if(cible&&!_ringRef){ _ringVus.add(cible.id); showRing(cible.ref,cible.c); }
     }catch(e){}
   }
   try{ document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ try{ startCallListener(); appelsVerifie(); }catch(e){} } }); }catch(e){}
@@ -5275,18 +5301,24 @@
        une sonnerie muette ne sert à rien dans une poche */
     try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); if(_ac.state==='suspended') _ac.resume(); }catch(e){}
     const vibrer=()=>{ try{ if(navigator.vibrate) navigator.vibrate([600,300,600]); }catch(e){} };
+    let dejaOk=false, dejaSecours=false;
     const secours=()=>{
-      /* le fichier ne peut pas jouer : la cloche composée sonne à sa place —
-         PAS le son choisi, qui peut lui-même être un fichier bloqué */
-      if(!_ringT) return;
+      /* le fichier ne peut pas jouer : la cloche composée sonne À SA PLACE.
+         On coupe d'abord le fichier — sinon, s'il finissait par charger, les
+         deux sonneries jouaient EN MÊME TEMPS (le fameux double son). */
+      if(!_ringT||dejaOk||dejaSecours) return; dejaSecours=true;
+      try{ if(_ringA){ _ringA.onplaying=null; _ringA.pause(); _ringA=null; } }catch(e){}
       clearInterval(_ringT);
       const sonner=()=>{ sonJoue('cloche',true); vibrer(); };
       sonner(); _ringT=setInterval(sonner,1400);
     };
     try{ _ringA=sonFichier(SONNERIE_APPEL,Math.max(.35,sonVolume()),true,secours); }catch(e){ secours(); }
+    try{ if(_ringA) _ringA.onplaying=()=>{ dejaOk=true; }; }catch(e){}
     vibrer(); _ringT=setInterval(vibrer,1900);
-    /* deuxième filet : toujours muet au bout d'une seconde → secours */
-    setTimeout(()=>{ try{ if(_ringT&&(!_ringA||_ringA.paused)) secours(); }catch(e){} },1000);
+    /* deuxième filet : toujours muet au bout de DEUX secondes → secours
+       (une seconde ne suffisait pas à un téléphone lent : le fichier
+        arrivait juste après et s'ajoutait à la cloche) */
+    setTimeout(()=>{ try{ if(_ringT&&!dejaOk&&(!_ringA||_ringA.paused)) secours(); }catch(e){} },2000);
   }
   function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;}
     try{ if(_ringA){ _ringA.pause(); _ringA.currentTime=0; _ringA.loop=false; _ringA=null; } }catch(e){}
