@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v612';
+const CACHE = 'elan-gestion-v613';
 const ASSETS = [
   './',
   'index.html',
@@ -63,24 +63,53 @@ self.addEventListener('fetch', e => {
 
   const isDoc = req.mode === 'navigate' || req.destination === 'document';
 
-  /* ══ L'APPLICATION S'OUVRE INSTANTANÉMENT ══
-     On sert D'ABORD la copie gardée ici — affichage immédiat, même réseau
-     poussif — puis on va chercher la version fraîche en arrière-plan. Si elle
-     a changé, on prévient l'onglet : il proposera de la charger.
-     Avant, on attendait le réseau à CHAQUE ouverture : 160 Ko avant le
-     moindre pixel. */
+  /* ══ LES PAGES : LA VERSION FRAÎCHE D'ABORD ══
+     Une PAGE (app.html, messages.html…) part chercher la version fraîche en
+     premier. Si le réseau répond dans les 2 secondes — le cas normal — on
+     sert la toute dernière version : une correction livrée arrive TOUT DE
+     SUITE, sans double rechargement.
+     Si le réseau traîne ou manque, la copie gardée s'affiche instantanément
+     comme avant, et la version fraîche prendra sa place au retour.
+     C'est ce détail qui a fait essayer pendant des jours des corrections
+     déjà livrées mais jamais reçues. */
+  if (isDoc) {
+    e.respondWith(
+      caches.match(req).then(garde => {
+        const frais = fetch(req).then(res => {
+          if (res && res.ok) {
+            const copie = res.clone();
+            caches.open(CACHE).then(c => c.put(req, copie)).catch(() => {});
+          }
+          return res;
+        }).catch(() => null);
+
+        if (!garde) return frais.then(r => r || caches.match('app.html'));
+
+        /* course : le réseau a 2 secondes pour gagner */
+        const patience = new Promise(r => setTimeout(() => r(null), 2000));
+        return Promise.race([frais, patience]).then(r => {
+          if (r && r.ok) return r;                       // ← la version fraîche
+          /* le réseau traîne : on sert la copie, et on préviendra si ça change */
+          frais.then(res => {
+            if (!res || !res.ok) return;
+            Promise.all([garde.clone().text(), res.clone().text()])
+              .then(([a, b]) => { if (a !== b) annonceMaj(url.pathname); })
+              .catch(() => {});
+          }).catch(() => {});
+          return garde;
+        });
+      })
+    );
+    return;
+  }
+
+  /* ══ LE RESTE (sons, icônes, images) : la copie d'abord, c'est instantané ══ */
   e.respondWith(
     caches.match(req).then(garde => {
       const frais = fetch(req).then(res => {
         if (res && res.ok) {
           const copie = res.clone();
           caches.open(CACHE).then(c => c.put(req, copie)).catch(() => {});
-          if (isDoc && garde) {
-            /* la page a-t-elle vraiment changé ? on compare avant de déranger */
-            Promise.all([garde.clone().text(), res.clone().text()])
-              .then(([a, b]) => { if (a !== b) annonceMaj(url.pathname); })
-              .catch(() => {});
-          }
         }
         return res;
       }).catch(() => null);
