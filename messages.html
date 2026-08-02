@@ -272,6 +272,18 @@
   .chk{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--card-brd);border-radius:12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s,background .15s}
   .chk:hover{background:var(--hov)}
   .chk.sel{border-color:var(--op);background:var(--tint2)}
+  /* ══ LA CASE À COCHER ══ On VOIT ce qu'on a choisi : la case se remplit
+     et le crochet apparaît. Plus besoin de deviner à la couleur du cadre. */
+  .cbx{width:22px;height:22px;border-radius:7px;border:2px solid var(--brd2);background:var(--card);
+    flex:0 0 auto;position:relative;transition:background .15s,border-color .15s}
+  .cbx::after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;
+    border-width:0 2.5px 2.5px 0;transform:rotate(45deg) scale(.4);opacity:0;transition:transform .16s,opacity .16s}
+  .chk.sel .cbx{background:var(--op);border-color:var(--op)}
+  .chk.sel .cbx::after{opacity:1;transform:rotate(45deg) scale(1)}
+  /* la barre de recherche des personnes */
+  .pickq{width:100%;background:var(--inp);border:1px solid transparent;border-radius:12px;
+    padding:11px 34px 11px 36px;color:var(--t1);font-size:14px;font-family:inherit;outline:none}
+  .pickq:focus{border-color:var(--op)}
   /* viewer + jitsi */
   .viewer,.jitsi{position:fixed;inset:0;z-index:60;background:#0a0e16;display:none;flex-direction:column}
   .viewer.open,.jitsi.open{display:flex}
@@ -571,7 +583,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='618';
+  const APP_VERSION='619';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -749,6 +761,80 @@
   function ini(n){ return (n||'?').trim().slice(0,1).toUpperCase(); }
   function hue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
   function avatarStyle(s){ const h=hue(s); const clair=document.documentElement.getAttribute('data-theme')==='clair'; return clair?`background:hsl(${h} 52% 91%);color:hsl(${h} 45% 34%)`:`background:hsl(${h} 45% 22%);color:hsl(${h} 70% 72%)`; }
+  /* ══════════════════════════════════════════════════════════════════
+     CHOISIR DES PERSONNES — le même bloc partout
+     Démarrer une réunion, en planifier une, lancer un appel, monter un
+     groupe, ajouter quelqu'un : c'est toujours le même écran. Une barre
+     de recherche en haut, une vraie case qui se coche à gauche, et le
+     compte de ce qu'on a choisi juste au-dessus de la liste.
+     La recherche ignore les accents et les majuscules : « lea » trouve
+     « Léa », « TEST » trouve « Karim Test ».
+     ══════════════════════════════════════════════════════════════════ */
+  function sansAccent(v){
+    try{ return (v==null?'':String(v)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+    catch(e){ return (v==null?'':String(v)).toLowerCase(); }
+  }
+  /* une personne cochable */
+  function pickLigne(zone,uid,nom,sous){
+    const n=nom||'';
+    return `<div class="chk" data-uid="${esc(uid)}" data-name="${esc(n.replace(/"/g,'&quot;'))}" data-cle="${esc(sansAccent(n+' '+(sous||'')))}" onclick="pickBascule(this,'${zone}')">
+      <span class="cbx"></span>
+      <div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:13px;font-weight:800;flex:0 0 auto;display:flex;align-items:center;justify-content:center;${avatarStyle(n)}">${ini(n)}</div>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n)}</div>
+      ${sous?`<div class="muted" style="font-size:11.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}</div></div>`;
+  }
+  /* le bloc complet : recherche + compteur + liste. `lignes` vient de pickLigne. */
+  function pickBloc(zone,lignes,vide){
+    if(!lignes) return `<p class="muted" style="font-size:12.5px;padding:4px 0">${esc(vide||'Personne à afficher.')}</p>`;
+    return `<div style="position:relative;margin-bottom:9px">
+        <span class="ms" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:18px;color:var(--t3);pointer-events:none">search</span>
+        <input id="${zone}-q" class="pickq" autocomplete="off" spellcheck="false" oninput="pickCherche('${zone}')" placeholder="Rechercher une personne\u2026">
+        <span id="${zone}-x" onclick="pickEfface('${zone}')" style="display:none;position:absolute;right:11px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--t3);font-size:14px;font-weight:800">\u2715</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+        <span id="${zone}-compte" class="muted" style="font-size:11.5px;font-weight:700">Personne de choisi</span>
+        <span style="flex:1"></span>
+        <span id="${zone}-tout" onclick="pickTout('${zone}')" style="font-size:11.5px;font-weight:800;color:var(--op-tx);cursor:pointer;padding:3px 4px">Tout cocher</span>
+      </div>
+      <div id="${zone}">${lignes}</div>
+      <p id="${zone}-rien" class="muted" style="display:none;font-size:12.5px;text-align:center;padding:10px 0 2px">Personne ne correspond \u00e0 cette recherche.</p>`;
+  }
+  function pickGens(zone){ const c=$(zone); return c?[].slice.call(c.querySelectorAll('.chk')):[]; }
+  function pickVus(zone){ return pickGens(zone).filter(el=>el.style.display!=='none'); }
+  function pickCherche(zone){
+    const i=$(zone+'-q'), q=sansAccent(i?i.value.trim():'');
+    let vus=0;
+    pickGens(zone).forEach(el=>{
+      const ok=!q||(el.dataset.cle||'').indexOf(q)>=0;
+      el.style.display=ok?'':'none'; if(ok) vus++;
+    });
+    const r=$(zone+'-rien'); if(r) r.style.display=vus?'none':'block';
+    const x=$(zone+'-x'); if(x) x.style.display=q?'block':'none';
+    pickMaj(zone);
+  }
+  function pickEfface(zone){ const i=$(zone+'-q'); if(i){ i.value=''; try{ i.focus(); }catch(e){} } pickCherche(zone); }
+  /* on coche / on décoche — la sélection survit à la recherche */
+  function pickBascule(el,zone){ el.classList.toggle('sel'); if(zone) pickMaj(zone); }
+  function pickTout(zone){
+    const vus=pickVus(zone);
+    const tout=vus.length>0&&vus.every(el=>el.classList.contains('sel'));
+    vus.forEach(el=>el.classList.toggle('sel',!tout));
+    pickMaj(zone);
+  }
+  function pickChoisis(zone){ return pickGens(zone).filter(el=>el.classList.contains('sel')); }
+  function pickMaj(zone){
+    const n=pickChoisis(zone).length, vus=pickVus(zone);
+    const c=$(zone+'-compte');
+    if(c){ c.textContent=n?(n+(n>1?' personnes choisies':' personne choisie')):'Personne de choisi';
+      c.style.color=n?'var(--op-tx)':''; }
+    const t=$(zone+'-tout');
+    if(t){ t.style.display=vus.length>1?'':'none';
+      t.textContent=(vus.length>0&&vus.every(el=>el.classList.contains('sel')))?'Tout d\u00e9cocher':'Tout cocher'; }
+    /* le bouton d'à côté annonce ce qu'on va faire */
+    const L=$(zone+'-lbl');
+    if(L){ const zero=L.dataset.zero||'', avec=L.dataset.avec||'';
+      L.textContent=(n&&avec)?avec.replace('{n}',n+(n>1?' personnes':' personne')):zero; }
+  }
   /* ══ MODE JOUR / NUIT ══
      Trois réglages : Automatique (suit le téléphone ou l'ordinateur, donc
      jour la journée et nuit le soir), Jour toujours, Nuit toujours.
@@ -2365,21 +2451,56 @@
      Un point sous les jours qui ont déjà une réunion, et le détail au
      survol : on ne planifie plus à l'aveugle par-dessus autre chose. */
   let _dcPrevu={};
+  const _hhmm=t=>new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  /* une durée en minutes, dite comme on la dit : « 1 h 30 », « 45 min » */
+  function dureeDite(min){
+    min=Math.max(0,Math.round(min||0));
+    if(min<60) return min+' min';
+    const h=Math.floor(min/60), m=min%60;
+    return h+' h'+(m?' '+String(m).padStart(2,'0'):'');
+  }
   async function dcCharge(){
     _dcPrevu={};
     try{
       if(!COMP||!COMP.id) return;
+      /* qui est qui : pour nommer l'organisateur et les invités */
+      if(!_members.length){ try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){} }
+      const nomDe=u=>{ if(u===ME.uid) return ((USER&&USER.name)||'Moi');
+        const m=_members.find(x=>x.uid===u); return (m&&m.name)||''; };
       const l=await roomsVisibles();
       l.forEach(r=>{
         if(!r.scheduledAt||!reunionMienne(r)) return;
         const iso=_dstr(new Date(r.scheduledAt));
+        const d=r.dureeMin||REUNION_DUREE;
+        const invites=(r.members||[]).map(nomDe).filter(Boolean);
         (_dcPrevu[iso]=_dcPrevu[iso]||[]).push({
-          h:new Date(r.scheduledAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),
-          n:r.name||'Réunion', t:r.scheduledAt, d:r.dureeMin||REUNION_DUREE });
+          h:_hhmm(r.scheduledAt), hf:_hhmm(r.scheduledAt+d*60000),
+          n:r.name||'Réunion', t:r.scheduledAt, fin:r.scheduledAt+d*60000, d,
+          par:nomDe(r.createdBy)||'—', moi:r.createdBy===ME.uid,
+          gens:invites, nb:(r.members||[]).length, ouverte:r.ouverte===true });
       });
       Object.keys(_dcPrevu).forEach(k=>_dcPrevu[k].sort((a,b)=>a.t-b.t));
     }catch(e){}
     try{ if($('dp-cal')&&$('dp-cal').style.display==='block') dcRender(); }catch(e){}
+  }
+  /* le détail d'une réunion, en clair : horaire, durée, qui l'organise, qui vient */
+  function dcDetail(p,large){
+    const gens=(p.gens||[]).slice(0,6), reste=(p.nb||0)-gens.length;
+    return `<div style="padding:8px 0;border-top:1px solid var(--sep)">
+      <div style="display:flex;align-items:baseline;gap:7px">
+        <b style="font-variant-numeric:tabular-nums;color:var(--op-tx);font-size:12.5px;white-space:nowrap">${esc(p.h)}\u2009\u2192\u2009${esc(p.hf)}</b>
+        <span style="flex:1;min-width:0;font-weight:700;font-size:${large?'13px':'12.5px'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.n)}</span>
+        <span style="color:var(--t3);font-size:11px;white-space:nowrap">${esc(dureeDite(p.d))}</span>
+      </div>
+      <div style="font-size:11px;color:var(--t3);margin-top:3px">
+        ${p.moi?'Tu l\u2019organises':'Organis\u00e9e par '+esc(p.par)}
+        ${p.ouverte?' \u00b7 <span style="color:var(--op-tx);font-weight:700">ouverte \u00e0 tous</span>':' \u00b7 '+(p.nb||0)+' invit\u00e9'+((p.nb||0)>1?'s':'')}
+      </div>
+      ${gens.length?`<div style="display:flex;align-items:center;gap:5px;margin-top:5px;flex-wrap:wrap">
+        ${gens.map(g=>`<span class="ava" style="width:20px;height:20px;border-radius:50%;font-size:9.5px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;${avatarStyle(g)}">${ini(g)}</span>`).join('')}
+        <span style="font-size:10.7px;color:var(--t3);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(gens.map(g=>g.split(' ')[0]).join(', '))}${reste>0?' +'+reste:''}</span>
+      </div>`:''}
+    </div>`;
   }
   function dcOuvre(){
     const z=$('dp-cal'); if(!z) return;
@@ -2392,20 +2513,29 @@
   }
   /* l'info-bulle du navigateur met deux secondes à venir : on fait la nôtre */
   function dcSurvol(iso,ev){
-    const l=_dcPrevu[iso]||[]; if(!l.length) return;
+    const l=_dcPrevu[iso]||[];
     let b=$('dc-bulle');
     if(!b){ b=document.createElement('div'); b.id='dc-bulle';
-      b.style.cssText='position:fixed;z-index:120;max-width:260px;background:var(--card);border:1px solid var(--card-brd);'
-        +'border-radius:12px;padding:10px 12px;box-shadow:0 14px 34px rgba(0,0,0,.4);font-size:12.5px;line-height:1.55;pointer-events:none';
+      b.style.cssText='position:fixed;z-index:120;width:296px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--card-brd);'
+        +'border-radius:14px;padding:11px 13px;box-shadow:0 16px 40px rgba(0,0,0,.45);font-size:12.5px;line-height:1.5;pointer-events:none';
       document.body.appendChild(b); }
     const jour=new Date(iso+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
-    b.innerHTML=`<div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--t3);text-transform:uppercase;margin-bottom:6px">${esc(jour)}</div>`
-      +l.map(p=>`<div style="display:flex;gap:8px;margin-top:4px"><b style="font-variant-numeric:tabular-nums;color:var(--op-tx)">${esc(p.h)}</b>
-        <span style="flex:1;min-width:0">${esc(p.n)}<span style="color:var(--t3)"> · ${p.d} min</span></span></div>`).join('');
+    const tete=`<div style="font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--t3);text-transform:uppercase">${esc(jour)}</div>`;
+    if(!l.length){
+      b.innerHTML=tete+`<div style="margin-top:7px;font-size:12.5px;color:var(--t2)">Rien de pr\u00e9vu \u2014 la journ\u00e9e est libre.</div>`;
+    } else {
+      const total=l.reduce((a,p)=>a+p.d,0);
+      const dernier=l.reduce((a,p)=>Math.max(a,p.fin),0);
+      b.innerHTML=tete
+        +`<div style="font-size:11.5px;font-weight:700;color:var(--op-tx);margin:2px 0 4px">${l.length} r\u00e9union${l.length>1?'s':''} \u00b7 ${esc(dureeDite(total))} en tout</div>`
+        +l.map(p=>dcDetail(p)).join('')
+        +`<div style="border-top:1px solid var(--sep);margin-top:4px;padding-top:6px;font-size:10.7px;color:var(--t3)">
+           Libre \u00e0 partir de <b style="color:var(--t2)">${esc(_hhmm(dernier))}</b> \u00b7 clique pour choisir ce jour</div>`;
+    }
     b.style.display='block';
     try{ const r=ev.currentTarget.getBoundingClientRect();
-      b.style.left=Math.max(8,Math.min(window.innerWidth-268,r.left+r.width/2-130))+'px';
-      b.style.top=(r.bottom+8+b.offsetHeight>window.innerHeight? (r.top-b.offsetHeight-8) : (r.bottom+8))+'px';
+      b.style.left=Math.max(8,Math.min(window.innerWidth-304,r.left+r.width/2-148))+'px';
+      b.style.top=(r.bottom+8+b.offsetHeight>window.innerHeight? Math.max(8,r.top-b.offsetHeight-8) : (r.bottom+8))+'px';
     }catch(e){}
   }
   function dcSurvolFin(){ const b=$('dc-bulle'); if(b) b.style.display='none'; }
@@ -2419,10 +2549,21 @@
     const l=_dcPrevu[iso]||[];
     if(!l.length){ z.style.display='none'; z.innerHTML=''; return; }
     z.style.display='block';
-    z.innerHTML=`<div style="font-size:11.5px;font-weight:700;color:var(--t2);margin-bottom:5px">Déjà prévu ce jour-là</div>`
-      +l.map(p=>`<div style="display:flex;gap:8px;font-size:12.5px;margin-top:3px">
-        <b style="font-variant-numeric:tabular-nums;color:var(--op-tx)">${esc(p.h)}</b>
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.n)}</span></div>`).join('');
+    const total=l.reduce((a,p)=>a+p.d,0);
+    /* est-ce que l'heure choisie tombe SUR une réunion déjà là ? */
+    const t=momentChoisi();
+    let duree=30; try{ const d=$('nr-duree');
+      if(d&&parseInt(d.value,10)>0) duree=parseInt(d.value,10);
+      else if($('dp-duree')&&_dashDuree>0) duree=_dashDuree; }catch(e){}
+    const f=t?t+duree*60000:0;
+    const choc=t?l.filter(p=>t<p.fin&&f>p.t):[];
+    z.innerHTML=`<div style="display:flex;align-items:baseline;gap:7px;margin-bottom:2px">
+        <span style="font-size:11.5px;font-weight:800;color:var(--t2)">Déjà prévu ce jour-là</span>
+        <span style="flex:1"></span>
+        <span style="font-size:10.7px;color:var(--t3)">${l.length} r\u00e9union${l.length>1?'s':''} \u00b7 ${esc(dureeDite(total))}</span></div>`
+      +l.map(p=>dcDetail(p,true)).join('')
+      +(choc.length?`<div style="margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(224,140,30,.14);border:1px solid rgba(224,140,30,.35);font-size:11.7px;line-height:1.5;color:var(--t1)">
+          <b>\u26a0\ufe0f \u00c7a se chevauche</b> \u2014 \u00e0 cette heure-l\u00e0, ${choc.map(p=>'\u00ab\u2009'+esc(p.n)+'\u2009\u00bb ('+esc(p.h)+'\u2009\u2192\u2009'+esc(p.hf)+')').join(' et ')} ${choc.length>1?'ont':'a'} d\u00e9j\u00e0 lieu. Tu peux quand m\u00eame planifier.</div>`:'');
   }
   function dcLabel(){ try{ dcCharge().then(dcDejaMaj); }catch(e){}
     const b=$('dp-datelbl'), v=(($('dp-date')||{}).value)||'';
@@ -2444,6 +2585,7 @@
   function tpPose(h,m){
     const i=$('dp-time'); if(i) i.value=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
     const b=$('dp-timelbl'); if(b) b.textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+    try{ dcDejaMaj(); }catch(e){}
     try{ dashDureeMaj(); }catch(e){}
     try{ dashRepetMaj(); }catch(e){}
     tpRender();
@@ -2508,9 +2650,10 @@
       /* ce qui est déjà prévu ce jour-là */
       const prev=_dcPrevu[iso]||[];
       const bulle=prev.length
-        ? prev.map(p=>p.h+' — '+p.n).join('\n')+(prev.length>1?('\n('+prev.length+' réunions ce jour-là)'):'')
-        : '';
-      h+=`<div onclick="dcChoisir('${iso}')"${prev.length?` title="${esc(bulle)}" onmouseenter="dcSurvol('${iso}',event)" onmouseleave="dcSurvolFin()"`:''}
+        ? prev.map(p=>p.h+'\u2009→\u2009'+p.hf+'  '+p.n+'  ('+(p.ouverte?'ouverte à tous':(p.nb||0)+' invité'+((p.nb||0)>1?'s':''))+')').join('\n')
+          +(prev.length>1?('\n'+prev.length+' réunions ce jour-là'):'')
+        : 'Rien de prévu ce jour-là';
+      h+=`<div onclick="dcChoisir('${iso}')" title="${esc(bulle)}" onmouseenter="dcSurvol('${iso}',event)" onmouseleave="dcSurvolFin()"
         style="position:relative;height:38px;display:flex;align-items:center;justify-content:center;
         border-radius:10px;cursor:pointer;font-size:13.5px;font-weight:${on?'800':'600'};
         ${on?'background:var(--op);color:#fff':(es?'background:var(--tint2);color:var(--tile-tx);font-weight:800':(we?'color:var(--t3)':'color:var(--t1)'))}">${j}
@@ -2539,7 +2682,7 @@
     return h+' h'+(r?' '+String(r).padStart(2,'0'):''); }
   function heureFin(r){ try{ const f=new Date((r.scheduledAt||0)+dureeDe(r)*60000);
     return f.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
-  function dashDureeSet(m){ _dashDuree=+m||DUREE_DEF; dashDureeMaj(); }
+  function dashDureeSet(m){ _dashDuree=+m||DUREE_DEF; dashDureeMaj(); try{ dcDejaMaj(); }catch(e){} }
   function dashDureeMaj(){ const z=$('dp-duree'); if(!z) return;
     z.innerHTML=DUREES.map(([m,l])=>`<span onclick="dashDureeSet(${m})" style="font-size:11.5px;font-weight:700;padding:7px 12px;border-radius:9px;cursor:pointer;
       border:1.5px solid ${_dashDuree===m?'var(--op)':'var(--brd2)'};color:${_dashDuree===m?'var(--op-tx)':'var(--t2)'};${_dashDuree===m?'background:var(--tint2)':''}">${l}</span>`).join('');
@@ -3736,11 +3879,12 @@
   async function newCall(){
     openSheet('<p class="muted center">Chargement…</p>'); let chks='';
     try{ const list=await listMembers();
-      list.forEach(m=>{ if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" data-name="${esc((m.name||'').replace(/"/g,'&quot;'))}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
+      list.forEach(m=>{ if(m.uid===ME.uid) return; chks+=pickLigne('nc-members',m.uid,m.name||'',''); }); }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Nouvel appel</h3>
       <p class="muted" style="margin-bottom:12px">Choisissez une personne (appel direct) ou plusieurs (appel de groupe).</p>
-      <div id="ncerr"></div><div id="nc-members">${chks||'<p class="muted">Aucun contact.</p>'}</div>
+      <div id="ncerr"></div>${pickBloc('nc-members',chks,'Aucun contact.')}
       <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" style="flex:1" onclick="launchCall('audio')">${ic('phone',18)}Audio</button><button class="btn" style="flex:1" onclick="launchCall('video')">${ic('video',18)}Vidéo</button></div>`);
+    pickMaj('nc-members');
   }
   function launchCall(type){ const sel=[...document.querySelectorAll('#nc-members .chk.sel')]; if(!sel.length){ $('ncerr').innerHTML='<div class="err">Choisissez au moins une personne.</div>'; return; }
     closeSheet(); startCall(sel.map(x=>x.dataset.uid), sel.map(x=>x.dataset.name), type); }
@@ -6108,22 +6252,22 @@
     let chks='';
     try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
       qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return;
-        chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')">
-          <div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:13px;${avatarStyle(m.name||'')}">${ini(m.name||'')}</div>
-          <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div></div></div>`; });
+        chks+=pickLigne('im-membres',m.uid,m.name||'',m.role==='entreprise'?'Direction':(m.role==='responsable'?'Responsable':'')); });
     }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">🎥 Démarrer une réunion</h3>
       <p class="muted" style="font-size:12.5px;line-height:1.5;margin-bottom:14px">Choisis qui tu appelles : ils reçoivent l\u2019alerte tout de suite et te rejoignent en un toucher.</p>
-      <div id="im-membres">${chks||'<p class="muted">Aucun autre membre dans l\u2019entreprise.</p>'}</div>
-      <div class="chk" id="im-tous" onclick="this.classList.toggle('sel')" style="margin-top:10px">
+      ${pickBloc('im-membres',chks,'Aucun autre membre dans l\u2019entreprise.')}
+      <div class="chk" id="im-tous" onclick="pickBascule(this,'im-membres')" style="margin-top:10px">
+        <span class="cbx"></span>
         <div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:16px;display:flex;align-items:center;justify-content:center;background:var(--inp)">🏢</div>
         <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700">Toute l\u2019entreprise</div>
           <div class="muted" style="font-size:11.5px;margin-top:2px">N\u2019importe qui peut rejoindre</div></div>
       </div>
       <div data-pied style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn green block" style="font-weight:800" onclick="instantMeetingGo()">${ms('videocam',17)} Démarrer la réunion</button>
+        <button class="btn green block" style="font-weight:800" onclick="instantMeetingGo()">${ms('videocam',17)} <span id="im-membres-lbl" data-zero="Démarrer la réunion" data-avec="Démarrer avec {n}">Démarrer la réunion</span></button>
         <button class="btn ghost block" onclick="closeSheet()">Annuler</button>
       </div>`);
+    pickMaj('im-membres');
   }
   async function instantMeetingGo(){
     const sel=[...document.querySelectorAll('#im-membres .chk.sel')].map(x=>x.dataset.uid);
@@ -6149,7 +6293,8 @@
   async function newRoom(){ if(!peutReunion()){ refusReunion(); return; }
     openSheet('<p class="muted center">Chargement…</p>'); let chks='';
     try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
-      qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
+      qs.forEach(d=>{ const m=d.data(); if(m.uid===ME.uid) return;
+        chks+=pickLigne('nr-members',m.uid,m.name||'',m.role==='entreprise'?'Direction':(m.role==='responsable'?'Responsable':'')); }); }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouvelle réunion</h3><div id="nrerr"></div>
       <div class="field"><label>Nom</label><input id="nr-name" placeholder="Ex : Réunion hebdo"></div>
       <div class="field" style="margin-bottom:6px"><label>Date & heure</label></div>
@@ -6167,14 +6312,15 @@
         </select>
         <p class="muted" style="font-size:11.5px;line-height:1.5;margin:6px 0 0">La salle ouvre 5 minutes avant et se ferme à la fin — mais tant qu\u2019il reste quelqu\u2019un dedans, elle reste ouverte.</p></div>
       <div class="field" style="margin-bottom:6px"><label>Inviter (recevront une alerte)</label></div>
-      <div id="nr-members">${chks||'<p class="muted">Aucun autre membre.</p>'}</div>
-      <div class="chk" id="nr-tous" onclick="this.classList.toggle('sel')" style="margin-top:10px">
+      ${pickBloc('nr-members',chks,'Aucun autre membre.')}
+      <div class="chk" id="nr-tous" onclick="pickBascule(this,'nr-members')" style="margin-top:10px">
+        <span class="cbx"></span>
         <div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:16px;display:flex;align-items:center;justify-content:center;background:var(--inp)">🏢</div>
         <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700">Ouvrir à toute l\u2019entreprise</div>
           <div class="muted" style="font-size:11.5px;margin-top:2px">Sinon, seules les personnes cochées peuvent rejoindre</div></div>
       </div>
-      <button class="btn block" style="margin-top:12px" onclick="createRoom()">Créer la réunion</button>`);
-    dcLabel(); }
+      <button class="btn block" style="margin-top:12px" onclick="createRoom()"><span id="nr-members-lbl" data-zero="Créer la réunion" data-avec="Créer et inviter {n}">Créer la réunion</span></button>`);
+    pickMaj('nr-members'); dcLabel(); }
   async function createRoom(){ const name=($('nr-name').value||'').trim(); if(!name){ $('nrerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
     const scheduledAt = momentChoisi() || null;
     const sel=[...document.querySelectorAll('#nr-members .chk.sel')].map(x=>x.dataset.uid); const members=Array.from(new Set([ME.uid,...sel]));
@@ -7242,8 +7388,9 @@
     openSheet('<p class="muted center">Chargement…</p>');
     let c={},mem=[]; try{ const cd=await chDoc(id).get(); c=cd.data(); mem=c.members||[]; }catch(e){}
     let chks=''; try{ const list=await listMembers();
-      list.forEach(m=>{ if(m.uid===ME.uid||mem.includes(m.uid)) return; chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div></div>`; }); }catch(e){}
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Ajouter des membres</h3><div id="atgerr"></div>${chks||'<p class="muted">Tous vos contacts sont déjà dans le groupe.</p>'}<button class="btn block" style="margin-top:10px" onclick="saveAddToGroup('${id}')">Ajouter</button>`);
+      list.forEach(m=>{ if(m.uid===ME.uid||mem.includes(m.uid)) return; chks+=pickLigne('atg-members',m.uid,m.name||'',''); }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Ajouter des membres</h3><div id="atgerr"></div>${pickBloc('atg-members',chks,'Tous vos contacts sont déjà dans le groupe.')}<button class="btn block" style="margin-top:10px" onclick="saveAddToGroup('${id}')"><span id="atg-members-lbl" data-zero="Ajouter" data-avec="Ajouter {n}">Ajouter</span></button>`);
+    pickMaj('atg-members');
   }
   async function saveAddToGroup(id){ const sel=[...document.querySelectorAll('.chk.sel')].map(x=>x.dataset.uid); if(!sel.length){ closeSheet(); return; }
     try{ await chDoc(id).update({members:firebase.firestore.FieldValue.arrayUnion(...sel)}); closeSheet(); }catch(e){ const el=$('atgerr'); if(el) el.innerHTML='<div class="err">'+esc(e.message)+'</div>'; } }
