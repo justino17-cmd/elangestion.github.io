@@ -706,7 +706,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='630';
+  const APP_VERSION='631';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -891,6 +891,167 @@
       const arr=[]; qs.forEach(d=>arr.push(d.data()));
       await Promise.all(arr.map(async c=>{ let la=0,photo=c.photo; try{ const u=await fs.collection('op_users').doc(c.uid).get(); if(u.exists){ la=u.data().lastActive||0; photo=u.data().photo||photo; } }catch(e){} out.push({uid:c.uid,name:c.name||'',phone:c.phone||'',handle:c.handle||'',photo,lastActive:la}); }));
     }catch(e){} return out;
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     TOUT TE SUIT D'UN APPAREIL À L'AUTRE
+
+     Les messages, les groupes, les réunions et les missions vivaient déjà
+     dans le cloud : ils suivaient. Mais TOUT LE RESTE restait dans le
+     téléphone : les épinglés, les muets, les favoris, les archivés, les
+     conversations masquées, le thème, le fond d'écran, la taille du texte,
+     les sons, les heures de silence, les brouillons commencés, jusqu'où on
+     avait lu chaque discussion, l'historique d'appels vidé… Changer de
+     téléphone, et tout ça repartait de zéro.
+
+     Ici, ces réglages sont rangés dans TON compte, dans une fiche que toi
+     seul peux lire. On ne liste pas les clés une par une : on prend tout ce
+     qui commence par « opmsg_ », sauf ce qui n'a de sens que sur CET
+     appareil (son identifiant, son abonnement aux notifications, son
+     verrouillage). Une nouveauté ajoutée demain suivra donc toute seule.
+
+     Comment on décide qui gagne : chaque réglage porte l'heure de son
+     dernier changement. Le plus récent l'emporte. Sauf pour « jusqu'où j'ai
+     lu » : là c'est le plus AVANCÉ qui gagne — on ne remet jamais des
+     messages en non-lus parce qu'un vieil onglet traînait.
+     ══════════════════════════════════════════════════════════════════ */
+  const SYNC_HORS=['opmsg_devid','opmsg_push_on','opmsg_push_ask_','opmsg_partage_ko','opmsg_lockpin','opmsg_sync_t'];
+  function syncClefSuit(k){
+    if(typeof k!=='string'||k.indexOf('opmsg_')!==0) return false;
+    return !SYNC_HORS.some(x=>k===x||k.indexOf(x)===0);
+  }
+  let _syncT={}, _syncDirty=new Set(), _syncTimer=null, _syncUnsub=null, _syncPose=false, _syncLe=0, _syncEtat='attente';
+  function _syncTLire(){ try{ _syncT=JSON.parse(localStorage.getItem('opmsg_sync_t')||'{}')||{}; }catch(e){ _syncT={}; } }
+  function _syncTEcrire(){ try{ localStorage.setItem('opmsg_sync_t',JSON.stringify(_syncT)); }catch(e){} }
+  function syncDoc(){ return fs.collection('op_users').doc(ME.uid).collection('devices').doc('__prefs'); }
+  /* on écoute TOUTES les écritures locales, en une seule fois : aucun appel
+     à mettre à jour ailleurs, et ce qu'on ajoutera demain suivra aussi */
+  (function syncEcoute(){
+    try{
+      const S=localStorage.setItem.bind(localStorage), R=localStorage.removeItem.bind(localStorage);
+      localStorage.setItem=function(k,v){ S(k,v); if(!_syncPose&&syncClefSuit(k)) syncMarque(k); };
+      localStorage.removeItem=function(k){ R(k); if(!_syncPose&&syncClefSuit(k)) syncMarque(k); };
+      window.__lsPose=S; window.__lsEnleve=R;
+    }catch(e){}
+  })();
+  function syncMarque(k){
+    _syncT[k]=Date.now(); _syncDirty.add(k); _syncTEcrire();
+    if(_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer=setTimeout(syncEnvoie,1200);          // on groupe : une écriture, pas cinquante
+  }
+  async function syncEnvoie(){
+    _syncTimer=null;
+    if(!ME||!ME.uid||!_syncDirty.size) return;
+    const lot={};
+    _syncDirty.forEach(k=>{
+      const v=localStorage.getItem(k);
+      lot['p.'+syncEchappe(k)]= (v===null) ? firebase.firestore.FieldValue.delete()
+                                           : {v:String(v).slice(0,60000), t:_syncT[k]||Date.now()};
+    });
+    _syncDirty.clear();
+    try{ await syncDoc().set({maj:Date.now()},{merge:true}); await syncDoc().update(lot);
+      _syncLe=Date.now(); _syncEtat='ok'; }
+    catch(e){ _syncEtat='erreur'; }
+    try{ syncLigneMaj(); }catch(e){}
+  }
+  /* les points sont interdits dans un nom de champ Firestore */
+  function syncEchappe(k){ return k.replace(/\./g,'_DOT_'); }
+  function syncDesechappe(k){ return k.replace(/_DOT_/g,'.'); }
+  /* on applique ce qui vient du cloud, sans repartir en boucle */
+  function syncApplique(p){
+    if(!p) return 0;
+    let n=0;
+    Object.keys(p).forEach(kb=>{
+      const k=syncDesechappe(kb), x=p[kb];
+      if(!syncClefSuit(k)||!x||typeof x.t!=='number') return;
+      const local=_syncT[k]||0;
+      /* « jusqu'où j'ai lu » : le plus avancé gagne, jamais l'inverse */
+      if(k.indexOf('opmsg_read_')===0){
+        const ici=+(localStorage.getItem(k)||0), la=+(x.v||0);
+        if(la>ici){ _syncPose=true; try{ localStorage.setItem(k,String(la)); }finally{ _syncPose=false; }
+          _syncT[k]=Math.max(local,x.t); n++; }
+        return;
+      }
+      if(x.t<=local) return;                       // notre version est plus récente
+      if(localStorage.getItem(k)===x.v){ _syncT[k]=x.t; return; }
+      _syncPose=true;
+      try{ localStorage.setItem(k,x.v); }finally{ _syncPose=false; }
+      _syncT[k]=x.t; n++;
+    });
+    if(n) _syncTEcrire();
+    return n;
+  }
+  /* ce qui a changé doit se VOIR tout de suite : on recharge ce qui vient
+     de la mémoire locale, puis on redessine l'écran affiché */
+  function syncRafraichit(){
+    try{ _star=lsSet('opmsg_star'); _pin=lsSet('opmsg_pin'); _mute=lsSet('opmsg_mute'); }catch(e){}
+    try{ _hidden=new Set(JSON.parse(localStorage.getItem('opmsg_hidden')||'[]')); }catch(e){}
+    try{ if(typeof _fav!=='undefined') _fav=lsSet('opmsg_fav'); }catch(e){}
+    try{ if(typeof _arch!=='undefined') _arch=lsSet('opmsg_arch'); }catch(e){}
+    try{ if(typeof _lock!=='undefined') _lock=lsSet('opmsg_lock'); }catch(e){}
+    try{ if(typeof _munread!=='undefined') _munread=lsSet('opmsg_munread'); }catch(e){}
+    try{ applyTheme(); }catch(e){}
+    try{ applyWall(); }catch(e){}
+    try{ badgesMaj(); }catch(e){}
+    try{ if(_curView==='disc') viewDisc(true); else if(_curView==='dash') viewDash();
+         else if(_curView==='appel') viewAppel(); }catch(e){}
+    try{ if(_curCh) brouillonReprend(); }catch(e){}
+  }
+  /* au démarrage : on RÉCUPÈRE AVANT d'afficher — un appareil tout neuf
+     doit s'ouvrir déjà à jour, pas se corriger sous les yeux */
+  async function syncDemarre(){
+    if(!ME||!ME.uid) return;
+    _syncTLire();
+    try{
+      const d=await syncDoc().get();
+      const n=syncApplique((d.exists?d.data():{}).p||{});
+      _syncEtat='ok'; _syncLe=Date.now();
+      if(n) syncRafraichit();
+    }catch(e){ _syncEtat='erreur'; }
+    /* puis on suit en direct : un réglage changé sur le téléphone arrive
+       sur l'ordinateur sans rien recharger */
+    try{ if(_syncUnsub) _syncUnsub(); }catch(e){}
+    try{
+      _syncUnsub=syncDoc().onSnapshot(d=>{
+        if(!d.exists) return;
+        const n=syncApplique((d.data()||{}).p||{});
+        _syncLe=Date.now(); _syncEtat='ok';
+        if(n) syncRafraichit();
+        try{ syncLigneMaj(); }catch(e){}
+      }, ()=>{ _syncEtat='erreur'; });
+    }catch(e){}
+    /* et on pousse ce que cet appareil avait déjà et que le compte ignore */
+    try{
+      Object.keys(localStorage).forEach(k=>{ if(!syncClefSuit(k)) return;
+        if(!_syncT[k]){ _syncT[k]=Date.now(); _syncDirty.add(k); } });
+      if(_syncDirty.size){ _syncTEcrire(); syncEnvoie(); }
+    }catch(e){}
+  }
+  /* le bouton « Tout resynchroniser », pour se rassurer */
+  async function syncMaintenant(){
+    toast('Synchronisation…');
+    try{
+      Object.keys(localStorage).forEach(k=>{ if(syncClefSuit(k)) _syncDirty.add(k); });
+      await syncEnvoie();
+      const d=await syncDoc().get();
+      const n=syncApplique((d.exists?d.data():{}).p||{});
+      if(n) syncRafraichit();
+      _syncEtat='ok'; _syncLe=Date.now();
+      toast('Tout est à jour sur cet appareil');
+    }catch(e){ _syncEtat='erreur'; opAlerte('Synchronisation impossible : '+(e.message||e)); }
+    try{ syncLigneMaj(); }catch(e){}
+  }
+  function syncDepuis(){
+    if(!_syncLe) return 'jamais';
+    const s=Math.round((Date.now()-_syncLe)/1000);
+    if(s<60) return 'à l\u2019instant';
+    const m=Math.round(s/60); if(m<60) return 'il y a '+m+' min';
+    return 'il y a '+Math.round(m/60)+' h';
+  }
+  function syncLigneMaj(){
+    const e=$('sync-etat'); if(!e) return;
+    e.textContent=(_syncEtat==='erreur')?'Synchronisation impossible — vérifie la connexion'
+      :('À jour · '+syncDepuis());
+    e.style.color=(_syncEtat==='erreur')?'var(--red)':'var(--t2)';
   }
   let _hidden=(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('opmsg_hidden')||'[]')); }catch(e){ return new Set(); } })();
   // ---- Préférences locales (façon WhatsApp) : épinglés, muets, importants, dernière lecture ----
@@ -1516,6 +1677,7 @@
       try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
+    try{ await syncDemarre(); }catch(e){}         // on récupère TOUT avant d'afficher quoi que ce soit
     gammeMaj();                                   // bleu (gratuit/PRO) ou violet (Business Premium)
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
     _curView=vueArrivee(); renderShell(); showView(_curView); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
@@ -1603,7 +1765,9 @@
   function listenMyDevice(){ if(_devUnsub)_devUnsub(); _devSeen=false; const id=getDeviceId();
     _devUnsub=fs.collection('op_users').doc(ME.uid).collection('devices').doc(id).onSnapshot(d=>{ if(d.exists){ _devSeen=true; } else if(_devSeen){ if(_devUnsub){_devUnsub();_devUnsub=null;} opAlerte('Cet appareil a été déconnecté à distance.'); auth.signOut(); } }, err=>{}); }
   async function sheetDevices(){ openSheet('<p class="muted center">Chargement…</p>'); const id=getDeviceId(); let rows='';
-    try{ const qs=await fs.collection('op_users').doc(ME.uid).collection('devices').get(); const arr=[]; qs.forEach(d=>arr.push(d.data())); arr.sort((a,b)=>(b.lastActive||0)-(a.lastActive||0));
+    try{ const qs=await fs.collection('op_users').doc(ME.uid).collection('devices').get();
+      /* la fiche des réglages vit ici aussi : ce n'est pas un appareil */
+      const arr=[]; qs.forEach(d=>{ if(d.id!=='__prefs') arr.push(d.data()); }); arr.sort((a,b)=>(b.lastActive||0)-(a.lastActive||0));
       arr.forEach(v=>{ const cur=v.id===id; const on=v.lastActive&&(Date.now()-v.lastActive<120000); const emo=isMobileDev(v.name)?'📱':'💻';
         rows+=`<div class="row"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${emo}</div><div class="info"><div class="nm">${esc(v.name||'Appareil')}${cur?' · cet appareil':''}</div><div class="ds">${on?'en ligne':(v.lastActive?'vu '+fmtListTime(v.lastActive):'')}</div></div>${cur?'':`<button class="btn ghost sm" onclick="disconnectDevice('${esc(v.id)}')">Déconnecter</button>`}</div>`; });
     }catch(e){ rows='<div class="err">'+esc(e.message)+'</div>'; }
@@ -9135,6 +9299,11 @@
           <button class="${themePref()==='auto'?'on':''}" onclick="setTheme('auto')">Auto</button>
           <button class="${themePref()==='light'?'on':''}" onclick="setTheme('light')">Jour</button>
           <button class="${themePref()==='dark'?'on':''}" onclick="setTheme('dark')">Nuit</button></div>
+      </div>
+      <div class="row" onclick="syncMaintenant()" style="cursor:pointer">
+        <div class="info"><div class="nm">Synchronisation</div>
+          <div class="ds" id="sync-etat">À jour · ${esc(syncDepuis())}</div></div>
+        <span class="ms" style="font-size:19px;color:var(--tile-tx)">done_all</span>
       </div>
       <div class="row" style="cursor:default">
         <div class="info"><div class="nm">Couleur de l\u2019offre</div>
