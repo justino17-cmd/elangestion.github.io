@@ -571,7 +571,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='615';
+  const APP_VERSION='616';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -4224,6 +4224,9 @@
     if(_vEcran){ visioEcranStop(); return; }                         // re-clic : stop
     if(!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)){
       toast('Cet appareil ne sait pas partager son écran'); return; }
+    /* cet appareil a déjà échoué deux fois : on ne le refait pas attendre
+       pour rien — on montre ce qui marche, avec le choix de réessayer */
+    if(_vEcranRates>=2 && conseilPartage()){ partageAide(true); return; }
 
     const dem=++_vEcranDem;      // cette demande-ci ; une plus récente la périme
     let dit=false;               // UN SEUL message par clic, jamais deux
@@ -4248,7 +4251,7 @@
       if(dem===_vEcranDem && !_vEcran){
         dire('Le Mac n\u2019a pas répondu — reclique sur Partager','pendante 12s · '+(navigator.userAgent||'').slice(-60));
         /* deuxième échec de suite : on donne le vrai remède, une fois */
-        _vEcranRates++;
+        _vEcranRates++; ratesPose(_vEcranRates);
         if(_vEcranRates>=2 && conseilPartage()) setTimeout(()=>{ try{ partageAide(); }catch(e){} },1200);
       }
     },12000);
@@ -4262,7 +4265,7 @@
     }catch(e){
       const nom=(e&&e.name)||'';
       dire(nom==='NotAllowedError'?'Partage annulé':'Partage impossible ('+(nom||'?')+')',(e&&e.message)||'');
-      if(nom!=='NotAllowedError'){ _vEcranRates++;
+      if(nom!=='NotAllowedError'){ _vEcranRates++; ratesPose(_vEcranRates);
         if(conseilPartage()) setTimeout(()=>{ try{ partageAide(); }catch(e2){} },1200); }
       return;
     }finally{ finMuet(); finAttente(); }
@@ -4289,7 +4292,7 @@
       dcTous({t:'ecranId',id:flux.id});
       try{ _vDire({type:'ecran',eid:flux.id}); }catch(e){}
       if(!_vOrdre.includes('moiE')) _vOrdre.push('moiE');
-      _vGrand='moiE'; _vPinManuel=true; _vEcranRates=0;
+      _vGrand='moiE'; _vPinManuel=true; _vEcranRates=0; ratesPose(0);
       visioTuiles();
     }catch(e){
       souci=(e&&e.name)||'erreur';
@@ -4298,10 +4301,19 @@
     dit=true;   // le partage est parti : le succès l'emporte sur tout message précédent
     toast(souci?'\ud83d\udd34 Écran EN DIRECT (affichage à rafraîchir)':'\ud83d\udd34 Ton écran est EN DIRECT');
   }
-  let _vEcranRates=0;
+  /* ══ LA MÉMOIRE DES ÉCHECS ══
+     Sur certains Mac (Safari + macOS récent ou en version bêta), le partage
+     ne démarre jamais : le sélecteur du système ne rend pas la main au
+     navigateur. Inutile de refaire perdre une minute à chaque fois — dès
+     que l'appareil a échoué deux fois, on propose Chrome D'ABORD. Un
+     partage réussi efface aussitôt cette mémoire. */
+  function ratesLu(){ try{ return parseInt(localStorage.getItem('opmsg_partage_ko')||'0',10)||0; }catch(e){ return 0; } }
+  function ratesPose(n){ try{ if(n>0) localStorage.setItem('opmsg_partage_ko',String(n));
+    else localStorage.removeItem('opmsg_partage_ko'); }catch(e){} }
+  let _vEcranRates=ratesLu();
   /* L'AIDE : elle ne s'ouvre qu'après deux échecs, et elle dit ce qui
      débloque VRAIMENT — pas une liste de suppositions. */
-  function partageAide(){
+  function partageAide(avant){
     const c=conseilPartage(); if(!c) return;
     const info='navigateur : '+(estSafari()?('Safari '+versionSafari().toFixed(1)):'autre')
       +(estMac()?' · Mac':'')+' · application v'+(window.OPMSG_VERSION||'?');
@@ -4317,9 +4329,16 @@
           ( › Réglages Système › Général › Mise à jour). Sur une version bêta,
           il faut attendre la bêta suivante.</div></div>`:''}
       <p class="muted" style="font-family:'Space Mono',monospace;font-size:11px;margin-bottom:10px">${esc(info)}</p>
-      <div data-pied><button class="btn ghost block" onclick="closeSheet()">Fermer</button></div>`);
+      <div data-pied style="display:flex;flex-direction:column;gap:8px">
+        ${avant?`<button class="btn block" onclick="closeSheet();partageQuandMeme()">Essayer quand même dans Safari</button>`:''}
+        <button class="btn ghost block" onclick="closeSheet()">Fermer</button>
+      </div>`);
     try{ tmPush('erreur','Partage bloqué · '+info,'','',0); }catch(e){}
   }
+  /* « essayer quand même » : on oublie la mémoire le temps d'un essai */
+  function partageQuandMeme(){ const n=_vEcranRates; _vEcranRates=0;
+    Promise.resolve().then(()=>visioEcran()).catch(()=>{});
+    setTimeout(()=>{ if(!_vEcran) _vEcranRates=n; },1500); }
   function visioEcranStop(){
     if(!_vEcran) return;
     _vEcranDem++;   // une demande encore en l'air ne réactivera pas le partage
