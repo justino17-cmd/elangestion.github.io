@@ -698,7 +698,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='627';
+  const APP_VERSION='628';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -3632,7 +3632,12 @@
   }
   try{ setInterval(()=>{ try{ badgesMaj(); }catch(e){} },60000); }catch(e){}
   async function viewDisc(keepFocus){
-    const view=$('view'); try{ view.classList.add('discview'); }catch(e){} view.innerHTML=`<div class="view-h"><h2>Discussions</h2>${isPro()?'':`<button class="hbtn neutral" onclick="showView('cont')">${ms('edit_square',18)}Nouveau message</button>`}</div>
+    /* « Nouveau groupe » était caché derrière un « + » rond : personne ne
+       devinait qu'il servait à ça. Il est maintenant écrit en toutes lettres
+       en haut de l'écran — le rond reste, pour le téléphone. */
+    const view=$('view'); try{ view.classList.add('discview'); }catch(e){} view.innerHTML=`<div class="view-h"><h2>Discussions</h2>
+      ${isPro()?'':`<button class="hbtn neutral" onclick="showView('cont')">${ms('edit_square',18)}Nouveau message</button>`}
+      <button class="hbtn blue" onclick="newGroup()" title="Créer un groupe de discussion">${ms('group',18)}Nouveau groupe</button></div>
       <div class="gsearch">${ms('search',19)}<input id="disc-search" placeholder="Rechercher une discussion ou un message…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
       <div id="disc-partout"></div>
       <div class="disc-2col"><div id="disc-list"><p class="muted center">Chargement…</p></div>
@@ -3828,25 +3833,25 @@
     openSheet('<p class="muted center">Chargement…</p>');
     let chks='';
     try{ const list=await listMembers();
-      list.forEach(m=>{ if(m.uid===ME.uid) return;
-        chks+=`<div class="chk" data-uid="${esc(m.uid)}" onclick="this.classList.toggle('sel')"><div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:15px;${avatarStyle(m.name)}">${ini(m.name)}</div><div style="flex:1">${esc(m.name||'')}</div><span class="tk" style="font-size:18px;color:var(--op-l)">+</span></div>`; });
+      list.forEach(m=>{ if(m.uid===ME.uid) return; chks+=pickLigne('ng-members',m.uid,m.name||'',''); });
     }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau groupe</h3>
       <div id="ngerr"></div>
       <div class="field"><label>Nom du groupe</label><input id="ng-name" placeholder="Ex : Équipe terrain"></div>
       <div class="field" style="margin-bottom:6px"><label>Qui fait partie du groupe ?</label></div>
-      <div id="ng-members">${chks||'<p class="muted">Aucun autre membre. Ajoutez des contacts d\'abord.</p>'}</div>
-      <p class="muted" style="margin:4px 0 10px">Vous êtes automatiquement membre. Seuls les membres choisis verront ce groupe.</p>
+      ${pickBloc('ng-members',chks,'Aucun autre membre. Ajoute des contacts d\u2019abord.')}
+      <p class="muted" style="margin:8px 0 10px">Tu es automatiquement membre. Seules les personnes cochées verront ce groupe.</p>
       ${peutReunion()?`<div class="chk" id="ng-urgence" onclick="this.classList.toggle('sel')" style="margin-bottom:8px">
-        <span style="font-size:20px">🚨</span><div style="flex:1"><b style="font-size:13.5px">Canal d'urgence</b>
+        <span class="cbx"></span><span style="font-size:20px">🚨</span><div style="flex:1"><b style="font-size:13.5px">Canal d'urgence</b>
         <div class="muted" style="font-size:11.5px;line-height:1.4">Les messages sonnent même pendant les heures de silence.</div></div></div>`:''}
       <div class="chk" id="ng-chantier" onclick="this.classList.toggle('sel');ngChantierMaj()" style="margin-bottom:8px">
-        <span style="font-size:20px">🏗️</span><div style="flex:1"><b style="font-size:13.5px">Discussion de chantier</b>
+        <span class="cbx"></span><span style="font-size:20px">🏗️</span><div style="flex:1"><b style="font-size:13.5px">Discussion de chantier</b>
         <div class="muted" style="font-size:11.5px;line-height:1.4">Elle se rangera toute seule à la date de fin, sans rien perdre.</div></div></div>
       <div id="ng-fin" style="display:none;margin-bottom:10px">
         <div class="field" style="margin-bottom:6px"><label>Fin du chantier</label></div>
         ${champDateHeure(_dstr(new Date(Date.now()+7*86400000)),'18:00')}</div>
-      <button class="btn block" onclick="createGroup()">Créer le groupe</button>`);
+      <button class="btn block" onclick="createGroup()"><span id="ng-members-lbl" data-zero="Créer le groupe" data-avec="Créer le groupe avec {n}">Créer le groupe</span></button>`);
+    pickMaj('ng-members');
   }
   function ngChantierMaj(){ const z=$('ng-fin'); const c=$('ng-chantier');
     if(z) z.style.display=(c&&c.classList.contains('sel'))?'block':'none';
