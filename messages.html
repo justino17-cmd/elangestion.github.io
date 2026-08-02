@@ -464,6 +464,14 @@
     border:1px solid rgba(255,255,255,.1)!important;box-shadow:0 16px 44px rgba(0,0,0,.55)!important}
   #visio-reacs-pop button{transition:transform .12s}
   #visio-reacs-pop button:hover{transform:scale(1.3)}
+  /* ══ UN APPEL : le dock du téléphone, rien de plus ══ */
+  #visio.appel #vact-ecran,
+  #visio.appel .vact:has(#visio-parts-btn),
+  #visio.appel .vact:has(#visio-tchat-btn),
+  #visio.appel .vact:has(#visio-reagir),
+  #visio.appel .vact:has(#visio-main),
+  #visio.appel #visio-vues,
+  #visio.appel #visio-outils{display:none!important}
   #visio.tel #visio-vues,#visio.mini #visio-vues{display:none!important}
   #visio.tel .vact span{display:none}
   #visio.tel #visio-dock{background:transparent;border:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
@@ -698,7 +706,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='629';
+  const APP_VERSION='630';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -3131,7 +3139,8 @@
      ══════════════════════════════════════════════════════════════════ */
   const FORMATS={ visio:{l:'Visioconférence', ct:'visioconférence', i:'videocam',    c:'Chacun depuis son poste'},
                   place:{l:'Présentiel',      ct:'présentiel',      i:'location_on', c:'Sur site, sans salle vidéo'},
-                  mixte:{l:'Hybride',         ct:'hybride',         i:'groups',      c:'Présentiel et visioconférence'} };
+                  mixte:{l:'Présentiel et visioconférence', ct:'présentiel et visioconférence', i:'groups',
+                         c:'Ceux qui ne peuvent pas venir suivent en visio'} };
   function formatDe(r){ const f=(r&&r.format)||'visio'; return FORMATS[f]?f:'visio'; }
   function aUneSalleVideo(r){ return formatDe(r)!=='place'; }
   /* la mention courte, pour une ligne de liste */
@@ -3840,27 +3849,21 @@
      reste tout seul, des administrateurs qui le gèrent, et deux ou trois
      règles claires. Le tout sur UN écran — pas d'assistant en trois pages.
      ══════════════════════════════════════════════════════════════════ */
-  const GRP_TYPES={
-    equipe:  {l:'Équipe',   i:'👥', d:'Le fonctionnement courant',        def:{}},
-    chantier:{l:'Chantier', i:'🏗️', d:'Un site, une durée',               def:{fin:true}},
-    projet:  {l:'Projet',   i:'📋', d:'Un dossier suivi à plusieurs',      def:{}},
-    client:  {l:'Client',   i:'💼', d:'Tout ce qui concerne un client',    def:{}},
-    annonces:{l:'Annonces', i:'📣', d:'Les consignes descendent, sans bruit', def:{ecrire:'admins',epingle:true}}
-  };
   const GRP_ICONES=['👥','🏗️','📋','💼','📣','👷','🚚','🧰','🐀','🌿','⚠️','🏢','🧪','📦','🔧','🗺️'];
-  function grpType(c){ const t=(c&&c.genre)||'equipe'; return GRP_TYPES[t]?t:'equipe'; }
-  function grpIcone(c){ return (c&&c.icone)||(GRP_TYPES[grpType(c)]||{}).i||'👥'; }
+  function grpIcone(c){ return (c&&c.icone)||'👥'; }
   function grpAdmins(c){ const a=(c&&c.admins)||[]; return a.length?a:[(c&&c.createdBy)].filter(Boolean); }
   function grpEstAdmin(c,uid){ return grpAdmins(c).indexOf(uid||ME.uid)>=0 || IS_OWNER || (c&&c.createdBy===(uid||ME.uid)); }
   function grpPeutEcrire(c){ if(!c||c.type!=='group') return true;
     return (c.ecrire!=='admins') || grpEstAdmin(c,ME.uid); }
   function grpPeutAjouter(c){ if(!c||c.type!=='group') return true;
     return (c.ajouter!=='admins') || grpEstAdmin(c,ME.uid); }
+  function grpPeutModifier(c){ if(!c||c.type!=='group') return true;
+    return (c.modifier!=='admins') || grpEstAdmin(c,ME.uid); }
   /* la ligne de résumé : « Chantier · 3 membres · épinglé · jusqu'au 30/09 » */
   function grpResume(c){
-    const p=[(GRP_TYPES[grpType(c)]||{}).l||'Groupe'];
-    const n=(c.members||[]).length; if(n) p.push(n+' membre'+(n>1?'s':''));
-    if(c.ecrire==='admins') p.push('annonces');
+    const p=[]; const n=(c.members||[]).length;
+    p.push(n?(n+' membre'+(n>1?'s':'')):'Groupe');
+    if(c.ecrire==='admins') p.push('seuls les admins écrivent');
     if(c.urgence) p.push('urgence');
     if(c.epingle) p.push('épinglé');
     if(c.finLe) p.push('jusqu\u2019au '+new Date(c.finLe).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}));
@@ -3868,22 +3871,12 @@
   }
 
   /* ── l'état du formulaire ── */
-  let _ngIcone='🏗️', _ngType='chantier', _ngAdmins=new Set(), _ngReglages=false;
-  let _ngEcrire='tous', _ngAjouter='admins', _ngUrgence=false, _ngEpingle=false, _ngFin=false;
-  function ngIconeSet(e){ _ngIcone=e; ngMaj(); }
-  function ngTypeSet(t){
-    if(!GRP_TYPES[t]) return;
-    _ngType=t;
-    const d=GRP_TYPES[t].def||{};
-    /* le type pré-règle, sans jamais enfermer : tout reste modifiable en dessous */
-    _ngEcrire=d.ecrire||'tous';
-    _ngEpingle=!!d.epingle;
-    _ngFin=!!d.fin;
-    _ngIcone=GRP_TYPES[t].i;
-    ngMaj();
-  }
+  let _ngIcone='👥', _ngAdmins=new Set(), _ngReglages=false, _ngPalette=false;
+  let _ngEcrire='tous', _ngAjouter='admins', _ngModifier='admins', _ngUrgence=false, _ngEpingle=false, _ngFin=false;
+  function ngIconeSet(e){ _ngIcone=e; _ngPalette=false; ngMaj(); }
+  function ngPaletteBascule(){ _ngPalette=!_ngPalette; ngMaj(); }
   function ngRegle(k,v){
-    if(k==='ecrire') _ngEcrire=v; else if(k==='ajouter') _ngAjouter=v;
+    if(k==='ecrire') _ngEcrire=v; else if(k==='ajouter') _ngAjouter=v; else if(k==='modifier') _ngModifier=v;
     else if(k==='urgence') _ngUrgence=!_ngUrgence;
     else if(k==='epingle') _ngEpingle=!_ngEpingle;
     else if(k==='fin') _ngFin=!_ngFin;
@@ -3898,24 +3891,14 @@
       if(el&&!el.classList.contains('sel')){ el.classList.add('sel'); pickMaj('ng-members'); } }
     ngMaj();
   }
-  /* les raccourcis : toute l'entreprise, ou tous les responsables */
-  function ngTous(quoi){
-    const gens=pickGens('ng-members');
-    gens.forEach(el=>{ if(quoi==='tous'||el.dataset.role==='responsable'||el.dataset.role==='entreprise') el.classList.add('sel'); });
-    pickMaj('ng-members'); ngMaj();
-  }
   /* tout ce qui bouge à l'écran passe par ici */
   function ngMaj(){
-    /* l'icône et le type */
-    const z=$('ng-icones');
-    if(z) z.innerHTML=GRP_ICONES.map(e=>`<span onclick="ngIconeSet('${e}')" style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;
-      background:${_ngIcone===e?'var(--tint)':'var(--inp)'};${_ngIcone===e?'outline:2px solid var(--op);outline-offset:-2px':''}">${e}</span>`).join('');
+    /* l'icône : une pastille qu'on touche, la palette s'ouvre en dessous */
     const g=$('ng-gros'); if(g) g.textContent=_ngIcone;
-    const t=$('ng-types');
-    if(t) t.innerHTML=Object.keys(GRP_TYPES).map(k=>{ const on=_ngType===k, T=GRP_TYPES[k];
-      return `<span onclick="ngTypeSet('${k}')" title="${esc(T.d)}" style="font-size:11.5px;font-weight:700;padding:8px 13px;border-radius:9px;cursor:pointer;
-        border:1.5px solid ${on?'var(--op)':'var(--brd2)'};color:${on?'var(--op-tx)':'var(--t2)'};${on?'background:var(--tint2)':''}">${esc(T.l)}</span>`; }).join('');
-    const d=$('ng-typed'); if(d) d.textContent=(GRP_TYPES[_ngType]||{}).d||'';
+    const z=$('ng-icones');
+    if(z){ z.style.display=_ngPalette?'flex':'none';
+      z.innerHTML=GRP_ICONES.map(e=>`<span onclick="ngIconeSet('${e}')" style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;
+        background:${_ngIcone===e?'var(--tint)':'var(--inp)'};${_ngIcone===e?'outline:2px solid var(--op);outline-offset:-2px':''}">${e}</span>`).join(''); }
     /* les pastilles ADMIN sur chaque ligne */
     pickGens('ng-members').forEach(el=>{
       const u=el.dataset.uid, a=_ngAdmins.has(u);
@@ -3929,35 +3912,29 @@
     const rz=$('ng-reglages'); if(rz) rz.style.display=_ngReglages?'block':'none';
     const rc=$('ng-reg-chev'); if(rc) rc.textContent=_ngReglages?'▴':'▾';
     const rr=$('ng-reg-res');
-    if(rr) rr.textContent=[_ngEcrire==='admins'?'seuls les admins écrivent':'tout le monde écrit',
-      _ngAjouter==='admins'?'les admins ajoutent':'chacun peut ajouter',
-      _ngUrgence?'urgence':'', _ngEpingle?'épinglé':'', _ngFin?'date de fin':''].filter(Boolean).join(' · ');
-    /* les boutons des réglages */
+    if(rr) rr.textContent=[_ngUrgence?'urgence':'', _ngEpingle?'épinglé':'', _ngFin?'date de fin':''].filter(Boolean).join(' · ')||'aucune';
+    /* les boutons des autorisations */
     const seg=(id,cle,a,b)=>{ const e=$(id); if(!e) return;
-      const v=(cle==='ecrire')?_ngEcrire:_ngAjouter;
+      const v=(cle==='ecrire')?_ngEcrire:(cle==='ajouter'?_ngAjouter:_ngModifier);
       e.innerHTML=[[a[0],a[1]],[b[0],b[1]]].map(([k,lib])=>`<span onclick="ngRegle('${cle}','${k}')" style="flex:1;text-align:center;font-size:11.5px;font-weight:700;padding:8px 6px;border-radius:8px;cursor:pointer;
         ${v===k?'background:var(--card);color:var(--op-tx);box-shadow:var(--seg-sh)':'color:var(--t2)'}">${lib}</span>`).join(''); };
-    seg('ng-seg-ecrire','ecrire',['tous','Tout le monde'],['admins','Les admins seulement']);
-    seg('ng-seg-ajouter','ajouter',['tous','Tout le monde'],['admins','Les admins seulement']);
+    seg('ng-seg-ecrire','ecrire',['tous','Tout le monde'],['admins','Les admins']);
+    seg('ng-seg-ajouter','ajouter',['tous','Tout le monde'],['admins','Les admins']);
+    seg('ng-seg-modifier','modifier',['tous','Tout le monde'],['admins','Les admins']);
     const sw=(id,on)=>{ const e=$(id); if(!e) return;
       e.style.background=on?'var(--green)':'var(--brd2)';
       const k=e.firstElementChild; if(k){ k.style.left=on?'auto':'2.5px'; k.style.right=on?'2.5px':'auto'; } };
     sw('ng-sw-urgence',_ngUrgence); sw('ng-sw-epingle',_ngEpingle); sw('ng-sw-fin',_ngFin);
     const fz=$('ng-fin-zone'); if(fz) fz.style.display=_ngFin?'block':'none';
-    /* l'aperçu et le bouton */
+    /* le bouton */
     const n=pickChoisis('ng-members').length;
-    const nom=((($('ng-name')||{}).value)||'').trim();
-    const ap=$('ng-apercu');
-    if(ap) ap.innerHTML=`<div class="ava" style="width:44px;height:44px;border-radius:13px;font-size:20px;background:var(--tint);display:flex;align-items:center;justify-content:center;flex:none">${_ngIcone}</div>
-      <div style="min-width:0"><div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nom?esc(nom):'<span style="color:var(--t3)">Nom du groupe</span>'}</div>
-      <div style="font-size:11.5px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(grpResume({genre:_ngType,members:new Array(n+1),ecrire:_ngEcrire,urgence:_ngUrgence,epingle:_ngEpingle,finLe:_ngFin?(momentChoisi()||Date.now()):0}))}</div></div>`;
     const b=$('ng-valider');
     if(b) b.textContent=n?('Créer le groupe avec '+n+' personne'+(n>1?'s':'')):'Créer le groupe';
   }
   async function newGroup(){
     openSheet('<p class="muted center">Chargement…</p>');
-    _ngIcone='👥'; _ngType='equipe'; _ngAdmins=new Set(); _ngReglages=false;
-    _ngEcrire='tous'; _ngAjouter='admins'; _ngUrgence=false; _ngEpingle=false; _ngFin=false;
+    _ngIcone='👥'; _ngAdmins=new Set(); _ngReglages=false; _ngPalette=false;
+    _ngEcrire='tous'; _ngAjouter='admins'; _ngModifier='admins'; _ngUrgence=false; _ngEpingle=false; _ngFin=false;
     let chks='';
     try{ const list=await listMembers();
       list.forEach(m=>{ if(m.uid===ME.uid) return;
@@ -3971,40 +3948,34 @@
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px">Nouveau groupe</h3>
       <div id="ngerr"></div>
 
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <div id="ng-gros" style="width:56px;height:56px;border-radius:17px;background:var(--tint);border:1px solid var(--pill-on-brd);
-          display:flex;align-items:center;justify-content:center;font-size:27px;flex:none">👥</div>
-        <input id="ng-name" oninput="ngMaj()" maxlength="60" placeholder="Nom du groupe — ex : Chantier Camping Les Pins"
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <div id="ng-gros" onclick="ngPaletteBascule()" title="Choisir une icône"
+          style="width:56px;height:56px;border-radius:999px;background:var(--tint);border:1px solid var(--pill-on-brd);
+          display:flex;align-items:center;justify-content:center;font-size:27px;flex:none;cursor:pointer">👥</div>
+        <input id="ng-name" oninput="ngMaj()" maxlength="60" placeholder="Nom du groupe"
           style="flex:1;min-width:0;background:var(--inp);border:1px solid transparent;border-radius:12px;padding:13px 14px;color:var(--t1);font-size:15px;font-family:inherit;outline:none">
       </div>
-      <div id="ng-icones" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px"></div>
+      <div id="ng-icones" style="display:none;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
 
-      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:7px">TYPE</div>
-      <div id="ng-types" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-      <div id="ng-typed" class="muted" style="font-size:11.5px;margin:6px 0 14px"></div>
-
-      <input id="ng-objet" maxlength="120" placeholder="À quoi sert ce groupe ? (facultatif)"
-        style="width:100%;background:var(--inp);border:1px solid transparent;border-radius:12px;padding:12px 13px;color:var(--t1);font-size:13px;font-family:inherit;outline:none;margin-bottom:14px">
-
-      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:7px">MEMBRES</div>
-      <div style="display:flex;gap:6px;margin-bottom:9px;flex-wrap:wrap">
-        <span onclick="ngTous('tous')" style="font-size:11px;font-weight:700;padding:7px 12px;border-radius:99px;border:1px dashed var(--pill-brd);color:var(--op-tx);cursor:pointer">+ Toute l\u2019entreprise</span>
-        <span onclick="ngTous('resp')" style="font-size:11px;font-weight:700;padding:7px 12px;border-radius:99px;border:1px dashed var(--pill-brd);color:var(--op-tx);cursor:pointer">+ Tous les responsables</span>
-      </div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin:14px 0 7px">MEMBRES</div>
       ${pickBloc('ng-members',chks,'Aucun autre membre. Ajoute des contacts d\u2019abord.')}
       <p class="muted" style="font-size:11.5px;line-height:1.5;margin:8px 0 14px">Tu es membre et administrateur. Touche <b>Admin</b> à côté d\u2019un nom pour lui confier la gestion du groupe.</p>
 
-      <div onclick="ngReglagesBascule()" style="display:flex;align-items:center;gap:9px;padding:11px 13px;border-radius:12px;background:var(--inp);cursor:pointer">
-        <span style="font-size:12.5px;font-weight:700">Réglages</span>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:8px">AUTORISATIONS</div>
+      <div style="font-size:12.5px;font-weight:700;margin-bottom:5px">Envoyer des messages</div>
+      <div id="ng-seg-ecrire" style="display:flex;gap:3px;background:var(--inp);border-radius:11px;padding:3px"></div>
+      <div style="font-size:12.5px;font-weight:700;margin:11px 0 5px">Ajouter des membres</div>
+      <div id="ng-seg-ajouter" style="display:flex;gap:3px;background:var(--inp);border-radius:11px;padding:3px"></div>
+      <div style="font-size:12.5px;font-weight:700;margin:11px 0 5px">Modifier le groupe</div>
+      <div id="ng-seg-modifier" style="display:flex;gap:3px;background:var(--inp);border-radius:11px;padding:3px"></div>
+
+      <div onclick="ngReglagesBascule()" style="display:flex;align-items:center;gap:9px;padding:11px 13px;border-radius:12px;background:var(--inp);cursor:pointer;margin-top:16px">
+        <span style="font-size:12.5px;font-weight:700">Plus d\u2019options</span>
         <span id="ng-reg-res" class="muted" style="flex:1;min-width:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
         <span id="ng-reg-chev" style="color:var(--t3);font-size:11px">▾</span>
       </div>
-      <div id="ng-reglages" style="display:none;padding:12px 2px 0">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:6px">QUI PEUT ÉCRIRE ?</div>
-        <div id="ng-seg-ecrire" style="display:flex;gap:3px;background:var(--inp);border-radius:11px;padding:3px"></div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin:12px 0 6px">QUI PEUT AJOUTER DES MEMBRES ?</div>
-        <div id="ng-seg-ajouter" style="display:flex;gap:3px;background:var(--inp);border-radius:11px;padding:3px"></div>
-        ${peutReunion()?`<div onclick="ngRegle('urgence')" style="display:flex;align-items:flex-start;gap:11px;padding:12px;border-radius:12px;background:var(--inp);margin-top:12px;cursor:pointer">
+      <div id="ng-reglages" style="display:none;padding:10px 2px 0">
+        ${peutReunion()?`<div onclick="ngRegle('urgence')" style="display:flex;align-items:flex-start;gap:11px;padding:12px;border-radius:12px;background:var(--inp);cursor:pointer">
           <span style="font-size:19px">🚨</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">Canal d\u2019urgence</div>
           <div class="muted" style="font-size:11.5px;line-height:1.45;margin-top:2px">Les messages sonnent même pendant les heures de silence.</div></div>
           <span id="ng-sw-urgence" style="flex:none;width:40px;height:23px;border-radius:99px;background:var(--brd2);position:relative"><i style="position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:99px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);display:block"></i></span></div>`:''}
@@ -4020,9 +3991,6 @@
           ${champDateHeure(_dstr(new Date(Date.now()+30*86400000)),'18:00')}</div>
       </div>
 
-      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin:16px 0 7px">APERÇU</div>
-      <div id="ng-apercu" style="display:flex;align-items:center;gap:12px;border:1px solid var(--card-brd);border-radius:14px;padding:12px"></div>
-
       <div data-pied><button class="btn block" id="ng-valider" style="font-weight:800" onclick="createGroup()">Créer le groupe</button></div>`);
     setTimeout(()=>{ try{ ngMaj(); pickMaj('ng-members'); dcLabel(); }catch(e){} },60);
   }
@@ -4033,7 +4001,7 @@
   async function grpEnvoiAutorise(id){
     try{ const c=(await chDoc(id).get()).data()||{};
       if(grpPeutEcrire(c)) return true;
-      toast('Groupe d\u2019annonces — seuls les administrateurs y écrivent');
+      toast('Seuls les administrateurs écrivent dans ce groupe');
       try{ chEcritureMaj(id); }catch(e){}
       return false;
     }catch(e){ return true; }
@@ -4045,10 +4013,8 @@
     const members=Array.from(new Set([ME.uid,...sel]));
     /* un administrateur qui ne serait pas membre n'aurait aucun sens */
     const admins=Array.from(new Set([ME.uid,...[..._ngAdmins].filter(u=>members.indexOf(u)>=0)]));
-    const objet=((($('ng-objet')||{}).value)||'').trim().slice(0,120);
     const d={name,type:'group',members,createdBy:ME.uid,createdAt:FV(),
-             icone:_ngIcone,genre:_ngType,admins,ecrire:_ngEcrire,ajouter:_ngAjouter};
-    if(objet) d.objet=objet;
+             icone:_ngIcone,admins,ecrire:_ngEcrire,ajouter:_ngAjouter,modifier:_ngModifier};
     if(_ngUrgence) d.urgence=true;
     if(_ngEpingle) d.epingle=true;
     if(_ngFin){ const f=momentChoisi(); if(f) d.finLe=f; }
@@ -4642,10 +4608,8 @@
           ${callDeduit(c)?`<p class="muted" style="font-size:11.5px;line-height:1.5;margin:6px 2px 2px">Appel passé avant la mise à jour : le détail est déduit du fait que l'appel a bien été décroché.</p>`:''}</div>`; })()}
       <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();recall('${id}')">${ic('phone',18)}Rappeler</button>
       <button class="btn ghost block" onclick="closeSheet();recallVideo('${id}')">${ic('video',18)}Rappeler en vidéo</button>`); }
-  async function recallVideo(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
-    const ids = out ? c.members : [c.from, ...(c.members||[]).filter(u=>u!==ME.uid)];
-    const names = out ? c.memberNames : [c.fromName, ...((c.memberNames||[]))];
-    startCall(ids, names, 'video'); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
+  async function recallVideo(id){ try{ const d=await callsCol().doc(id).get();
+    const {ids,names}=rappelGens(d.data()); startCall(ids, names, 'video'); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
   async function newCall(){
     openSheet('<p class="muted center">Chargement…</p>'); let chks='';
     try{ const list=await listMembers();
@@ -4658,12 +4622,37 @@
   }
   function launchCall(type){ const sel=[...document.querySelectorAll('#nc-members .chk.sel')]; if(!sel.length){ $('ncerr').innerHTML='<div class="err">Choisissez au moins une personne.</div>'; return; }
     closeSheet(); startCall(sel.map(x=>x.dataset.uid), sel.map(x=>x.dataset.name), type); }
-  async function recall(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data(); const out=c.from===ME.uid;
-    const ids = out ? c.members : [c.from, ...(c.members||[]).filter(u=>u!==ME.uid)];
-    const names = out ? c.memberNames : [c.fromName, ...((c.memberNames||[]))];
-    startCall(ids, names, c.type||'video'); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
+  async function recall(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data()||{};
+    const {ids,names}=rappelGens(c); startCall(ids, names, c.type||'video'); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
 
   let _activeCall=null,_callDocUnsub=null,_japi=null;
+  /* ══ LE TITRE D'UN APPEL ══
+     Rappeler quelqu'un empilait les noms : « Karim, Philippe, Karim,
+     Philippe, Karim ». On dédoublonne, on s'enlève de la liste, et au-delà
+     de trois personnes on compte au lieu d'énumérer. */
+  function nomsAppel(ids,names){
+    const moi=(USER&&USER.name)||'';
+    const vus={}, out=[];
+    (ids||[]).forEach((u,i)=>{
+      const nm=((names||[])[i]||'').trim();
+      if(!nm||nm===moi) return;
+      const cle=nm.toLowerCase(); if(vus[cle]) return; vus[cle]=1; out.push(nm);
+    });
+    if(!out.length) (names||[]).forEach(nm=>{ nm=(nm||'').trim();
+      if(!nm||nm===moi) return; const c=nm.toLowerCase(); if(vus[c]) return; vus[c]=1; out.push(nm); });
+    if(!out.length) return 'Appel';
+    if(out.length<=3) return out.join(', ');
+    return out.slice(0,2).join(', ')+' +'+(out.length-2);
+  }
+  /* qui rappeler : la personne d'en face, une seule fois chacune */
+  function rappelGens(c){
+    c=c||{};
+    const ids=[], names=[], vus={};
+    const ajoute=(u,n)=>{ if(!u||u===ME.uid||vus[u]) return; vus[u]=1; ids.push(u); names.push(n||''); };
+    if(c.from!==ME.uid) ajoute(c.from,c.fromName);
+    (c.members||[]).forEach((u,i)=>ajoute(u,(c.memberNames||[])[i]));
+    return {ids,names};
+  }
   async function startCall(ids, names, type){
     if(!ids||!ids.length) return;
     const room='CALL'+ME.uid.slice(0,6)+Date.now();
@@ -4688,7 +4677,7 @@
         sonnerieSortante(false); visioSansReponse(false); sonAppel('fin');
         try{ if(_vRoom) visioFermer(true); }catch(e){} try{ closeJitsi(); }catch(e){}
         setTimeout(()=>opAlerte(nm+' a refusé l\'appel.','Appel refusé'),250); } });
-    visioOuvrir(room, ((names||[]).join(', '))||'Appel', type==='audio', 'appel');
+    visioOuvrir(room, nomsAppel(ids,names), type==='audio', 'appel');
   }
   /* ══════════════════════════════════════════════════════════════════════
      LA VISIO À NOUS — salle complète
@@ -4722,6 +4711,12 @@
        « OPMSG… ». Au moindre doute, c'est une réunion : une réunion ne se
        ferme jamais toute seule. */
     _vGenre=(genre==='appel' && String(room||'').indexOf('OPMSG')!==0)?'appel':'reunion'; _vDejaVenu=false; _vMaxGens=1;
+    /* UN APPEL N'EST PAS UNE RÉUNION. Un appel, c'est le téléphone : on parle,
+       on ajoute quelqu'un, on raccroche. Tout l'outillage de la réunion
+       (partage d'écran, tableau des participants, discussion écrite,
+       réactions, main levée) disparaît — il n'a rien à faire là. */
+    try{ const v=$('visio'); if(v) v.classList.toggle('appel',_vGenre==='appel'); }catch(e){}
+    try{ appelDock(); }catch(e){}
     if(_vGenre==='appel') salleVue(room);
     /* un appel et une réunion, ce n'est pas pareil : la pastille le dit */
     const gg=$('visio-genre'); if(gg){ if(genre==='appel'){ gg.textContent='📞 APPEL'; gg.style.background='var(--op)'; }
@@ -5141,6 +5136,18 @@
   let _vParle={}, _vAna={}, _vParleT=null, _vParleurDepuis=0;
 
   /* ── Galerie / Intervenant ── */
+  /* Certains navigateurs anciens ne connaissent pas « :has() » : on pose donc
+     aussi la règle à la main. Ceinture et bretelles — un bouton de réunion qui
+     traîne dans un appel, c'est exactement ce qu'on ne veut plus. */
+  function appelDock(){
+    const appel=(_vGenre==='appel');
+    ['visio-ecran','visio-parts-btn','visio-tchat-btn','visio-reagir','visio-main'].forEach(id=>{
+      const b=$(id); if(!b) return; const c=b.closest('.vact')||b;
+      c.style.display=appel?'none':'';
+    });
+    try{ const o=$('visio-outils'); if(o&&appel) o.style.display='none'; }catch(e){}
+    try{ const vv=$('visio-vues'); if(vv) vv.style.display=appel?'none':''; }catch(e){}
+  }
   function visioVue(v){
     _vVue=(v==='intervenant')?'intervenant':'galerie';
     _vPinManuel=false;
@@ -7564,7 +7571,7 @@
       </div>
       <div id="ch-lecture" style="display:none;align-items:center;gap:10px;padding:14px 14px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--brd);background:var(--bg1)">
         <span style="font-size:19px">📣</span>
-        <div style="flex:1;min-width:0;font-size:12.3px;color:var(--t2);line-height:1.45">Groupe d\u2019annonces — seuls les administrateurs y écrivent. Tu reçois les messages.</div>
+        <div style="flex:1;min-width:0;font-size:12.3px;color:var(--t2);line-height:1.45">Seuls les administrateurs écrivent dans ce groupe. Tu reçois les messages.</div>
       </div>`;
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
     try{ document.querySelectorAll('.dsk-chan').forEach(x=>x.classList.toggle('on',x.dataset.cid===id)); }catch(e){}
@@ -8571,12 +8578,11 @@
     let html=`<h3 style="font-family:'Space Mono',monospace;font-size:16px">${esc(c.name||'Groupe')}</h3>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
         <div style="width:52px;height:52px;border-radius:16px;background:var(--tint2);display:flex;align-items:center;justify-content:center;font-size:25px;flex:none">${esc(grpIcone(c))}</div>
-        <div style="min-width:0"><div style="font-size:12.5px;font-weight:700">${esc(grpResume(c))}</div>
-        ${c.objet?`<div class="muted" style="font-size:12px;margin-top:3px;line-height:1.45">${esc(c.objet)}</div>`:''}</div>
+        <div style="min-width:0"><div style="font-size:12.5px;font-weight:700">${esc(grpResume(c))}</div></div>
       </div>`;
     if(c.ecrire==='admins')
       html+=`<div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px;background:var(--tint2);margin-bottom:10px">
-        <span style="font-size:17px">📣</span><div style="font-size:11.8px;line-height:1.45">Groupe d\u2019annonces — seuls les administrateurs y écrivent.</div></div>`;
+        <span style="font-size:17px">📣</span><div style="font-size:11.8px;line-height:1.45">Seuls les administrateurs écrivent dans ce groupe.</div></div>`;
     html+=pinMuteBtns(id);
     if(isMgr) html+=`<button class="btn ghost block" style="margin:10px 0" onclick="renameGroup('${id}','${esc((c.name||'').replace(/'/g,''))}')">✏️ Renommer le groupe</button>`;
     html+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:12px 2px 6px">Membres (${(c.members||[]).length})</div>${mhtml}`;
