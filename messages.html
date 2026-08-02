@@ -369,6 +369,23 @@
     padding:11px 34px 11px 36px;color:var(--t1);font-size:14px;font-family:inherit;outline:none}
   .pickq:focus{border-color:var(--op)}
   /* viewer + jitsi */
+  /* ══ LA PHOTO EN GRAND ══ */
+  .photoplein{position:fixed;inset:0;z-index:95;background:rgba(6,8,14,.94);display:none;
+    flex-direction:column;align-items:center;justify-content:center;padding:0 0 18px;
+    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+  .photoplein.open{display:flex}
+  .photoplein .pp-bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 16px 10px;color:#e9edf6;font-size:13.5px;font-weight:700;
+    background:linear-gradient(180deg,rgba(0,0,0,.55),transparent)}
+  .photoplein .pp-ic{width:36px;height:36px;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;
+    display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:17px;
+    text-decoration:none;flex:none;transition:background .15s}
+  .photoplein .pp-ic:hover{background:rgba(255,255,255,.26)}
+  .photoplein img{max-width:min(100%,1400px);max-height:calc(100% - 96px);object-fit:contain;
+    border-radius:10px;display:block;cursor:default;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .photoplein .pp-aide{position:absolute;bottom:calc(12px + env(safe-area-inset-bottom));left:0;right:0;
+    text-align:center;color:rgba(233,237,246,.5);font-size:11.5px;pointer-events:none}
+  @media(max-width:520px){ .photoplein img{max-height:calc(100% - 84px);border-radius:0} }
   .viewer,.jitsi{position:fixed;inset:0;z-index:60;background:#0a0e16;display:none;flex-direction:column}
   .viewer.open,.jitsi.open{display:flex}
   /* L'APPEL RÉDUIT : une vignette dans le coin. On continue de parler et de
@@ -564,6 +581,19 @@
     <button class="btn ghost" id="cam-refaire" onclick="camRefaire()" style="display:none">↺ Refaire</button>
     <button class="btn" id="cam-envoyer" onclick="camEnvoyer()" style="display:none;min-width:150px">Envoyer</button>
   </div></div>
+<!-- LA PHOTO EN GRAND : elle s'ouvre PAR-DESSUS l'application, jamais dans
+     un nouvel onglet. On la ferme d'un toucher n'importe où, avec la croix,
+     avec Échap, ou avec le bouton retour du téléphone. -->
+<div class="photoplein" id="photoplein" onclick="photoFerme()">
+  <div class="pp-bar" onclick="event.stopPropagation()">
+    <span id="pp-nom">Photo</span>
+    <span style="flex:1"></span>
+    <a id="pp-dl" download="photo.jpg" title="Enregistrer la photo" class="pp-ic">⤓</a>
+    <span class="pp-ic" onclick="photoFerme()" title="Fermer">✕</span>
+  </div>
+  <img id="pp-img" alt="" onclick="event.stopPropagation()">
+  <div class="pp-aide">Touche l’image pour fermer</div>
+</div>
 <div class="viewer" id="viewer"><div class="vbar"><span id="viewer-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn ghost sm" onclick="closeViewer()">✕ Fermer</button></div><iframe id="viewer-frame" title="Document"></iframe></div>
 <div class="viewer" id="visio"><div class="vbar"><span style="display:flex;align-items:center;gap:10px;min-width:0">
     <span id="visio-genre" style="flex:none;font-size:10.5px;font-weight:800;letter-spacing:.05em;padding:3px 9px;border-radius:999px;background:#1e7a4e;color:#fff">📅 RÉUNION</span>
@@ -668,7 +698,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='626';
+  const APP_VERSION='627';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -3977,7 +4007,8 @@
   }
   function docOuvrir(i){
     const x=_docs[i]; if(!x) return;
-    if(x.type==='photo'){ const w=window.open(); if(w) w.document.write('<img src="'+x.data+'" style="max-width:100%">'); return; }
+    /* une photo s'affiche par-dessus l'application, pas dans un onglet nu */
+    if(x.type==='photo'){ photoPlein(x.data, x.par?('Photo de '+x.par):'Photo'); return; }
     /* un vrai fichier : on le reconstruit pour que l'appareil sache l'ouvrir */
     try{
       const blob=fichierBlob(x.file);
@@ -7032,7 +7063,7 @@
           <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}${u===ME.uid?' <span style="font-size:10.5px;color:var(--t3);font-weight:600">· toi</span>':''}</div>
           ${dir?`<div style="font-size:11px;color:var(--t2);margin-top:2px;line-height:1.45">📌 ${esc(dir)}</div>`:''}
           ${a.mot?`<div style="font-size:11px;color:var(--t2);margin-top:2px;line-height:1.45">« ${esc(a.mot)} »</div>`:''}
-          ${a.photo?`<img src="${a.photo}" onclick="misPhotoVoir('${m.id}','${esc(u)}')" title="Voir la photo en grand"
+          ${a.photo?`<img src="${a.photo}" onclick="photoDepuis(this,'${esc((nm||'Photo').replace(/'/g,''))}')" title="Toucher pour agrandir"
             style="margin-top:6px;width:96px;height:72px;object-fit:cover;border-radius:9px;display:block;cursor:pointer;border:1px solid var(--card-brd)">`:''}
           ${a.le?`<div style="font-size:10.5px;color:var(--t3);margin-top:2px">${esc(E.l)} — ${esc(fmtWhen(a.le))}</div>`:''}
         </div>
@@ -7089,18 +7120,12 @@
     const z=$('mis-photo'); if(!z) return;
     if(!_misPhoto){ z.innerHTML=`<span onclick="misPhotoDemande('${esc(_misPhotoId)}')" style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:9px 13px;border-radius:10px;border:1.5px dashed var(--brd2);color:var(--t2);cursor:pointer">${ms('image',17)} Joindre une photo</span>`; return; }
     z.innerHTML=`<div style="display:inline-flex;align-items:center;gap:9px;padding:7px 9px;border-radius:11px;background:var(--inp)">
-      <img src="${_misPhoto}" onclick="misPhotoGrand('${esc(_misPhoto.slice(0,0))}')" style="width:52px;height:52px;object-fit:cover;border-radius:8px;display:block">
+      <img src="${_misPhoto}" title="Toucher pour agrandir" onclick="photoDepuis(this,'Photo à envoyer')" style="width:52px;height:52px;object-fit:cover;border-radius:8px;display:block;cursor:pointer">
       <div style="font-size:11.5px;color:var(--t2);line-height:1.4">Photo prête<br><span style="color:var(--t3)">${Math.round(_misPhoto.length/1400)} ko</span></div>
       <span onclick="misPhotoRetire()" title="Retirer" style="font-size:14px;font-weight:800;color:var(--t3);cursor:pointer;padding:2px 6px">✕</span></div>`;
   }
   /* on regarde la photo en grand */
-  function misPhotoGrand(src){
-    if(!src) return;
-    const v=$('viewer'); if(!v) return;
-    $('viewer-name').textContent='Photo de la mission';
-    $('viewer-frame').src=src;
-    const ouvert=v.classList.contains('open'); v.classList.add('open'); if(!ouvert) pushBack();
-  }
+  function misPhotoGrand(src,nom){ photoPlein(src,nom||'Photo de la mission'); }
   /* on réduit jusqu'à ce que ça tienne : largeur d'abord, qualité ensuite */
   function misPhotoReduit(fichier){
     return new Promise((ok,ko)=>{
@@ -7596,7 +7621,7 @@
       let body='';
       if(m.replyTo) body+=`<div style="border-left:3px solid currentColor;padding:3px 8px;margin-bottom:5px;font-size:12.5px;opacity:.85;border-radius:4px;background:rgba(127,127,127,.14)"><b>${esc(m.replyTo.name||'')}</b><br>${esc((m.replyTo.text||'[média]').slice(0,90))}</div>`;
       body+=m.text?linkify(highlightMentions(esc(m.text),m)):'';
-      if(m.img) body+=`<img src="${m.img}" onclick="event.stopPropagation();window.open(this.src)">`;
+      if(m.img) body+=`<img src="${m.img}" alt="Photo" title="Toucher pour agrandir" onclick="event.stopPropagation();photoDepuis(this,'${esc((m.name||'Photo').replace(/'/g,''))}')">`;
       if(m.audio) body+=`<audio class="voc" controls src="${m.audio}" style="max-width:215px;display:block;margin-top:6px;height:38px" onclick="event.stopPropagation()" onplay="vocSeul(this)" onended="vocSuivant(this)"></audio>`;
       if(m.locDem) body+=locDemHtml(id,m);
       if(m.loc) body+=locHtml(id,m);
@@ -8778,6 +8803,27 @@
       setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch(e){} },60000);
     }catch(e){ toast('Ouverture impossible : '+((e&&e.message)||e)); } }
   function closeViewer(){ $('viewer').classList.remove('open'); $('viewer-frame').src='about:blank'; }
+  /* ══════════════════════════════════════════════════════════════════
+     LA PHOTO EN GRAND
+     Avant, toucher une photo faisait « window.open » : on quittait
+     l'application pour un onglet nu, et il fallait revenir à la main.
+     Maintenant elle s'ouvre par-dessus, et se ferme d'un toucher.
+     ══════════════════════════════════════════════════════════════════ */
+  function photoPlein(src,nom){
+    if(!src) return;
+    const z=$('photoplein'); if(!z) return;
+    const i=$('pp-img'); if(i) i.src=src;
+    const n=$('pp-nom'); if(n) n.textContent=nom||'Photo';
+    const d=$('pp-dl');
+    if(d){ d.href=src; d.download=((nom||'photo').replace(/[^\w .\-]/g,'').trim()||'photo')+'.jpg'; }
+    const ouvert=z.classList.contains('open');
+    z.classList.add('open');
+    if(!ouvert) pushBack();
+  }
+  function photoFerme(){ const z=$('photoplein'); if(!z) return;
+    z.classList.remove('open'); const i=$('pp-img'); if(i) i.removeAttribute('src'); }
+  /* on l'ouvre depuis un élément : pas de guillemets à échapper dans le HTML */
+  function photoDepuis(el,nom){ try{ photoPlein(el&&el.src,nom); }catch(e){} }
 
   // ========== MENU / MEMBRES ==========
   function openMenu(){
@@ -9179,8 +9225,10 @@
 
   // ===== Bouton « retour » du téléphone : ferme l'écran ouvert au lieu de quitter l'app =====
   function pushBack(){ try{ history.pushState({op:1},''); }catch(e){} }
-  function anyOverlayOpen(){ return ['visio','camera','viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
+  function anyOverlayOpen(){ return ['photoplein','visio','camera','viewer','jitsi','ring','sheet','page','chat'].some(x=>{ const el=$(x); return el && el.classList.contains('open'); }); }
   function closeTopOverlay(){
+    /* la photo est TOUJOURS au-dessus : le retour la ferme en premier */
+    if($('photoplein')&&$('photoplein').classList.contains('open')){ photoFerme(); return true; }
     if($('visio')&&$('visio').classList.contains('open')){
       /* comme sur un téléphone : le bouton retour REDUIT l'appel, il ne
          raccroche pas. On raccroche avec le bouton rouge. */
@@ -9197,6 +9245,10 @@
     return false;
   }
   window.addEventListener('popstate', function(){ if(anyOverlayOpen()){ closeTopOverlay(); pushBack(); } });
+  /* Échap ferme la photo — le réflexe de tout le monde sur ordinateur */
+  window.addEventListener('keydown', function(e){
+    if(e.key==='Escape' && $('photoplein') && $('photoplein').classList.contains('open')){ photoFerme(); }
+  });
   try{ history.replaceState({op:0},''); }catch(e){}
 </script>
 </body>
