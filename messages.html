@@ -667,7 +667,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='622';
+  const APP_VERSION='623';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -2383,20 +2383,20 @@
      « Absent » tout court ne sert à rien à l'organisateur : il ne sait pas
      s'il doit décaler, remplacer, ou laisser courir. Un motif en un toucher,
      et tout le monde sait à quoi s'en tenir. */
-  const MOTIFS_ABSENCE=['Sur un chantier','Chez un client','En congés','Malade','En déplacement','Autre réunion'];
+  const MOTIFS_ABSENCE=['Sur chantier','Intervention client','Congés','Arrêt maladie','Déplacement professionnel','Réunion concurrente','Formation'];
   function rsvpAbsentChoix(id){
     const z=$('rsvp-absent'); if(!z) return;
     const r=$('rsvp-retard'); if(r) r.style.display='none';       // une seule liste ouverte
-    z.innerHTML=`<div style="width:100%;font-size:11.5px;font-weight:700;color:var(--t2);margin-bottom:2px">Pourquoi ? L\u2019organisateur le verra.</div>`
+    z.innerHTML=`<div style="width:100%;font-size:11.5px;font-weight:700;color:var(--t2);margin-bottom:2px">Motif de l\u2019absence — communiqué à l\u2019organisateur</div>`
       +MOTIFS_ABSENCE.map(m=>`<span onclick="rsvpAbsent('${id}','${esc(m.replace(/'/g,''))}')" style="font-size:11.5px;font-weight:700;padding:8px 13px;border-radius:9px;border:1px solid var(--brd2);color:var(--t1);cursor:pointer">${esc(m)}</span>`).join('')
       +`<span onclick="rsvpAbsentLibre('${id}')" style="font-size:11.5px;font-weight:800;padding:8px 13px;border-radius:9px;border:1px solid var(--red);color:var(--red);cursor:pointer">Autre motif\u2026</span>`
-      +`<span onclick="rsvpAbsent('${id}','')" style="font-size:11.5px;font-weight:700;padding:8px 12px;border-radius:9px;color:var(--t3);cursor:pointer">Je préfère ne pas dire</span>`;
+      +`<span onclick="rsvpAbsent('${id}','')" style="font-size:11.5px;font-weight:700;padding:8px 12px;border-radius:9px;color:var(--t3);cursor:pointer">Sans motif communiqué</span>`;
     z.style.display='flex';
   }
   function rsvpAbsent(id,motif){ rsvpRepond(id,'non',0,motif||''); }
   async function rsvpAbsentLibre(id){
-    const v=await opSaisie('Une phrase suffit — elle part à l\u2019organisateur.','',
-      {titre:'Pourquoi es-tu absent ?',max:140,oui:'Envoyer'});
+    const v=await opSaisie('Une phrase suffit — elle est transmise à l\u2019organisateur.','',
+      {titre:'Motif de l\u2019absence',max:140,oui:'Transmettre'});
     if(v===null) return;
     rsvpRepond(id,'non',0,(v||'').trim());
   }
@@ -2930,9 +2930,9 @@
      Quand il y a un lieu, on le dit partout : dans la liste, dans le
      calendrier, et sur l'écran d'attente.
      ══════════════════════════════════════════════════════════════════ */
-  const FORMATS={ visio:{l:'En visio', i:'videocam', c:'Chacun depuis son poste'},
-                  place:{l:'Sur place', i:'location_on', c:'On se retrouve quelque part'},
-                  mixte:{l:'Les deux',  i:'groups',    c:'Salle vidéo + sur place'} };
+  const FORMATS={ visio:{l:'Visioconférence', ct:'visioconférence', i:'videocam',    c:'Chacun depuis son poste'},
+                  place:{l:'Présentiel',      ct:'présentiel',      i:'location_on', c:'Sur site, sans salle vidéo'},
+                  mixte:{l:'Hybride',         ct:'hybride',         i:'groups',      c:'Présentiel et visioconférence'} };
   function formatDe(r){ const f=(r&&r.format)||'visio'; return FORMATS[f]?f:'visio'; }
   function aUneSalleVideo(r){ return formatDe(r)!=='place'; }
   /* la mention courte, pour une ligne de liste */
@@ -2940,7 +2940,7 @@
     const f=formatDe(r);
     if(f==='visio') return '';
     const l=(r&&r.lieu||'').trim();
-    return (f==='place'?'sur place':'visio + sur place')+(l?' · '+l:'');
+    return FORMATS[f].ct+(l?' · '+l:'');
   }
   /* le bandeau, pour une fiche */
   function lieuBandeau(r){
@@ -2949,7 +2949,7 @@
     return `<div style="display:flex;align-items:center;gap:9px;margin-top:10px;padding:10px 12px;border-radius:11px;background:var(--tint2)">
       <span class="ms f1" style="font-size:18px;color:var(--tile-tx)">${FORMATS[f].i}</span>
       <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:800">${esc(FORMATS[f].l)}</div>
-      <div style="font-size:11.5px;color:var(--t2);margin-top:1px">${l?esc(l):'Le lieu n\u2019est pas précisé'}</div></div></div>`;
+      <div style="font-size:11.5px;color:var(--t2);margin-top:1px">${l?esc(l):'Lieu non communiqué'}</div></div></div>`;
   }
   let _dashFormat='visio';
   function dashFormatSet(f){ _dashFormat=FORMATS[f]?f:'visio'; dashFormatMaj(); }
@@ -3006,10 +3006,10 @@
       ${E?'':`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">RÉPÉTITION</div>
       <div id="dp-rep" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
       <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>`}
-      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">OÙ ÇA SE PASSE ?</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">MODALITÉ</div>
       <div id="dp-format" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
       <div id="dp-lieu-zone" style="display:none;margin-top:8px">
-        <input id="dp-lieu" maxlength="120" value="${esc((E&&E.lieu)||'')}" placeholder="Où ? Ex : Bureau — salle du haut, chantier Camping Les Pins\u2026"
+        <input id="dp-lieu" maxlength="120" value="${esc((E&&E.lieu)||'')}" placeholder="Lieu — ex : siège, salle de réunion · chantier Camping Les Pins"
           style="width:100%;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none">
       </div>
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">QUI PARTICIPE ?</div>
@@ -3173,13 +3173,13 @@
     if(!gens.length){ z.innerHTML=''; return; }
     const n=Object.keys(_dashNotes).length;
     z.innerHTML=`<div style="display:flex;align-items:baseline;gap:8px">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">QUE DOIT PRÉPARER CHACUN ?</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">CONSIGNES DE PRÉPARATION</div>
         <span id="dpn-compte" style="font-size:11px;color:var(--op-tx);font-weight:700">${n?(n+' consigne'+(n>1?'s':'')):''}</span></div>
-      <p class="muted" style="font-size:11.5px;line-height:1.5;margin:5px 0 9px">Facultatif — documents à apporter, chiffres à sortir\u2026 La personne le verra sur sa réunion et au moment de la rejoindre.</p>`
+      <p class="muted" style="font-size:11.5px;line-height:1.5;margin:5px 0 9px">Facultatif — pièces à fournir, chiffres à préparer\u2026 Chaque participant reçoit la sienne et la retrouve avant d\u2019entrer.</p>`
       +gens.map(m=>`<div style="display:flex;align-items:center;gap:9px;margin-bottom:7px">
         <span class="dash-pp" style="width:28px;height:28px;font-size:11px;border:0;flex:0 0 auto;${avatarStyle(m.name)}">${ini(m.name)}</span>
         <input id="dpn-${esc(m.uid)}" value="${esc(_dashNotes[m.uid]||'')}" maxlength="200"
-          placeholder="Ce que ${esc((m.name||'').split(' ')[0]||'cette personne')} doit préparer\u2026"
+          placeholder="Consigne pour ${esc((m.name||'').split(' ')[0]||'ce participant')}\u2026"
           oninput="dpNotePose('${esc(m.uid)}',this.value)"
           style="flex:1;min-width:0;padding:9px 11px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none">
       </div>`).join('');
@@ -3303,7 +3303,7 @@
         const txt=`${(USER&&USER.name)||'L’organisateur'} t’a convié à « ${name} » — ${reunionQuand(t0)} · ${dureeTexte(_dashDuree)}`
           +(dates.length>1?` (et ${dates.length-1} autre${dates.length-1>1?'s':''} dans la série)`:'')
           +`${desc?' — '+desc.slice(0,120):''}`
-          +(format==='visio'?'' : ' — '+FORMATS[format].l+(lieu?' : '+lieu:''))
+          +' — '+FORMATS[format].l+(lieu?' · '+lieu:'')
           +`. Réponds Présent, En retard ou Absent.`;
         /* chacun reçoit SA consigne dans son alerte */
         for(const u of autres){
@@ -6007,11 +6007,11 @@
        la fiche et le lieu, au lieu d'ouvrir une caméra pour rien */
     if(!aUneSalleVideo(r)){
       openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">📍</div>
-        <h3 style="font-size:17px;margin:10px 0 6px">Cette réunion se tient sur place</h3>
-        <p class="muted" style="font-size:13.5px;line-height:1.6;margin:0">${(r.lieu||'').trim()?('Rendez-vous : <b>'+esc(r.lieu)+'</b>'):'Le lieu n\u2019est pas précisé — demande à l\u2019organisateur.'}</p></div>
+        <h3 style="font-size:17px;margin:10px 0 6px">Réunion en présentiel</h3>
+        <p class="muted" style="font-size:13.5px;line-height:1.6;margin:0">${(r.lieu||'').trim()?('Lieu de rendez-vous : <b>'+esc(r.lieu)+'</b>'):'Lieu non communiqué — rapproche-toi de l\u2019organisateur.'}</p></div>
         ${reunionQuiHtml(r)}
         <div data-pied style="display:flex;flex-direction:column;gap:8px">
-          <button class="btn ghost block" onclick="closeSheet();rsvpOuvre('${r.id}')">Voir la fiche et répondre</button>
+          <button class="btn ghost block" onclick="closeSheet();rsvpOuvre('${r.id}')">Ouvrir la fiche et répondre</button>
           <button class="btn ghost block" onclick="closeSheet()">Fermer</button></div>`);
       return;
     }
@@ -6055,12 +6055,12 @@
     /* puis CE QUE MOI je dois préparer : c'est le plus utile */
     if(cons[ME.uid])
       h+=`<div style="text-align:left;margin-bottom:10px;padding:11px 13px;border-radius:12px;background:rgba(224,140,30,.14);border:1px solid rgba(224,140,30,.35)">
-        <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--t2);margin-bottom:3px">📌 CE QUE TU DOIS PRÉPARER</div>
+        <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--t2);margin-bottom:3px">📌 TA CONSIGNE DE PRÉPARATION</div>
         <div style="font-size:13px;line-height:1.5;font-weight:600">${esc(cons[ME.uid])}</div></div>`;
     if(!ids.length&&!r.ouverte) return h;
     h+=`<div style="text-align:left;border-top:1px solid var(--sep);padding-top:10px">
       <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--t3);margin-bottom:7px">
-        ${ids.length?('QUI EST INVITÉ ('+ids.length+')'):'RÉUNION OUVERTE'}</div>`;
+        ${ids.length?('PARTICIPANTS CONVOQUÉS ('+ids.length+')'):'RÉUNION OUVERTE'}</div>`;
     h+=ids.map(u=>{ const nm=nomDe(u), est=u===r.createdBy, moi=u===ME.uid, note=cons[u]||'';
       return `<div style="display:flex;align-items:flex-start;gap:9px;padding:5px 0">
         <span class="ava" style="width:28px;height:28px;border-radius:50%;font-size:11px;font-weight:800;flex:0 0 auto;display:flex;align-items:center;justify-content:center;${avatarStyle(nm)}">${ini(nm)}</span>
@@ -6068,7 +6068,7 @@
           <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}${moi?' <span style="font-size:10.5px;color:var(--t3);font-weight:600">· toi</span>':''}${est?' <span style="font-size:10.5px;color:var(--t3);font-weight:600">· organisateur</span>':''}</div>
           ${note?`<div style="font-size:11px;color:var(--t2);margin-top:1px;line-height:1.45">📌 ${esc(note)}</div>`:''}
         </div></div>`; }).join('');
-    if(r.ouverte) h+=`<div style="font-size:11px;color:var(--t3);margin-top:6px">Et toute l\u2019entreprise peut rejoindre.</div>`;
+    if(r.ouverte) h+=`<div style="font-size:11px;color:var(--t3);margin-top:6px">Ouverte à l\u2019ensemble de l\u2019entreprise.</div>`;
     h+='</div>';
     return h;
   }
@@ -6587,7 +6587,7 @@
       else if(et==='finie'){ sous=pastille('#3a4a6d',extra+' · terminée'); txt='terminée'; }
       else if(et==='permanente'&&gens) sous=pastille('#3ecf8e',gens+' personne'+(gens>1?'s':'')+' dedans');
       const bouton = surPlace
-        ? `<button class="joinbtn" style="background:var(--tint2);color:var(--op-tx)" onclick="event.stopPropagation();rsvpOuvre('${r.id}')">${ms('location_on',15)} Sur place</button>`
+        ? `<button class="joinbtn" style="background:var(--tint2);color:var(--op-tx)" onclick="event.stopPropagation();rsvpOuvre('${r.id}')">${ms('location_on',15)} Présentiel</button>`
         : ouvrable
         ? `<button class="joinbtn" onclick="closePage();joinRoom('${r.id}','${nomJs}')">Rejoindre</button>`
         : (et==='bientot'
