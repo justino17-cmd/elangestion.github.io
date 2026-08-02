@@ -583,7 +583,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='619';
+  const APP_VERSION='620';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -1456,6 +1456,11 @@
 
   // ---- TABLEAU DE BORD (entreprise uniquement) ----
   let _dashSel=new Set(), _dashAlert=true;
+  /* ══ CE QUE CHACUN DOIT PRÉPARER ══
+     Une petite consigne par personne — « apporte le devis Camping »,
+     « prépare le planning de la semaine ». Elle est enregistrée avec la
+     réunion et rappelée à l'intéressé quand il essaie d'entrer. */
+  let _dashNotes={};
   function _dstr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
   function _dashMonday(){ const now=new Date(); const mon=new Date(now); mon.setHours(0,0,0,0); mon.setDate(mon.getDate()-((mon.getDay()+6)%7)); return mon; }
   /* ── Le calendrier des réunions : pleine largeur, vraies heures, navigation ──
@@ -2241,7 +2246,8 @@
     catch(e){ openSheet('<p class="muted center">Réunion introuvable.</p>'); return; }
     r.reponses=await rsvpCharge(id);
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
-    const nomDe=u=>{ const m=mem.find(x=>x.uid===u); return (m&&m.name)||(rsvpDe(r,u)||{}).nom||'—'; };
+    const nomDe=u=>{ const m=mem.find(x=>x.uid===u);
+      return (m&&m.name)||(r.noms||{})[u]||(rsvpDe(r,u)||{}).nom||'—'; };
     const membres=(r.members||[]);
     const o=rsvpResume(r);
     const jeSuisDedans=membres.indexOf(ME.uid)>=0;
@@ -2255,11 +2261,13 @@
       const pil=x?`<span style="font-size:10.5px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap;background:${RSVP[x.etat].bg};color:${RSVP[x.etat].c}">${x.etat==='retard'?'+'+(x.min||15)+' min':RSVP[x.etat].l}</span>`
         :`<span style="font-size:10.5px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap;background:var(--inp);color:var(--t3)">Sans réponse</span>`;
       const sous=x?(x.mot?'« '+esc(x.mot)+' »':(x.le?'a répondu '+fmtWhen(x.le):'')):(est?'organisateur':'pas encore répondu');
+      const note=(r.consignes||{})[u]||'';
       const rel=(!x&&u!==ME.uid&&r.createdBy===ME.uid)?`<span onclick="rsvpRelance('${id}','${esc(u)}')" style="font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:7px;border:1px solid var(--brd2);color:var(--t2);cursor:pointer;white-space:nowrap">Relancer</span>`:'';
       return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--sep)">
         <div class="ava" style="width:32px;height:32px;border-radius:50%;font-size:11px;${avatarStyle(nm)}">${ini(nm)}</div>
         <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}${est?' <span style="font-size:10px;color:var(--t3);font-weight:600">· organisateur</span>':''}</div>
-        ${sous?`<div style="font-size:10.7px;color:var(--t3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}</div>
+        ${sous?`<div style="font-size:10.7px;color:var(--t3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}
+        ${note?`<div style="font-size:11px;color:var(--t2);margin-top:2px;line-height:1.45">📌 ${esc(note)}</div>`:''}</div>
         ${pil}${rel}</div>`; };
     const compte=(n,lib,c)=>`<div style="flex:1;text-align:center;padding:10px 6px"><div style="font-size:19px;font-weight:800;line-height:1;color:${c||'var(--t1)'}">${n}</div><div style="font-size:10.3px;color:var(--t3);font-weight:600;margin-top:3px">${lib}</div></div>`;
     const errLec=_rsvpErr;   // la lecture des réponses a-t-elle été refusée ?
@@ -2465,18 +2473,19 @@
       if(!COMP||!COMP.id) return;
       /* qui est qui : pour nommer l'organisateur et les invités */
       if(!_members.length){ try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){} }
-      const nomDe=u=>{ if(u===ME.uid) return ((USER&&USER.name)||'Moi');
+      const nomDe=(u,r)=>{ if(u===ME.uid) return ((USER&&USER.name)||'Moi');
+        if(r&&r.noms&&r.noms[u]) return r.noms[u];
         const m=_members.find(x=>x.uid===u); return (m&&m.name)||''; };
       const l=await roomsVisibles();
       l.forEach(r=>{
         if(!r.scheduledAt||!reunionMienne(r)) return;
         const iso=_dstr(new Date(r.scheduledAt));
         const d=r.dureeMin||REUNION_DUREE;
-        const invites=(r.members||[]).map(nomDe).filter(Boolean);
+        const invites=(r.members||[]).map(u=>nomDe(u,r)).filter(Boolean);
         (_dcPrevu[iso]=_dcPrevu[iso]||[]).push({
           h:_hhmm(r.scheduledAt), hf:_hhmm(r.scheduledAt+d*60000),
           n:r.name||'Réunion', t:r.scheduledAt, fin:r.scheduledAt+d*60000, d,
-          par:nomDe(r.createdBy)||'—', moi:r.createdBy===ME.uid,
+          par:nomDe(r.createdBy,r)||'—', moi:r.createdBy===ME.uid,
           gens:invites, nb:(r.members||[]).length, ouverte:r.ouverte===true });
       });
       Object.keys(_dcPrevu).forEach(k=>_dcPrevu[k].sort((a,b)=>a.t-b.t));
@@ -2725,11 +2734,24 @@
       out.push(d.getTime()); }
     return out;
   }
+  /* Le nom de chaque convoqué est gravé dans la réunion. Ainsi la liste des
+     invités reste lisible même si la fiche de quelqu'un n'est pas chargée. */
+  function nomsDeLaReunion(uids,mem){
+    const out={};
+    (uids||[]).forEach(u=>{
+      if(u===ME.uid){ out[u]=(USER&&USER.name)||'Moi'; return; }
+      const src=(mem&&mem.length)?mem:_members;
+      const m=(src||[]).find(x=>x.uid===u);
+      if(m&&m.name) out[u]=m.name;
+    });
+    return out;
+  }
   let _dashEdit=null;
   async function dashForm(dateISO,heure,edit){
     if(!peutReunion()){ refusReunion(); return; }
     _dashEdit=edit||null;
     _dashSel=new Set([ME.uid]); _dashAlert=true; _dashRepet='une'; _dashRepetN=8;
+    _dashNotes=(_dashEdit&&_dashEdit.consignes)?Object.assign({},_dashEdit.consignes):{};
     _dashDuree=_dashEdit?dureeDe(_dashEdit):DUREE_DEF;
     if(_dashEdit&&Array.isArray(_dashEdit.members)) _dashEdit.members.forEach(u=>_dashSel.add(u));
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
@@ -2770,6 +2792,7 @@
       <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>`}
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">QUI PARTICIPE ?</div>
       <div id="dp-parts" style="margin-top:8px"></div>
+      <div id="dp-notes" style="margin-top:14px"></div>
       <div onclick="dashToggleAlert()" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:11px 12px;border-radius:10px;background:var(--tint2);cursor:pointer">
         <div style="display:flex;align-items:center;gap:8px"><span class="ms f1" style="font-size:17px;color:var(--tile-tx)">notifications_active</span><span style="font-size:12.5px;font-weight:700">Alerter les participants</span></div>
         <div id="dp-toggle" style="width:38px;height:22px;border-radius:999px;background:var(--green);position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:right .15s"></div></div>
@@ -2914,6 +2937,31 @@
     closeSheet(); setTimeout(()=>{ try{ addMemberForm(); }catch(e){} },140);
   }
   function dpPartAucun(){ _dashSel=new Set([ME.uid]); dpPartRender(); }
+  /* on écrit la consigne de quelqu'un — sans rien redessiner, pour ne pas
+     perdre le curseur pendant qu'on tape */
+  function dpNotePose(uid,v){
+    v=(v||'').slice(0,200);
+    if(v.trim()) _dashNotes[uid]=v.trim(); else delete _dashNotes[uid];
+    const c=$('dpn-compte'); if(c){ const n=Object.keys(_dashNotes).length;
+      c.textContent=n?(n+' consigne'+(n>1?'s':'')):''; }
+  }
+  function dpNotesRender(){
+    const z=$('dp-notes'); if(!z) return;
+    const gens=_dpMem.filter(m=>m.uid!==ME.uid&&_dashSel.has(m.uid));
+    if(!gens.length){ z.innerHTML=''; return; }
+    const n=Object.keys(_dashNotes).length;
+    z.innerHTML=`<div style="display:flex;align-items:baseline;gap:8px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">QUE DOIT PRÉPARER CHACUN ?</div>
+        <span id="dpn-compte" style="font-size:11px;color:var(--op-tx);font-weight:700">${n?(n+' consigne'+(n>1?'s':'')):''}</span></div>
+      <p class="muted" style="font-size:11.5px;line-height:1.5;margin:5px 0 9px">Facultatif — documents à apporter, chiffres à sortir\u2026 La personne le verra sur sa réunion et au moment de la rejoindre.</p>`
+      +gens.map(m=>`<div style="display:flex;align-items:center;gap:9px;margin-bottom:7px">
+        <span class="dash-pp" style="width:28px;height:28px;font-size:11px;border:0;flex:0 0 auto;${avatarStyle(m.name)}">${ini(m.name)}</span>
+        <input id="dpn-${esc(m.uid)}" value="${esc(_dashNotes[m.uid]||'')}" maxlength="200"
+          placeholder="Ce que ${esc((m.name||'').split(' ')[0]||'cette personne')} doit préparer\u2026"
+          oninput="dpNotePose('${esc(m.uid)}',this.value)"
+          style="flex:1;min-width:0;padding:9px 11px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none">
+      </div>`).join('');
+  }
   function dpPartRender(){
     const z=$('dp-parts'); if(!z) return;
     const autres=_dpMem.filter(m=>m.uid!==ME.uid);
@@ -2950,6 +2998,7 @@
       z.innerHTML=`${chips}${bouton}
         <div id="dp-msg" style="font-size:11px;margin-top:7px;line-height:1.5"></div>
         <div style="font-size:11px;color:var(--t2);margin-top:8px">${compte}</div>`;
+      try{ dpNotesRender(); }catch(e){}
       return;
     }
     z.innerHTML=`${chips}${bouton}
@@ -2973,6 +3022,7 @@
         <div onclick="dpGenerer()" title="Crée Sophie, Karim et Léa pour essayer les réunions" style="flex:1;min-width:150px;text-align:center;padding:9px 10px;border-radius:10px;border:1.5px dashed var(--brd2);cursor:pointer;font-size:12px;font-weight:700">Générer 3 personnes de test</div>
       </div>`:''}
       <div style="font-size:11px;color:var(--t2);margin-top:8px">${compte}</div>`;
+    try{ dpNotesRender(); }catch(e){}
   }
   function dashToggleAlert(){ _dashAlert=!_dashAlert; const t=$('dp-toggle'); if(!t) return; t.style.background=_dashAlert?'var(--green)':'var(--brd2)'; const k=t.firstElementChild; if(k) k.style.right=_dashAlert?'2px':'18px'; }
   function dashPrefill(di,h){ const mon=_dashMonday(); const d=new Date(mon); d.setDate(mon.getDate()+di);
@@ -2985,12 +3035,18 @@
     const scheduledAt=new Date(dv+'T'+tv).getTime(); if(!scheduledAt||isNaN(scheduledAt)){ toast('Date invalide.'); return; }
     const desc=((($('dp-desc')||{}).value)||'').trim().slice(0,400);
     const members=Array.from(new Set([ME.uid,..._dashSel]));
+    /* on ne garde que les consignes des personnes réellement convoquées */
+    const consignes={}; members.forEach(u=>{ if(_dashNotes[u]) consignes[u]=_dashNotes[u]; });
+    const aDesConsignes=Object.keys(consignes).length>0;
+    const noms=nomsDeLaReunion(members,_dpMem);
     const E=_dashEdit;
     try{
       const col=fs.collection('op_companies').doc(COMP.id).collection('rooms');
       if(E){
         /* on remplace la réunion : les règles n'autorisent pas de la modifier sur place */
         const d={name,desc,duree:_dashDuree,createdBy:ME.uid,members,createdAt:FV(),scheduledAt};
+        if(aDesConsignes) d.consignes=consignes;
+        d.noms=noms;
         if(E.serie){ d.serie=E.serie; d.repet=E.repet||''; }
         await col.add(d);
         try{ await col.doc(E.id).delete(); }catch(e){}
@@ -3011,6 +3067,8 @@
       const dates=dashRepetDates(); const serie=(dates.length>1)?('s'+Date.now()):'';
       for(const t of (dates.length?dates:[scheduledAt])){
         const d={name,desc,duree:_dashDuree,createdBy:ME.uid,members,createdAt:FV(),scheduledAt:t};
+        if(aDesConsignes) d.consignes=consignes;
+        d.noms=noms;
         if(serie){ d.serie=serie; d.repet=_dashRepet; }
         await col.add(d);
       }
@@ -3022,7 +3080,11 @@
         const txt=`${(USER&&USER.name)||'L’organisateur'} t’a convié à « ${name} » — ${reunionQuand(t0)} · ${dureeTexte(_dashDuree)}`
           +(dates.length>1?` (et ${dates.length-1} autre${dates.length-1>1?'s':''} dans la série)`:'')
           +`${desc?' — '+desc.slice(0,120):''}. Réponds Présent, En retard ou Absent.`;
-        await reunionPrevenir(members, txt, 'Nouvelle réunion · '+((COMP&&COMP.name)||''));
+        /* chacun reçoit SA consigne dans son alerte */
+        for(const u of autres){
+          const perso=consignes[u]?(txt+' À préparer : '+consignes[u]):txt;
+          await reunionPrevenir([u], perso, 'Nouvelle réunion · '+((COMP&&COMP.name)||''));
+        }
       }
       toast(dates.length>1?(dates.length+' réunions planifiées'+(_dashAlert&&autres.length?' — les participants sont prévenus.':'.'))
                           :((_dashAlert&&autres.length)?'Réunion planifiée — les participants sont prévenus.':'Réunion planifiée.'));
@@ -5714,13 +5776,13 @@
        n'entre avec un vieil écran ou un lien récupéré ailleurs. */
     let r=null;
     try{ const d=await roomCol().doc(id).get(); r=d.exists?{id:d.id,...(d.data()||{})}:null; }catch(e){}
-    if(!r){ reunionRefus('introuvable',name); return; }
-    if(!reunionMienne(r)){ reunionRefus('prive',r.name||name); return; }
+    if(!r){ await reunionRefus('introuvable',name); return; }
+    if(!reunionMienne(r)){ await reunionRefus('prive',r.name||name); return; }
     if(r.scheduledAt){
       await reunionsPresences();
       const et=reunionEtat(r,reunionGens(id)>0);
-      if(et==='avant'||et==='bientot'){ reunionRefus(et,r.name||name,r); return; }
-      if(et==='finie'){ reunionRefus('finie',r.name||name,r); return; }
+      if(et==='avant'||et==='bientot'){ await reunionRefus(et,r.name||name,r); return; }
+      if(et==='finie'){ await reunionRefus('finie',r.name||name,r); return; }
     }
     reunionSigne(id);                       // on inscrit son passage : l'historique le dira
     reunionPorte(reunionSalle(id), r.name||name||'Réunion');
@@ -5741,8 +5803,45 @@
     }catch(e){}
   }
   /* ── ON EXPLIQUE LE REFUS, sans jargon ── */
-  function reunionRefus(quoi,nom,r){
+  /* ══ QUI EST INVITÉ ══
+     Sur l'écran d'attente, on veut savoir avec qui on va se réunir — et ce
+     qu'on doit avoir préparé avant d'entrer. */
+  function reunionQuiHtml(r){
+    if(!r) return '';
+    const ids=(r.members||[]).slice();
+    const cons=r.consignes||{};
+    const gravés=r.noms||{};
+    const nomDe=u=>{ if(u===ME.uid) return ((USER&&USER.name)||'Moi');
+      if(gravés[u]) return gravés[u];
+      const m=_members.find(x=>x.uid===u); return (m&&m.name)||'Un collègue'; };
+    let h='';
+    /* d'abord CE QUE MOI je dois préparer : c'est le plus utile */
+    if(cons[ME.uid])
+      h+=`<div style="text-align:left;margin-bottom:10px;padding:11px 13px;border-radius:12px;background:rgba(224,140,30,.14);border:1px solid rgba(224,140,30,.35)">
+        <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--t2);margin-bottom:3px">📌 CE QUE TU DOIS PRÉPARER</div>
+        <div style="font-size:13px;line-height:1.5;font-weight:600">${esc(cons[ME.uid])}</div></div>`;
+    if(!ids.length&&!r.ouverte) return h;
+    h+=`<div style="text-align:left;border-top:1px solid var(--sep);padding-top:10px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--t3);margin-bottom:7px">
+        ${ids.length?('QUI EST INVITÉ ('+ids.length+')'):'RÉUNION OUVERTE'}</div>`;
+    h+=ids.map(u=>{ const nm=nomDe(u), est=u===r.createdBy, moi=u===ME.uid, note=cons[u]||'';
+      return `<div style="display:flex;align-items:flex-start;gap:9px;padding:5px 0">
+        <span class="ava" style="width:28px;height:28px;border-radius:50%;font-size:11px;font-weight:800;flex:0 0 auto;display:flex;align-items:center;justify-content:center;${avatarStyle(nm)}">${ini(nm)}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}${moi?' <span style="font-size:10.5px;color:var(--t3);font-weight:600">· toi</span>':''}${est?' <span style="font-size:10.5px;color:var(--t3);font-weight:600">· organisateur</span>':''}</div>
+          ${note?`<div style="font-size:11px;color:var(--t2);margin-top:1px;line-height:1.45">📌 ${esc(note)}</div>`:''}
+        </div></div>`; }).join('');
+    if(r.ouverte) h+=`<div style="font-size:11px;color:var(--t3);margin-top:6px">Et toute l\u2019entreprise peut rejoindre.</div>`;
+    h+='</div>';
+    return h;
+  }
+  async function reunionRefus(quoi,nom,r){
     const q=esc(nom||'cette réunion');
+    /* on a besoin des noms pour dire qui est invité */
+    if(r&&(r.members||[]).length&&!_members.length){
+      try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){}
+    }
+    const qui=(quoi==='prive')?'':reunionQuiHtml(r);
     if(quoi==='prive')
       openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">🔒</div>
         <h3 style="font-size:17px;margin:10px 0 6px">Réunion privée</h3>
@@ -5754,12 +5853,14 @@
         <h3 style="font-size:17px;margin:10px 0 6px">Ce n\u2019est pas encore l\u2019heure</h3>
         <p class="muted" style="font-size:13.5px;line-height:1.6;margin:0 0 4px"><b>${q}</b> commence ${r&&r.scheduledAt?esc(fmtWhen(r.scheduledAt)):''}.<br>
         La salle ouvre <b>5 minutes avant</b>${reste?' — dans '+esc(reste):''}.</p></div>
+        ${qui}
         <div data-pied><button class="btn ghost block" onclick="closeSheet()">D\u2019accord</button></div>`);
     }
     else if(quoi==='finie')
       openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">✅</div>
         <h3 style="font-size:17px;margin:10px 0 6px">Réunion terminée</h3>
         <p class="muted" style="font-size:13.5px;line-height:1.6;margin:0 0 4px"><b>${q}</b> est finie et la salle est fermée.<br>Demande à l\u2019organisateur d\u2019en planifier une nouvelle.</p></div>
+        ${qui}
         <div data-pied><button class="btn ghost block" onclick="closeSheet()">D\u2019accord</button></div>`);
     else
       openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">❓</div>
@@ -6270,13 +6371,16 @@
     pickMaj('im-membres');
   }
   async function instantMeetingGo(){
-    const sel=[...document.querySelectorAll('#im-membres .chk.sel')].map(x=>x.dataset.uid);
+    const cochés=[...document.querySelectorAll('#im-membres .chk.sel')];
+    const sel=cochés.map(x=>x.dataset.uid);
     const tous=!!($('im-tous')&&$('im-tous').classList.contains('sel'));
     if(!sel.length&&!tous){ toast('Choisis au moins une personne, ou « Toute l\u2019entreprise »'); return; }
     const d=new Date();
     const name='Réunion du '+d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
     const members=Array.from(new Set([ME.uid,...sel]));
-    const data={name,createdBy:ME.uid,members,createdAt:FV()};
+    const noms={}; noms[ME.uid]=(USER&&USER.name)||'Moi';
+    cochés.forEach(x=>{ if(x.dataset.name) noms[x.dataset.uid]=x.dataset.name; });
+    const data={name,createdBy:ME.uid,members,createdAt:FV(),noms};
     if(tous) data.ouverte=true;
     try{
       const ref=await fs.collection('op_companies').doc(COMP.id).collection('rooms').add(data);
@@ -6323,8 +6427,11 @@
     pickMaj('nr-members'); dcLabel(); }
   async function createRoom(){ const name=($('nr-name').value||'').trim(); if(!name){ $('nrerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
     const scheduledAt = momentChoisi() || null;
-    const sel=[...document.querySelectorAll('#nr-members .chk.sel')].map(x=>x.dataset.uid); const members=Array.from(new Set([ME.uid,...sel]));
-    const data={name,createdBy:ME.uid,members,createdAt:FV()};
+    const cochés=[...document.querySelectorAll('#nr-members .chk.sel')];
+    const sel=cochés.map(x=>x.dataset.uid); const members=Array.from(new Set([ME.uid,...sel]));
+    const noms={}; noms[ME.uid]=(USER&&USER.name)||'Moi';
+    cochés.forEach(x=>{ if(x.dataset.name) noms[x.dataset.uid]=x.dataset.name; });
+    const data={name,createdBy:ME.uid,members,createdAt:FV(),noms};
     if(scheduledAt) data.scheduledAt=scheduledAt;
     { const d=$('nr-duree'); const v=d?parseInt(d.value,10):0; if(v>0) data.dureeMin=v; }
     { const t=$('nr-tous'); if(t&&t.classList.contains('sel')) data.ouverte=true; }
