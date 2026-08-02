@@ -251,6 +251,11 @@
   .listbox{border:1px solid var(--card-brd);border-radius:16px;overflow:hidden;background:var(--card)}
   .listbox>*+*{border-top:1px solid var(--sep)}
   .lrow{display:flex;align-items:center;gap:14px;padding:16px 18px;cursor:pointer;transition:background .15s}
+  /* en mode sélection : la ligne entière se coche */
+  .lrow.choisir{user-select:none}
+  .lrow.sel{background:var(--tint2)}
+  .lrow.sel .cbx{background:var(--op);border-color:var(--op)}
+  .lrow.sel .cbx::after{opacity:1;transform:rotate(45deg) scale(1)}
   .lrow:hover{background:var(--hov)}
   .cava{width:44px;height:44px;flex-shrink:0;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800}
   .pdot{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:999px;border:2px solid var(--card)}
@@ -662,7 +667,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='621';
+  const APP_VERSION='622';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -752,6 +757,22 @@
   const ROLES={entreprise:'Patron',responsable:'Responsable',classique:'Membre'};
   function estPatron(){ return !!IS_OWNER || _monRole==='entreprise'; }
   function peutReunion(){ return MODE==='company' && HAS_COMPANY && (estPatron() || _monRole==='responsable'); }
+  /* ══ SUPPRIMER UNE RÉUNION ══
+     Deux personnes seulement : CELLE QUI L'A CRÉÉE, et le patron. Un
+     responsable peut organiser une réunion, mais il n'efface pas celles des
+     autres. C'est exactement ce que les règles de sécurité de Google
+     appliquent de leur côté : l'application dit la même chose que le
+     serveur, donc on n'a jamais un bouton qui promet ce qui sera refusé. */
+  function peutSupprimerReunion(r){
+    if(!r) return false;
+    if(r.createdBy===ME.uid) return true;
+    return estPatron();
+  }
+  function pourquoiPasSupprimer(r){
+    if(!r) return 'Cette réunion n\u2019existe plus.';
+    return 'Seul '+((r.noms||{})[r.createdBy]?esc((r.noms||{})[r.createdBy]):'l\u2019organisateur')
+      +' ou le patron peut supprimer cette réunion.';
+  }
   function peutBouger(r){ return peutReunion() && (estPatron() || !r || r.createdBy===ME.uid); }
   function refusReunion(){ toast('Seuls le patron et les responsables peuvent créer une réunion.'); }
   let ME=null,USER=null,COMP=null,IS_OWNER=false,_files={},_lastCreds=null,_unsub=null,_curView='disc',_msgCache={};
@@ -2297,12 +2318,14 @@
       ${perm?`<div style="font-size:11.5px;color:var(--t2);margin-top:6px;line-height:1.5">Le cloud bloque les réponses aux réunions. Il faut ajouter l’autorisation dans les règles Firebase — dis-le-moi, je te donne la ligne exacte à coller.</div>`:''}</div>`;
     if(z) z.innerHTML=h; else toast(msg);
   }
-  async function rsvpRepond(id,etat,min){
+  async function rsvpRepond(id,etat,min,motif){
     let r=null; try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).get(); r=d.data()||{}; }
     catch(e){ toast('Réunion introuvable'); return; }
     const dejaLa=await rsvpCharge(id);
     const anc=dejaLa[ME.uid];
-    const mot=(($('rsvp-mot')||{}).value||'').trim().slice(0,140);
+    /* le motif choisi l'emporte sur le champ libre : c'est le geste le plus récent */
+    const mot=((motif!==undefined&&motif!==null&&String(motif).trim())
+      ? String(motif).trim() : (($('rsvp-mot')||{}).value||'').trim()).slice(0,140);
     const ma={etat:etat,min:(etat==='retard'?(parseInt(min,10)||15):0),mot:mot,
               nom:(USER&&USER.name)||'',le:Date.now()};
     try{ await rsvpCol(id).doc(ME.uid).set(ma); }
@@ -2356,6 +2379,27 @@
     for(const u of sans){ await rsvpRelance(id,u); }
     toast(sans.length+' relance'+(sans.length>1?'s':'')+' envoyée'+(sans.length>1?'s':''));
   }
+  /* ══ ABSENT : ON DIT POURQUOI ══
+     « Absent » tout court ne sert à rien à l'organisateur : il ne sait pas
+     s'il doit décaler, remplacer, ou laisser courir. Un motif en un toucher,
+     et tout le monde sait à quoi s'en tenir. */
+  const MOTIFS_ABSENCE=['Sur un chantier','Chez un client','En congés','Malade','En déplacement','Autre réunion'];
+  function rsvpAbsentChoix(id){
+    const z=$('rsvp-absent'); if(!z) return;
+    const r=$('rsvp-retard'); if(r) r.style.display='none';       // une seule liste ouverte
+    z.innerHTML=`<div style="width:100%;font-size:11.5px;font-weight:700;color:var(--t2);margin-bottom:2px">Pourquoi ? L\u2019organisateur le verra.</div>`
+      +MOTIFS_ABSENCE.map(m=>`<span onclick="rsvpAbsent('${id}','${esc(m.replace(/'/g,''))}')" style="font-size:11.5px;font-weight:700;padding:8px 13px;border-radius:9px;border:1px solid var(--brd2);color:var(--t1);cursor:pointer">${esc(m)}</span>`).join('')
+      +`<span onclick="rsvpAbsentLibre('${id}')" style="font-size:11.5px;font-weight:800;padding:8px 13px;border-radius:9px;border:1px solid var(--red);color:var(--red);cursor:pointer">Autre motif\u2026</span>`
+      +`<span onclick="rsvpAbsent('${id}','')" style="font-size:11.5px;font-weight:700;padding:8px 12px;border-radius:9px;color:var(--t3);cursor:pointer">Je préfère ne pas dire</span>`;
+    z.style.display='flex';
+  }
+  function rsvpAbsent(id,motif){ rsvpRepond(id,'non',0,motif||''); }
+  async function rsvpAbsentLibre(id){
+    const v=await opSaisie('Une phrase suffit — elle part à l\u2019organisateur.','',
+      {titre:'Pourquoi es-tu absent ?',max:140,oui:'Envoyer'});
+    if(v===null) return;
+    rsvpRepond(id,'non',0,(v||'').trim());
+  }
   function rsvpRetardChoix(id){
     const z=$('rsvp-retard'); if(!z) return;
     z.innerHTML=[5,10,15,30].map(m=>`<span onclick="rsvpRepond('${id}','retard',${m})" style="font-size:11.5px;font-weight:800;padding:7px 13px;border-radius:9px;border:1px solid var(--brd2);color:var(--amber);cursor:pointer">+${m} min</span>`).join('')
@@ -2380,13 +2424,14 @@
     const ma=rsvpDe(r,ME.uid);
     const quand=r.scheduledAt?fmtWhen(r.scheduledAt):'';
     const btn=(k,lib)=>{ const on=ma&&ma.etat===k; const c=RSVP[k].c;
-      const clic=(k==='retard')?`rsvpRetardChoix('${id}')`:`rsvpRepond('${id}','${k}')`;
+      const clic=(k==='retard')?`rsvpRetardChoix('${id}')`
+                :(k==='non'?`rsvpAbsentChoix('${id}')`:`rsvpRepond('${id}','${k}')`);
       return `<span onclick="${clic}" style="flex:1;text-align:center;font-size:12px;font-weight:800;padding:11px 6px;border-radius:11px;cursor:pointer;
         border:1.5px solid ${on?c:'var(--brd2)'};color:${on?c:'var(--t2)'};${on?'background:'+RSVP[k].bg:''}">${lib}${on&&k==='retard'&&ma.min?' +'+ma.min+' min':''}</span>`; };
     const ligne=u=>{ const x=rsvpDe(r,u), nm=nomDe(u), est=u===r.createdBy;
       const pil=x?`<span style="font-size:10.5px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap;background:${RSVP[x.etat].bg};color:${RSVP[x.etat].c}">${x.etat==='retard'?'+'+(x.min||15)+' min':RSVP[x.etat].l}</span>`
         :`<span style="font-size:10.5px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap;background:var(--inp);color:var(--t3)">Sans réponse</span>`;
-      const sous=x?(x.mot?'« '+esc(x.mot)+' »':(x.le?'a répondu '+fmtWhen(x.le):'')):(est?'organisateur':'pas encore répondu');
+      const sous=x?(x.mot?((x.etat==='non'?'Absent : ':'')+'« '+esc(x.mot)+' »'):(x.le?'a répondu '+fmtWhen(x.le):'')):(est?'organisateur':'pas encore répondu');
       const note=(r.consignes||{})[u]||'';
       const rel=(!x&&u!==ME.uid&&r.createdBy===ME.uid)?`<span onclick="rsvpRelance('${id}','${esc(u)}')" style="font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:7px;border:1px solid var(--brd2);color:var(--t2);cursor:pointer;white-space:nowrap">Relancer</span>`:'';
       return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--sep)">
@@ -2400,13 +2445,15 @@
     openSheet(`<div data-titre="${esc(r.name||'Réunion')}" style="margin-bottom:12px">
         <small style="font-size:12.5px;color:var(--t2);display:block">${esc(quand)} → ${esc(heureFin(r))}${membres.length?' · '+membres.length+' convoqué'+(membres.length>1?'s':''):''}</small>
         <small style="font-size:11.5px;color:var(--t3);display:block;margin-top:2px">Durée prévue : ${esc(dureeTexte(dureeDe(r)))}</small>
-        ${r.desc?`<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--inp);font-size:12.3px;color:var(--t2);line-height:1.55;white-space:pre-wrap">${esc(r.desc)}</div>`:''}</div>
+        ${r.desc?`<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--inp);font-size:12.3px;color:var(--t2);line-height:1.55;white-space:pre-wrap">${esc(r.desc)}</div>`:''}
+        ${lieuBandeau(r)}</div>
       <div id="rsvp-err">${errLec?`<div style="margin:0 0 10px;padding:11px 13px;border-radius:11px;background:rgba(224,82,82,.14);border:1px solid var(--red)">
         <div style="font-size:12.5px;font-weight:800;color:var(--red)">Les réponses ne peuvent pas être lues (${esc(errLec)})</div>
         <div style="font-size:11.5px;color:var(--t2);margin-top:6px;line-height:1.5">Ta réponse est bien envoyée, mais le cloud refuse de la relire : c’est pour ça que rien ne s’affiche. Il manque une autorisation dans les règles Firebase.</div></div>`:''}</div>
       ${jeSuisDedans?`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:8px">TA RÉPONSE</div>
         <div style="display:flex;gap:8px">${btn('oui','Présent')}${btn('retard','En retard')}${btn('non','Absent')}</div>
         <div id="rsvp-retard" style="display:none;gap:7px;flex-wrap:wrap;margin-top:9px"></div>
+        <div id="rsvp-absent" style="display:none;gap:7px;flex-wrap:wrap;margin-top:9px"></div>
         <input id="rsvp-mot" maxlength="140" value="${esc((ma&&ma.mot)||'')}" placeholder="Un mot pour l'organisateur (facultatif)…"
           style="width:100%;margin-top:9px;padding:10px 12px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none">
         <div style="font-size:10.7px;color:var(--t3);margin-top:7px;line-height:1.5">Écris ton mot avant de choisir : il part avec la réponse. Tu peux changer d'avis jusqu'au début.</div>`:''}
@@ -2611,6 +2658,7 @@
         (_dcPrevu[iso]=_dcPrevu[iso]||[]).push({
           h:_hhmm(r.scheduledAt), hf:_hhmm(r.scheduledAt+d*60000),
           n:r.name||'Réunion', t:r.scheduledAt, fin:r.scheduledAt+d*60000, d,
+          ou:lieuCourt(r),
           par:nomDe(r.createdBy,r)||'—', moi:r.createdBy===ME.uid,
           gens:invites, nb:(r.members||[]).length, ouverte:r.ouverte===true });
       });
@@ -2627,6 +2675,7 @@
         <span style="flex:1;min-width:0;font-weight:700;font-size:${large?'13px':'12.5px'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.n)}</span>
         <span style="color:var(--t3);font-size:11px;white-space:nowrap">${esc(dureeDite(p.d))}</span>
       </div>
+      ${p.ou?`<div style="font-size:11px;color:var(--op-tx);font-weight:700;margin-top:3px">📍 ${esc(p.ou)}</div>`:''}
       <div style="font-size:11px;color:var(--t3);margin-top:3px">
         ${p.moi?'Tu l\u2019organises':'Organis\u00e9e par '+esc(p.par)}
         ${p.ouverte?' \u00b7 <span style="color:var(--op-tx);font-weight:700">ouverte \u00e0 tous</span>':' \u00b7 '+(p.nb||0)+' invit\u00e9'+((p.nb||0)>1?'s':'')}
@@ -2872,12 +2921,53 @@
     });
     return out;
   }
+  /* ══════════════════════════════════════════════════════════════════
+     OÙ ÇA SE PASSE
+     Toutes les réunions ne se font pas devant un écran. Trois choix :
+       • En visio      — chacun depuis son poste, la salle vidéo s'ouvre
+       • Sur place     — on se retrouve quelque part, pas de salle vidéo
+       • Les deux      — la salle est ouverte ET on peut venir sur place
+     Quand il y a un lieu, on le dit partout : dans la liste, dans le
+     calendrier, et sur l'écran d'attente.
+     ══════════════════════════════════════════════════════════════════ */
+  const FORMATS={ visio:{l:'En visio', i:'videocam', c:'Chacun depuis son poste'},
+                  place:{l:'Sur place', i:'location_on', c:'On se retrouve quelque part'},
+                  mixte:{l:'Les deux',  i:'groups',    c:'Salle vidéo + sur place'} };
+  function formatDe(r){ const f=(r&&r.format)||'visio'; return FORMATS[f]?f:'visio'; }
+  function aUneSalleVideo(r){ return formatDe(r)!=='place'; }
+  /* la mention courte, pour une ligne de liste */
+  function lieuCourt(r){
+    const f=formatDe(r);
+    if(f==='visio') return '';
+    const l=(r&&r.lieu||'').trim();
+    return (f==='place'?'sur place':'visio + sur place')+(l?' · '+l:'');
+  }
+  /* le bandeau, pour une fiche */
+  function lieuBandeau(r){
+    const f=formatDe(r); const l=(r&&r.lieu||'').trim();
+    if(f==='visio') return '';
+    return `<div style="display:flex;align-items:center;gap:9px;margin-top:10px;padding:10px 12px;border-radius:11px;background:var(--tint2)">
+      <span class="ms f1" style="font-size:18px;color:var(--tile-tx)">${FORMATS[f].i}</span>
+      <div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:800">${esc(FORMATS[f].l)}</div>
+      <div style="font-size:11.5px;color:var(--t2);margin-top:1px">${l?esc(l):'Le lieu n\u2019est pas précisé'}</div></div></div>`;
+  }
+  let _dashFormat='visio';
+  function dashFormatSet(f){ _dashFormat=FORMATS[f]?f:'visio'; dashFormatMaj(); }
+  function dashFormatMaj(){
+    const z=$('dp-format'); if(!z) return;
+    z.innerHTML=Object.keys(FORMATS).map(f=>{ const on=_dashFormat===f;
+      return `<span onclick="dashFormatSet('${f}')" title="${esc(FORMATS[f].c)}" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:7px 12px;border-radius:9px;cursor:pointer;
+        border:1.5px solid ${on?'var(--op)':'var(--brd2)'};color:${on?'var(--op-tx)':'var(--t2)'};${on?'background:var(--tint2)':''}">
+        <span class="ms${on?' f1':''}" style="font-size:15px">${FORMATS[f].i}</span>${esc(FORMATS[f].l)}</span>`; }).join('');
+    const l=$('dp-lieu-zone'); if(l) l.style.display=(_dashFormat==='visio')?'none':'block';
+  }
   let _dashEdit=null;
   async function dashForm(dateISO,heure,edit){
     if(!peutReunion()){ refusReunion(); return; }
     _dashEdit=edit||null;
     _dashSel=new Set([ME.uid]); _dashAlert=true; _dashRepet='une'; _dashRepetN=8;
     _dashNotes=(_dashEdit&&_dashEdit.consignes)?Object.assign({},_dashEdit.consignes):{};
+    _dashFormat=_dashEdit?formatDe(_dashEdit):'visio';
     _dashDuree=_dashEdit?dureeDe(_dashEdit):DUREE_DEF;
     if(_dashEdit&&Array.isArray(_dashEdit.members)) _dashEdit.members.forEach(u=>_dashSel.add(u));
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
@@ -2916,6 +3006,12 @@
       ${E?'':`<div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">RÉPÉTITION</div>
       <div id="dp-rep" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
       <div id="dp-repn" style="display:none;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap"></div>`}
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">OÙ ÇA SE PASSE ?</div>
+      <div id="dp-format" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
+      <div id="dp-lieu-zone" style="display:none;margin-top:8px">
+        <input id="dp-lieu" maxlength="120" value="${esc((E&&E.lieu)||'')}" placeholder="Où ? Ex : Bureau — salle du haut, chantier Camping Les Pins\u2026"
+          style="width:100%;padding:11px 13px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none">
+      </div>
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-top:14px">QUI PARTICIPE ?</div>
       <div id="dp-parts" style="margin-top:8px"></div>
       <div id="dp-notes" style="margin-top:14px"></div>
@@ -2925,7 +3021,7 @@
       </div>
       <div style="font-size:11px;color:var(--t2);margin-top:7px">Notification 15 min avant + rappel dans OP Messages</div>
       <div data-pied><button class="btn" style="font-weight:800;font-size:13.5px;padding:12px" onclick="dashPlan()">${E?'Enregistrer les changements':'Planifier la réunion'}</button></div>`);
-    setTimeout(()=>{ dcLabel(); try{ dashRepetMaj(); }catch(e){} try{ dashDureeMaj(); }catch(e){}
+    setTimeout(()=>{ dcLabel(); try{ dashRepetMaj(); }catch(e){} try{ dashDureeMaj(); }catch(e){} try{ dashFormatMaj(); }catch(e){}
 
       try{ dpPartRender(); }catch(e){}
       const n=$('dp-name'); if(n) n.focus(); },80);
@@ -3165,6 +3261,7 @@
     const consignes={}; members.forEach(u=>{ if(_dashNotes[u]) consignes[u]=_dashNotes[u]; });
     const aDesConsignes=Object.keys(consignes).length>0;
     const noms=nomsDeLaReunion(members,_dpMem);
+    const format=_dashFormat, lieu=(format==='visio')?'':((($('dp-lieu')||{}).value||'').trim().slice(0,120));
     const E=_dashEdit;
     try{
       const col=fs.collection('op_companies').doc(COMP.id).collection('rooms');
@@ -3172,7 +3269,7 @@
         /* on remplace la réunion : les règles n'autorisent pas de la modifier sur place */
         const d={name,desc,duree:_dashDuree,createdBy:ME.uid,members,createdAt:FV(),scheduledAt};
         if(aDesConsignes) d.consignes=consignes;
-        d.noms=noms;
+        d.noms=noms; d.format=format; if(lieu) d.lieu=lieu;
         if(E.serie){ d.serie=E.serie; d.repet=E.repet||''; }
         await col.add(d);
         try{ await col.doc(E.id).delete(); }catch(e){}
@@ -3194,7 +3291,7 @@
       for(const t of (dates.length?dates:[scheduledAt])){
         const d={name,desc,duree:_dashDuree,createdBy:ME.uid,members,createdAt:FV(),scheduledAt:t};
         if(aDesConsignes) d.consignes=consignes;
-        d.noms=noms;
+        d.noms=noms; d.format=format; if(lieu) d.lieu=lieu;
         if(serie){ d.serie=serie; d.repet=_dashRepet; }
         await col.add(d);
       }
@@ -3205,7 +3302,9 @@
         const t0=(dates.length?dates[0]:scheduledAt);
         const txt=`${(USER&&USER.name)||'L’organisateur'} t’a convié à « ${name} » — ${reunionQuand(t0)} · ${dureeTexte(_dashDuree)}`
           +(dates.length>1?` (et ${dates.length-1} autre${dates.length-1>1?'s':''} dans la série)`:'')
-          +`${desc?' — '+desc.slice(0,120):''}. Réponds Présent, En retard ou Absent.`;
+          +`${desc?' — '+desc.slice(0,120):''}`
+          +(format==='visio'?'' : ' — '+FORMATS[format].l+(lieu?' : '+lieu:''))
+          +`. Réponds Présent, En retard ou Absent.`;
         /* chacun reçoit SA consigne dans son alerte */
         for(const u of autres){
           const perso=consignes[u]?(txt+' À préparer : '+consignes[u]):txt;
@@ -5904,6 +6003,18 @@
     try{ const d=await roomCol().doc(id).get(); r=d.exists?{id:d.id,...(d.data()||{})}:null; }catch(e){}
     if(!r){ await reunionRefus('introuvable',name); return; }
     if(!reunionMienne(r)){ await reunionRefus('prive',r.name||name); return; }
+    /* une réunion qui se tient sur place n'a pas de salle vidéo : on montre
+       la fiche et le lieu, au lieu d'ouvrir une caméra pour rien */
+    if(!aUneSalleVideo(r)){
+      openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">📍</div>
+        <h3 style="font-size:17px;margin:10px 0 6px">Cette réunion se tient sur place</h3>
+        <p class="muted" style="font-size:13.5px;line-height:1.6;margin:0">${(r.lieu||'').trim()?('Rendez-vous : <b>'+esc(r.lieu)+'</b>'):'Le lieu n\u2019est pas précisé — demande à l\u2019organisateur.'}</p></div>
+        ${reunionQuiHtml(r)}
+        <div data-pied style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn ghost block" onclick="closeSheet();rsvpOuvre('${r.id}')">Voir la fiche et répondre</button>
+          <button class="btn ghost block" onclick="closeSheet()">Fermer</button></div>`);
+      return;
+    }
     if(r.scheduledAt){
       await reunionsPresences();
       const et=reunionEtat(r,reunionGens(id)>0);
@@ -5940,8 +6051,8 @@
     const nomDe=u=>{ if(u===ME.uid) return ((USER&&USER.name)||'Moi');
       if(gravés[u]) return gravés[u];
       const m=_members.find(x=>x.uid===u); return (m&&m.name)||'Un collègue'; };
-    let h='';
-    /* d'abord CE QUE MOI je dois préparer : c'est le plus utile */
+    let h=lieuBandeau(r);
+    /* puis CE QUE MOI je dois préparer : c'est le plus utile */
     if(cons[ME.uid])
       h+=`<div style="text-align:left;margin-bottom:10px;padding:11px 13px;border-radius:12px;background:rgba(224,140,30,.14);border:1px solid rgba(224,140,30,.35)">
         <div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--t2);margin-bottom:3px">📌 CE QUE TU DOIS PRÉPARER</div>
@@ -6361,10 +6472,65 @@
         <button class="bk" onclick="closePage()">${ic('back',26)}</button>
         <div class="ava" style="background:var(--blk-green);color:var(--blk-green-tx);border-radius:11px">${ms('videocam',20)}</div>
         <div class="ti"><b>Réunions</b><span>${esc(COMP.name)}</span></div>
+        <span id="reun-selbtn"></span>
         ${peutReunion()?`<button class="hbtn green" onclick="newRoom()" title="Planifier une réunion">${ms('event',18)}Planifier</button>`:''}
       </div>
-      <div class="view" style="padding:14px 14px 30px" id="reun-body"><p class="muted center">Chargement…</p></div>`);
+      <div class="view" style="padding:14px 14px 30px" id="reun-body"><p class="muted center">Chargement…</p></div>
+      <div id="reun-actions" style="display:none;position:absolute;left:0;right:0;bottom:0;z-index:5;align-items:center;gap:8px;
+        padding:12px 14px calc(12px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--card-brd);
+        box-shadow:0 -8px 24px rgba(0,0,0,.12)"></div>`);
+    _reunMode=false; _reunSel=new Set();
     return openReunionsCorps();
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     LA SÉLECTION : cocher plusieurs réunions et les effacer d'un coup
+     Utile quand l'historique s'est rempli d'essais. On ne peut cocher que
+     ce qu'on a le droit d'effacer : les autres lignes affichent un cadenas
+     au lieu d'une case, et disent pourquoi si on les touche.
+     ══════════════════════════════════════════════════════════════════ */
+  let _reunMode=false, _reunSel=new Set(), _reunTout={}, _reunHisto=[];
+  function reunSelOuvre(){ _reunMode=true; _reunSel=new Set(); openReunions(true); }
+  function reunSelFerme(){ _reunMode=false; _reunSel=new Set(); openReunions(true); }
+  function reunSelBascule(id){
+    const r=_reunTout[id];
+    if(!peutSupprimerReunion(r)){ toast(pourquoiPasSupprimer(r).replace(/<[^>]*>/g,'')); return; }
+    if(_reunSel.has(id)) _reunSel.delete(id); else _reunSel.add(id);
+    reunSelMaj();
+  }
+  function reunSelTout(){
+    const miennes=Object.keys(_reunTout).filter(id=>peutSupprimerReunion(_reunTout[id]));
+    const tout=miennes.length>0&&miennes.every(id=>_reunSel.has(id));
+    _reunSel=tout?new Set():new Set(miennes);
+    openReunions(true);
+  }
+  /* on ne redessine pas toute la page à chaque case cochée : ça saute */
+  function reunSelMaj(){
+    document.querySelectorAll('#reun-body [data-rid]').forEach(el=>{
+      const on=_reunSel.has(el.dataset.rid);
+      el.classList.toggle('sel',on);
+      const c=el.querySelector('.cbx'); if(c) c.parentElement.classList.toggle('sel',on);
+    });
+    const n=_reunSel.size;
+    const b=$('reun-actions-n'); if(b) b.textContent=n?(n+' réunion'+(n>1?'s':'')+' sélectionnée'+(n>1?'s':'')):'Aucune sélection';
+    const s2=$('reun-suppr'); if(s2){ s2.disabled=!n; s2.style.opacity=n?'1':'.45'; s2.textContent=n?('Supprimer '+n):'Supprimer'; }
+    const t=$('reun-tout'); if(t){
+      const miennes=Object.keys(_reunTout).filter(id=>peutSupprimerReunion(_reunTout[id]));
+      t.textContent=(miennes.length>0&&miennes.every(id=>_reunSel.has(id)))?'Tout décocher':'Tout cocher'; }
+  }
+  async function reunSupprSel(){
+    const ids=[..._reunSel].filter(id=>peutSupprimerReunion(_reunTout[id]));
+    if(!ids.length) return;
+    const n=ids.length;
+    if(!await opConfirme(n>1?(n+' réunions disparaîtront pour tous les participants.'):'Elle disparaîtra pour tous les participants.',
+      {titre:n>1?('Supprimer ces '+n+' réunions ?'):'Supprimer cette réunion ?',oui:'Supprimer',danger:true})) return;
+    let fait=0, rate=0;
+    for(const id of ids){
+      try{ await roomCol().doc(id).delete(); fait++; }catch(e){ rate++; }
+    }
+    _reunMode=false; _reunSel=new Set();
+    toast(rate? (fait+' supprimée'+(fait>1?'s':'')+' · '+rate+' refusée'+(rate>1?'s':''))
+              : (fait+' réunion'+(fait>1?'s':'')+' supprimée'+(fait>1?'s':'')));
+    openReunions(true);
   }
   async function openReunionsCorps(){
     let sched=[]; let perm=[];
@@ -6386,9 +6552,20 @@
        depuis 2 heures rejoint l'historique : la liste reste lisible */
     const dormante=r=>(!r.scheduledAt && r.derniereA && (Date.now()-r.derniereA)>2*3600000 && !reunionGens(r.id));
     perm.filter(dormante).forEach(r=>past.push(r));
+    _reunHisto=past;
     perm=perm.filter(r=>!dormante(r));
     past.sort((a,b)=>((b.derniereA||b.scheduledAt||0)-(a.derniereA||a.scheduledAt||0)));
-    const canDel=r=>(r.createdBy===ME.uid||IS_OWNER);
+    const canDel=r=>peutSupprimerReunion(r);
+    /* on garde sous la main tout ce qui est à l'écran : la sélection en a besoin */
+    _reunTout={}; [...sched,...perm,...(_reunHisto||[])].forEach(r=>{ if(r&&r.id) _reunTout[r.id]=r; });
+    const jePeuxEnEffacer=Object.keys(_reunTout).some(id=>canDel(_reunTout[id]));
+    if(!jePeuxEnEffacer) _reunMode=false;
+    /* la case (ou le cadenas) au début de chaque ligne, en mode sélection */
+    const caseSel=r=>{
+      if(!_reunMode) return '';
+      if(!canDel(r)) return `<span class="ms" title="Tu ne peux pas supprimer celle-ci" style="font-size:19px;color:var(--t3);flex:0 0 auto;width:22px;text-align:center">lock</span>`;
+      return `<span class="chk" style="display:contents"><span class="cbx"></span></span>`;
+    };
     const dtile=t=>{ const d=new Date(t); const mo=d.toLocaleDateString('fr-FR',{month:'short'}).replace('.','').toUpperCase();
       return `<div style="width:44px;height:44px;flex:none;border-radius:11px;background:var(--tile-bg);display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:17px;font-weight:800;line-height:1;color:var(--tile-tx)">${d.getDate()}</div><div style="font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--tile-tx);margin-top:2px">${esc(mo)}</div></div>`; };
     /* CHAQUE LIGNE DIT LA VÉRITÉ : le bouton ne promet jamais une salle
@@ -6396,7 +6573,8 @@
     const roomRow=(r,extra,next)=>{
       const gens=reunionGens(r.id);
       const et=reunionEtat(r,gens>0);
-      const ouvrable=(et==='permanente'||et==='ouverte');
+      const ouvrable=(et==='permanente'||et==='ouverte')&&aUneSalleVideo(r);
+      const surPlace=!aUneSalleVideo(r);
       const nomJs=esc((r.name||'').replace(/'/g,''));
       const pastille=(c,t)=>`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};margin-right:6px;vertical-align:middle"></span>${t}`;
       let sous=extra, coul='var(--t3)', txt='';
@@ -6408,20 +6586,23 @@
         sous=pastille('#3ecf8e',gens?(gens+' personne'+(gens>1?'s':'')+' dedans'):'la salle est ouverte'); }
       else if(et==='finie'){ sous=pastille('#3a4a6d',extra+' · terminée'); txt='terminée'; }
       else if(et==='permanente'&&gens) sous=pastille('#3ecf8e',gens+' personne'+(gens>1?'s':'')+' dedans');
-      const bouton = ouvrable
+      const bouton = surPlace
+        ? `<button class="joinbtn" style="background:var(--tint2);color:var(--op-tx)" onclick="event.stopPropagation();rsvpOuvre('${r.id}')">${ms('location_on',15)} Sur place</button>`
+        : ouvrable
         ? `<button class="joinbtn" onclick="closePage();joinRoom('${r.id}','${nomJs}')">Rejoindre</button>`
         : (et==='bientot'
           ? `<button class="joinbtn" style="background:#c9922f;color:#1a1306" onclick="joinRoom('${r.id}','${nomJs}')">Bientôt</button>`
           : (et==='avant'
             ? `<button class="joinbtn" style="background:var(--inp);color:var(--t3)" onclick="joinRoom('${r.id}','${nomJs}')">Pas encore</button>`
             : `<span style="font-size:11.5px;font-weight:600;color:var(--t3)">${esc(txt)}</span>`));
-      return `<div class="lrow">
+      return `<div class="lrow${_reunMode?' choisir':''}${_reunSel.has(r.id)?' sel':''}" data-rid="${esc(r.id)}"${_reunMode?` onclick="reunSelBascule('${r.id}')"`:''}>
+        ${caseSel(r)}
         ${r.scheduledAt?dtile(r.scheduledAt):`<div class="cava" style="border-radius:11px;background:var(--blk-green);color:var(--blk-green-tx)">${ms('videocam',20)}</div>`}
-        <div style="flex:1;min-width:0" onclick="${ouvrable?`closePage();`:''}joinRoom('${r.id}','${nomJs}')"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}${r.ouverte?' <span style="font-size:10px;font-weight:800;letter-spacing:.05em;color:var(--t3)">· TOUTE L\u2019ÉQUIPE</span>':''}</div>
+        <div style="flex:1;min-width:0"${_reunMode?'':` onclick="${surPlace?`rsvpOuvre('${r.id}')`:((ouvrable?`closePage();`:'')+`joinRoom('${r.id}','${nomJs}')`)}"`}><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}${r.ouverte?' <span style="font-size:10px;font-weight:800;letter-spacing:.05em;color:var(--t3)">· TOUTE L\u2019ÉQUIPE</span>':''}</div>
           <div style="font-size:13px;color:var(--t2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sous}</div></div>
-        ${(et!=='avant'&&et!=='bientot'&&txt&&!ouvrable)?'':`<span style="font-size:11.5px;font-weight:700;color:${coul};font-family:'Space Mono',monospace;margin-right:2px">${esc(et==='permanente'?'':txt)}</span>`}
+        ${_reunMode?'':`${(et!=='avant'&&et!=='bientot'&&txt&&!ouvrable)?'':`<span style="font-size:11.5px;font-weight:700;color:${coul};font-family:'Space Mono',monospace;margin-right:2px">${esc(et==='permanente'?'':txt)}</span>`}
         ${bouton}
-        ${canDel(r)?`<button class="rbtn" style="color:var(--red)" title="Supprimer" onclick="event.stopPropagation();delRoom('${r.id}')">🗑</button>`:''}
+        ${canDel(r)?`<button class="rbtn" style="color:var(--red)" title="Supprimer" onclick="event.stopPropagation();delRoom('${r.id}')">🗑</button>`:''}`}
       </div>`; };
     let h=`
       <div class="card" style="padding:18px 16px;margin-bottom:18px">
@@ -6445,7 +6626,8 @@
         duree=(m<60?(m+' min'):(Math.floor(m/60)+' h'+(m%60?' '+(m%60):'')));
       }
       const av=(nom)=>`<div title="${esc(nom)}" style="width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;margin-left:-7px;border:2px solid var(--card);${avatarStyle(nom)}">${ini(nom)}</div>`;
-      return `<div class="lrow">
+      return `<div class="lrow${_reunMode?' choisir':''}${_reunSel.has(r.id)?' sel':''}" data-rid="${esc(r.id)}"${_reunMode?` onclick="reunSelBascule('${r.id}')"`:''}>
+        ${caseSel(r)}
         ${r.scheduledAt?dtile(r.scheduledAt):`<div class="cava" style="border-radius:11px;background:var(--inp);color:var(--t3)">${ms('videocam',20)}</div>`}
         <div style="flex:1;min-width:0">
           <div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'')}</div>
@@ -6456,18 +6638,37 @@
             <span style="font-size:12px;color:${n?'var(--t2)':'var(--t3)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n?esc(qui):'personne n\u2019est venu'}</span>
           </div>
         </div>
-        <span style="font-size:11.5px;font-weight:600;color:var(--t3);white-space:nowrap">${n?(n+' participant'+(n>1?'s':'')):''}</span>
-        ${canDel(r)?`<button class="rbtn" style="color:var(--red)" title="Supprimer" onclick="event.stopPropagation();delRoom('${r.id}')">🗑</button>`:''}
+        ${_reunMode?'':`<span style="font-size:11.5px;font-weight:600;color:var(--t3);white-space:nowrap">${n?(n+' participant'+(n>1?'s':'')):''}</span>
+        ${canDel(r)?`<button class="rbtn" style="color:var(--red)" title="Supprimer" onclick="event.stopPropagation();delRoom('${r.id}')">🗑</button>`:''}`}
       </div>`; };
     /* la liste se rafraîchit toute seule : le compte à rebours vit */
     if(_reunTick) clearInterval(_reunTick);
     _reunTick=setInterval(()=>{ try{ if($('reun-body')) openReunions(true); else { clearInterval(_reunTick); _reunTick=null; } }catch(e){} },30000);
-    if(upcoming.length){ h+=`<div class="sec-lbl">À venir (${upcoming.length})</div><div class="listbox" style="margin-bottom:14px">`+upcoming.map((r,i)=>{ const mine=(r.members||[]).length; return roomRow(r, esc(fmtWhen(r.scheduledAt))+' · '+esc(fmtCountdown(r.scheduledAt-now))+(mine?' · '+mine+' invité'+(mine>1?'s':''):''), i===0); }).join('')+'</div>'; }
+    if(upcoming.length){ h+=`<div class="sec-lbl">À venir (${upcoming.length})</div><div class="listbox" style="margin-bottom:14px">`+upcoming.map((r,i)=>{ const mine=(r.members||[]).length; const ou=lieuCourt(r);
+      return roomRow(r, esc(fmtWhen(r.scheduledAt))+' · '+esc(fmtCountdown(r.scheduledAt-now))+(mine?' · '+mine+' invité'+(mine>1?'s':''):'')+(ou?' · '+esc(ou):''), i===0); }).join('')+'</div>'; }
     if(perm.length){ h+=`<div class="sec-lbl">Salles permanentes (${perm.length})</div><div class="listbox" style="margin-bottom:14px">`+perm.map(r=>roomRow(r,'Salle ouverte · partage d\'écran',true)).join('')+'</div>'; }
     if(past.length){ h+=`<div class="sec-lbl">Historique (${past.length})</div><div class="listbox">`
       +past.slice(0,20).map(r=>reunionPassee(r)).join('')+'</div>'; }
     if(!upcoming.length&&!perm.length&&!past.length) h+=`<div style="text-align:center;padding:30px 10px;color:var(--t3)"><div style="font-size:38px;margin-bottom:8px">🎥</div>Aucune réunion pour l'instant.<br>Démarrez-en une ou planifiez-la.</div>`;
+    if(_reunMode) h+='<div style="height:78px"></div>';       // la barre du bas ne cache rien
     const b=$('reun-body'); if(b) b.innerHTML=h;
+    /* le bouton « Sélectionner » n'apparaît que si on a des réunions à effacer */
+    const z=$('reun-selbtn');
+    if(z) z.innerHTML = (jePeuxEnEffacer&&!_reunMode)
+      ? `<button class="hbtn" style="border:1px solid var(--brd2);background:transparent" onclick="reunSelOuvre()" title="Choisir des réunions à supprimer">${ms('check_circle',17)}Sélectionner</button>` : '';
+    /* la barre du bas : ce qu'on a coché, et le bouton rouge */
+    const a=$('reun-actions');
+    if(a){
+      if(!_reunMode){ a.style.display='none'; a.innerHTML=''; }
+      else{
+        a.style.display='flex';
+        a.innerHTML=`<span id="reun-actions-n" style="flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--t2)">Aucune sélection</span>
+          <span id="reun-tout" onclick="reunSelTout()" style="font-size:12px;font-weight:800;color:var(--op-tx);cursor:pointer;padding:6px 8px;white-space:nowrap">Tout cocher</span>
+          <button class="hbtn" style="border:1px solid var(--brd2);background:transparent" onclick="reunSelFerme()">Annuler</button>
+          <button class="hbtn" id="reun-suppr" style="background:var(--red);color:#fff" onclick="reunSupprSel()">Supprimer</button>`;
+        reunSelMaj();
+      }
+    }
   }
   /* ══ DÉMARRER MAINTENANT ══
      On choisit d'abord QUI on appelle — sinon on se retrouve seul dans une
@@ -6517,9 +6718,22 @@
       closePage(); joinRoom(ref.id,name);
     }catch(e){ opAlerte('Erreur : '+(e.message||e)); }
   }
-  async function delRoom(id){ if(!await opConfirme('Elle disparaîtra pour tous les participants.',
-    {titre:'Supprimer cette réunion ?',oui:'Supprimer',danger:true})) return;
-    try{ await fs.collection('op_companies').doc(COMP.id).collection('rooms').doc(id).delete(); toast('Réunion supprimée'); openReunions(); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
+  async function delRoom(id){
+    /* on relit la réunion à la source : le droit de supprimer se vérifie au
+       moment du geste, pas d'après un écran qui date */
+    let r=null; try{ const d=await roomCol().doc(id).get(); r=d.exists?{id:d.id,...(d.data()||{})}:null; }catch(e){}
+    if(!r){ toast('Cette réunion n\u2019existe plus'); openReunions(true); return; }
+    if(!peutSupprimerReunion(r)){
+      openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">🔒</div>
+        <h3 style="font-size:17px;margin:10px 0 6px">Tu ne peux pas supprimer celle-ci</h3>
+        <p class="muted" style="font-size:13.5px;line-height:1.6;margin:0 0 4px">${pourquoiPasSupprimer(r)}</p></div>
+        <div data-pied><button class="btn ghost block" onclick="closeSheet()">D\u2019accord</button></div>`);
+      return;
+    }
+    if(!await opConfirme('Elle disparaîtra pour tous les participants.',
+      {titre:'Supprimer « '+(r.name||'cette réunion')+' » ?',oui:'Supprimer',danger:true})) return;
+    try{ await roomCol().doc(id).delete(); toast('Réunion supprimée'); openReunions(true); }
+    catch(e){ opAlerte('Suppression refusée : '+(e.message||e)); } }
   async function newRoom(){ if(!peutReunion()){ refusReunion(); return; }
     openSheet('<p class="muted center">Chargement…</p>'); let chks='';
     try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get();
