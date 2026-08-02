@@ -571,7 +571,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='617';
+  const APP_VERSION='618';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -1420,8 +1420,9 @@
         <div id="dash-msg" style="min-width:0${window.innerWidth>=1180?'':';order:-1'}"></div>
       </div>
     </div>`;
-    let rooms=[]; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').get();
-      qs.forEach(d=>{ const r={id:d.id,...d.data()}; if(r.scheduledAt) rooms.push(r); }); }catch(e){}
+    /* le tableau de bord ne montre lui aussi que MES réunions */
+    let rooms=[]; try{ const l=await roomsVisibles();
+      l.forEach(r=>{ if(r.scheduledAt&&reunionMienne(r)) rooms.push(r); }); }catch(e){}
     if(_curView!=='dash') return;
     rooms.sort((a,b)=>a.scheduledAt-b.scheduledAt);
     /* on ne charge les réponses que des réunions à plusieurs, et seulement celles affichées */
@@ -2200,6 +2201,27 @@
   }
   /* ── Modifier ou annuler une réunion, et prévenir tout le monde ── */
   function roomCol(){ return fs.collection('op_companies').doc(COMP.id).collection('rooms'); }
+
+  /* ══ LIRE LES RÉUNIONS SANS JAMAIS DEMANDER CE QU'ON N'A PAS LE DROIT DE VOIR ══
+     Firebase refuse une demande ENTIÈRE si elle peut ramener un document
+     interdit. On ne demande donc jamais « toutes les réunions » : on demande
+     « celles où je suis invité » + « celles ouvertes à tous » + « les
+     miennes », et on assemble. Le patron, lui, a le droit de tout voir :
+     une seule demande lui suffit. */
+  async function roomsVisibles(){
+    const col=roomCol(), vus={}, out=[];
+    const avale=(qs)=>{ qs.forEach(d=>{ if(vus[d.id]) return; vus[d.id]=1; out.push({id:d.id,...(d.data()||{})}); }); };
+    try{
+      if(IS_OWNER){ avale(await col.get()); return out; }
+      const r=await Promise.all([
+        col.where('members','array-contains',ME.uid).get().catch(()=>({forEach:()=>{}})),
+        col.where('ouverte','==',true).get().catch(()=>({forEach:()=>{}})),
+        col.where('createdBy','==',ME.uid).get().catch(()=>({forEach:()=>{}}))
+      ]);
+      r.forEach(avale);
+    }catch(e){}
+    return out;
+  }
   /* inviter quelqu'un en cours de réunion lui donne VRAIMENT le droit
      d'entrer : sans ça, il recevrait l'invitation et resterait à la porte */
   async function reunionAjoute(roomId,uid){
@@ -2347,8 +2369,8 @@
     _dcPrevu={};
     try{
       if(!COMP||!COMP.id) return;
-      const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').get();
-      qs.forEach(d=>{ const r={id:d.id,...(d.data()||{})};
+      const l=await roomsVisibles();
+      l.forEach(r=>{
         if(!r.scheduledAt||!reunionMienne(r)) return;
         const iso=_dstr(new Date(r.scheduledAt));
         (_dcPrevu[iso]=_dcPrevu[iso]||[]).push({
@@ -5975,11 +5997,13 @@
   }
   async function openReunionsCorps(){
     let sched=[]; let perm=[];
-    try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('rooms').orderBy('createdAt','desc').get();
-      /* CHACUN NE VOIT QUE SES RÉUNIONS : celles où il est invité, celles
-         qu'il a créées, et celles ouvertes à toute l'entreprise. */
-      qs.forEach(d=>{ const r={id:d.id,...d.data()}; if(!reunionMienne(r)) return;
-        if(r.scheduledAt) sched.push(r); else perm.push(r); }); }catch(e){}
+    /* CHACUN NE VOIT QUE SES RÉUNIONS : celles où il est invité, celles
+       qu'il a créées, et celles ouvertes à toute l'entreprise. */
+    try{ const l=await roomsVisibles();
+      l.sort((a,b)=>((b.createdAt&&b.createdAt.seconds?b.createdAt.seconds*1000:b.createdAt||0)
+                    -(a.createdAt&&a.createdAt.seconds?a.createdAt.seconds*1000:a.createdAt||0)));
+      l.forEach(r=>{ if(!reunionMienne(r)) return; if(r.scheduledAt) sched.push(r); else perm.push(r); });
+    }catch(e){}
     sched.sort((a,b)=>a.scheduledAt-b.scheduledAt);
     await reunionsPresences();
     const now=Date.now();
