@@ -370,6 +370,29 @@
   .pickq:focus{border-color:var(--op)}
   /* viewer + jitsi */
   /* ══ LA PHOTO EN GRAND ══ */
+  /* ══ LE VERROU ══ */
+  .verrou{position:fixed;inset:0;z-index:99;background:linear-gradient(165deg,var(--op),oklch(0.30 0.10 290));
+    display:none;flex-direction:column;color:#fff;text-align:center}
+  .verrou.on{display:flex}
+  .vr-haut{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 24px 6px}
+  .vr-rond{width:78px;height:78px;border-radius:999px;background:rgba(255,255,255,.16);display:flex;
+    align-items:center;justify-content:center;font-size:34px;margin-bottom:16px}
+  .verrou h2{font-size:19px;font-weight:800;margin-bottom:5px}
+  .verrou p{font-size:13px;opacity:.85}
+  .vr-pts{display:flex;gap:12px;justify-content:center;margin:22px 0 4px;min-height:14px}
+  .vr-pts i{width:13px;height:13px;border-radius:999px;background:rgba(255,255,255,.3);display:block;transition:background .12s}
+  .vr-pts i.on{background:#fff}
+  .vr-err{min-height:20px;font-size:12.5px;font-weight:700;color:#ffd9d9;margin-top:8px}
+  .vr-bas{flex:1;display:flex;flex-direction:column;justify-content:flex-start;
+    padding:8px 0 calc(20px + env(safe-area-inset-bottom))}
+  .vr-clav{display:grid;grid-template-columns:repeat(3,84px);gap:12px;justify-content:center;margin:0 auto}
+  .vr-clav span{background:rgba(255,255,255,.14);border-radius:16px;padding:15px 0;font-size:22px;font-weight:700;
+    cursor:pointer;user-select:none;transition:background .12s}
+  .vr-clav span:active{background:rgba(255,255,255,.3)}
+  .vr-clav span.vide{background:transparent;cursor:default}
+  .vr-out{text-align:center;margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:center}
+  .vr-out span{font-size:13px;font-weight:700;cursor:pointer;padding:9px 18px;border-radius:12px;background:rgba(255,255,255,.14)}
+  @media(max-height:680px){ .vr-clav{grid-template-columns:repeat(3,72px);gap:9px} .vr-clav span{padding:12px 0;font-size:20px} .vr-rond{width:62px;height:62px;font-size:28px;margin-bottom:10px} }
   .photoplein{position:fixed;inset:0;z-index:95;background:rgba(6,8,14,.94);display:none;
     flex-direction:column;align-items:center;justify-content:center;padding:0 0 18px;
     -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
@@ -592,6 +615,21 @@
 <!-- LA PHOTO EN GRAND : elle s'ouvre PAR-DESSUS l'application, jamais dans
      un nouvel onglet. On la ferme d'un toucher n'importe où, avec la croix,
      avec Échap, ou avec le bouton retour du téléphone. -->
+<!-- LE VERROU : par-dessus tout, même la visio. Il ne se ferme qu'avec le
+     visage, l'empreinte ou le code — jamais avec le bouton retour. -->
+<div class="verrou" id="verrou">
+  <div class="vr-haut">
+    <div class="vr-rond">🔒</div>
+    <h2 id="vr-titre">OP MESSAGES est verrouillé</h2>
+    <p id="vr-sous">Ton code à 6 chiffres</p>
+    <div class="vr-pts" id="vr-pts"></div>
+    <div class="vr-err" id="vr-err"></div>
+  </div>
+  <div class="vr-bas">
+    <div class="vr-clav" id="vr-clav"></div>
+    <div class="vr-out" id="vr-out"></div>
+  </div>
+</div>
 <div class="photoplein" id="photoplein" onclick="photoFerme()">
   <div class="pp-bar" onclick="event.stopPropagation()">
     <span id="pp-nom">Photo</span>
@@ -706,7 +744,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='632';
+  const APP_VERSION='633';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -914,7 +952,11 @@
      lu » : là c'est le plus AVANCÉ qui gagne — on ne remet jamais des
      messages en non-lus parce qu'un vieil onglet traînait.
      ══════════════════════════════════════════════════════════════════ */
-  const SYNC_HORS=['opmsg_devid','opmsg_push_on','opmsg_push_ask_','opmsg_partage_ko','opmsg_lockpin','opmsg_sync_t'];
+  /* Ce qui ne quitte JAMAIS l'appareil : son identifiant, son abonnement aux
+     notifications, et surtout TOUT le verrouillage — un code de verrouillage
+     qui voyagerait dans le compte n'en serait plus un. */
+  const SYNC_HORS=['opmsg_devid','opmsg_push_on','opmsg_push_ask_','opmsg_partage_ko',
+                   'opmsg_lockpin','opmsg_verrou','opmsg_sync_t'];
   function syncClefSuit(k){
     if(typeof k!=='string'||k.indexOf('opmsg_')!==0) return false;
     return !SYNC_HORS.some(x=>k===x||k.indexOf(x)===0);
@@ -1119,6 +1161,77 @@
   const FV=()=>firebase.firestore.FieldValue.serverTimestamp();
   function loginEmail(v){ v=(v||'').trim().toLowerCase(); if(!v) return ''; return v.includes('@')?v:v.replace(/[^a-z0-9._-]/g,'')+'@opmsg.local'; }
   function siretValid(s){ return /^\d{14}$/.test((s||'').replace(/\s/g,'')); }
+  /* ══════════════════════════════════════════════════════════════════
+     UN MOT DE PASSE QUI TIENT
+
+     Le vrai risque, quand on ouvre l'application à toute une équipe, ce
+     n'est pas le pirate : c'est « 1234 », « azerty », ou le nom de
+     l'entreprise. On refuse ceux-là, et on DIT pourquoi — un refus sans
+     explication, personne ne le comprend et tout le monde s'énerve.
+
+     On ne demande pas des majuscules-chiffres-symboles obligatoires : la
+     recherche montre que ça produit « Pollet1! » partout. On demande de la
+     LONGUEUR, et on interdit l'évident.
+     ══════════════════════════════════════════════════════════════════ */
+  const MDP_MIN=10;
+  const MDP_COURANTS=['123456','1234567890','azerty','azertyuiop','qwerty','motdepasse','password','000000',
+    '111111','123123','abc123','iloveyou','soleil','bonjour','admin','welcome','loulou','doudou','chouchou',
+    'password1','motdepasse1','azerty123','qwerty123','123456789','1234567','12345678'];
+  function mdpForce(pass,ctx){
+    pass=String(pass||''); ctx=ctx||{};
+    const bas=pass.toLowerCase();
+    const manques=[], ok=[];
+    /* 1 — la longueur, c'est ce qui compte le plus */
+    if(pass.length>=MDP_MIN) ok.push('longueur'); else manques.push(MDP_MIN+' caractères au minimum');
+    /* 2 — pas un mot de passe que tout le monde essaie */
+    const connu=MDP_COURANTS.some(m=>bas===m||bas.indexOf(m)>=0);
+    if(!connu) ok.push('pas connu'); else manques.push('Ce mot de passe est trop connu — on l\u2019essaie en premier');
+    /* 3 — ni ton nom, ni ton entreprise, ni ton identifiant.
+       On découpe en MOTS : « Entreprise Pollet » doit faire refuser
+       « Pollet2026 », pas seulement la phrase entière. */
+    const mots=[];
+    [ctx.nom,ctx.entreprise,ctx.handle,(ctx.email||'').split('@')[0]].forEach(x=>{
+      if(!x) return;
+      String(x).toLowerCase().split(/[^a-zà-ÿ0-9]+/).forEach(m=>{ if(m.length>=4) mots.push(m); });
+    });
+    const perso=mots.some(m=>bas.indexOf(m)>=0);
+    if(!perso) ok.push('rien de personnel'); else manques.push('N\u2019utilise ni ton nom, ni celui de l\u2019entreprise');
+    /* 4 — recommandé, jamais bloquant */
+    const varie=/[0-9]/.test(pass)&&/[a-zA-Z]/.test(pass);
+    /* la note : 0 à 4 */
+    let note=0;
+    if(pass.length>=6) note=1;
+    if(pass.length>=MDP_MIN && !connu && !perso) note=2;
+    if(note>=2 && (pass.length>=14||varie)) note=3;
+    if(note>=3 && pass.length>=14 && varie) note=4;
+    if(manques.length) note=Math.min(note,1);
+    return {note:note, ok:(manques.length===0), manques:manques, varie:varie,
+            mot:['Trop court','Fragile','Correct','Solide','Très solide'][note]};
+  }
+  /* la jauge, à poser sous n'importe quel champ de mot de passe */
+  function mdpJauge(id,pass,ctx){
+    const z=$(id); if(!z) return;
+    const f=mdpForce(pass,ctx);
+    if(!pass){ z.innerHTML=''; return; }
+    const coul=f.note<=1?'var(--red)':(f.note===2?'var(--amber)':'var(--green)');
+    const barre=[0,1,2,3].map(i=>`<i style="flex:1;height:5px;border-radius:99px;background:${i<Math.max(1,f.note)?coul:'var(--inp)'};display:block"></i>`).join('');
+    const puce=(vu,txt)=>`<div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--t2);margin-top:5px">
+      <b style="width:16px;height:16px;border-radius:999px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:10px;
+        background:${vu?'var(--green)':'var(--inp)'};color:${vu?'#fff':'var(--t3)'}">${vu?'✓':'–'}</b>${esc(txt)}</div>`;
+    z.innerHTML=`<div style="display:flex;gap:4px;margin-top:9px">${barre}</div>
+      <div style="font-size:12px;font-weight:800;color:${coul};margin-top:7px">${esc(f.mot)}${f.note>=3?' — il faudrait des siècles pour le deviner':''}</div>
+      ${puce(pass.length>=MDP_MIN, MDP_MIN+' caractères au minimum')}
+      ${puce(!MDP_COURANTS.some(m=>pass.toLowerCase()===m||pass.toLowerCase().indexOf(m)>=0),'Ce n\u2019est pas un mot de passe connu')}
+      ${puce(!f.manques.some(m=>/nom/.test(m)),'Ni ton nom ni celui de l\u2019entreprise')}
+      ${''}
+      ${puce(f.varie,'Des chiffres ET des lettres (recommandé)')}`;
+  }
+  /* le refus, dit en français */
+  function mdpRefus(pass,ctx){
+    const f=mdpForce(pass,ctx);
+    if(f.ok) return '';
+    return f.manques[0];
+  }
   function code6(){ const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let r='';crypto.getRandomValues(new Uint8Array(6)).forEach(b=>r+=c[b%c.length]);return r; }
   function ini(n){ return (n||'?').trim().slice(0,1).toUpperCase(); }
   function hue(s){ let h=0; for(const c of (s||'x')) h=(h*31+c.charCodeAt(0))%360; return h; }
@@ -1239,6 +1352,203 @@
       const t=document.documentElement.getAttribute('data-theme')||'clair';
       const mt=document.querySelector('meta[name=theme-color]');
       if(mt) mt.setAttribute('content',FOND_HEX[g+'-'+t]||'#fdfdfe');
+    }catch(e){}
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     LE VERROUILLAGE DE L'APPLICATION
+
+     Facultatif : personne n'y est obligé. Celui qui l'active choisit un
+     code à 6 chiffres ; si son appareil sait reconnaître son visage ou son
+     empreinte, on le lui propose en plus — le code reste toujours en
+     secours, parce qu'un visage ne marche pas tous les jours.
+
+     Le code n'est JAMAIS écrit tel quel. On en garde une empreinte
+     (SHA-256, avec un grain de sel propre à l'appareil) : même en ouvrant
+     la mémoire du téléphone, on ne peut pas le relire.
+
+     Il ne suit pas d'un appareil à l'autre : un code, c'est le verrou de
+     CE téléphone. C'est pour ça qu'il est exclu de la synchronisation.
+     ══════════════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════════════════
+     LE JOURNAL DE SÉCURITÉ
+     Ce qui est arrivé à TON compte : connexions, nouveaux appareils,
+     changements de mot de passe, verrouillage. Rangé dans ton compte, dans
+     une fiche que toi seul peux lire, et limité aux 40 derniers événements
+     — un journal qui grossit sans fin finit par ne plus être lu.
+     ══════════════════════════════════════════════════════════════════ */
+  let _secuJ=[], _secuUnsub=null;
+  function secuDoc(){ return fs.collection('op_users').doc(ME.uid).collection('devices').doc('__secu'); }
+  async function secuJournal(genre,texte,extra){
+    if(!ME||!ME.uid) return;
+    const e=Object.assign({g:genre,t:texte||'',le:Date.now(),app:nomAppareil()},extra||{});
+    _secuJ.unshift(e); _secuJ=_secuJ.slice(0,40);
+    try{ await secuDoc().set({j:_secuJ},{merge:true}); }catch(_){}
+    try{ secuListeMaj(); }catch(_){}
+  }
+  async function secuCharge(){
+    if(!ME||!ME.uid) return;
+    try{ const d=await secuDoc().get(); _secuJ=((d.exists?d.data():{}).j)||[]; }catch(e){ _secuJ=[]; }
+    try{ secuListeMaj(); }catch(_){}
+  }
+  function nomAppareil(){
+    const ua=navigator.userAgent||'';
+    let a='Ordinateur';
+    if(/iPhone/.test(ua)) a='iPhone'; else if(/iPad/.test(ua)) a='iPad';
+    else if(/Android/.test(ua)) a='Téléphone Android'; else if(/Macintosh/.test(ua)) a='Mac';
+    else if(/Windows/.test(ua)) a='PC Windows';
+    let n='';
+    if(/Edg\//.test(ua)) n='Edge'; else if(/Chrome\//.test(ua)&&!/Edg\//.test(ua)) n='Chrome';
+    else if(/Safari\//.test(ua)&&!/Chrome/.test(ua)) n='Safari'; else if(/Firefox\//.test(ua)) n='Firefox';
+    return a+(n?' · '+n:'');
+  }
+  const SECU_ICO={connexion:'🔓',appareil:'📱',verrou:'🔒',mdp:'🔑',depart:'🚪',alerte:'⚠️'};
+  const VR_ESSAIS_MAX=5;
+  let _vrSaisie='', _vrPourquoi='ouverture', _vrOk=null, _vrFond=0, _vrPret=false;
+  function vrActif(){ try{ return !!localStorage.getItem('opmsg_verrou_h'); }catch(e){ return false; } }
+  function vrDelai(){ const v=+(localStorage.getItem('opmsg_verrou_min')||2); return isNaN(v)?2:v; }
+  function vrBio(){ return localStorage.getItem('opmsg_verrou_bio')==='1'; }
+  function vrSel(){
+    let g=localStorage.getItem('opmsg_verrou_sel');
+    if(!g){ const a=new Uint8Array(16); crypto.getRandomValues(a);
+      g=[...a].map(x=>x.toString(16).padStart(2,'0')).join(''); localStorage.setItem('opmsg_verrou_sel',g); }
+    return g;
+  }
+  async function vrHash(code){
+    const t=new TextEncoder().encode(vrSel()+'|'+String(code));
+    const b=await crypto.subtle.digest('SHA-256',t);
+    return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+  }
+  async function vrPose(code){
+    const h=await vrHash(code);
+    localStorage.setItem('opmsg_verrou_h',h);
+    localStorage.setItem('opmsg_verrou_essais','0');
+    try{ secuJournal('verrou','Verrouillage activé sur cet appareil'); }catch(e){}
+  }
+  function vrRetire(){
+    ['opmsg_verrou_h','opmsg_verrou_bio','opmsg_verrou_essais'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+    try{ secuJournal('verrou','Verrouillage désactivé sur cet appareil'); }catch(e){}
+  }
+  /* ── l'appareil sait-il lire un visage ou une empreinte ? ── */
+  async function vrBioDispo(){
+    try{
+      if(!window.PublicKeyCredential||!PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) return false;
+      return !!(await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+    }catch(e){ return false; }
+  }
+  function vrBioNom(){
+    const ua=navigator.userAgent||'';
+    if(/iPhone|iPad|Macintosh/.test(ua)) return 'Face ID ou Touch ID';
+    if(/Android/.test(ua)) return 'ton empreinte';
+    return 'ton appareil';
+  }
+  async function vrBioInscrit(){
+    try{
+      const d=new Uint8Array(32); crypto.getRandomValues(d);
+      const id=new TextEncoder().encode((ME&&ME.uid)||'op');
+      const c=await navigator.credentials.create({publicKey:{
+        challenge:d, rp:{name:'OP MESSAGES'},
+        user:{id:id, name:((USER&&USER.name)||'OP MESSAGES'), displayName:((USER&&USER.name)||'OP MESSAGES')},
+        pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+        authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},
+        timeout:60000
+      }});
+      if(!c) return false;
+      localStorage.setItem('opmsg_verrou_bioid', btoa(String.fromCharCode(...new Uint8Array(c.rawId))));
+      localStorage.setItem('opmsg_verrou_bio','1');
+      return true;
+    }catch(e){ return false; }
+  }
+  async function vrBioDemande(){
+    try{
+      const brut=localStorage.getItem('opmsg_verrou_bioid'); if(!brut) return false;
+      const raw=Uint8Array.from(atob(brut),c=>c.charCodeAt(0));
+      const d=new Uint8Array(32); crypto.getRandomValues(d);
+      const c=await navigator.credentials.get({publicKey:{
+        challenge:d, allowCredentials:[{type:'public-key',id:raw,transports:['internal']}],
+        userVerification:'required', timeout:60000 }});
+      return !!c;
+    }catch(e){ return false; }
+  }
+  /* ── ouvrir et fermer le verrou ── */
+  function vrOuvre(pourquoi){
+    if(!vrActif()) return;
+    _vrPourquoi=pourquoi||'ouverture'; _vrSaisie='';
+    const z=$('verrou'); if(!z) return;
+    z.classList.add('on');
+    const t=$('vr-titre'); if(t) t.textContent='OP MESSAGES est verrouillé';
+    vrDessine();
+    if(vrBio()) setTimeout(vrEssaieBio,350);
+  }
+  function vrFerme(){
+    const z=$('verrou'); if(z) z.classList.remove('on');
+    _vrSaisie=''; _vrFond=0;
+    try{ localStorage.setItem('opmsg_verrou_essais','0'); }catch(e){}
+  }
+  async function vrEssaieBio(){
+    const s=$('vr-sous'); if(s) s.textContent='Regarde ton appareil\u2026';
+    const ok=await vrBioDemande();
+    if(ok){ vrFerme(); return; }
+    if(s) s.textContent='Ton code à 6 chiffres';
+  }
+  function vrDessine(){
+    const p=$('vr-pts');
+    if(p) p.innerHTML=[0,1,2,3,4,5].map(i=>`<i class="${i<_vrSaisie.length?'on':''}"></i>`).join('');
+    const c=$('vr-clav');
+    if(c&&!c.dataset.pret){
+      c.dataset.pret='1';
+      c.innerHTML=[1,2,3,4,5,6,7,8,9,'bio',0,'del'].map(t=>{
+        if(t==='bio') return `<span id="vr-bio" class="${vrBio()?'':'vide'}" onclick="${vrBio()?'vrEssaieBio()':''}">${vrBio()?'😊':''}</span>`;
+        if(t==='del') return `<span onclick="vrTape('del')">⌫</span>`;
+        return `<span onclick="vrTape(${t})">${t}</span>`;
+      }).join('');
+    }
+    const s=$('vr-sous');
+    if(s&&_vrSaisie.length===0) s.textContent=vrBio()?(vrBioNom()+', ou ton code'):'Ton code à 6 chiffres';
+    const o=$('vr-out');
+    if(o&&!o.dataset.pret){ o.dataset.pret='1';
+      o.innerHTML=`<span onclick="vrOubli()">J\u2019ai oublié mon code</span>`; }
+  }
+  async function vrTape(t){
+    const e=$('vr-err'); if(e) e.textContent='';
+    if(t==='del'){ _vrSaisie=_vrSaisie.slice(0,-1); vrDessine(); return; }
+    if(_vrSaisie.length>=6) return;
+    _vrSaisie+=String(t); vrDessine();
+    if(_vrSaisie.length===6) await vrVerifie();
+  }
+  async function vrVerifie(){
+    const bon=localStorage.getItem('opmsg_verrou_h')||'';
+    const h=await vrHash(_vrSaisie);
+    if(h===bon){ vrFerme(); return; }
+    let n=+(localStorage.getItem('opmsg_verrou_essais')||0)+1;
+    localStorage.setItem('opmsg_verrou_essais',String(n));
+    _vrSaisie=''; vrDessine();
+    const e=$('vr-err');
+    if(n>=VR_ESSAIS_MAX){
+      if(e) e.textContent='Trop d\u2019essais — déconnexion par sécurité';
+      try{ secuJournal('verrou','Trop de codes faux — déconnexion automatique'); }catch(_){}
+      setTimeout(()=>{ try{ vrRetire(); }catch(_){} try{ auth.signOut(); }catch(_){} location.reload(); },1400);
+      return;
+    }
+    if(e) e.textContent='Code incorrect — '+(VR_ESSAIS_MAX-n)+' essai'+((VR_ESSAIS_MAX-n)>1?'s':'')+' restant'+((VR_ESSAIS_MAX-n)>1?'s':'');
+    try{ if(navigator.vibrate) navigator.vibrate(120); }catch(_){}
+  }
+  /* oublier son code : on se déconnecte, le mot de passe reprend la main */
+  async function vrOubli(){
+    const e=$('vr-err');
+    if(e) e.textContent='Déconnexion — reconnecte-toi avec ton mot de passe';
+    try{ vrRetire(); }catch(_){}
+    setTimeout(()=>{ try{ auth.signOut(); }catch(_){} location.reload(); },1200);
+  }
+  /* ── quand verrouiller ── */
+  function vrSurveille(){
+    try{
+      document.addEventListener('visibilitychange',()=>{
+        if(document.hidden){ _vrFond=Date.now(); return; }
+        if(!vrActif()||!_vrFond) return;
+        const min=vrDelai();
+        if(min===0 || (Date.now()-_vrFond)>=min*60000) vrOuvre('retour');
+        _vrFond=0;
+      });
     }catch(e){}
   }
   function themePref(){ const p=localStorage.getItem('opmsg_theme'); return (p==='auto'||p==='light'||p==='dark')?p:'auto'; }
@@ -1547,7 +1857,9 @@
         <div class="field"><label>Votre nom</label><input id="p-name" placeholder="Prénom Nom"></div>
         <div class="field"><label>Identifiant unique (pour qu'on vous trouve)</label><input id="p-handle" placeholder="ex : marie.d" autocapitalize="off"></div>
         <div class="field"><label>Téléphone (facultatif)</label><input id="p-phone" type="tel" placeholder="06 12 34 56 78"></div>
-        <div class="field"><label>Mot de passe</label><input id="p-pass" type="password" placeholder="••••••••"></div>
+        <div class="field" style="margin-bottom:6px"><label>Mot de passe</label>
+          <input id="p-pass" type="password" placeholder="••••••••" oninput="mdpJauge('p-jauge',this.value,{nom:($('p-name')||{}).value,handle:($('p-handle')||{}).value})"></div>
+        <div id="p-jauge" style="margin-bottom:14px"></div>
         <button class="btn block" id="p-sub" onclick="doPerso()">Créer mon compte</button>
       </div>
 
@@ -1558,7 +1870,9 @@
           <div class="field"><label>Code entreprise</label><input id="j-code" placeholder="Ex : 4FK7P2" style="text-transform:uppercase" autocapitalize="characters"></div>
           <div class="field"><label>Votre nom</label><input id="j-name" placeholder="Prénom Nom"></div>
           <div class="field"><label>Identifiant (pour vous reconnecter)</label><input id="j-login" placeholder="ex : mdupont" autocapitalize="off"></div>
-          <div class="field"><label>Mot de passe</label><input id="j-pass" type="password" placeholder="••••••••"></div>
+          <div class="field" style="margin-bottom:6px"><label>Mot de passe</label>
+            <input id="j-pass" type="password" placeholder="••••••••" oninput="mdpJauge('j-jauge',this.value,{nom:($('j-name')||{}).value,handle:($('j-login')||{}).value})"></div>
+          <div id="j-jauge" style="margin-bottom:14px"></div>
           <button class="btn block" id="j-sub" onclick="doJoin()">Rejoindre l'entreprise</button>
         </div>
         <div id="e-create" class="hide">
@@ -1567,7 +1881,9 @@
           <div class="field"><label>Numéro SIRET (14 chiffres)</label><input id="c-siret" inputmode="numeric" placeholder="123 456 789 00012"></div>
           <div class="field"><label>Votre nom</label><input id="c-yourname" placeholder="Prénom Nom"></div>
           <div class="field"><label>E-mail</label><input id="c-email" placeholder="vous@entreprise.fr" autocapitalize="off"></div>
-          <div class="field"><label>Mot de passe</label><input id="c-pass" type="password" placeholder="••••••••"></div>
+          <div class="field" style="margin-bottom:6px"><label>Mot de passe</label>
+            <input id="c-pass" type="password" placeholder="••••••••" oninput="mdpJauge('c-jauge',this.value,{nom:($('c-yourname')||{}).value,entreprise:($('c-name')||{}).value,email:($('c-email')||{}).value})"></div>
+          <div id="c-jauge" style="margin-bottom:14px"></div>
           <button class="btn block" id="c-sub" onclick="doCreate()">Créer l'entreprise</button>
         </div>
       </div>
@@ -1576,6 +1892,7 @@
         <div class="field"><label>E-mail ou identifiant</label><input id="a-email" placeholder="vous@entreprise.fr ou jdupont" autocapitalize="off"></div>
         <div class="field"><label>Mot de passe</label><input id="a-pass" type="password" placeholder="••••••••"></div>
         <button class="btn block" id="a-sub" onclick="doLogin()">Se connecter</button>
+        <p style="text-align:right;margin-top:10px"><a class="link" onclick="mdpOublie()" style="cursor:pointer;font-size:12.5px;font-weight:700">Mot de passe oublié ?</a></p>
       </div>
 
       <p class="center" style="margin-top:14px"><a class="link" href="index.html?hub=1">🏠 Accueil TeamOP</a></p>
@@ -1591,7 +1908,7 @@
     const pass=$('p-pass').value||'';
     if(!name) return aerr('Indiquez votre nom.');
     if(handle.length<3) return aerr('Choisissez un identifiant unique (3 caractères min.).');
-    if(pass.length<6) return aerr('Mot de passe : 6 caractères minimum.');
+    { const r=mdpRefus(pass,{nom:name,handle:handle}); if(r) return aerr(r); }
     $('p-sub').disabled=true;
     // vérifie que l'identifiant est libre
     try{ const ex=await fs.collection('op_users').where('handle','==',handle).limit(1).get(); if(!ex.empty){ aerr('Cet identifiant est déjà pris. Choisissez-en un autre.'); $('p-sub').disabled=false; return; } }catch(e){}
@@ -1601,6 +1918,67 @@
       await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle,phone,role:'perso',lastActive:Date.now()});
       USER={uid:ME.uid,email,name,handle,phone,role:'perso'}; COMP=null; HAS_COMPANY=false; MODE='perso'; _provisioning=false; gammeMaj(); enterApp();
     }catch(e){ _provisioning=false; if((e.code||'')==='auth/email-already-in-use') aerr('Cet identifiant est déjà pris.'); else aerr(aMsg(e)); $('p-sub').disabled=false; }
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     MOT DE PASSE OUBLIÉ
+
+     Avant, il n'y avait rien : la personne était bloquée et devait appeler
+     son patron. Maintenant elle reçoit un e-mail et repart toute seule.
+
+     Deux cas, et c'est important :
+     • Un compte D'ENTREPRISE a une vraie adresse e-mail → l'e-mail part.
+     • Un compte PERSO créé avec un simple identifiant n'a PAS d'adresse
+       (on lui en fabrique une, « pseudo@opmsg.local », qui ne reçoit rien).
+       On ne peut donc rien lui envoyer — on le lui dit franchement, et on
+       l'oriente vers son entreprise, qui peut lui refaire un accès.
+
+     Ce qu'on ne fait JAMAIS : dire « ce compte n'existe pas ». Ça permettrait
+     à n'importe qui de deviner qui a un compte. Le message est le même dans
+     tous les cas.
+     ══════════════════════════════════════════════════════════════════ */
+  function mdpOublie(prefill){
+    const dep=prefill||(($('a-email')||{}).value)||'';
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px">Mot de passe oublié</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.55;margin:6px 0 14px">Indique l\u2019adresse e-mail de ton compte. On t\u2019envoie un lien pour en choisir un nouveau — valable 1 heure, utilisable une seule fois.</p>
+      <div id="mdpo-err"></div>
+      <div class="field"><label>Adresse e-mail</label>
+        <input id="mdpo-mail" type="email" autocapitalize="off" placeholder="vous@entreprise.fr" value="${esc(dep.indexOf('@')>=0?dep:'')}"></div>
+      <div data-pied style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn block" id="mdpo-btn" onclick="mdpOublieEnvoie()">Envoyer le lien</button>
+        <button class="btn ghost block" onclick="closeSheet()">Annuler</button>
+      </div>`);
+    setTimeout(()=>{ const i=$('mdpo-mail'); if(i) i.focus(); },80);
+  }
+  async function mdpOublieEnvoie(){
+    const brut=((($('mdpo-mail')||{}).value)||'').trim();
+    const err=m=>{ const z=$('mdpo-err'); if(z) z.innerHTML='<div class="err">'+esc(m)+'</div>'; };
+    if(!brut){ err('Indique ton adresse e-mail.'); return; }
+    if(brut.indexOf('@')<0){
+      err('Ton compte a été créé avec un identifiant, pas avec une adresse e-mail : on ne peut rien t\u2019envoyer. Demande à ton entreprise de te redonner un accès.');
+      return;
+    }
+    const mail=brut.toLowerCase();
+    if(/@opmsg\.local$/.test(mail)){
+      err('Ce compte n\u2019a pas de vraie adresse e-mail. Demande à ton entreprise de te redonner un accès.');
+      return;
+    }
+    const b=$('mdpo-btn'); if(b){ b.disabled=true; b.textContent='Envoi…'; }
+    try{ await auth.sendPasswordResetEmail(mail); }catch(e){
+      /* on ne dit jamais si le compte existe ou non : ce serait un moyen de
+         deviner qui travaille dans quelle entreprise */
+      const c=(e&&e.code)||'';
+      if(c==='auth/invalid-email'){ err('Cette adresse n\u2019est pas valide.'); if(b){ b.disabled=false; b.textContent='Envoyer le lien'; } return; }
+      if(c==='auth/too-many-requests'){ err('Trop de tentatives. Réessaie dans quelques minutes.'); if(b){ b.disabled=false; b.textContent='Envoyer le lien'; } return; }
+    }
+    openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">📧</div>
+      <h3 style="font-size:17px;margin:10px 0 6px">C\u2019est envoyé</h3>
+      <p class="muted" style="font-size:13.5px;line-height:1.6;margin:0">Si un compte existe avec <b>${esc(mail)}</b>, un e-mail vient de partir.<br>
+      Ouvre-le et choisis ton nouveau mot de passe. Le lien est valable <b>1 heure</b>.</p>
+      <p class="muted" style="font-size:12px;line-height:1.55;margin:12px 0 0">Rien reçu au bout de deux minutes ? Regarde dans les indésirables, et vérifie l\u2019adresse.</p></div>
+      <div data-pied style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn block" onclick="closeSheet()">J\u2019ai compris</button>
+        <button class="btn ghost block" onclick="mdpOublie('${esc(mail)}')">Renvoyer à une autre adresse</button>
+      </div>`);
   }
   async function doLogin(){
     const email=loginEmail($('a-email').value), pass=$('a-pass').value||'';
@@ -1616,7 +1994,8 @@
     if(!name) return aerr("Indiquez le nom de l'entreprise.");
     if(!siretValid(siret)) return aerr('Le SIRET doit comporter 14 chiffres.');
     if(!yourname) return aerr('Indiquez votre nom.');
-    if(!email||pass.length<6) return aerr('E-mail valide et mot de passe (6 caractères min.) requis.');
+    if(!email) return aerr('Indiquez une adresse e-mail valide.');
+    { const r=mdpRefus(pass,{nom:yourname,entreprise:name,email:$('c-email').value}); if(r) return aerr(r); }
     $('c-sub').disabled=true; _provisioning=true;
     try{
       const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
@@ -1637,7 +2016,7 @@
     if(code.length<4) return aerr('Entrez le code transmis par votre entreprise.');
     if(!name) return aerr('Indiquez votre nom.');
     if(ident.length<3) return aerr('Choisissez un identifiant (3 caractères min.).');
-    if(pass.length<6) return aerr('Mot de passe : 6 caractères minimum.');
+    { const r=mdpRefus(pass,{nom:name,handle:ident}); if(r) return aerr(r); }
     $('j-sub').disabled=true;
     let qs; try{ qs=await fs.collection('op_companies').where('code','==',code).limit(1).get(); }
     catch(e){ aerr(e.message||'Erreur'); $('j-sub').disabled=false; return; }
@@ -1677,9 +2056,12 @@
       try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
+    try{ if(!_vrPret){ _vrPret=true; vrSurveille(); } if(vrActif()) vrOuvre('ouverture'); }catch(e){}
     try{ await syncDemarre(); }catch(e){}         // on récupère TOUT avant d'afficher quoi que ce soit
     gammeMaj();                                   // bleu (gratuit/PRO) ou violet (Business Premium)
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
+    try{ await secuCharge(); }catch(e){}
+    try{ secuNouvelAppareil(); }catch(e){}
     _curView=vueArrivee(); renderShell(); showView(_curView); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
     setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') opPushSub(true); else setTimeout(opPushPropose,1500); }catch(e){} },1800);
   }
@@ -1767,7 +2149,7 @@
   async function sheetDevices(){ openSheet('<p class="muted center">Chargement…</p>'); const id=getDeviceId(); let rows='';
     try{ const qs=await fs.collection('op_users').doc(ME.uid).collection('devices').get();
       /* la fiche des réglages vit ici aussi : ce n'est pas un appareil */
-      const arr=[]; qs.forEach(d=>{ if(d.id!=='__prefs') arr.push(d.data()); }); arr.sort((a,b)=>(b.lastActive||0)-(a.lastActive||0));
+      const arr=[]; qs.forEach(d=>{ if(d.id!=='__prefs'&&d.id!=='__secu') arr.push(d.data()); }); arr.sort((a,b)=>(b.lastActive||0)-(a.lastActive||0));
       arr.forEach(v=>{ const cur=v.id===id; const on=v.lastActive&&(Date.now()-v.lastActive<120000); const emo=isMobileDev(v.name)?'📱':'💻';
         rows+=`<div class="row"><div style="width:40px;height:40px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">${emo}</div><div class="info"><div class="nm">${esc(v.name||'Appareil')}${cur?' · cet appareil':''}</div><div class="ds">${on?'en ligne':(v.lastActive?'vu '+fmtListTime(v.lastActive):'')}</div></div>${cur?'':`<button class="btn ghost sm" onclick="disconnectDevice('${esc(v.id)}')">Déconnecter</button>`}</div>`; });
     }catch(e){ rows='<div class="err">'+esc(e.message)+'</div>'; }
@@ -1776,6 +2158,60 @@
       ${rows}
       <button class="btn block" style="margin-top:12px;background:rgba(248,113,113,.15);color:var(--red)" onclick="logout()">Déconnecter cet appareil</button>`); }
   async function disconnectDevice(devId){ try{ await fs.collection('op_users').doc(ME.uid).collection('devices').doc(devId).delete(); toast('Appareil déconnecté.'); sheetDevices(); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
+  /* ══════════════════════════════════════════════════════════════════
+     ALERTE DE NOUVELLE CONNEXION
+     Un appareil qu'on n'a jamais vu se connecte à ton compte : tu le sais
+     tout de suite, sur tes autres appareils, et tu peux tout couper d'un
+     bouton. C'est la protection la plus efficace contre un mot de passe
+     qui a fuité.
+     ══════════════════════════════════════════════════════════════════ */
+  async function secuNouvelAppareil(){
+    if(!ME||!ME.uid) return;
+    const id=getDeviceId();
+    let connu=false;
+    try{ const d=await fs.collection('op_users').doc(ME.uid).collection('devices').doc(id).get(); connu=d.exists; }catch(e){ return; }
+    const app=nomAppareil();
+    await secuJournal('connexion','Connexion — '+app+(connu?'':' (nouvel appareil)'),{neuf:!connu});
+    if(connu) return;
+    /* on prévient les AUTRES appareils du compte */
+    try{
+      const qs=await fs.collection('op_users').doc(ME.uid).collection('devices').get();
+      const autres=[]; qs.forEach(d=>{ if(d.id!==id&&d.id!=='__prefs'&&d.id!=='__secu') autres.push(d.id); });
+      if(pref('secu_alerte','1')!=='1') return;      // la personne a choisi de ne pas être alertée
+      if(autres.length&&typeof opPushNotifyUsers==='function')
+        opPushNotifyUsers([ME.uid],'🔐 Nouvel appareil connecté',
+          app+' vient de se connecter à ton compte. Ce n\u2019était pas toi ?','/messages.html');
+    }catch(e){}
+  }
+  /* la fenêtre « c'était moi / ce n'était pas moi » */
+  function secuAlerteAppareil(app,quand){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px">Nouvelle connexion</h3>
+      <div style="display:flex;gap:12px;padding:14px;border-radius:14px;background:rgba(224,140,30,.13);border:1px solid rgba(224,140,30,.34);margin:8px 0 4px">
+        <span style="font-size:22px">⚠️</span>
+        <div><div style="font-size:13.5px;font-weight:800">Nouvelle connexion à ton compte</div>
+        <div style="font-size:12px;color:var(--t2);margin-top:3px;line-height:1.5"><b>${esc(app||nomAppareil())}</b><br>${esc(quand||'À l\u2019instant')}</div></div>
+      </div>
+      <p class="muted" style="font-size:11.5px;line-height:1.55;margin-top:10px">« Ce n\u2019était pas moi » déconnecte <b>tous</b> les appareils, partout, tout de suite. Il faudra se reconnecter avec le mot de passe.</p>
+      <div data-pied style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn ghost block" onclick="closeSheet()">C\u2019était moi</button>
+        <button class="btn block" style="background:var(--red)" onclick="secuToutDeconnecter()">Ce n\u2019était pas moi — tout déconnecter</button>
+      </div>`);
+  }
+  /* couper toutes les sessions : on efface les appareils, chacun se déconnecte
+     tout seul (c'est déjà ce que fait la surveillance de l'appareil) */
+  async function secuToutDeconnecter(){
+    if(!await opConfirme('Tous tes appareils seront déconnectés, y compris celui-ci. Il faudra te reconnecter avec ton mot de passe.',
+      {titre:'Tout déconnecter ?',oui:'Tout déconnecter',danger:true})) return;
+    toast('Déconnexion de tous les appareils…');
+    try{
+      const qs=await fs.collection('op_users').doc(ME.uid).collection('devices').get();
+      for(const d of qs.docs){ if(d.id==='__prefs'||d.id==='__secu') continue;
+        try{ await d.ref.delete(); }catch(_){} }
+      await secuJournal('alerte','Tous les appareils ont été déconnectés');
+    }catch(e){}
+    try{ await auth.signOut(); }catch(_){}
+    location.reload();
+  }
   function startPresence(){ const upd=()=>{ try{ fs.collection('op_users').doc(ME.uid).collection('devices').doc(getDeviceId()).set({lastActive:Date.now()},{merge:true}); }catch(e){} if(!lastSeenOn()) return; try{ if(MODE==='perso') fs.collection('op_users').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); else fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({lastActive:Date.now()},{merge:true}); }catch(e){} };
     upd(); if(_presTimer)clearInterval(_presTimer); _presTimer=setInterval(upd,45000);
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) upd(); }); }
@@ -4514,6 +4950,11 @@
         <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2)">SON RÔLE DANS L’ENTREPRISE</div>
         <div id="role-pills" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><span class="muted" style="font-size:12px">Chargement…</span></div>
         <div style="font-size:11px;color:var(--t3);margin-top:7px;line-height:1.5">Un <b>responsable</b> peut créer, déplacer et annuler des réunions. Un <b>membre</b> participe et répond, sans en créer.</div>
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--sep)">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:7px">DÉPART</div>
+        <button class="btn ghost block" style="color:var(--red);border-color:var(--red)" onclick="departSalarie('${uid}','${nm}')">🚪 Fin de contrat — retirer de l\u2019entreprise</button>
+        <div style="font-size:11px;color:var(--t3);margin-top:7px;line-height:1.5">Coupe ses appareils, ses notifications et tous ses accès. L\u2019historique reste chez toi.</div>
       </div>`:''}`);
     if(MODE!=='perso'&&estPatron()&&uid!==ME.uid) roleCharge(uid,name); }
   /* ── le poste : ce que la personne fait dans l'entreprise ── */
@@ -9298,6 +9739,7 @@
           <button class="${themePref()==='light'?'on':''}" onclick="setTheme('light')">Jour</button>
           <button class="${themePref()==='dark'?'on':''}" onclick="setTheme('dark')">Nuit</button></div>
       </div>
+      ${setRow('🛡️','Sécurité','Verrouillage, alertes, journal','sheetSecu()')}
       <div class="row" onclick="syncMaintenant()" style="cursor:pointer">
         <div class="info"><div class="nm">Synchronisation</div>
           <div class="ds" id="sync-etat">À jour · ${esc(syncDepuis())}</div></div>
@@ -9428,9 +9870,88 @@
   function delQR(s){ saveMyQR(myQR().filter(x=>x!==s&&x!==s.replace(/’/g,"'"))); openQuickReplies(); }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim(); const status=($('pf-status')&&$('pf-status').value||'').trim();
     try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
-  async function changePass(){ const np=await opSaisie('6 caractères minimum.','',
-    {titre:'Nouveau mot de passe',type:'password',oui:'Changer'}); if(np==null) return; if((np||'').length<6){ opAlerte('6 caractères minimum.'); return; }
-    try{ await auth.currentUser.updatePassword(np); opAlerte('✅ Mot de passe modifié.'); }
+  /* ══ L'ÉCRAN SÉCURITÉ ══ */
+  async function sheetSecu(){
+    openSheet('<p class="muted center">Chargement…</p>');
+    const bio=await vrBioDispo();
+    await secuCharge();
+    const inter=(id,fn,on)=>`<span id="${id}" onclick="${fn}" style="flex:none;width:40px;height:23px;border-radius:99px;background:${on?'var(--green)':'var(--brd2)'};position:relative;cursor:pointer"><i style="position:absolute;top:2.5px;${on?'right:2.5px':'left:2.5px'};width:18px;height:18px;border-radius:99px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);display:block"></i></span>`;
+    const ligne=(emo,titre,desc,inte)=>`<div style="display:flex;align-items:flex-start;gap:11px;padding:12px;border-radius:12px;background:var(--inp);margin-bottom:9px">
+      <span style="font-size:19px">${emo}</span>
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">${titre}</div>
+      <div class="muted" style="font-size:11.5px;line-height:1.45;margin-top:2px">${desc}</div></div>${inte}</div>`;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px">Sécurité</h3>
+      <p class="muted" style="font-size:12px;line-height:1.5;margin:6px 0 14px">Rien n\u2019est obligatoire. Chacun choisit ce qu\u2019il veut sur son appareil.</p>
+      ${ligne('🔒','Verrouiller l\u2019application',
+        vrActif()?('Actif — '+(vrBio()?vrBioNom()+', ou code':'code à 6 chiffres')+(vrDelai()?(' · après '+vrDelai()+' min'):' · à chaque retour')):
+        'Un code à 6 chiffres à l\u2019ouverture'+(bio?(', ou '+vrBioNom()):''),
+        inter('secu-sw-vr','vrBascule()',vrActif()))}
+      ${vrActif()?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-3px 0 12px 2px">
+        ${[[0,'Tout de suite'],[1,'1 min'],[2,'2 min'],[5,'5 min'],[15,'15 min']].map(([m,l])=>
+          `<span onclick="vrDelaiSet(${m})" style="font-size:11px;font-weight:700;padding:6px 11px;border-radius:8px;cursor:pointer;
+            border:1.5px solid ${vrDelai()===m?'var(--op)':'var(--brd2)'};color:${vrDelai()===m?'var(--op-tx)':'var(--t2)'}">${l}</span>`).join('')}
+        </div>
+        ${bio?`<div style="margin:-4px 0 12px">${ligne('😊',vrBioNom().charAt(0).toUpperCase()+vrBioNom().slice(1),
+          'Ouvrir sans taper le code. Le code reste en secours.',inter('secu-sw-bio','vrBioBascule()',vrBio()))}</div>`:''}
+        <div style="margin:-4px 0 14px"><button class="btn ghost block" onclick="vrChangeCode()">Changer mon code</button></div>`:''}
+      ${ligne('🔔','M\u2019alerter aux nouvelles connexions',
+        'Une notification dès qu\u2019un appareil inconnu se connecte à ton compte.',
+        inter('secu-sw-al','secuAlBascule()',pref('secu_alerte','1')==='1'))}
+      <button class="btn ghost block" style="margin:4px 0 16px" onclick="secuToutDeconnecter()">Déconnecter tous mes appareils</button>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:6px">DERNIÈRES ACTIVITÉS</div>
+      <div id="secu-liste"></div>`);
+    secuListeMaj();
+  }
+  function secuListeMaj(){
+    const z=$('secu-liste'); if(!z) return;
+    if(!_secuJ.length){ z.innerHTML='<p class="muted" style="font-size:12px;padding:8px 0">Rien à signaler pour l\u2019instant.</p>'; return; }
+    z.innerHTML=_secuJ.slice(0,15).map(e=>`<div style="display:flex;gap:11px;padding:11px 0;border-top:1px solid var(--sep)">
+      <div style="width:32px;height:32px;border-radius:10px;background:${e.g==='depart'||e.g==='alerte'?'rgba(224,82,82,.15)':'var(--tint2)'};display:flex;align-items:center;justify-content:center;font-size:15px;flex:none">${SECU_ICO[e.g]||'•'}</div>
+      <div style="flex:1;min-width:0"><div style="font-size:12.8px;font-weight:700">${esc(e.t||'')}</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:2px">${esc(fmtWhen(e.le))}${e.app?' · '+esc(e.app):''}</div></div></div>`).join('');
+  }
+  function secuAlBascule(){ const on=pref('secu_alerte','1')==='1';
+    localStorage.setItem('opmsg_secu_alerte',on?'0':'1'); sheetSecu(); }
+  function vrDelaiSet(m){ localStorage.setItem('opmsg_verrou_min',String(m)); sheetSecu(); }
+  async function vrBioBascule(){
+    if(vrBio()){ localStorage.removeItem('opmsg_verrou_bio'); localStorage.removeItem('opmsg_verrou_bioid'); sheetSecu(); return; }
+    toast('Confirme avec '+vrBioNom()+'\u2026');
+    const ok=await vrBioInscrit();
+    if(!ok) opAlerte('Impossible d\u2019activer — ton appareil a refusé ou n\u2019est pas configuré.');
+    sheetSecu();
+  }
+  async function vrBascule(){
+    if(vrActif()){
+      if(!await opConfirme('N\u2019importe qui pourra ouvrir l\u2019application sur cet appareil.',
+        {titre:'Retirer le verrouillage ?',oui:'Retirer',danger:true})) return;
+      vrRetire(); sheetSecu(); return;
+    }
+    await vrChangeCode(true);
+  }
+  async function vrChangeCode(premier){
+    const c1=await opSaisie('Six chiffres. Il ne quitte jamais cet appareil.','',
+      {titre:premier?'Choisis ton code':'Nouveau code',type:'password',chiffres:true,max:6,oui:'Continuer'});
+    if(c1==null) return;
+    if(!/^\d{6}$/.test(c1)){ opAlerte('Il faut exactement six chiffres.'); return; }
+    if(/^(\d)\1{5}$/.test(c1)||['123456','654321','012345'].indexOf(c1)>=0){
+      opAlerte('Ce code est trop évident. Prends-en un autre.'); return; }
+    const c2=await opSaisie('Pour être sûr de ne pas l\u2019oublier.','',
+      {titre:'Retape ton code',type:'password',chiffres:true,max:6,oui:'Enregistrer'});
+    if(c2==null) return;
+    if(c1!==c2){ opAlerte('Les deux codes ne sont pas les mêmes.'); return; }
+    await vrPose(c1);
+    toast('Verrouillage activé');
+    if(premier && await vrBioDispo()){
+      if(await opConfirme('Tu pourras ouvrir sans taper ton code. Le code reste en secours.',
+        {titre:'Activer '+vrBioNom()+' ?',oui:'Activer'})) await vrBioInscrit();
+    }
+    sheetSecu();
+  }
+  async function changePass(){ const np=await opSaisie(MDP_MIN+' caractères minimum. Évite ton nom et les mots de passe évidents.','',
+    {titre:'Nouveau mot de passe',type:'password',oui:'Changer'}); if(np==null) return;
+    { const r=mdpRefus(np,{nom:(USER&&USER.name),handle:(USER&&USER.handle),entreprise:(COMP&&COMP.name),email:(USER&&USER.email)});
+      if(r){ opAlerte(r); return; } }
+    try{ await auth.currentUser.updatePassword(np); try{ secuJournal('mdp','Mot de passe modifié'); }catch(_){} opAlerte('✅ Mot de passe modifié.'); }
     catch(e){ if((e.code||'')==='auth/requires-recent-login') opAlerte('Sécurité : déconnecte-toi, reconnecte-toi, puis réessaie.'); else opAlerte('Erreur : '+(e.message||e)); } }
   $('photopick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader();
     r.onload=()=>{ const img=new Image(); img.onload=async()=>{ let w=img.width,h=img.height; const mx=256; if(w>mx||h>mx){ if(w>h){h=h*mx/w;w=mx;}else{w=w*mx/h;h=mx;} }
@@ -9501,8 +10022,57 @@
       <div class="field"><label>Nom</label><input id="am-nom" placeholder="Dupont"></div>
       <div class="field"><label>Identifiant</label><input id="am-login" placeholder="ex : mdupont" autocapitalize="off"></div>
       <div class="field"><label>Téléphone (facultatif)</label><input id="am-phone" type="tel" placeholder="06 12 34 56 78"></div>
-      <div class="field"><label>Mot de passe (min. 6)</label><input id="am-pass" placeholder="••••••"></div>
+      <div class="field" style="margin-bottom:6px"><label>Mot de passe</label>
+        <input id="am-pass" placeholder="••••••••" oninput="mdpJauge('am-jauge',this.value,{nom:($('am-prenom')||{}).value,handle:($('am-login')||{}).value,entreprise:(COMP&&COMP.name)})"></div>
+      <div id="am-jauge" style="margin-bottom:14px"></div>
       <button class="btn block" id="am-btn" onclick="addMember()">Créer le compte</button>`);
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     FIN DE CONTRAT
+     Retirer quelqu'un de l'entreprise ne suffisait pas : ses appareils
+     restaient connectés et il continuait de recevoir les messages. Ici, un
+     seul geste coupe tout — et l'historique reste chez l'entreprise.
+     ══════════════════════════════════════════════════════════════════ */
+  async function departSalarie(uid,nom){
+    if(!estPatron()){ toast('Seul le patron peut retirer quelqu\u2019un de l\u2019entreprise'); return; }
+    if(uid===ME.uid){ toast('Tu ne peux pas te retirer toi-même'); return; }
+    let apps=0;
+    try{ const qs=await fs.collection('op_users').doc(uid).collection('devices').get();
+      qs.forEach(d=>{ if(d.id!=='__prefs'&&d.id!=='__secu') apps++; }); }catch(e){}
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px">Fin de contrat</h3>
+      <div style="display:flex;align-items:center;gap:12px;margin:8px 0 14px">
+        <div class="ava" style="width:46px;height:46px;border-radius:999px;font-size:17px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;${avatarStyle(nom||'')}">${ini(nom||'')}</div>
+        <div style="min-width:0"><div style="font-size:15px;font-weight:700">${esc(nom||'Ce membre')}</div>
+        <div style="font-size:12px;color:var(--t3)">${apps?(apps+' appareil'+(apps>1?'s':'')+' connecté'+(apps>1?'s':'')):'aucun appareil connecté'}</div></div>
+      </div>
+      <div style="padding:13px;border-radius:13px;background:rgba(224,82,82,.1);border:1px solid rgba(224,82,82,.3);font-size:12.5px;line-height:1.55">
+        <b>Retirer ${esc((nom||'').split(' ')[0]||'cette personne')} de l\u2019entreprise</b><br>En un seul geste, tout de suite :</div>
+      <div style="margin-top:10px">
+        ${['Ses appareils sont déconnectés','Il ne reçoit plus aucune notification',
+           'Il perd l\u2019accès aux discussions, réunions et missions','L\u2019historique reste chez toi, intact']
+          .map(t=>`<div style="display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--t2);padding:6px 0">
+            <b style="color:var(--green);font-size:14px">✓</b>${esc(t)}</div>`).join('')}
+      </div>
+      <div data-pied style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn block" style="background:var(--red)" onclick="departConfirme('${esc(uid)}','${esc((nom||'').replace(/'/g,''))}')">Retirer de l\u2019entreprise</button>
+        <button class="btn ghost block" onclick="closeSheet()">Annuler</button>
+      </div>`);
+  }
+  async function departConfirme(uid,nom){
+    closeSheet(); toast('Retrait en cours…');
+    let coupes=0;
+    /* 1 — ses appareils : chacun se déconnecte tout seul en voyant sa fiche disparaître */
+    try{ const qs=await fs.collection('op_users').doc(uid).collection('devices').get();
+      for(const d of qs.docs){ if(d.id==='__prefs'||d.id==='__secu') continue;
+        try{ await d.ref.delete(); coupes++; }catch(_){} } }catch(e){}
+    /* 2 — sa fiche de membre : c'est elle qui ouvre TOUTES les portes de
+       l'entreprise. Sans elle, les règles du serveur refusent tout. */
+    try{ await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).delete(); }
+    catch(e){ opAlerte('Retrait impossible : '+(e.message||e)); return; }
+    try{ await secuJournal('depart',(nom||'Un membre')+' a été retiré de l\u2019entreprise',{qui:uid}); }catch(_){}
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){}
+    toast((nom||'Le membre')+' est retiré — '+coupes+' appareil'+(coupes>1?'s':'')+' déconnecté'+(coupes>1?'s':''));
+    try{ if(_curView==='cont') viewCont(); }catch(e){}
   }
   async function addMember(){
     const errBox=m=>{ const el=$('amerr'); if(el) el.innerHTML='<div class="err">'+esc(m)+'</div>'; };
@@ -9510,7 +10080,7 @@
     const ident=($('am-login').value||'').trim().toLowerCase().replace(/[^a-z0-9._@-]/g,'');
     const pass=($('am-pass').value||'');
     if(!name||ident.length<3){ errBox('Indiquez un prénom et un identifiant (≥3 caractères).'); return; }
-    if(pass.length<6){ errBox('Mot de passe : 6 caractères minimum.'); return; }
+    { const r=mdpRefus(pass,{nom:name,handle:ident,entreprise:(COMP&&COMP.name)}); if(r){ errBox(r); return; } }
     const email=loginEmail(ident); const btn=$('am-btn'); if(btn) btn.disabled=true; let sec=null;
     try{
       sec=firebase.initializeApp(FB_CONFIG,'sec'+Date.now());
