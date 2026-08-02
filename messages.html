@@ -549,6 +549,7 @@
 <input type="file" id="campick" accept="image/*" capture="environment" style="display:none">
 <input type="file" id="filepick" style="display:none">
 <input type="file" id="photopick" accept="image/*" style="display:none">
+<input type="file" id="mispick" accept="image/*" style="display:none">
 <div class="sheet" id="sheet"><div class="sheet-c" id="sheet-c"></div></div>
 <div class="opdlg" id="opdlg"><div class="opdlg-c" id="opdlg-c"></div></div>
 <div class="viewer" id="camera"><div class="vbar"><span id="cam-nom" style="font-size:14px;font-weight:600">Appareil photo</span>
@@ -667,7 +668,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='624';
+  const APP_VERSION='625';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -1573,12 +1574,14 @@
     const dash=(MODE==='company'&&HAS_COMPANY);
     // Navigation latérale : entreprise = Tableau de bord, Messages, Appels, Réunions, Contacts · perso = Messages, Appels, Contacts
     let pills='';
-    const surLui=v=>(_curView===v?' on':'');   // l'onglet de l'écran affiché est allumé tout de suite
-    if(dash) pills+=`<div id="nv2-dash" class="dsk-item${surLui('dash')}" onclick="showView('dash')">Tableau de bord</div>`;
+    /* l'onglet de l'écran affiché est allumé tout de suite — sauf si une page
+       (Réunions, Plan de charge) est posée par-dessus : c'est elle qui compte */
+    const surLui=v=>((!_navPage&&_curView===v)?' on':'');
+    if(dash) pills+=`<div id="nv2-dash" class="dsk-item${(!_navPage&&_curView==='dash')?' on':''}" onclick="showView('dash')">Tableau de bord</div>`;
     pills+=`<div id="nv2-disc" class="dsk-item${surLui('disc')}" onclick="showView('disc')">Messages<span class="dbadge" id="dsk-b-disc" style="display:none"></span></div>`;
     pills+=`<div id="nv2-appel" class="dsk-item${surLui('appel')}" onclick="showView('appel')">Appels</div>`;
-    if(isPro()) pills+=`<div id="nv2-meet" class="dsk-item" onclick="dskMeet()">Réunions</div>`;
-    if(isPro()) pills+=`<div id="nv2-mis" class="dsk-item" onclick="dskMissions()">Plan de charge${_misEnAttente()?`<span style="margin-left:7px;min-width:19px;height:19px;border-radius:999px;background:var(--badge-bg);color:var(--badge-tx);font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;vertical-align:1px">${_misEnAttente()}</span>`:''}</div>`;
+    if(isPro()) pills+=`<div id="nv2-meet" class="dsk-item${_navPage==='meet'?' on':''}" onclick="dskMeet()">Réunions</div>`;
+    if(isPro()) pills+=`<div id="nv2-mis" class="dsk-item${_navPage==='mis'?' on':''}" onclick="dskMissions()">Plan de charge${_misEnAttente()?`<span style="margin-left:7px;min-width:19px;height:19px;border-radius:999px;background:var(--badge-bg);color:var(--badge-tx);font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;vertical-align:1px">${_misEnAttente()}</span>`:''}</div>`;
     pills+=`<div id="nv2-cont" class="dsk-item" onclick="showView('cont')">Contacts</div>`;
     ROOT.innerHTML=`
       <aside id="dskside">
@@ -1626,14 +1629,12 @@
     try{ majThemeBtn(); }catch(e){}
   }
   // Réunions depuis la colonne bureau : surligne l'onglet et ouvre la vue
-  function dskMeet(){ ['dash','disc','cont','appel','mis'].forEach(x=>{ const b=$('nv2-'+x); if(b) b.classList.remove('on'); });
-    const m=$('nv2-meet'); if(m) m.classList.add('on');
+  function dskMeet(){ _navPage='meet'; navMaj();
     if(estBureau() && typeof closeChat==='function'){ try{ closeChat(); }catch(e){} }
     openReunions(); }
   /* Le plan de charge : combien de missions m'attendent, tout de suite */
   function _misEnAttente(){ try{ return (_mesMissions||[]).filter(m=>missionEtatDe(m,ME.uid)!=='clos').length; }catch(e){ return 0; } }
-  function dskMissions(){ ['dash','disc','cont','appel','meet'].forEach(x=>{ const b=$('nv2-'+x); if(b) b.classList.remove('on'); });
-    const m=$('nv2-mis'); if(m) m.classList.add('on');
+  function dskMissions(){ _navPage='mis'; navMaj();
     if(estBureau() && typeof closeChat==='function'){ try{ closeChat(); }catch(e){} }
     openMissions(); }
   // Bouton ＋ : raccourcis de création (façon WhatsApp)
@@ -1643,6 +1644,24 @@
     <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();newGroup()">${ic('users',18)}Nouveau groupe</button>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();newCall()">${ic('phone',18)}Nouvel appel</button>
     ${MODE==='perso'?`<button class="btn ghost block" onclick="closeSheet();addContactForm()">${ic('plus',18)}Ajouter un contact</button>`:(IS_OWNER?`<button class="btn ghost block" onclick="closeSheet();addPeopleMenu()">${ic('plus',18)}Ajouter quelqu'un</button>`:'')}`); }
+  /* ══════════════════════════════════════════════════════════════════
+     UN SEUL ONGLET ALLUMÉ
+     Deux endroits décidaient de la pastille bleue : les onglets normaux
+     (Tableau de bord, Messages…) et les pages posées par-dessus (Réunions,
+     Plan de charge). Résultat : deux onglets pouvaient rester allumés en
+     même temps. Désormais une seule fonction décide, et elle regarde une
+     seule chose : est-on sur une page posée par-dessus, ou pas.
+     ══════════════════════════════════════════════════════════════════ */
+  let _navPage='';                 // '' | 'meet' | 'mis'
+  function navMaj(){
+    try{
+      const cible=_navPage?('nv2-'+_navPage):('nv2-'+_curView);
+      document.querySelectorAll('.dsk-item').forEach(b=>b.classList.toggle('on',b.id===cible));
+      /* la barre du bas (téléphone) suit l'écran, pas la page posée dessus */
+      ['dash','disc','cont','carte','appel','prof'].forEach(x=>{
+        const b=$('nv-'+x); if(b) b.classList.toggle('on',x===_curView); });
+    }catch(e){}
+  }
   function showView(v){ _curView=v;
     try{ if(typeof closeSheet==='function') closeSheet(); }catch(e){}   // aucune feuille ne doit rester par-dessus
     /* la page « Réunions » se pose PAR-DESSUS l'écran : si on ne la ferme pas,
@@ -1650,12 +1669,12 @@
     try{ if($('page')&&$('page').classList.contains('open')) closePage(); }catch(e){}
     try{ if(typeof deplacerFin==='function') deplacerFin(); }catch(e){}
     if(_meetTicker){clearInterval(_meetTicker);_meetTicker=null;}
-    ['dash','disc','cont','carte','appel','prof'].forEach(x=>{ const b=$('nv-'+x); if(b) b.classList.toggle('on',x===v); const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===v); });
-    const m2=$('nv2-meet'); if(m2) m2.classList.remove('on');
+    _navPage='';                                  // on quitte Réunions / Plan de charge
+    navMaj();
     if(estBureau() && typeof closeChat==='function'){ try{ closeChat(); }catch(e){} }   // bureau : la section choisie s'affiche (la conversation se ferme)
     try{ badgesMaj(); }catch(e){}
     try{ appelsVerifie(); }catch(e){}
-    setTimeout(()=>{ try{ ['dash','disc','cont','appel','prof'].forEach(x=>{ const b2=$('nv2-'+x); if(b2) b2.classList.toggle('on',x===_curView); }); }catch(e){} },400);   // ré-assure la pastille active après le rendu
+    setTimeout(navMaj,400);   // ré-assure la pastille active après le rendu
     moveNavBlob();
     try{ const vw=$('view'); if(vw) vw.classList.toggle('wide',v==='dash'); }catch(e){}
     if(v==='dash') viewDash(); else if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else viewProfile();
@@ -2431,9 +2450,11 @@
     catch(e){ toast('Réunion introuvable'); return; }
     const dejaLa=await rsvpCharge(id);
     const anc=dejaLa[ME.uid];
-    /* le motif choisi l'emporte sur le champ libre : c'est le geste le plus récent */
-    const mot=((motif!==undefined&&motif!==null&&String(motif).trim())
-      ? String(motif).trim() : (($('rsvp-mot')||{}).value||'').trim()).slice(0,140);
+    /* Le motif choisi l'emporte sur le champ libre : c'est le geste le plus
+       récent. « Sans motif communiqué » envoie une chaîne vide — et c'est un
+       choix, pas un oubli : on efface donc bien le mot précédent. */
+    const mot=((typeof motif==='string')
+      ? motif.trim() : (($('rsvp-mot')||{}).value||'').trim()).slice(0,140);
     const ma={etat:etat,min:(etat==='retard'?(parseInt(min,10)||15):0),mot:mot,
               nom:(USER&&USER.name)||'',le:Date.now()};
     try{ await rsvpCol(id).doc(ME.uid).set(ma); }
@@ -2495,19 +2516,49 @@
   function rsvpAbsentChoix(id){
     const z=$('rsvp-absent'); if(!z) return;
     const r=$('rsvp-retard'); if(r) r.style.display='none';       // une seule liste ouverte
-    z.innerHTML=`<div style="width:100%;font-size:11.5px;font-weight:700;color:var(--t2);margin-bottom:2px">Motif de l\u2019absence — communiqué à l\u2019organisateur</div>`
-      +MOTIFS_ABSENCE.map(m=>`<span onclick="rsvpAbsent('${id}','${esc(m.replace(/'/g,''))}')" style="font-size:11.5px;font-weight:700;padding:8px 13px;border-radius:9px;border:1px solid var(--brd2);color:var(--t1);cursor:pointer">${esc(m)}</span>`).join('')
-      +`<span onclick="rsvpAbsentLibre('${id}')" style="font-size:11.5px;font-weight:800;padding:8px 13px;border-radius:9px;border:1px solid var(--red);color:var(--red);cursor:pointer">Autre motif\u2026</span>`
-      +`<span onclick="rsvpAbsent('${id}','')" style="font-size:11.5px;font-weight:700;padding:8px 12px;border-radius:9px;color:var(--t3);cursor:pointer">Sans motif communiqué</span>`;
-    z.style.display='flex';
+    /* Un menu déroulant plutôt qu'une nappe de boutons : la fenêtre reste
+       courte quelle que soit la longueur de la liste, et le champ du dessous
+       laisse écrire ce que le menu ne prévoit pas. */
+    z.innerHTML=`<div style="width:100%;font-size:11.5px;font-weight:700;color:var(--t2);margin-bottom:2px">Motif de l\u2019absence — communiqué à l\u2019organisateur</div>
+      <select id="rsvp-motif" onchange="rsvpMotifMaj()"
+        style="width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--brd2);background:var(--inp);color:var(--t1);font-size:13px;font-family:inherit;outline:none">
+        <option value="">Choisir un motif\u2026</option>
+        ${MOTIFS_ABSENCE.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')}
+        <option value="__autre">Autre motif\u2026</option>
+        <option value="__rien">Sans motif communiqué</option>
+      </select>
+      <input id="rsvp-motif-txt" maxlength="140" placeholder="Préciser (facultatif) — ex : chantier La Rochelle jusqu\u2019à 17h"
+        style="width:100%;padding:11px 12px;border-radius:10px;border:1px solid transparent;background:var(--inp);color:var(--t1);font-size:12.5px;font-family:inherit;outline:none">
+      <div style="display:flex;gap:8px;width:100%">
+        <button class="btn ghost" style="flex:1;padding:10px" onclick="rsvpAbsentFerme()">Annuler</button>
+        <button class="btn" id="rsvp-motif-ok" style="flex:1.4;padding:10px;background:var(--red)" onclick="rsvpAbsentValide('${id}')">Me déclarer absent</button>
+      </div>`;
+    z.style.display='flex'; z.style.flexDirection='column'; z.style.gap='8px';
+    try{ const sel=$('rsvp-motif'); if(sel) sel.focus(); }catch(e){}
+    rsvpMotifMaj();
+  }
+  function rsvpAbsentFerme(){ const z=$('rsvp-absent'); if(z){ z.style.display='none'; z.innerHTML=''; } }
+  /* « Autre motif » : le champ du dessous devient obligatoire, et le dit */
+  function rsvpMotifMaj(){
+    const sel=$('rsvp-motif'), txt=$('rsvp-motif-txt'), b=$('rsvp-motif-ok'); if(!sel||!txt) return;
+    const v=sel.value;
+    if(v==='__autre'){ txt.placeholder='Écris ton motif\u2026'; txt.style.borderColor='var(--op)'; try{ txt.focus(); }catch(e){} }
+    else if(v==='__rien'){ txt.placeholder='Rien à préciser'; txt.style.borderColor='transparent'; }
+    else { txt.placeholder='Préciser (facultatif) — ex : chantier La Rochelle jusqu\u2019à 17h'; txt.style.borderColor='transparent'; }
+    if(b) b.textContent=v?'Me déclarer absent':'Choisis un motif';
+  }
+  function rsvpAbsentValide(id){
+    const sel=$('rsvp-motif'), txt=$('rsvp-motif-txt');
+    const v=sel?sel.value:'', p=((txt&&txt.value)||'').trim().slice(0,140);
+    if(!v){ toast('Choisis un motif dans la liste'); try{ sel.focus(); }catch(e){} return; }
+    if(v==='__autre'&&!p){ toast('Écris ton motif dans le champ du dessous'); try{ txt.focus(); }catch(e){} return; }
+    let motif='';
+    if(v==='__autre') motif=p;
+    else if(v==='__rien') motif='';
+    else motif=v+(p?' — '+p:'');
+    rsvpAbsent(id,motif);
   }
   function rsvpAbsent(id,motif){ rsvpRepond(id,'non',0,motif||''); }
-  async function rsvpAbsentLibre(id){
-    const v=await opSaisie('Une phrase suffit — elle est transmise à l\u2019organisateur.','',
-      {titre:'Motif de l\u2019absence',max:140,oui:'Transmettre'});
-    if(v===null) return;
-    rsvpRepond(id,'non',0,(v||'').trim());
-  }
   function rsvpRetardChoix(id){
     const z=$('rsvp-retard'); if(!z) return;
     z.innerHTML=[5,10,15,30].map(m=>`<span onclick="rsvpRepond('${id}','retard',${m})" style="font-size:11.5px;font-weight:800;padding:7px 13px;border-radius:9px;border:1px solid var(--brd2);color:var(--amber);cursor:pointer">+${m} min</span>`).join('')
@@ -6664,7 +6715,8 @@
 
   // ---- RÉUNIONS : page dédiée plein écran (pro) ----
   function openPage(html){ const p=$('page'); p.innerHTML=html; const was=p.classList.contains('open'); p.classList.add('open'); if(!was) pushBack(); }
-  function closePage(){ $('page').classList.remove('open'); $('page').innerHTML=''; }
+  function closePage(){ $('page').classList.remove('open'); $('page').innerHTML='';
+    _navPage=''; try{ navMaj(); }catch(e){} }
   let _reunTick=null;
   async function openReunions(silencieux){
     if(!isPro()){ toast('Les réunions sont réservées aux comptes entreprise.'); return; }
@@ -6969,11 +7021,15 @@
           <div style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}${u===ME.uid?' <span style="font-size:10.5px;color:var(--t3);font-weight:600">· toi</span>':''}</div>
           ${dir?`<div style="font-size:11px;color:var(--t2);margin-top:2px;line-height:1.45">📌 ${esc(dir)}</div>`:''}
           ${a.mot?`<div style="font-size:11px;color:var(--t2);margin-top:2px;line-height:1.45">« ${esc(a.mot)} »</div>`:''}
+          ${a.photo?`<img src="${a.photo}" onclick="misPhotoVoir('${m.id}','${esc(u)}')" title="Voir la photo en grand"
+            style="margin-top:6px;width:96px;height:72px;object-fit:cover;border-radius:9px;display:block;cursor:pointer;border:1px solid var(--card-brd)">`:''}
           ${a.le?`<div style="font-size:10.5px;color:var(--t3);margin-top:2px">${esc(E.l)} — ${esc(fmtWhen(a.le))}</div>`:''}
         </div>
         <span style="font-size:10.5px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap;color:${E.c};border:1px solid ${E.c}">${esc(E.l)}</span>
       </div>`; };
     const mien=missionMienne(m), monEtat=missionEtatDe(m,ME.uid);
+    if(_misPhotoId!==id){ _misPhoto=''; }       // une photo préparée ne suit pas d'une mission à l'autre
+    _misPhotoId=id;
     openSheet(`<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:4px">
         <div class="cava" style="border-radius:11px;flex:none;background:${retard?'rgba(224,82,82,.16)':'var(--tile-bg)'};color:${retard?'var(--red)':'var(--tile-tx)'}">${ms('task_alt',20)}</div>
         <div style="flex:1;min-width:0">
@@ -6993,18 +7049,85 @@
             border:1.5px solid ${on?E.c:'var(--brd2)'};color:${on?E.c:'var(--t2)'};${on?'background:var(--inp)':''}">${esc(E.l)}</span>`; }).join('')}</div>
         <input id="mis-mot" maxlength="200" value="${esc((((m.avance||{})[ME.uid])||{}).mot||'')}" placeholder="Compte rendu — ce que tu as fait, ce qui bloque\u2026"
           style="width:100%;margin-top:9px;padding:10px 12px;border-radius:10px;border:1px solid transparent;background:var(--inp);font-size:12.5px;color:var(--t1);font-family:inherit;outline:none">
-        <div style="font-size:10.7px;color:var(--t3);margin-top:7px;line-height:1.5">Écris ton compte rendu avant de changer l\u2019état : il part avec.</div>`:''}
+        <div id="mis-photo" style="margin-top:9px"></div>
+        <div style="font-size:10.7px;color:var(--t3);margin-top:7px;line-height:1.5">Écris ton compte rendu et joins la photo avant de changer l\u2019état : ils partent avec.</div>`:''}
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin:14px 0 2px">PERSONNES ASSIGNÉES (${(m.assignes||[]).length})</div>
       <div>${(m.assignes||[]).map(ligne).join('')||'<p class="muted" style="font-size:12px">Personne.</p>'}</div>
+      ${(function(){ const n=(m.assignes||[]).filter(u=>(((m.avance||{})[u])||{}).photo).length;
+        return n?`<div style="font-size:11px;color:var(--t3);margin-top:8px">${n} photo${n>1?'s':''} jointe${n>1?'s':''} — touche une photo pour la voir en grand.</div>`:''; })()}
       <div data-pied style="display:flex;flex-direction:column;gap:8px">
-        ${(m.createdBy===ME.uid||estPatron())?`<button class="btn ghost block" onclick="closeSheet();dashForm(null,null,${JSON.stringify(m).replace(/"/g,'&quot;')})">Modifier la mission</button>`:''}
+        ${(m.createdBy===ME.uid||estPatron())?`<button class="btn ghost block" onclick="closeSheet();dashForm(null,null,${JSON.stringify(Object.assign({},m,{avance:undefined})).replace(/"/g,'&quot;')})">Modifier la mission</button>`:''}
         <button class="btn ghost block" onclick="closeSheet()">Fermer</button>
       </div>`);
+    try{ misPhotoMaj(); }catch(e){}          // le bouton « Joindre une photo »
   }
+  /* ══ LA PREUVE EN PHOTO ══
+     « C'est fait » ne vaut pas grand-chose ; « c'est fait, voilà le bon
+     signé » vaut tout. On joint une photo au compte rendu.
+
+     Une photo d'appareil moderne pèse 4 Mo : impossible à ranger tel quel
+     (une fiche ne peut pas dépasser 1 Mo). On la réduit donc jusqu'à ce
+     qu'elle tienne — largeur, puis qualité — sans jamais dépasser la
+     limite. Le résultat reste parfaitement lisible pour un bon ou un
+     compteur. */
+  let _misPhoto='', _misPhotoId='';
+  const MIS_PHOTO_MAX=170000;               // ~170 ko : dix personnes tiennent dans une fiche
+  function misPhotoDemande(id){ _misPhotoId=id; const i=$('mispick'); if(i){ i.value=''; i.click(); } }
+  function misPhotoRetire(){ _misPhoto=''; misPhotoMaj(); }
+  function misPhotoMaj(){
+    const z=$('mis-photo'); if(!z) return;
+    if(!_misPhoto){ z.innerHTML=`<span onclick="misPhotoDemande('${esc(_misPhotoId)}')" style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:9px 13px;border-radius:10px;border:1.5px dashed var(--brd2);color:var(--t2);cursor:pointer">${ms('image',17)} Joindre une photo</span>`; return; }
+    z.innerHTML=`<div style="display:inline-flex;align-items:center;gap:9px;padding:7px 9px;border-radius:11px;background:var(--inp)">
+      <img src="${_misPhoto}" onclick="misPhotoGrand('${esc(_misPhoto.slice(0,0))}')" style="width:52px;height:52px;object-fit:cover;border-radius:8px;display:block">
+      <div style="font-size:11.5px;color:var(--t2);line-height:1.4">Photo prête<br><span style="color:var(--t3)">${Math.round(_misPhoto.length/1400)} ko</span></div>
+      <span onclick="misPhotoRetire()" title="Retirer" style="font-size:14px;font-weight:800;color:var(--t3);cursor:pointer;padding:2px 6px">✕</span></div>`;
+  }
+  /* on regarde la photo en grand */
+  function misPhotoGrand(src){
+    if(!src) return;
+    const v=$('viewer'); if(!v) return;
+    $('viewer-name').textContent='Photo de la mission';
+    $('viewer-frame').src=src;
+    const ouvert=v.classList.contains('open'); v.classList.add('open'); if(!ouvert) pushBack();
+  }
+  /* on réduit jusqu'à ce que ça tienne : largeur d'abord, qualité ensuite */
+  function misPhotoReduit(fichier){
+    return new Promise((ok,ko)=>{
+      const r=new FileReader();
+      r.onerror=()=>ko(new Error('lecture impossible'));
+      r.onload=()=>{ const img=new Image();
+        img.onerror=()=>ko(new Error('ce fichier n\u2019est pas une image'));
+        img.onload=()=>{
+          const essais=[[1400,.72],[1100,.68],[900,.62],[700,.55],[520,.5]];
+          for(const [mx,q] of essais){
+            let w=img.width,h=img.height;
+            if(w>mx||h>mx){ if(w>h){ h=Math.round(h*mx/w); w=mx; } else { w=Math.round(w*mx/h); h=mx; } }
+            const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+            cv.getContext('2d').drawImage(img,0,0,w,h);
+            const d=cv.toDataURL('image/jpeg',q);
+            if(d.length<=MIS_PHOTO_MAX) return ok(d);
+          }
+          ko(new Error('photo trop lourde'));
+        };
+        img.src=r.result; };
+      r.readAsDataURL(fichier);
+    });
+  }
+  try{ const mp=$('mispick'); if(mp) mp.addEventListener('change',async function(e){
+    const f=e.target.files&&e.target.files[0]; e.target.value=''; if(!f) return;
+    toast('Préparation de la photo…');
+    try{ _misPhoto=await misPhotoReduit(f); misPhotoMaj(); toast('Photo prête — elle partira avec ton compte rendu'); }
+    catch(err){ _misPhoto=''; misPhotoMaj(); opAlerte('Photo impossible à joindre : '+(err.message||err)); }
+  }); }catch(e){}
   /* le bouton rapide de la liste : à traiter → en cours → clôturée */
   async function missionAvance(id){
     const m=_misTout[id]; const e=m?missionEtatDe(m,ME.uid):'todo';
     await missionEtatPose(id, e==='todo'?'encours':'clos');
+  }
+  /* on rouvre la photo de quelqu'un depuis sa ligne */
+  async function misPhotoVoir(id,uid){
+    try{ const d=await roomCol().doc(id).get(); const m=d.exists?d.data():null;
+      const p=((m&&m.avance)||{})[uid]; if(p&&p.photo) misPhotoGrand(p.photo); }catch(e){}
   }
   async function missionEtatPose(id,etat){
     if(!MISSION_ETATS[etat]) return;
@@ -7013,9 +7136,18 @@
     if(!missionMienne(m)){ toast('Cette mission n\u2019est pas assignée à toi'); return; }
     const mot=((($('mis-mot')||{}).value)||'').trim().slice(0,200);
     const av=Object.assign({},m.avance||{});
+    const anc=av[ME.uid]||{};
+    /* la photo déjà envoyée reste, sauf si on en joint une nouvelle */
+    const photo=_misPhoto||anc.photo||'';
     av[ME.uid]={etat:etat,mot:mot,le:Date.now(),nom:(USER&&USER.name)||''};
+    if(photo) av[ME.uid].photo=photo;
     try{ await roomCol().doc(id).update({avance:av}); }
-    catch(e){ opAlerte('Impossible d\u2019enregistrer : '+(e.message||e)); return; }
+    catch(e){
+      const trop=/too large|exceeds|maximum/i.test(String(e&&(e.message||e)));
+      opAlerte(trop?'La photo est trop lourde pour cette mission — retire-la ou prends-en une plus simple.'
+                   :'Impossible d\u2019enregistrer : '+(e.message||e));
+      return; }
+    _misPhoto='';
     toast(etat==='clos'?'Mission clôturée':(etat==='encours'?'Mission en cours':'Remise à traiter'));
     /* on prévient celui qui l'a confiée */
     try{
