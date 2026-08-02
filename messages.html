@@ -668,7 +668,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='625';
+  const APP_VERSION='626';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -783,6 +783,14 @@
                         encours:{l:'En cours', c:'var(--amber)', i:'pending'},
                         clos:{l:'Clôturée',  c:'var(--green)', i:'check_circle'} };
   function estMission(r){ return !!r && r.type==='mission'; }
+  /* ══ APPELS ET RÉUNIONS : DEUX MONDES ══
+     Un appel se range dans une salle « CALL… », une réunion dans une salle
+     « OPMSG… ». Les deux écrans lisent la même collection technique (c'est
+     par là que passent les signaux vidéo) : on pose donc ici la frontière,
+     une fois pour toutes. L'historique des appels ne montrera jamais une
+     réunion, et inversement. */
+  function estSalleReunion(room){ return typeof room==='string' && room.indexOf('OPMSG')===0; }
+  function estFicheAppel(c){ return !!c && !c.sig && c.type!=='ici' && !estSalleReunion(c.room||''); }
   function prioDe(m){ const p=(m&&m.priorite)||'normale'; return PRIORITES[p]?p:'normale'; }
   /* l'état d'UNE personne sur la mission */
   function missionEtatDe(m,uid){
@@ -4258,14 +4266,16 @@
     /* Un appel n'est pas une réunion : ici, UNIQUEMENT le téléphone.
        Les réunions planifiées vivent sur leur propre page et le calendrier. */
     const view=$('view'); view.innerHTML=`<div class="view-h"><h2>Appels</h2><button class="hbtn blue" onclick="newCall()">${ms('add_call',18)}Nouvel appel</button></div>
-      <p class="muted" style="font-size:12px;margin:-6px 2px 12px">Le téléphone de l'équipe : ça sonne, on décroche. Pour les rendez-vous planifiés, va dans <a onclick="${isPro()?'openReunions()':''}" style="color:var(--op-tx);cursor:pointer;text-decoration:underline">Réunions</a>.</p>
+      <p class="muted" style="font-size:12px;margin:-6px 2px 12px">Le téléphone de l'équipe : ça sonne, on décroche.</p>
       <div class="gsearch">${ms('search',19)}<input id="call-search" placeholder="Rechercher un appel…" oninput="_callSearch=this.value.trim().toLowerCase();viewAppelList()"></div>
       <div style="overflow:auto;padding:0 2px 14px;-webkit-overflow-scrolling:touch"><div class="seg" id="call-seg">${[['all','Tous'],['missed','Manqués'],['in','Entrants'],['out','Sortants']].map(([k,l])=>`<button data-k="${k}" class="${_callFilter===k?'on':''}" onclick="setCallFilter('${k}')">${l}</button>`).join('')}</div></div>
       <div id="call-list"><p class="muted center">Chargement…</p></div>`;
     try{
       const col=callsCol();
       const [a,b]=await Promise.all([ col.where('from','==',ME.uid).get(), col.where('members','array-contains',ME.uid).get() ]);
-      const map={}; a.forEach(d=>map[d.id]={id:d.id,...d.data()}); b.forEach(d=>map[d.id]={id:d.id,...d.data()});
+      const map={};
+      const garde=d=>{ const c={id:d.id,...d.data()}; if(estFicheAppel(c)) map[d.id]=c; };
+      a.forEach(garde); b.forEach(garde);      // jamais une réunion dans l'historique des appels
       /* un appel EN COURS s'affiche toujours, même si l'historique a été vidé */
       _callTous=Object.values(map);
       const _cc=+(localStorage.getItem(callClearKey())||0);
@@ -4297,6 +4307,7 @@
       const lim=Date.now()-70000;
       qs.forEach(d=>{ const x=d.data()||{};
         if(!x.room||!x.ts||x.ts<lim) return;
+        if(estSalleReunion(x.room)) return;    // les réunions ont leur propre écran
         const l=(v[x.room]=v[x.room]||[]);
         if(l.indexOf(x.nom||'')<0) l.push(x.nom||'');
       });
@@ -6706,7 +6717,7 @@
         if(r.createdBy===ME.uid || ct<=_loginTs-4000) return;
         if(estMission(r)) toast('Nouvelle mission : « '+(r.name||'')+' »'+(r.scheduledAt?' — pour le '+fmtWhen(r.scheduledAt):''));
         else if(r.scheduledAt) toast('Réunion planifiée : « '+(r.name||'')+' » — '+fmtWhen(r.scheduledAt)); });
-      if(_curView==='appel') viewAppel(); else if(_curView==='dash') viewDash();
+      if(_curView==='dash') viewDash();      // une réunion ne redessine pas l'écran des appels
     }, err=>{});
     if(_meetAlertTimer)clearInterval(_meetAlertTimer); _meetAlertTimer=setInterval(checkMeetingAlerts,30000);
   }
