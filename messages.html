@@ -698,7 +698,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='628';
+  const APP_VERSION='629';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -968,13 +968,13 @@
     catch(e){ return (v==null?'':String(v)).toLowerCase(); }
   }
   /* une personne cochable */
-  function pickLigne(zone,uid,nom,sous){
+  function pickLigne(zone,uid,nom,sous,extra,attrs){
     const n=nom||'';
-    return `<div class="chk" data-uid="${esc(uid)}" data-name="${esc(n.replace(/"/g,'&quot;'))}" data-cle="${esc(sansAccent(n+' '+(sous||'')))}" onclick="pickBascule(this,'${zone}')">
+    return `<div class="chk" ${attrs||''} data-uid="${esc(uid)}" data-name="${esc(n.replace(/"/g,'&quot;'))}" data-cle="${esc(sansAccent(n+' '+(sous||'')))}" onclick="pickBascule(this,'${zone}')">
       <span class="cbx"></span>
       <div class="ava" style="width:34px;height:34px;border-radius:10px;font-size:13px;font-weight:800;flex:0 0 auto;display:flex;align-items:center;justify-content:center;${avatarStyle(n)}">${ini(n)}</div>
       <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n)}</div>
-      ${sous?`<div class="muted" style="font-size:11.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}</div></div>`;
+      ${sous?`<div class="muted" style="font-size:11.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}</div>${extra||''}</div>`;
   }
   /* le bloc complet : recherche + compteur + liste. `lignes` vient de pickLigne. */
   function pickBloc(zone,lignes,vide){
@@ -1027,6 +1027,7 @@
     const L=$(zone+'-lbl');
     if(L){ const zero=L.dataset.zero||'', avec=L.dataset.avec||'';
       L.textContent=(n&&avec)?avec.replace('{n}',n+(n>1?' personnes':' personne')):zero; }
+    if(zone==='ng-members'){ try{ ngMaj(); }catch(e){} }
   }
   /* ══ MODE JOUR / NUIT ══
      Trois réglages : Automatique (suit le téléphone ou l'ordinateur, donc
@@ -3694,6 +3695,9 @@
       const rowHtml=([id,c])=>{ const g=c.type==='general', dm=c.type==='dm'; const n=(c.members||[]).length;
         const marque=(c.urgence?'🚨 ':'')+(c.finLe?(c.cloture?'🏗️ ':'🏗️ '):'');
         let nm=c.name||'', avInner=ini(nm), avBg=avatarStyle(nm)+';border-radius:11px';
+        /* un groupe porte son icône : on le reconnaît d'un coup d'œil */
+        if(c.type==='group'&&c.icone){ avInner='<span style="font-size:19px;line-height:1">'+esc(c.icone)+'</span>';
+          avBg='background:var(--tint2);border-radius:11px'; }
         if(g){ nm='Général'; avInner=ms('forum',22); avBg='background:var(--tile-bg);color:var(--tile-tx);border-radius:11px'; }
         else if(dm){ const o=(c.members||[]).find(u=>u!==ME.uid); nm=nmap[o]||'Contact'; avInner=ini(nm); avBg=avatarStyle(nm); }
         let sub;
@@ -3829,41 +3833,226 @@
     try{ localStorage.setItem(clearKey(id),''+Date.now()); localStorage.setItem(delKey(id),''+Date.now()); }catch(e){}
     _pin.delete(ck(id)); lsSave('opmsg_pin',_pin); _fav.delete(ck(id)); lsSave('opmsg_fav',_fav); _munread.delete(ck(id)); lsSave('opmsg_munread',_munread);
     closeSheet(); viewDisc(); toast('Discussion supprimée'); }
+  /* ══════════════════════════════════════════════════════════════════
+     LES GROUPES
+     Un groupe, ce n'est pas juste un nom et une liste de gens : c'est une
+     icône qu'on reconnaît d'un coup d'œil, un objet, un type qui règle le
+     reste tout seul, des administrateurs qui le gèrent, et deux ou trois
+     règles claires. Le tout sur UN écran — pas d'assistant en trois pages.
+     ══════════════════════════════════════════════════════════════════ */
+  const GRP_TYPES={
+    equipe:  {l:'Équipe',   i:'👥', d:'Le fonctionnement courant',        def:{}},
+    chantier:{l:'Chantier', i:'🏗️', d:'Un site, une durée',               def:{fin:true}},
+    projet:  {l:'Projet',   i:'📋', d:'Un dossier suivi à plusieurs',      def:{}},
+    client:  {l:'Client',   i:'💼', d:'Tout ce qui concerne un client',    def:{}},
+    annonces:{l:'Annonces', i:'📣', d:'Les consignes descendent, sans bruit', def:{ecrire:'admins',epingle:true}}
+  };
+  const GRP_ICONES=['👥','🏗️','📋','💼','📣','👷','🚚','🧰','🐀','🌿','⚠️','🏢','🧪','📦','🔧','🗺️'];
+  function grpType(c){ const t=(c&&c.genre)||'equipe'; return GRP_TYPES[t]?t:'equipe'; }
+  function grpIcone(c){ return (c&&c.icone)||(GRP_TYPES[grpType(c)]||{}).i||'👥'; }
+  function grpAdmins(c){ const a=(c&&c.admins)||[]; return a.length?a:[(c&&c.createdBy)].filter(Boolean); }
+  function grpEstAdmin(c,uid){ return grpAdmins(c).indexOf(uid||ME.uid)>=0 || IS_OWNER || (c&&c.createdBy===(uid||ME.uid)); }
+  function grpPeutEcrire(c){ if(!c||c.type!=='group') return true;
+    return (c.ecrire!=='admins') || grpEstAdmin(c,ME.uid); }
+  function grpPeutAjouter(c){ if(!c||c.type!=='group') return true;
+    return (c.ajouter!=='admins') || grpEstAdmin(c,ME.uid); }
+  /* la ligne de résumé : « Chantier · 3 membres · épinglé · jusqu'au 30/09 » */
+  function grpResume(c){
+    const p=[(GRP_TYPES[grpType(c)]||{}).l||'Groupe'];
+    const n=(c.members||[]).length; if(n) p.push(n+' membre'+(n>1?'s':''));
+    if(c.ecrire==='admins') p.push('annonces');
+    if(c.urgence) p.push('urgence');
+    if(c.epingle) p.push('épinglé');
+    if(c.finLe) p.push('jusqu\u2019au '+new Date(c.finLe).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}));
+    return p.join(' · ');
+  }
+
+  /* ── l'état du formulaire ── */
+  let _ngIcone='🏗️', _ngType='chantier', _ngAdmins=new Set(), _ngReglages=false;
+  let _ngEcrire='tous', _ngAjouter='admins', _ngUrgence=false, _ngEpingle=false, _ngFin=false;
+  function ngIconeSet(e){ _ngIcone=e; ngMaj(); }
+  function ngTypeSet(t){
+    if(!GRP_TYPES[t]) return;
+    _ngType=t;
+    const d=GRP_TYPES[t].def||{};
+    /* le type pré-règle, sans jamais enfermer : tout reste modifiable en dessous */
+    _ngEcrire=d.ecrire||'tous';
+    _ngEpingle=!!d.epingle;
+    _ngFin=!!d.fin;
+    _ngIcone=GRP_TYPES[t].i;
+    ngMaj();
+  }
+  function ngRegle(k,v){
+    if(k==='ecrire') _ngEcrire=v; else if(k==='ajouter') _ngAjouter=v;
+    else if(k==='urgence') _ngUrgence=!_ngUrgence;
+    else if(k==='epingle') _ngEpingle=!_ngEpingle;
+    else if(k==='fin') _ngFin=!_ngFin;
+    ngMaj();
+  }
+  function ngReglagesBascule(){ _ngReglages=!_ngReglages; ngMaj(); }
+  function ngAdminBascule(uid,ev){
+    try{ if(ev){ ev.stopPropagation(); ev.preventDefault(); } }catch(e){}
+    if(_ngAdmins.has(uid)) _ngAdmins.delete(uid); else _ngAdmins.add(uid);
+    /* on ne peut pas être administrateur sans être membre */
+    if(_ngAdmins.has(uid)){ const el=document.querySelector('#ng-members .chk[data-uid="'+uid+'"]');
+      if(el&&!el.classList.contains('sel')){ el.classList.add('sel'); pickMaj('ng-members'); } }
+    ngMaj();
+  }
+  /* les raccourcis : toute l'entreprise, ou tous les responsables */
+  function ngTous(quoi){
+    const gens=pickGens('ng-members');
+    gens.forEach(el=>{ if(quoi==='tous'||el.dataset.role==='responsable'||el.dataset.role==='entreprise') el.classList.add('sel'); });
+    pickMaj('ng-members'); ngMaj();
+  }
+  /* tout ce qui bouge à l'écran passe par ici */
+  function ngMaj(){
+    /* l'icône et le type */
+    const z=$('ng-icones');
+    if(z) z.innerHTML=GRP_ICONES.map(e=>`<span onclick="ngIconeSet('${e}')" style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;
+      background:${_ngIcone===e?'var(--tint)':'var(--inp)'};${_ngIcone===e?'outline:2px solid var(--op);outline-offset:-2px':''}">${e}</span>`).join('');
+    const g=$('ng-gros'); if(g) g.textContent=_ngIcone;
+    const t=$('ng-types');
+    if(t) t.innerHTML=Object.keys(GRP_TYPES).map(k=>{ const on=_ngType===k, T=GRP_TYPES[k];
+      return `<span onclick="ngTypeSet('${k}')" title="${esc(T.d)}" style="font-size:11.5px;font-weight:700;padding:8px 13px;border-radius:9px;cursor:pointer;
+        border:1.5px solid ${on?'var(--op)':'var(--brd2)'};color:${on?'var(--op-tx)':'var(--t2)'};${on?'background:var(--tint2)':''}">${esc(T.l)}</span>`; }).join('');
+    const d=$('ng-typed'); if(d) d.textContent=(GRP_TYPES[_ngType]||{}).d||'';
+    /* les pastilles ADMIN sur chaque ligne */
+    pickGens('ng-members').forEach(el=>{
+      const u=el.dataset.uid, a=_ngAdmins.has(u);
+      const b=el.querySelector('[data-adm]');
+      if(b){ b.textContent=a?'ADMIN':'Admin';
+        b.style.background=a?'var(--tint2)':'transparent';
+        b.style.color=a?'var(--op-tx)':'var(--t3)';
+        b.style.borderColor=a?'var(--op)':'var(--brd2)'; }
+    });
+    /* le repli des réglages */
+    const rz=$('ng-reglages'); if(rz) rz.style.display=_ngReglages?'block':'none';
+    const rc=$('ng-reg-chev'); if(rc) rc.textContent=_ngReglages?'▴':'▾';
+    const rr=$('ng-reg-res');
+    if(rr) rr.textContent=[_ngEcrire==='admins'?'seuls les admins écrivent':'tout le monde écrit',
+      _ngAjouter==='admins'?'les admins ajoutent':'chacun peut ajouter',
+      _ngUrgence?'urgence':'', _ngEpingle?'épinglé':'', _ngFin?'date de fin':''].filter(Boolean).join(' · ');
+    /* les boutons des réglages */
+    const seg=(id,cle,a,b)=>{ const e=$(id); if(!e) return;
+      const v=(cle==='ecrire')?_ngEcrire:_ngAjouter;
+      e.innerHTML=[[a[0],a[1]],[b[0],b[1]]].map(([k,lib])=>`<span onclick="ngRegle('${cle}','${k}')" style="flex:1;text-align:center;font-size:11.5px;font-weight:700;padding:8px 6px;border-radius:8px;cursor:pointer;
+        ${v===k?'background:var(--card);color:var(--op-tx);box-shadow:var(--seg-sh)':'color:var(--t2)'}">${lib}</span>`).join(''); };
+    seg('ng-seg-ecrire','ecrire',['tous','Tout le monde'],['admins','Les admins seulement']);
+    seg('ng-seg-ajouter','ajouter',['tous','Tout le monde'],['admins','Les admins seulement']);
+    const sw=(id,on)=>{ const e=$(id); if(!e) return;
+      e.style.background=on?'var(--green)':'var(--brd2)';
+      const k=e.firstElementChild; if(k){ k.style.left=on?'auto':'2.5px'; k.style.right=on?'2.5px':'auto'; } };
+    sw('ng-sw-urgence',_ngUrgence); sw('ng-sw-epingle',_ngEpingle); sw('ng-sw-fin',_ngFin);
+    const fz=$('ng-fin-zone'); if(fz) fz.style.display=_ngFin?'block':'none';
+    /* l'aperçu et le bouton */
+    const n=pickChoisis('ng-members').length;
+    const nom=((($('ng-name')||{}).value)||'').trim();
+    const ap=$('ng-apercu');
+    if(ap) ap.innerHTML=`<div class="ava" style="width:44px;height:44px;border-radius:13px;font-size:20px;background:var(--tint);display:flex;align-items:center;justify-content:center;flex:none">${_ngIcone}</div>
+      <div style="min-width:0"><div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nom?esc(nom):'<span style="color:var(--t3)">Nom du groupe</span>'}</div>
+      <div style="font-size:11.5px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(grpResume({genre:_ngType,members:new Array(n+1),ecrire:_ngEcrire,urgence:_ngUrgence,epingle:_ngEpingle,finLe:_ngFin?(momentChoisi()||Date.now()):0}))}</div></div>`;
+    const b=$('ng-valider');
+    if(b) b.textContent=n?('Créer le groupe avec '+n+' personne'+(n>1?'s':'')):'Créer le groupe';
+  }
   async function newGroup(){
     openSheet('<p class="muted center">Chargement…</p>');
+    _ngIcone='👥'; _ngType='equipe'; _ngAdmins=new Set(); _ngReglages=false;
+    _ngEcrire='tous'; _ngAjouter='admins'; _ngUrgence=false; _ngEpingle=false; _ngFin=false;
     let chks='';
     try{ const list=await listMembers();
-      list.forEach(m=>{ if(m.uid===ME.uid) return; chks+=pickLigne('ng-members',m.uid,m.name||'',''); });
+      list.forEach(m=>{ if(m.uid===ME.uid) return;
+        const role=(m.role==='entreprise')?'Direction':(m.role==='responsable'?'Responsable':'');
+        chks+=pickLigne('ng-members',m.uid,m.name||'',role,
+          `<span data-adm onclick="ngAdminBascule('${esc(m.uid)}',event)" title="Peut renommer le groupe, ajouter et retirer des membres"
+            style="flex:none;font-size:10px;font-weight:800;letter-spacing:.04em;padding:4px 9px;border-radius:7px;border:1px solid var(--brd2);color:var(--t3);cursor:pointer">Admin</span>`,
+          `data-role="${esc(m.role||'')}"`);
+      });
     }catch(e){}
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Nouveau groupe</h3>
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px">Nouveau groupe</h3>
       <div id="ngerr"></div>
-      <div class="field"><label>Nom du groupe</label><input id="ng-name" placeholder="Ex : Équipe terrain"></div>
-      <div class="field" style="margin-bottom:6px"><label>Qui fait partie du groupe ?</label></div>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div id="ng-gros" style="width:56px;height:56px;border-radius:17px;background:var(--tint);border:1px solid var(--pill-on-brd);
+          display:flex;align-items:center;justify-content:center;font-size:27px;flex:none">👥</div>
+        <input id="ng-name" oninput="ngMaj()" maxlength="60" placeholder="Nom du groupe — ex : Chantier Camping Les Pins"
+          style="flex:1;min-width:0;background:var(--inp);border:1px solid transparent;border-radius:12px;padding:13px 14px;color:var(--t1);font-size:15px;font-family:inherit;outline:none">
+      </div>
+      <div id="ng-icones" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px"></div>
+
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:7px">TYPE</div>
+      <div id="ng-types" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      <div id="ng-typed" class="muted" style="font-size:11.5px;margin:6px 0 14px"></div>
+
+      <input id="ng-objet" maxlength="120" placeholder="À quoi sert ce groupe ? (facultatif)"
+        style="width:100%;background:var(--inp);border:1px solid transparent;border-radius:12px;padding:12px 13px;color:var(--t1);font-size:13px;font-family:inherit;outline:none;margin-bottom:14px">
+
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:7px">MEMBRES</div>
+      <div style="display:flex;gap:6px;margin-bottom:9px;flex-wrap:wrap">
+        <span onclick="ngTous('tous')" style="font-size:11px;font-weight:700;padding:7px 12px;border-radius:99px;border:1px dashed var(--pill-brd);color:var(--op-tx);cursor:pointer">+ Toute l\u2019entreprise</span>
+        <span onclick="ngTous('resp')" style="font-size:11px;font-weight:700;padding:7px 12px;border-radius:99px;border:1px dashed var(--pill-brd);color:var(--op-tx);cursor:pointer">+ Tous les responsables</span>
+      </div>
       ${pickBloc('ng-members',chks,'Aucun autre membre. Ajoute des contacts d\u2019abord.')}
-      <p class="muted" style="margin:8px 0 10px">Tu es automatiquement membre. Seules les personnes cochées verront ce groupe.</p>
-      ${peutReunion()?`<div class="chk" id="ng-urgence" onclick="this.classList.toggle('sel')" style="margin-bottom:8px">
-        <span class="cbx"></span><span style="font-size:20px">🚨</span><div style="flex:1"><b style="font-size:13.5px">Canal d'urgence</b>
-        <div class="muted" style="font-size:11.5px;line-height:1.4">Les messages sonnent même pendant les heures de silence.</div></div></div>`:''}
-      <div class="chk" id="ng-chantier" onclick="this.classList.toggle('sel');ngChantierMaj()" style="margin-bottom:8px">
-        <span class="cbx"></span><span style="font-size:20px">🏗️</span><div style="flex:1"><b style="font-size:13.5px">Discussion de chantier</b>
-        <div class="muted" style="font-size:11.5px;line-height:1.4">Elle se rangera toute seule à la date de fin, sans rien perdre.</div></div></div>
-      <div id="ng-fin" style="display:none;margin-bottom:10px">
-        <div class="field" style="margin-bottom:6px"><label>Fin du chantier</label></div>
-        ${champDateHeure(_dstr(new Date(Date.now()+7*86400000)),'18:00')}</div>
-      <button class="btn block" onclick="createGroup()"><span id="ng-members-lbl" data-zero="Créer le groupe" data-avec="Créer le groupe avec {n}">Créer le groupe</span></button>`);
-    pickMaj('ng-members');
+      <p class="muted" style="font-size:11.5px;line-height:1.5;margin:8px 0 14px">Tu es membre et administrateur. Touche <b>Admin</b> à côté d\u2019un nom pour lui confier la gestion du groupe.</p>
+
+      <div onclick="ngReglagesBascule()" style="display:flex;align-items:center;gap:9px;padding:11px 13px;border-radius:12px;background:var(--inp);cursor:pointer">
+        <span style="font-size:12.5px;font-weight:700">Réglages</span>
+        <span id="ng-reg-res" class="muted" style="flex:1;min-width:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        <span id="ng-reg-chev" style="color:var(--t3);font-size:11px">▾</span>
+      </div>
+      <div id="ng-reglages" style="display:none;padding:12px 2px 0">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:6px">QUI PEUT ÉCRIRE ?</div>
+        <div id="ng-seg-ecrire" style="display:flex;gap:3px;background:var(--inp);border-radius:11px;padding:3px"></div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin:12px 0 6px">QUI PEUT AJOUTER DES MEMBRES ?</div>
+        <div id="ng-seg-ajouter" style="display:flex;gap:3px;background:var(--inp);border-radius:11px;padding:3px"></div>
+        ${peutReunion()?`<div onclick="ngRegle('urgence')" style="display:flex;align-items:flex-start;gap:11px;padding:12px;border-radius:12px;background:var(--inp);margin-top:12px;cursor:pointer">
+          <span style="font-size:19px">🚨</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">Canal d\u2019urgence</div>
+          <div class="muted" style="font-size:11.5px;line-height:1.45;margin-top:2px">Les messages sonnent même pendant les heures de silence.</div></div>
+          <span id="ng-sw-urgence" style="flex:none;width:40px;height:23px;border-radius:99px;background:var(--brd2);position:relative"><i style="position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:99px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);display:block"></i></span></div>`:''}
+        <div onclick="ngRegle('epingle')" style="display:flex;align-items:flex-start;gap:11px;padding:12px;border-radius:12px;background:var(--inp);margin-top:9px;cursor:pointer">
+          <span style="font-size:19px">📌</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">Épingler pour tout le monde</div>
+          <div class="muted" style="font-size:11.5px;line-height:1.45;margin-top:2px">Le groupe reste en haut de la liste de chacun.</div></div>
+          <span id="ng-sw-epingle" style="flex:none;width:40px;height:23px;border-radius:99px;background:var(--brd2);position:relative"><i style="position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:99px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);display:block"></i></span></div>
+        <div onclick="ngRegle('fin')" style="display:flex;align-items:flex-start;gap:11px;padding:12px;border-radius:12px;background:var(--inp);margin-top:9px;cursor:pointer">
+          <span style="font-size:19px">📅</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">Date de fin</div>
+          <div class="muted" style="font-size:11.5px;line-height:1.45;margin-top:2px">Le groupe se rangera tout seul ce jour-là, sans rien perdre.</div></div>
+          <span id="ng-sw-fin" style="flex:none;width:40px;height:23px;border-radius:99px;background:var(--brd2);position:relative"><i style="position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:99px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);display:block"></i></span></div>
+        <div id="ng-fin-zone" style="display:none;margin-top:10px">
+          ${champDateHeure(_dstr(new Date(Date.now()+30*86400000)),'18:00')}</div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin:16px 0 7px">APERÇU</div>
+      <div id="ng-apercu" style="display:flex;align-items:center;gap:12px;border:1px solid var(--card-brd);border-radius:14px;padding:12px"></div>
+
+      <div data-pied><button class="btn block" id="ng-valider" style="font-weight:800" onclick="createGroup()">Créer le groupe</button></div>`);
+    setTimeout(()=>{ try{ ngMaj(); pickMaj('ng-members'); dcLabel(); }catch(e){} },60);
   }
   function ngChantierMaj(){ const z=$('ng-fin'); const c=$('ng-chantier');
     if(z) z.style.display=(c&&c.classList.contains('sel'))?'block':'none';
     try{ dcLabel(); }catch(e){} }
+  /* le verrou de l'envoi : l'écran peut mentir (vieil onglet), pas ceci */
+  async function grpEnvoiAutorise(id){
+    try{ const c=(await chDoc(id).get()).data()||{};
+      if(grpPeutEcrire(c)) return true;
+      toast('Groupe d\u2019annonces — seuls les administrateurs y écrivent');
+      try{ chEcritureMaj(id); }catch(e){}
+      return false;
+    }catch(e){ return true; }
+  }
   async function createGroup(){
-    const name=($('ng-name').value||'').trim(); if(!name){ $('ngerr').innerHTML='<div class="err">Donnez un nom.</div>'; return; }
+    const name=(($('ng-name')||{}).value||'').trim();
+    if(!name){ $('ngerr').innerHTML='<div class="err">Donne un nom au groupe.</div>'; const i=$('ng-name'); if(i) i.focus(); return; }
     const sel=[...document.querySelectorAll('#ng-members .chk.sel')].map(x=>x.dataset.uid);
     const members=Array.from(new Set([ME.uid,...sel]));
-    const d={name,type:'group',members,createdBy:ME.uid,createdAt:FV()};
-    const u=$('ng-urgence'); if(u&&u.classList.contains('sel')) d.urgence=true;
-    const ch=$('ng-chantier'); if(ch&&ch.classList.contains('sel')){ const f=momentChoisi(); if(f) d.finLe=f; }
-    try{ const r=await chanCol().add(d); closeSheet(); openChannel(r.id,name); }
+    /* un administrateur qui ne serait pas membre n'aurait aucun sens */
+    const admins=Array.from(new Set([ME.uid,...[..._ngAdmins].filter(u=>members.indexOf(u)>=0)]));
+    const objet=((($('ng-objet')||{}).value)||'').trim().slice(0,120);
+    const d={name,type:'group',members,createdBy:ME.uid,createdAt:FV(),
+             icone:_ngIcone,genre:_ngType,admins,ecrire:_ngEcrire,ajouter:_ngAjouter};
+    if(objet) d.objet=objet;
+    if(_ngUrgence) d.urgence=true;
+    if(_ngEpingle) d.epingle=true;
+    if(_ngFin){ const f=momentChoisi(); if(f) d.finLe=f; }
+    try{ const r=await chanCol().add(d); closeSheet(); toast('Groupe créé'); openChannel(r.id,name); }
     catch(e){ $('ngerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; }
   }
 
@@ -7372,11 +7561,16 @@
         <button class="ic" id="micbtn" onclick="toggleRec()" title="Message vocal">${ic('mic',22)}</button>
         <input id="msg" data-cid="${id}" placeholder="Message…  (@ pour mentionner)" oninput="onMsgInput()" onblur="brouillonPose()" onkeydown="if(event.key==='Enter'&&enterSendOn())sendMsg()">
         <button class="send" onclick="sendMsg()">${ic('send',20)}</button>
+      </div>
+      <div id="ch-lecture" style="display:none;align-items:center;gap:10px;padding:14px 14px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--brd);background:var(--bg1)">
+        <span style="font-size:19px">📣</span>
+        <div style="flex:1;min-width:0;font-size:12.3px;color:var(--t2);line-height:1.45">Groupe d\u2019annonces — seuls les administrateurs y écrivent. Tu reçois les messages.</div>
       </div>`;
     const _cw=$('chat').classList.contains('open'); $('chat').classList.add('open'); if(!_cw) pushBack();
     try{ document.querySelectorAll('.dsk-chan').forEach(x=>x.classList.toggle('on',x.dataset.cid===id)); }catch(e){}
     setTimeout(()=>{ try{ chatPlacer(); chatMarquer(); }catch(e){} },0);
     applyWall(); bindSwipeReply(); listenCh(id); listenChDoc(id);
+    try{ chEcritureMaj(id); }catch(e){}     // un groupe d'annonces se lit, il ne s'écrit pas
     brouillonReprend();                    // ce qu'on avait commencé à écrire ici revient
     setTimeout(guideConv,600);
     progEnvoyerDus(); if(_progT) clearInterval(_progT); _progT=setInterval(progEnvoyerDus,60000);
@@ -7859,7 +8053,9 @@
   }
   try{ window.addEventListener('online',()=>setTimeout(attFlush,800)); }catch(e){}
   setInterval(()=>{ try{ attFlush(); }catch(e){} },25000);
-  async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return; inp.value='';
+  async function sendMsg(){ const inp=$('msg'); const text=(inp.value||'').trim(); if(!text||!_curCh) return;
+    if(!await grpEnvoiAutorise(_curCh.id)) return;
+    inp.value='';
     brouillonEcrire(_curCh.id,'');         // envoyé : plus de brouillon
     const mp=$('mentionpop'); if(mp) mp.style.display='none';
     try{ viveRafraichir(); }catch(e){}     // la liste des discussions suit tout de suite
@@ -8349,15 +8545,38 @@
     setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },400);
     closeSheet(); toast('📄 Choisis « Enregistrer en PDF » dans la fenêtre d\'impression');
   }
+  /* ══ QUI PEUT ÉCRIRE ══
+     Sur un groupe d'annonces, le champ de saisie disparaît et laisse la
+     place à une phrase qui explique — plutôt qu'un champ qui refuse. */
+  async function chEcritureMaj(id){
+    try{
+      const c=(await chDoc(id).get()).data()||{};
+      const ok=grpPeutEcrire(c);
+      const comp=document.querySelector('#chat .composer'), lect=$('ch-lecture');
+      if(comp) comp.style.display=ok?'':'none';
+      if(lect) lect.style.display=ok?'none':'flex';
+    }catch(e){}
+  }
   async function openGroupInfo(id){
     openSheet('<p class="muted center">Chargement…</p>');
     let cd; try{ cd=await chDoc(id).get(); }catch(e){ openSheet('<div class="err">'+esc(e.message)+'</div>'); return; }
     const c=cd.exists?cd.data():{};
     if(c.type==='general'){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Général</h3><p class="muted" style="margin-bottom:12px">Canal de toute l'entreprise — tous les membres y participent.</p>${pinMuteBtns(id)}`); return; }
-    const isMgr = c.createdBy===ME.uid || IS_OWNER;
+    const isMgr = grpEstAdmin(c,ME.uid);
     const nameByUid={}; nameByUid[ME.uid]=USER.name||''; try{ const list=await listMembers(); list.forEach(m=>nameByUid[m.uid]=m.name); }catch(e){}
-    const mhtml=(c.members||[]).map(u=>`<div class="mrow"><div class="ma">${ini(nameByUid[u]||'?')}</div><div>${esc(nameByUid[u]||'Membre')}${u===ME.uid?' (vous)':''}</div></div>`).join('');
-    let html=`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(c.name||'Groupe')}</h3>`;
+    const adm=grpAdmins(c);
+    const mhtml=(c.members||[]).map(u=>`<div class="mrow"><div class="ma">${ini(nameByUid[u]||'?')}</div>
+      <div style="flex:1;min-width:0">${esc(nameByUid[u]||'Membre')}${u===ME.uid?' (toi)':''}</div>
+      ${adm.indexOf(u)>=0?`<span style="flex:none;font-size:10px;font-weight:800;letter-spacing:.04em;padding:3px 9px;border-radius:7px;background:var(--tint2);color:var(--op-tx)">ADMIN</span>`:''}</div>`).join('');
+    let html=`<h3 style="font-family:'Space Mono',monospace;font-size:16px">${esc(c.name||'Groupe')}</h3>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div style="width:52px;height:52px;border-radius:16px;background:var(--tint2);display:flex;align-items:center;justify-content:center;font-size:25px;flex:none">${esc(grpIcone(c))}</div>
+        <div style="min-width:0"><div style="font-size:12.5px;font-weight:700">${esc(grpResume(c))}</div>
+        ${c.objet?`<div class="muted" style="font-size:12px;margin-top:3px;line-height:1.45">${esc(c.objet)}</div>`:''}</div>
+      </div>`;
+    if(c.ecrire==='admins')
+      html+=`<div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px;background:var(--tint2);margin-bottom:10px">
+        <span style="font-size:17px">📣</span><div style="font-size:11.8px;line-height:1.45">Groupe d\u2019annonces — seuls les administrateurs y écrivent.</div></div>`;
     html+=pinMuteBtns(id);
     if(isMgr) html+=`<button class="btn ghost block" style="margin:10px 0" onclick="renameGroup('${id}','${esc((c.name||'').replace(/'/g,''))}')">✏️ Renommer le groupe</button>`;
     html+=`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:12px 2px 6px">Membres (${(c.members||[]).length})</div>${mhtml}`;
@@ -8370,6 +8589,13 @@
   async function addToGroup(id){
     openSheet('<p class="muted center">Chargement…</p>');
     let c={},mem=[]; try{ const cd=await chDoc(id).get(); c=cd.data(); mem=c.members||[]; }catch(e){}
+    if(!grpPeutAjouter(c)){
+      openSheet(`<div style="text-align:center;padding:6px 0 2px"><div style="font-size:38px">🔒</div>
+        <h3 style="font-size:17px;margin:10px 0 6px">Réservé aux administrateurs</h3>
+        <p class="muted" style="font-size:13.5px;line-height:1.6">Sur ce groupe, seuls les administrateurs ajoutent des membres.</p></div>
+        <div data-pied><button class="btn ghost block" onclick="closeSheet()">D\u2019accord</button></div>`);
+      return;
+    }
     let chks=''; try{ const list=await listMembers();
       list.forEach(m=>{ if(m.uid===ME.uid||mem.includes(m.uid)) return; chks+=pickLigne('atg-members',m.uid,m.name||'',''); }); }catch(e){}
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Ajouter des membres</h3><div id="atgerr"></div>${pickBloc('atg-members',chks,'Tous vos contacts sont déjà dans le groupe.')}<button class="btn block" style="margin-top:10px" onclick="saveAddToGroup('${id}')"><span id="atg-members-lbl" data-zero="Ajouter" data-avec="Ajouter {n}">Ajouter</span></button>`);
