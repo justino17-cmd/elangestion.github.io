@@ -804,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='653';
+  const APP_VERSION='654';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6716,7 +6716,7 @@
     visioAttenteBar();
     if(_vQualT) clearInterval(_vQualT);
     _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
-    _camDebit=CAM_DEBIT_DEPART;
+    _camDebit=CAM_DEBIT_DEPART; _camPalier=1; _camStable=0;   // chaque appel repart en 1080p
     if(_vAdaptT) clearInterval(_vAdaptT);
     _vAdaptT=setInterval(()=>{ try{ camAdapte(); }catch(e){} },2000);
     /* on inscrit son nom sur la fiche de l'appel : l'historique dira ensuite
@@ -7026,8 +7026,35 @@
   function camRegleTrack(t){ try{ if(t) t.contentHint='motion'; }catch(e){} }
   /* et on borne ce qu'on envoie : au-delà, on ne gagne rien de visible,
      on ne fait qu'engorger la liaison et fabriquer du retard */
-  const CAM_DEBIT_MIN=900000, CAM_DEBIT_MAX=9000000, CAM_DEBIT_DEPART=6000000;
-  let _camDebit=CAM_DEBIT_DEPART, _vAdaptT=null;
+  const CAM_DEBIT_MIN=900000, CAM_DEBIT_MAX=9000000, CAM_DEBIT_DEPART=5200000;
+  const CAM_PALIERS=[
+    {nom:'720p', h:720,  debit:2600000},
+    {nom:'1080p',h:1080, debit:5200000},
+    {nom:'2K',   h:1440, debit:9000000}
+  ];
+  let _camDebit=CAM_DEBIT_DEPART, _camPalier=1, _camStable=0, _vAdaptT=null;
+  /* le choix du palier — une règle pure, testable :
+     p = palier actuel (0..2), stable = mesures parfaites d'affilée */
+  function camPalierDecide(p,stable,perte,rtt,dispo){
+    const coince=perte>0.03||rtt>0.3;
+    const frotte=!coince&&(perte>0.01||rtt>0.2);
+    const roule=perte<0.005&&(rtt===0||rtt<0.15);
+    if(coince) return {p:0,stable:0};                    // on retombe en 720p, tout de suite
+    if(frotte) return {p:Math.max(0,p-1),stable:0};      // un cran de moins
+    if(!roule) return {p:p,stable:0};                    // entre les deux : on ne bouge pas
+    stable++;
+    if(p===0&&stable>=3) return {p:1,stable:0};          // ~6 s de calme → 1080p
+    /* la 2K se mérite : réseau impeccable ET durable. Si la ligne annonce
+       son débit, il doit largement porter la 2K ; sinon on exige plus long. */
+    if(p===1&&rtt<0.1&&perte<0.003&&(dispo>0?(stable>=8&&dispo>7500000):stable>=12))
+      return {p:2,stable:0};
+    return {p:p,stable:stable};
+  }
+  /* l'échelle d'envoi : la caméra capte en grand, on réduit à l'envoi */
+  function camEchelle(sn){
+    try{ const h=(sn&&sn.track&&sn.track.getSettings&&sn.track.getSettings().height)||1440;
+      return Math.max(1,h/CAM_PALIERS[_camPalier].h); }catch(e){ return 1; }
+  }
   /* la règle d'adaptation, seule et pure : on peut la tester à la main.
      perte en fraction (0.05 = 5 %), rtt en secondes, dispo en bits/s (0 = inconnu) */
   function camAdapteDecide(d,perte,rtt,dispo){
@@ -7058,13 +7085,20 @@
       }catch(e){}
     }
     if(!vu) return;
-    const neuf=camAdapteDecide(_camDebit,perte,rtt,dispo);
-    if(Math.abs(neuf-_camDebit)<_camDebit*0.04) return;    // trop petit pour valoir un réglage
+    const av=_camPalier;
+    const d2=camPalierDecide(_camPalier,_camStable,perte,rtt,dispo);
+    _camPalier=d2.p; _camStable=d2.stable;
+    let neuf=Math.min(camAdapteDecide(_camDebit,perte,rtt,dispo),CAM_PALIERS[_camPalier].debit);
+    const bouge=(av!==_camPalier)||(Math.abs(neuf-_camDebit)>=_camDebit*0.04);
+    if(!bouge) return;
     _camDebit=neuf;
     for(const p of Object.values(_vPairs)){
       for(const sn of (p.camSendersMoi||[])){
         try{ const pr=sn.getParameters();
-          if(pr.encodings&&pr.encodings[0]){ pr.encodings[0].maxBitrate=_camDebit; await sn.setParameters(pr); } }catch(e){}
+          if(pr.encodings&&pr.encodings[0]){
+            pr.encodings[0].maxBitrate=_camDebit;
+            pr.encodings[0].scaleResolutionDownBy=camEchelle(sn);
+            await sn.setParameters(pr); } }catch(e){}
       }
     }
   }
@@ -7076,6 +7110,7 @@
       const pr=sn.getParameters();
       pr.encodings=(pr.encodings&&pr.encodings.length)?pr.encodings:[{}];
       pr.encodings[0].maxBitrate=_camDebit;    // le débit vivant : il suit le réseau
+      pr.encodings[0].scaleResolutionDownBy=camEchelle(sn);   // et le palier du moment
       pr.encodings[0].maxFramerate=30;
       pr.encodings[0].networkPriority='high';
       pr.degradationPreference='maintain-framerate';  // fluide d'abord
@@ -7937,7 +7972,7 @@
     _vIciDebut();
     if(_vQualT) clearInterval(_vQualT);
     _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
-    _camDebit=CAM_DEBIT_DEPART;
+    _camDebit=CAM_DEBIT_DEPART; _camPalier=1; _camStable=0;   // chaque appel repart en 1080p
     if(_vAdaptT) clearInterval(_vAdaptT);
     _vAdaptT=setInterval(()=>{ try{ camAdapte(); }catch(e){} },2000);
     visioFlipMaj(); visioTuiles(); visioEtat(''); visioCalmeRelance(); ecranEveille(true);
