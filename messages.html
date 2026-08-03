@@ -159,12 +159,16 @@
   .agd-sem{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px}
   .agd-sem span{text-align:center;font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--t3)}
   .agd-grille{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-  .agd-case{min-height:104px;border:1px solid var(--brd,rgba(128,128,128,.22));border-radius:11px;
+  .agd-case{position:relative;min-height:104px;border:1px solid var(--brd,rgba(128,128,128,.22));border-radius:11px;
     display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:3px;padding:5px 5px 4px;
     cursor:pointer;transition:background-color .12s ease,border-color .12s ease;user-select:none;overflow:hidden}
   .agd-case:hover{background:var(--inp,rgba(128,128,128,.10))}
   .agd-case.hors{opacity:.38}
   .agd-case.sel{border-color:var(--acc,#3B82F6);background:var(--tint3,rgba(59,130,246,.10))}
+  .agd-add{position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:999px;
+    display:none;align-items:center;justify-content:center;font-size:14px;font-weight:700;line-height:1;
+    background:var(--acc,#3B82F6);color:#fff;cursor:pointer;z-index:2}
+  .agd-case:hover .agd-add,.agd-case.sel .agd-add{display:flex}
   .agd-num{font-size:12.5px;font-weight:700;line-height:1.1;width:22px;height:22px;flex:none;align-self:flex-start;
     display:flex;align-items:center;justify-content:center;border-radius:999px}
   .agd-num.auj{background:var(--acc,#3B82F6);color:#fff}
@@ -196,6 +200,7 @@
      donc on revient aux pastilles — le détail du jour est juste dessous. */
   @media(max-width:700px){
     .agd-case{min-height:42px;border-radius:9px;align-items:center;padding:5px 2px 3px}
+    .agd-add{width:17px;height:17px;font-size:12px;top:2px;right:2px}
     .agd-num{font-size:11.5px;width:20px;height:20px;align-self:center}
     .agd-evts,.agd-plus{display:none}
     .agd-pts{display:flex;gap:3px;align-items:center;flex-wrap:wrap;justify-content:center;min-height:6px}
@@ -790,7 +795,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='636';
+  const APP_VERSION='637';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -5159,7 +5164,10 @@
   function agdMoisRef(){ if(!_agdMois){ const d=new Date(); d.setDate(1); d.setHours(0,0,0,0); _agdMois=d; } return _agdMois; }
   function agdMoisBouge(n){ const d=new Date(agdMoisRef()); d.setMonth(d.getMonth()+n); _agdMois=d; viewAgenda(); }
   function agdRevientAuj(){ const d=new Date(); _agdJour=agdISO(d); d.setDate(1); d.setHours(0,0,0,0); _agdMois=d; viewAgenda(); }
-  function agdChoisit(iso){ _agdJour=iso; viewAgenda(); }
+  function agdChoisit(iso){
+    if(_agdJour===iso){ agdForm('','09:00',iso); return; }   // déjà sur ce jour : on ajoute
+    _agdJour=iso; viewAgenda();
+  }
   async function viewAgenda(){
     const view=$('view'); if(!view) return;
     await agdLit();
@@ -5182,7 +5190,9 @@
           <b>${esc(e.heure||'')}</b> ${esc(e.titre)}</span>`; }).join('');
       const reste=evts.length-3;
       const pts=evts.slice(0,4).map(e=>`<i style="width:6px;height:6px;border-radius:99px;display:block;background:${(AGD_COUL[e.couleur]||AGD_COUL.bleu).c}"></i>`).join('');
-      return `<div class="agd-case${sel?' sel':''}${dedans?'':' hors'}" onclick="agdChoisit('${iso}')" title="${evts.length?evts.length+' rendez-vous':'Rien ce jour-là'}">
+      return `<div class="agd-case${sel?' sel':''}${dedans?'':' hors'}" onclick="agdChoisit('${iso}')"
+        title="${evts.length?evts.length+' rendez-vous':'Rien ce jour-là'} — touche encore pour ajouter">
+        <span class="agd-add" onclick="event.stopPropagation();agdForm('','09:00','${iso}')" title="Ajouter un rendez-vous ce jour-là">＋</span>
         <span class="agd-num${ajd?' auj':''}">${d.getDate()}</span>
         <span class="agd-evts">${lignes}${reste>0?`<span class="agd-plus">+${reste} autre${reste>1?'s':''}</span>`:''}</span>
         <span class="agd-pts">${pts}${evts.length>4?`<i style="font-size:9px;color:var(--t3);line-height:6px">+${evts.length-4}</i>`:''}</span></div>`;
@@ -5307,13 +5317,13 @@
       el.style.outline=on?('2px solid '+(AGD_COUL[k]||AGD_COUL.bleu).c):'none';
       el.style.outlineOffset='2px'; });
   }
-  function agdForm(id,heure){
+  function agdForm(id,heure,dateISO){
     const e=_agd.find(x=>x.id===id)||null;
     _agdCoul=(e&&e.couleur)||'bleu';
     const dur=[[0,'Sans durée'],[15,'15 min'],[30,'30 min'],[60,'1 h'],[90,'1 h 30'],[120,'2 h'],[240,'4 h'],[480,'La journée']];
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${e?'Ce rendez-vous':'Nouveau rendez-vous'}</h3>
       <div class="field"><label>Quoi ?</label><input id="ag-t" maxlength="80" placeholder="ex : Dentiste, Anniversaire de Léa…" value="${e?esc(e.titre):''}"></div>
-      <div class="field"><label>Quand</label>${champDateHeure(e?e.date:(_agdJour||agdAuj()), e?(e.heure||'09:00'):(heure||'09:00'))}</div>
+      <div class="field"><label>Quand</label>${champDateHeure(e?e.date:(dateISO||_agdJour||agdAuj()), e?(e.heure||'09:00'):(heure||'09:00'))}</div>
       <div class="field"><label>Combien de temps</label>
         <select id="ag-dur">${dur.map(([v,l])=>`<option value="${v}" ${e&&Number(e.duree)===v?'selected':(!e&&v===60?'selected':'')}>${l}</option>`).join('')}</select></div>
       <div class="field"><label>Temps de trajet</label>
