@@ -551,6 +551,8 @@
   #visio.appel #visio-vues,
   #visio.appel #visio-outils{display:none!important}
   #visio.tel #visio-vues,#visio.mini #visio-vues{display:none!important}
+  /* le bouton « retourner » vit sur l'image, pas dans la rangée du bas */
+  #vact-flip{display:none!important}
   #visio.tel .vact span{display:none}
   #visio.tel #visio-dock{background:transparent;border:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
   #visio.mini #visio-minibar{display:flex;position:absolute;left:0;right:0;bottom:0;z-index:4;
@@ -802,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='647';
+  const APP_VERSION='648';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -7354,6 +7356,17 @@
       if(!uid){ try{ a.srcObject=null; }catch(e){} a.remove(); }
     });
   }
+  /* le petit bouton posé sur ma propre image */
+  function flipSurImage(coin){
+    if(!(_vRoom&&_vCamOn&&_vMultiCam)) return '';
+    return `<button id="visio-flip-img" onclick="event.stopPropagation();visioRetourner()"
+      ondblclick="event.stopPropagation()" onpointerdown="event.stopPropagation()"
+      title="${_vFace==='user'?'Passer sur la caméra arrière':'Revenir sur la caméra avant'}"
+      style="position:absolute;${coin||'left:8px;bottom:8px'};z-index:5;width:34px;height:34px;border-radius:999px;border:none;
+             background:rgba(10,14,22,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+             color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">
+      ${ic('cameraswitch',18)}</button>`;
+  }
   function visioTuiles(){
     const g=$('visio-grille'); if(!g) return;
     visioSons();
@@ -7401,6 +7414,7 @@
         ${t.ecran?`<canvas class="vnote" data-cible="${t.cible}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair"></canvas>`:''}
         <span class="nomv" style="position:absolute;left:8px;bottom:8px;color:#fff;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;z-index:2;display:flex;align-items:center;gap:6px">${t.ecran?'<b style="background:#e01e3c;border-radius:6px;padding:1px 7px;font-size:9.5px;letter-spacing:.05em;box-shadow:0 0 10px rgba(224,30,60,.5)">EN DIRECT</b>':''}${esc((t.nom||'').split(' ')[0]||'')}${t.moi?' (toi)':''}</span>
         <span class="vctl" style="position:absolute;right:6px;top:6px;display:flex;gap:4px;z-index:3">${ctl.join('')}</span>
+        ${(t.moi&&!t.ecran&&!camOff)?flipSurImage('left:8px;bottom:8px'):''}
       </div>`; };
     /* l'appel est garé et rien d'autre n'est en cours : on le dit en grand */
     if(!_vRoom && _vAttente){
@@ -7441,11 +7455,13 @@
                 <b style="font-size:21px;color:#fff">${esc((lui&&lui.nom)||'')}</b>
                 <span style="font-size:13px;color:#8b93a5">${attente?'⏸ en attente':(lui?(_vAudioOnly?'appel audio':'caméra coupée'):'en attente de réponse…')}</span></div>`}
           ${(lui&&!lui.moi&&lui.uid&&_vPairs[lui.uid]&&_vPairs[lui.uid].micOff)?`<span style="position:absolute;left:14px;top:calc(64px + env(safe-area-inset-top));z-index:3;background:#e05252;color:#fff;font-size:11.5px;font-weight:800;padding:4px 11px;border-radius:999px">🔇 Micro coupé</span>`:''}
+          ${(lui&&lui.moi&&!luiOff)?flipSurImage('left:16px;bottom:calc(150px + env(safe-area-inset-bottom))'):''}
 
         </div>
         ${moiOff?'':`<div class="vmoi${_vCoin===1?' hd':(_vCoin===2?' hg':(_vCoin===3?' bg':''))}" onclick="event.stopPropagation();visioEchange()"
              ondblclick="event.stopPropagation();visioCoin()" title="Toucher pour échanger les images · glisser pour la déplacer">
           <video id="vt-vignette" autoplay playsinline ${moi&&moi.moi?'muted':''} style="width:100%;height:100%;object-fit:cover;${(moi&&moi.moi&&_vFace==='user')?'transform:scaleX(-1)':''}"></video>
+          ${(moi&&moi.moi)?flipSurImage('right:6px;bottom:6px'):''}
           ${((moi&&moi.moi&&_vLocal&&!_vLocal.getAudioTracks().some(x=>x.enabled))||(moi&&!moi.moi&&moi.uid&&_vPairs[moi.uid]&&_vPairs[moi.uid].micOff))?`<span style="position:absolute;left:6px;bottom:6px;background:#e05252;color:#fff;font-size:12px;padding:2px 6px;border-radius:8px">🔇</span>`:''}
         </div>`}`;
       /* la vignette se déplace au doigt et s'aimante au coin le plus proche */
@@ -8222,9 +8238,12 @@
   function visioFlipMaj(){
     /* l'étiquette suit son bouton — APRÈS que le bouton a décidé */
     setTimeout(()=>{ try{ const w=$('vact-flip'), b0=$('visio-flip'); if(w&&b0) w.style.display=b0.style.display==='none'?'none':''; }catch(e){} },0);
-    const b=$('visio-flip'); if(!b) return;
-    b.style.display=(_vRoom&&_vCamOn&&_vMultiCam)?'':'none';
-    b.title=(_vFace==='user')?'Passer sur la caméra arrière':'Revenir sur la caméra avant';
+    const b=$('visio-flip');
+    if(b){ b.style.display=(_vRoom&&_vCamOn&&_vMultiCam)?'':'none';
+      b.title=(_vFace==='user')?'Passer sur la caméra arrière':'Revenir sur la caméra avant'; }
+    /* il est posé sur l'image : c'est l'image qu'il faut redessiner */
+    const dedans=$('visio-flip-img'), doitEtre=!!(_vRoom&&_vCamOn&&_vMultiCam);
+    if(doitEtre!==!!dedans){ try{ visioTuiles(); }catch(e){} }
   }
   /* ══ LA CONNEXION ══
      Sur un chantier le réseau lâche. Plutôt que de croire à un bug, on le dit
