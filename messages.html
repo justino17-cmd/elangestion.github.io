@@ -804,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='650';
+  const APP_VERSION='651';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6819,12 +6819,15 @@
     if(_vGenre==='appel'&&_sonnerieT){ sonnerieSortante(false); visioSansReponse(false);
       sonAppel('debut'); _vT0=Date.now(); visioEtat(''); }
     try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>{ const sn=pc.addTrack(t,_vLocal);
-      if(t.kind==='video'){ camRegleTrack(t); p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); camRegleEnvoi(sn); } }); }catch(e){}
+      if(t.kind==='video'){ camRegleTrack(t); p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); camRegleEnvoi(sn,pc); } }); }catch(e){}
     /* la qualité se règle dès la connexion, pas seulement au partage d'écran */
     setTimeout(()=>{ try{ _vRegleEnvoi(p); }catch(e){} },1200);
     try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
     pc.onicecandidate=ev=>{ if(ev.candidate) _vDire({type:'ice',a:uid,cand:JSON.stringify(ev.candidate)}); };
     pc.ontrack=ev=>{ const st=ev.streams[0]||new MediaStream([ev.track]);
+      /* pas de tampon « au cas où » : chaque image s'affiche dès qu'elle
+         arrive — c'est la moitié du retard ressenti qui disparaît */
+      try{ if(ev.receiver){ ev.receiver.playoutDelayHint=0; ev.receiver.jitterBufferTarget=0; } }catch(e){}
       if(p.ecranIds.has(st.id)) p.streams.ecran=st;
       else if(!p.streams.cam||p.streams.cam.id===st.id) p.streams.cam=st;
       else p.streams.ecran=st;
@@ -7008,8 +7011,8 @@
   function camContraintes(face){
     const tel=estTelephone();
     return { facingMode: face||'user',
-      width:{ideal:tel?960:1280, max:1920},
-      height:{ideal:tel?540:720,  max:1080},
+      width:{ideal:1280, max:1920},
+      height:{ideal:720,  max:1080},
       frameRate:{ideal:30, max:30} };
   }
   /* on prévient le navigateur : c'est du mouvement, pas un plan fixe.
@@ -7018,17 +7021,30 @@
   function camRegleTrack(t){ try{ if(t) t.contentHint='motion'; }catch(e){} }
   /* et on borne ce qu'on envoie : au-delà, on ne gagne rien de visible,
      on ne fait qu'engorger la liaison et fabriquer du retard */
-  async function camRegleEnvoi(sn){
+  async function camRegleEnvoi(sn,pc){
+    /* la puce vidéo du téléphone parle H264 : elle encode sans fatiguer
+       le processeur — c'est ça qui supprime le retard à l'envoi */
+    try{
+      if(pc&&RTCRtpSender.getCapabilities){
+        const tr=pc.getTransceivers().find(t2=>t2.sender===sn);
+        if(tr&&tr.setCodecPreferences){
+          const caps=RTCRtpSender.getCapabilities('video').codecs;
+          const h264=caps.filter(c=>/H264/i.test(c.mimeType)), autres=caps.filter(c=>!/H264/i.test(c.mimeType));
+          if(h264.length) tr.setCodecPreferences(h264.concat(autres));
+        }
+      }
+    }catch(e){}
     try{
       const pr=sn.getParameters();
       pr.encodings=(pr.encodings&&pr.encodings.length)?pr.encodings:[{}];
-      pr.encodings[0].maxBitrate=1500000;      // 1,5 Mb/s : large pour un visage
+      pr.encodings[0].maxBitrate=2600000;      // 2,6 Mb/s : du 720p franchement net
       pr.encodings[0].maxFramerate=30;
-      pr.degradationPreference='balanced';
+      pr.encodings[0].networkPriority='high';
+      pr.degradationPreference='maintain-framerate';  // fluide d'abord : le retard, jamais
       await sn.setParameters(pr);
     }catch(e){}
   }
-  function camRegleTous(p){ (p&&p.camSendersMoi||[]).forEach(sn=>{ camRegleEnvoi(sn); }); }
+  function camRegleTous(p){ (p&&p.camSendersMoi||[]).forEach(sn=>{ camRegleEnvoi(sn,p.pc); }); }
   async function _vRegleEnvoi(p){
     try{
       /* d'abord le choix du codec, SANS attendre : il doit être posé avant
@@ -8146,7 +8162,7 @@
         camRegleTrack(t);
         try{ _vLocal.addTrack(t); }catch(e){}
         Object.values(_vPairs).forEach(p=>{ try{ const sn=p.pc.addTrack(t,_vLocal);
-          p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); camRegleEnvoi(sn); }catch(e){} });
+          p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); camRegleEnvoi(sn,p.pc); }catch(e){} });
         _vCamOn=true; _vAudioOnly=false; dcTous({t:'cam',on:true});
         try{ await visioCamsCompte(); }catch(e){}   // la liste des caméras est enfin complète
         visioFlipMaj();                             // …et le bouton « retourner » apparaît avec elle
@@ -8769,8 +8785,9 @@
             📞 <b>Tu es déjà en ligne.</b> ${_vAttente?'Un appel patiente déjà : répondre mettra fin à l\'appel en cours.':'Ton appel en cours sera mis en attente — tu pourras y revenir d\'un bouton.'}</div>
           ${_vAttente?'':`<div style="display:flex;justify-content:center;margin-bottom:12px">
             <button onclick="acceptCall('${c.room}','${c.type}',false,true)" style="border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#e7ecf7;border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">Terminer l'appel en cours et répondre</button></div>`}`:''}
-          <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-bottom:20px">
-            ${MOTS_REFUS.map((m,i)=>`<button onclick="refuserAvecMot(${i})" style="border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#e7ecf7;border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">${esc(m.court)}</button>`).join('')}
+          <div id="ring-mots" style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-bottom:20px">
+            ${MOTS_REFUS_DU(MODE).map((m,i)=>`<button onclick="refuserAvecMot(${i})" style="border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#e7ecf7;border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">${esc(m.court)}</button>`).join('')}
+            <button onclick="ringPerso()" style="border:1px dashed rgba(255,255,255,.35);background:transparent;color:#e7ecf7;border-radius:999px;padding:8px 13px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">✏️ Personnaliser</button>
           </div>
           <div style="display:flex;justify-content:center;margin-bottom:14px">
             <button id="ring-silence" onclick="ringSilence()" style="border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#e7ecf7;border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer">🔕 Couper la sonnerie</button>
@@ -8789,13 +8806,37 @@
   /* ══ REFUSER AVEC UN MOT ══
      Ne pas pouvoir décrocher, ce n'est pas ignorer. On refuse en envoyant
      une phrase : la personne sait à quoi s'en tenir. */
-  const MOTS_REFUS=[
-    {court:'En intervention',texte:'Je suis en intervention, je ne peux pas décrocher.'},
-    {court:'Je rappelle dans 10 min',texte:'Je te rappelle dans 10 minutes.'},
-    {court:'Écris-moi',texte:'Je ne peux pas parler — envoie-moi un message.'}
-  ];
+  function MOTS_REFUS_DU(mode){
+    const l=[];
+    if(mode==='company') l.push({court:'En intervention',texte:'Je suis en intervention, je ne peux pas décrocher.'});
+    l.push({court:'Je te rappelle',texte:'Je te rappelle dès que possible.'});
+    l.push({court:'Écris-moi',texte:'Je ne peux pas parler — envoie-moi un message.'});
+    return l;
+  }
+  /* « Personnaliser » : la phrase se tape sur l'écran d'appel lui-même */
+  function ringPerso(){
+    const z=$('ring-mots'); if(!z) return;
+    z.innerHTML=`<div style="display:flex;gap:8px;width:100%">
+      <input id="ring-perso" maxlength="140" placeholder="Écris ta réponse…"
+        onkeydown="if(event.key==='Enter')ringPersoEnvoie()"
+        style="flex:1;min-width:0;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);
+               color:#fff;border-radius:999px;padding:11px 15px;font-size:13.5px;font-family:inherit;outline:none">
+      <button onclick="ringPersoEnvoie()" title="Envoyer et raccrocher"
+        style="flex:none;border:none;border-radius:999px;width:44px;height:44px;background:var(--op);color:#fff;
+               font-size:16px;cursor:pointer">➤</button></div>`;
+    setTimeout(()=>{ const i=$('ring-perso'); if(i) i.focus(); },60);
+  }
+  function ringPersoEnvoie(){
+    const t=(($('ring-perso')||{}).value||'').trim();
+    if(!t){ const i=$('ring-perso'); if(i) i.focus(); return; }
+    refuserTexte(t);
+  }
   async function refuserAvecMot(i){
-    const m=MOTS_REFUS[i]||MOTS_REFUS[0];
+    const m=MOTS_REFUS_DU(MODE)[i]||MOTS_REFUS_DU(MODE)[0];
+    refuserTexte(m.texte);
+  }
+  /* la phrase part, et ça raccroche */
+  async function refuserTexte(texte){
     const r=_ringRef; let c={};
     try{ if(r){ const d=await r.get(); c=d.data()||{}; } }catch(e){}
     if(r) r.update({status:'declined'}).catch(()=>{});
@@ -8806,9 +8847,9 @@
       const pair=[ME.uid,qui].sort(), dmId='dm_'+pair.join('_');
       const ref=chanCol().doc(dmId);
       const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()});
-      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:m.texte,ts:FV()},true);
-      try{ opPushNotifyUsers([qui],((USER&&USER.name)||'Un collègue'),m.texte); }catch(e){}
-      toast('Refusé — « '+m.texte+' » envoyé à '+(nom.split(' ')[0]||'la personne'));
+      await addMsgTo(dmId,{uid:ME.uid,name:(USER&&USER.name)||'',text:texte,ts:FV()},true);
+      try{ opPushNotifyUsers([qui],((USER&&USER.name)||'Un collègue'),texte); }catch(e){}
+      toast('Refusé — « '+texte+' » envoyé à '+(nom.split(' ')[0]||'la personne'));
     }catch(e){ toast('Appel refusé'); }
   }
   function acceptCall(room,type,enAttente,terminer){ const r=_ringRef; if(r) r.update({status:'answered'}).catch(()=>{}); hideRing();
