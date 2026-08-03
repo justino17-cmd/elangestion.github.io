@@ -798,7 +798,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='639';
+  const APP_VERSION='640';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -5611,17 +5611,18 @@
     const box=$('call-list'); if(!box) return;
     const list=_callRecents.filter(c=>{ const out=c.from===ME.uid; const missed=c.status==='missed'||c.status==='declined';
       if(_callFilter==='missed') return !out&&missed; if(_callFilter==='in') return !out&&!missed; if(_callFilter==='out') return out; return true; });
-    let html=''; list.forEach(c=>{ const out=c.from===ME.uid; const grp=(c.members||[]).length>1;
-      const who = grp ? ('Groupe ('+((c.memberNames||[]).length)+')') : (out? ((c.memberNames&&c.memberNames[0])||'Contact') : c.fromName);
+    let html=''; list.forEach(c=>{ const out=c.from===ME.uid; const grp=!c.ext&&(c.members||[]).length>1;
+      const who = c.ext ? (c.nom||numJoli(c.numero))
+        : (grp ? ('Groupe ('+((c.memberNames||[]).length)+')') : (out? ((c.memberNames&&c.memberNames[0])||'Contact') : c.fromName));
       if(_callSearch && !(who||'').toLowerCase().includes(_callSearch)) return;
       const missed = c.status==='missed'||c.status==='declined'; const d=c.ts&&c.ts.toDate?c.ts.toDate():null;
       const icn = out?ms('call_made',16):(missed?ms('call_missed',16):ms('call_received',16));
       const icCol = out?'var(--t2)':(missed?'var(--red)':'var(--pres)');
       const lbl = out?'Sortant':(missed?'Appel manqué':'Entrant');
-      html+=`<div class="lrow" onclick="callInfo('${c.id}')">
+      html+=`<div class="lrow" onclick="${c.ext?`numExtRappelle('${esc(c.numero||'')}')`:`callInfo('${c.id}')`}">
         <div class="cava" style="${avatarStyle(who)}${grp?';border-radius:11px':''}">${grp?ms('group',20):ini(who)}</div>
         <div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${missed?';color:var(--red)':''}">${esc(who)}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;color:${missed?'var(--red)':'var(--t2)'};font-size:13px${missed?';font-weight:600':''}"><span style="color:${icCol};display:inline-flex">${icn}</span>${lbl} · ${c.type==='audio'?'audio':'vidéo'}${(c.duree>0&&!missed)?' · '+dureeTexte(c.duree):''}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;color:${missed?'var(--red)':'var(--t2)'};font-size:13px${missed?';font-weight:600':''}"><span style="color:${icCol};display:inline-flex">${icn}</span>${c.ext?('Numéro extérieur'+(c.nom?' · '+esc(numJoli(c.numero)):'')):(lbl+' · '+(c.type==='audio'?'audio':'vidéo')+((c.duree>0&&!missed)?' · '+dureeTexte(c.duree):''))}</div>
         ${(()=>{ const v=callVenus(c); if(!v.length) return '';
           return `<div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ms('group',13)} ${esc(v.join(', '))} ${v.length>1?'ont':'a'} rejoint</div>`; })()}</div>
         <div style="display:flex;align-items:center;gap:14px"><span style="font-size:11.5px;font-weight:600;color:var(--t3)">${d?fmtListTime(d.getTime()):''}</span>
@@ -5685,12 +5686,66 @@
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Nouvel appel</h3>
       <p class="muted" style="margin-bottom:12px">Choisissez une personne (appel direct) ou plusieurs (appel de groupe).</p>
       <div id="ncerr"></div>${pickBloc('nc-members',chks,'Aucun contact.')}
-      <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" style="flex:1" onclick="launchCall('audio')">${ic('phone',18)}Audio</button><button class="btn" style="flex:1" onclick="launchCall('video')">${ic('video',18)}Vidéo</button></div>`);
+      <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" style="flex:1" onclick="launchCall('audio')">${ic('phone',18)}Audio</button><button class="btn" style="flex:1" onclick="launchCall('video')">${ic('video',18)}Vidéo</button></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;color:var(--t3);font-size:11.5px">
+        <span style="flex:1;height:1px;background:var(--brd)"></span>ou<span style="flex:1;height:1px;background:var(--brd)"></span></div>
+      <button class="btn ghost block" onclick="numExtForm()">${ic('phone',18)}Appeler un numéro extérieur</button>`);
     pickMaj('nc-members');
   }
   function launchCall(type){ const sel=[...document.querySelectorAll('#nc-members .chk.sel')]; if(!sel.length){ $('ncerr').innerHTML='<div class="err">Choisissez au moins une personne.</div>'; return; }
     closeSheet(); startCall(sel.map(x=>x.dataset.uid), sel.map(x=>x.dataset.name), type); }
+  function numNettoie(v){ return String(v||'').replace(/[^\d+]/g,''); }
+  function numValide(v){ return /^\+?\d{6,15}$/.test(numNettoie(v)); }
+  /* 06 12 34 56 78 se lit mieux que 0612345678 */
+  function numJoli(v){ const n=numNettoie(v);
+    if(/^0\d{9}$/.test(n)) return n.replace(/(\d{2})(?=\d)/g,'$1 ').trim();
+    if(/^\+33\d{9}$/.test(n)) return '+33 '+n.slice(3).replace(/(\d{2})(?=\d)/g,'$1 ').trim();
+    return n; }
+  /* le numéro est-il déjà quelqu'un que je connais ? */
+  function numContact(n){ const c=numNettoie(n);
+    const m=(_members||[]).find(x=>x.phone&&numNettoie(x.phone)===c); return m?m.name:''; }
+  function numExtForm(){
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Appeler un numéro</h3>
+      <p class="muted" style="margin-bottom:12px">Un numéro qui n'est pas sur OP MESSAGES : l'appel part par le téléphone,
+        comme si tu le composais toi-même. Il apparaîtra ensuite dans tes appels.</p>
+      <div id="nxerr"></div>
+      <div class="field"><label>Numéro de téléphone</label>
+        <input id="nx-num" type="tel" inputmode="tel" autocomplete="tel" placeholder="06 12 34 56 78"
+          oninput="numExtMaj()"></div>
+      <div id="nx-qui" class="muted" style="font-size:12.5px;margin:-6px 2px 12px"></div>
+      <button class="btn block" id="nx-btn" onclick="numExtAppelle()">${ic('phone',18)}Appeler</button>
+      <p class="muted" style="font-size:11.5px;line-height:1.6;margin-top:12px">
+        Sur téléphone, ton application Téléphone prend le relais. Sur ordinateur, l'appel est confié au logiciel
+        de téléphonie de la machine — s'il n'y en a pas, rien ne se passera.</p>`);
+    setTimeout(()=>{ const i=$('nx-num'); if(i) i.focus(); },80);
+  }
+  function numExtMaj(){
+    const v=(($('nx-num')||{}).value)||'', z=$('nx-qui'); if(!z) return;
+    if(!v.trim()){ z.textContent=''; return; }
+    const nom=numContact(v);
+    z.textContent=nom?('C\u2019est '+nom+' — tu peux aussi l\u2019appeler dans l\u2019application.')
+      :(numValide(v)?'':'Il manque des chiffres.');
+  }
+  async function numExtAppelle(){
+    const v=(($('nx-num')||{}).value)||'';
+    if(!numValide(v)){ $('nxerr').innerHTML='<div class="err">Entre un numéro valide, par exemple 06 12 34 56 78.</div>'; return; }
+    const n=numNettoie(v), nom=numContact(n);
+    /* on garde la trace AVANT de partir : la page va changer d'application */
+    try{ await callsCol().add({from:ME.uid,fromName:(USER&&USER.name)||'',members:[],memberNames:[],
+      ext:true,numero:n,nom:nom||'',type:'audio',status:'ext',ts:FV()}); }catch(e){}
+    closeSheet();
+    toast('Appel de '+(nom||numJoli(n))+'…');
+    try{ window.location.href='tel:'+n; }catch(e){}
+    setTimeout(()=>{ if(_curView==='appel') viewAppel(); },900);
+  }
+  /* rappeler un numéro extérieur : on repasse par le téléphone */
+  function numExtRappelle(numero){
+    const n=numNettoie(numero); if(!n) return;
+    toast('Appel de '+numJoli(n)+'…');
+    try{ window.location.href='tel:'+n; }catch(e){}
+  }
   async function recall(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data()||{};
+    if(c.ext){ numExtRappelle(c.numero); return; }
     const {ids,names}=rappelGens(c); startCall(ids, names, c.type||'video'); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
 
   let _activeCall=null,_callDocUnsub=null,_japi=null;
