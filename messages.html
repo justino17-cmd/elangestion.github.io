@@ -809,7 +809,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='657';
+  const APP_VERSION='658';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6707,6 +6707,7 @@
     _vPoll=setInterval(relire,2500); relire();
     _vIciDebut();
     _vMini=false; _vFace='user'; _vQualVu={}; _vFaible=false; _vEchange=false; _vCoin=0;
+    _vHP=!(_vGenre==='appel'&&_vAudioOnly);   // appel audio : à l'oreille · visio : haut-parleur
     _vVue='galerie'; _vPinManuel=false; _vMainMoi=false; _vReacs={};
     try{ const vz=$('visio-ver'); if(vz) vz.textContent='v'+(window.OPMSG_VERSION||'?'); }catch(e){}
     try{ vueBoutonsMaj(); const bm=$('visio-main'); if(bm) bm.style.background='rgba(255,255,255,.13)';
@@ -7516,23 +7517,46 @@
      Il vit À PART de l'image. Avant, il était refait à chaque rafraîchissement
      de l'écran : la voix se coupait une fraction de seconde à chaque fois.
      Maintenant chaque personne a son haut-parleur à elle, posé une fois. */
+  let _vPipes={};
+  function _vOreillette(){ return estTelephone() && !_vHP; }
+  function _vPipeCoupe(uid){
+    try{ if(_vPipes[uid]){ _vPipes[uid].src.disconnect(); _vPipes[uid].g.disconnect(); } }catch(e){}
+    delete _vPipes[uid];
+  }
   function visioSons(){
     const z=$('visio-audios'); if(!z) return;
+    const oreille=_vOreillette();
+    if(oreille){ try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
+      if(_ac.state==='suspended') _ac.resume(); }catch(e){} }
     Object.entries(_vPairs).forEach(([uid,p])=>{
       const id='pa-'+uid.replace(/[^a-zA-Z0-9]/g,'_');
       let a=$(id);
       if(!a){ a=document.createElement('audio'); a.id=id; a.autoplay=true;
         a.setAttribute('playsinline',''); z.appendChild(a); }
       const flux=p.streams&&p.streams.cam;
-      if(flux&&a.srcObject!==flux){ try{ a.srcObject=flux; }catch(e){} }
-      a.muted=!!p.muetPourMoi;
+      if(flux&&a.srcObject!==flux){ try{ a.srcObject=flux; }catch(e){} _vPipeCoupe(uid); }
+      if(oreille&&flux&&_ac){
+        /* ÉCOUTEUR : la voix passe par le moteur audio, l'élément se tait */
+        try{
+          if(!_vPipes[uid]){ const src=_ac.createMediaStreamSource(flux);
+            const g=_ac.createGain(); src.connect(g); g.connect(_ac.destination);
+            _vPipes[uid]={src:src,g:g}; }
+          _vPipes[uid].g.gain.value=p.muetPourMoi?0:1;
+          a.muted=true;
+        }catch(e){ a.muted=!!p.muetPourMoi; }
+      } else {
+        /* HAUT-PARLEUR : l'élément audio parle, le moteur se retire */
+        _vPipeCoupe(uid);
+        a.muted=!!p.muetPourMoi;
+      }
       const pr=a.play&&a.play(); if(pr&&pr.catch) pr.catch(()=>{});
     });
-    /* la personne est partie : on retire son haut-parleur */
+    /* la personne est partie : on retire son haut-parleur ET son tuyau */
     [...z.querySelectorAll('audio')].forEach(a=>{
       const uid=Object.keys(_vPairs).find(u=>('pa-'+u.replace(/[^a-zA-Z0-9]/g,'_'))===a.id);
       if(!uid){ try{ a.srcObject=null; }catch(e){} a.remove(); }
     });
+    Object.keys(_vPipes).forEach(uid=>{ if(!_vPairs[uid]) _vPipeCoupe(uid); });
   }
   /* le petit bouton posé sur ma propre image */
   function flipSurImage(coin){
@@ -7971,6 +7995,7 @@
     try{ if(_vUnsub){ _vUnsub(); } }catch(e){} b.unsub=null; _vUnsub=null;
     _vAttVeille(b);
     /* les cases redeviennent libres pour le nouvel appel — sans rien fermer */
+    try{ Object.keys(_vPipes).forEach(_vPipeCoupe); }catch(e){}
     _vRoom=null; _vPairs={}; _vVus=new Set(); _vIciRef=null; _vEcran=null;
     _vNotes={}; _vMsgs=[]; _vOrdre=[]; _vGrand=null; _vTchatOn=false; _vTchatNew=0;
     _activeCall=null; _callDocUnsub=null; _vNettoye=true;
@@ -8086,13 +8111,19 @@
   async function visioHPDispo(){
     const b=$('visio-hp'); if(!b) return;
     let ok=false;
-    try{ ok=typeof HTMLMediaElement!=='undefined' && !!HTMLMediaElement.prototype.setSinkId
-      && !((navigator.maxTouchPoints||0)>0); }catch(e){}
+    try{ ok=estTelephone() || (typeof HTMLMediaElement!=='undefined' && !!HTMLMediaElement.prototype.setSinkId); }catch(e){}
     b.style.display=ok?'':'none';
     if(ok){ b.innerHTML=ic(_vHP?'volume_up':'headphones',21); b.style.background=_vHP?'var(--op)':'rgba(255,255,255,.13)'; }
   }
   async function visioHautParleur(){
     _vHP=!_vHP;
+    if(estTelephone()){
+      /* sur téléphone : on change le CHEMIN du son, pas la prise */
+      visioSons();
+      const b0=$('visio-hp'); if(b0){ b0.innerHTML=ic(_vHP?'volume_up':'headphones',21); b0.style.background=_vHP?'var(--op)':'rgba(255,255,255,.13)'; }
+      toast(_vHP?'🔊 Haut-parleur':'🎧 À l\u2019oreille');
+      return;
+    }
     let sortie='default';
     try{
       const l=await navigator.mediaDevices.enumerateDevices();
@@ -8525,6 +8556,7 @@
     if(!_vAttente) try{ toutCouper(); }catch(e){}
     try{ if(_vUnsub){ _vUnsub(); _vUnsub=null; } }catch(e){}
     Object.values(_vPairs).forEach(p=>{ try{ p.pc.close(); }catch(e){} }); _vPairs={};
+    try{ Object.keys(_vPipes).forEach(_vPipeCoupe); }catch(e){}
     /* le micro et la caméra servent aussi à l'appel qui patiente : on ne les
        éteint que si plus personne n'en a besoin */
     mediaLibere();
