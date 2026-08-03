@@ -804,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='652';
+  const APP_VERSION='653';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6716,6 +6716,9 @@
     visioAttenteBar();
     if(_vQualT) clearInterval(_vQualT);
     _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
+    _camDebit=CAM_DEBIT_DEPART;
+    if(_vAdaptT) clearInterval(_vAdaptT);
+    _vAdaptT=setInterval(()=>{ try{ camAdapte(); }catch(e){} },2000);
     /* on inscrit son nom sur la fiche de l'appel : l'historique dira ensuite
        qui a vraiment décroché et qui n'est jamais venu.
        Attention : une même conversation peut avoir PLUSIEURS fiches — quand
@@ -7023,6 +7026,48 @@
   function camRegleTrack(t){ try{ if(t) t.contentHint='motion'; }catch(e){} }
   /* et on borne ce qu'on envoie : au-delà, on ne gagne rien de visible,
      on ne fait qu'engorger la liaison et fabriquer du retard */
+  const CAM_DEBIT_MIN=900000, CAM_DEBIT_MAX=9000000, CAM_DEBIT_DEPART=6000000;
+  let _camDebit=CAM_DEBIT_DEPART, _vAdaptT=null;
+  /* la règle d'adaptation, seule et pure : on peut la tester à la main.
+     perte en fraction (0.05 = 5 %), rtt en secondes, dispo en bits/s (0 = inconnu) */
+  function camAdapteDecide(d,perte,rtt,dispo){
+    let v=d;
+    if(perte>0.03||rtt>0.3) v=d*0.6;          // ça coince : on allège fort, tout de suite
+    else if(perte>0.01||rtt>0.2) v=d*0.85;    // ça frotte : on allège
+    else if(perte<0.005&&(rtt===0||rtt<0.15)) v=d*1.12;   // tout roule : on remonte, en douceur
+    if(dispo>0) v=Math.min(v,dispo*0.85);     // jamais plus que ce que la ligne annonce
+    return Math.max(CAM_DEBIT_MIN,Math.min(CAM_DEBIT_MAX,Math.round(v)));
+  }
+  async function camAdapte(){
+    if(!_vRoom||!_vCamOn) return;
+    /* on écoute le PIRE des interlocuteurs : c'est lui qui souffre */
+    let perte=0, rtt=0, dispo=0, vu=false;
+    for(const p of Object.values(_vPairs)){
+      try{
+        const st=await p.pc.getStats(); vu=true;
+        st.forEach(r=>{
+          if(r.type==='candidate-pair'&&(r.nominated||r.state==='succeeded')){
+            if(r.currentRoundTripTime) rtt=Math.max(rtt,r.currentRoundTripTime);
+            if(r.availableOutgoingBitrate) dispo=dispo?Math.min(dispo,r.availableOutgoingBitrate):r.availableOutgoingBitrate;
+          }
+          if(r.type==='remote-inbound-rtp'&&r.kind==='video'){
+            if(typeof r.fractionLost==='number') perte=Math.max(perte,r.fractionLost);
+            if(r.roundTripTime) rtt=Math.max(rtt,r.roundTripTime);
+          }
+        });
+      }catch(e){}
+    }
+    if(!vu) return;
+    const neuf=camAdapteDecide(_camDebit,perte,rtt,dispo);
+    if(Math.abs(neuf-_camDebit)<_camDebit*0.04) return;    // trop petit pour valoir un réglage
+    _camDebit=neuf;
+    for(const p of Object.values(_vPairs)){
+      for(const sn of (p.camSendersMoi||[])){
+        try{ const pr=sn.getParameters();
+          if(pr.encodings&&pr.encodings[0]){ pr.encodings[0].maxBitrate=_camDebit; await sn.setParameters(pr); } }catch(e){}
+      }
+    }
+  }
   async function camRegleEnvoi(sn,pc){
     /* le codec, on le laisse aux deux navigateurs : ils négocient ce que
        leurs puces savent VRAIMENT décoder — l'imposer à la main, c'était
@@ -7030,7 +7075,7 @@
     try{
       const pr=sn.getParameters();
       pr.encodings=(pr.encodings&&pr.encodings.length)?pr.encodings:[{}];
-      pr.encodings[0].maxBitrate=6000000;      // 6 Mb/s : la 2K respire
+      pr.encodings[0].maxBitrate=_camDebit;    // le débit vivant : il suit le réseau
       pr.encodings[0].maxFramerate=30;
       pr.encodings[0].networkPriority='high';
       pr.degradationPreference='maintain-framerate';  // fluide d'abord
@@ -7858,6 +7903,7 @@
     if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
     if(_vPoll){ clearInterval(_vPoll); _vPoll=null; } b.poll=null;
     if(_vQualT){ clearInterval(_vQualT); _vQualT=null; }
+    if(_vAdaptT){ clearInterval(_vAdaptT); _vAdaptT=null; }
     if(_vIciT){ clearInterval(_vIciT); _vIciT=null; }
     _vSeulStop();
     try{ if(_vUnsub){ _vUnsub(); } }catch(e){} b.unsub=null; _vUnsub=null;
@@ -7891,6 +7937,9 @@
     _vIciDebut();
     if(_vQualT) clearInterval(_vQualT);
     _vQualT=setInterval(()=>{ try{ visioQualite(); }catch(e){} },4000);
+    _camDebit=CAM_DEBIT_DEPART;
+    if(_vAdaptT) clearInterval(_vAdaptT);
+    _vAdaptT=setInterval(()=>{ try{ camAdapte(); }catch(e){} },2000);
     visioFlipMaj(); visioTuiles(); visioEtat(''); visioCalmeRelance(); ecranEveille(true);
   }
   /* le bandeau jaune en haut du studio */
@@ -8386,6 +8435,7 @@
     if(_vTimer){ clearInterval(_vTimer); _vTimer=null; }
     if(_vPoll){ clearInterval(_vPoll); _vPoll=null; }
     if(_vQualT){ clearInterval(_vQualT); _vQualT=null; }
+    if(_vAdaptT){ clearInterval(_vAdaptT); _vAdaptT=null; }
     try{ sonnerieSortante(false); }catch(e){} try{ visioSansReponse(false); }catch(e){}
     if(_vCalmeT){ clearTimeout(_vCalmeT); _vCalmeT=null; }
     { const v=$('visio'); if(v) v.classList.remove('calme'); }
