@@ -798,7 +798,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='642';
+  const APP_VERSION='643';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -3512,7 +3512,7 @@
             <span id="dp-datelbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize">—</span>
             <span style="color:var(--t3);font-size:11px">▾</span></div>
           <input id="dp-date" type="hidden" value="${esc(d)}"></div>
-        <div style="flex:1;min-width:0">
+        <div id="dp-timecol" style="flex:1;min-width:0">
           <div onclick="tpOuvre()" style="display:flex;align-items:center;gap:7px;padding:11px 12px;border-radius:10px;background:var(--inp);font-size:13px;font-weight:700;cursor:pointer">
             <span class="ms" style="font-size:16px;color:var(--tile-tx)">schedule</span>
             <span id="dp-timelbl" style="flex:1;min-width:0">${esc(h)}</span>
@@ -5057,6 +5057,32 @@
       ${c.phone?`<button class="btn block" style="margin-bottom:9px" onclick="closeSheet();numExtRappelle('${esc(c.phone)}')">${ic('phone',18)}L\u2019appeler au ${esc(numJoli(c.phone))}</button>`:''}
       <button class="btn ghost block" onclick="closeSheet();ctModifie('${esc(id)}')">Renseigner son identifiant OP MESSAGES</button>`);
   }
+  /* écrire à quelqu'un qui n'est pas dans l'application : c'est un SMS.
+     On passe la main au téléphone, exactement comme le bouton Appeler. */
+  function ctMessage(id){
+    const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
+    if(!c){ toast('Contact introuvable'); return; }
+    if(!c.local&&c.uid){ closeSheet(); openDM(c.uid,(c.name||'')); return; }
+    if(c.phone){ closeSheet(); try{ window.location.href='sms:'+numNettoie(c.phone); }catch(e){} return; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">Lui écrire</h3>
+      <p class="muted" style="font-size:13px;line-height:1.65;margin-bottom:14px">
+        <b>${esc(c.name||'Ce contact')}</b> n’a ni compte OP MESSAGES, ni numéro de téléphone dans sa fiche.<br>
+        Ajoute l’un des deux et tu pourras lui écrire : par l’application si elle a un compte,
+        par SMS sinon.</p>
+      <button class="btn block" onclick="ctModifie('${esc(id)}')">${ms('edit_square',18)} Compléter sa fiche</button>`);
+  }
+  /* l'appeler quand on n'a pas son numéro : on le dit, et on propose de l'ajouter */
+  function ctAppel(id){
+    const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
+    if(!c){ toast('Contact introuvable'); return; }
+    if(!c.local&&c.uid){ closeSheet(); startCall([c.uid],[c.name||''],'audio'); return; }
+    if(c.phone){ closeSheet(); numExtRappelle(c.phone); return; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">L’appeler</h3>
+      <p class="muted" style="font-size:13px;line-height:1.65;margin-bottom:14px">
+        Il n’y a pas de numéro de téléphone dans la fiche de <b>${esc(c.name||'ce contact')}</b>.<br>
+        Ajoute-le et le bouton appellera directement.</p>
+      <button class="btn block" onclick="ctModifie('${esc(id)}')">${ms('edit_square',18)} Compléter sa fiche</button>`);
+  }
   /* rouvrir la fiche d'un contact pour la corriger */
   function ctModifie(id){
     const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
@@ -5082,9 +5108,9 @@
           ${m.poste?`<div style="font-size:12.5px;font-weight:600;color:var(--t2);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.poste)}</div>`:''}
           <div style="font-size:13px;color:var(--t2);margin-top:2px">${m.local?(m.phone?esc(numJoli(m.phone)):'Carnet personnel'):sous}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
         ${(self||_contMode)?'':(m.local?`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          ${m.phone?`<button class="rbtn" title="Appeler ${esc(numJoli(m.phone))}" onclick="event.stopPropagation();numExtRappelle('${esc(m.phone)}')">${ms('call',18)}</button>`:''}
+          <button class="rbtn" title="Message" onclick="event.stopPropagation();ctMessage('${esc(m.id||m.uid)}')">${ms('chat_bubble',18)}</button>
+          <button class="rbtn" title="${m.phone?'Appeler '+esc(numJoli(m.phone)):'Appeler'}" onclick="event.stopPropagation();ctAppel('${esc(m.id||m.uid)}')">${ms('call',18)}</button>
           <button class="rbtn" title="Appel vidéo" onclick="event.stopPropagation();ctVisio('${esc(m.id||m.uid)}')">${ms('videocam',18)}</button>
-          <button class="rbtn" title="Modifier" onclick="event.stopPropagation();ctModifie('${esc(m.id||m.uid)}')">${ms('edit_square',18)}</button>
         </div>`:`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
           <button class="rbtn" title="Message" onclick="event.stopPropagation();openDM('${m.uid}','${nm}')">${ms('chat_bubble',18)}</button>
           <button class="rbtn" title="Appeler" onclick="event.stopPropagation();startCall(['${m.uid}'],['${nm}'],'audio')">${ms('call',18)}</button>
@@ -5163,12 +5189,12 @@
         ${blk?`<div style="display:inline-block;margin-top:8px;padding:4px 10px;border-radius:999px;background:var(--inp);color:#EF4444;font-size:11.5px;font-weight:800">🚫 Bloqué</div>`:''}
       </div>
       <div style="display:flex;gap:8px;margin-bottom:16px">
-        ${app?rond(`closeSheet();openDM('${c.uid}','${nmj}')`,'chat_bubble','Message'):''}
+        ${app?rond(`closeSheet();openDM('${c.uid}','${nmj}')`,'chat_bubble','Message')
+             :rond(`ctMessage('${esc(id)}')`,'chat_bubble','Message')}
         ${app?rond(`closeSheet();startCall(['${c.uid}'],['${nmj}'],'audio')`,'call','Appel')
-             :(tel?rond(`closeSheet();numExtRappelle('${esc(tel)}')`,'call','Appeler'):'')}
+             :rond(`ctAppel('${esc(id)}')`,'call','Appeler')}
         ${app?rond(`closeSheet();startCall(['${c.uid}'],['${nmj}'],'video')`,'videocam','Vidéo')
              :rond(`ctVisio('${esc(id)}')`,'videocam','Vidéo')}
-        ${rond(`ctModifie('${esc(id)}')`,'edit_square','Modifier')}
       </div>
       <div class="card" style="padding:0;margin:0 0 14px;overflow:hidden">
         ${ctInfos([
@@ -5178,6 +5204,7 @@
           ctInfo('alternate_email','Identifiant OP MESSAGES',hdl?('@'+hdl):'','')])}
         ${(!tel&&!mail&&!ajour&&!hdl)?`<p class="muted" style="font-size:12.5px;padding:14px;margin:0">Aucune information enregistrée pour l\u2019instant. Touche <b>Modifier</b> pour ajouter un numéro, une adresse ou un anniversaire.</p>`:''}
       </div>
+      <button class="btn ghost block" style="margin-bottom:9px" onclick="ctModifie('${esc(id)}')">${ms('edit_square',17)} Modifier la fiche</button>
       <button class="btn ghost block" style="margin-bottom:9px" onclick="contFav('${c.uid||id}')">${contEstFav(c.uid||id)?'★ Retirer des favoris':'☆ Mettre en favori'}</button>
       ${app?`<button class="btn ghost block" style="margin-bottom:9px" onclick="shareContact('${c.uid}','${nmj}')">${ic('users',18)}Partager ce contact</button>`:''}
       ${app?`<button class="btn ghost block" style="margin-bottom:9px;${blk?'color:var(--pres)':'color:#EF4444'}" onclick="blockContact('${c.uid}','${nmj}')">${blk?'Débloquer':'Bloquer'} ${esc(nom)}</button>`:''}
@@ -5420,7 +5447,7 @@
       _agd=_agd.filter(e=>e.id!==cle);
       if(c.anniv){
         _agd.push({id:cle,titre:'Anniversaire de '+(c.prenom||c.name||'ce contact'),
-          date:c.anniv,heure:'09:00',duree:0,trajet:0,
+          date:c.anniv,heure:'00:00',jour:true,duree:0,trajet:0,
           rappel:1440,alerte:true,annuel:true,couleur:'rose',
           note:(c.phone?'📞 '+numJoli(c.phone):'')+(c.email?(c.phone?' · ':'')+c.email:''),
           pj:'',contact:c.id,sonne:0});
@@ -5498,7 +5525,9 @@
     return 'rgba('+parseInt(m[1],16)+','+parseInt(m[2],16)+','+parseInt(m[3],16)+','+a+')';
   }
   function agdAuj(){ return agdISO(new Date()); }
-  function agdQuand(e){ const t=(e.heure||'00:00'); return new Date(e.date+'T'+t).getTime(); }
+  function agdToutJour(e){ return !!(e&&e.jour); }
+  /* un jour entier n'a pas d'heure : pour le rappel, on se cale sur le matin */
+  function agdQuand(e){ const t=agdToutJour(e)?'09:00':(e.heure||'00:00'); return new Date(e.date+'T'+t).getTime(); }
   function agdAnnuel(e){ return !!(e&&e.annuel); }
   function agdDuJour(iso){
     return _agd.filter(e=>agdAnnuel(e)?((e.date||'').slice(5)===iso.slice(5)):(e.date===iso))
@@ -5508,9 +5537,10 @@
   function agdProchain(e){
     if(!agdAnnuel(e)) return agdQuand(e);
     const n=new Date(), mmjj=(e.date||'').slice(5);
-    let t=new Date(n.getFullYear()+'-'+mmjj+'T'+(e.heure||'00:00')).getTime();
+    const hh=agdToutJour(e)?'09:00':(e.heure||'00:00');
+    let t=new Date(n.getFullYear()+'-'+mmjj+'T'+hh).getTime();
     if(isNaN(t)) return agdQuand(e);
-    if(t<Date.now()-3600000) t=new Date((n.getFullYear()+1)+'-'+mmjj+'T'+(e.heure||'00:00')).getTime();
+    if(t<Date.now()-3600000) t=new Date((n.getFullYear()+1)+'-'+mmjj+'T'+hh).getTime();
     return t;
   }
   /* combien de bougies, quand on connaît l'année de naissance */
@@ -5559,8 +5589,8 @@
       const lignes=evts.slice(0,3).map(e=>{ const c=(AGD_COUL[e.couleur]||AGD_COUL.bleu).c;
         return `<span class="agd-ev" onclick="event.stopPropagation();agdForm('${e.id}')"
           style="border-left:3px solid ${c};background:${agdTeinte(c,.13)}"
-          title="${esc(e.heure||'')} ${esc(e.titre)}${e.note?' — '+esc(e.note):''}">
-          <b>${esc(e.heure||'')}</b> ${esc(e.titre)}</span>`; }).join('');
+          title="${agdToutJour(e)?'Toute la journée':esc(e.heure||'')} ${esc(e.titre)}${e.note?' — '+esc(e.note):''}">
+          <b>${agdToutJour(e)?'Journée':esc(e.heure||'')}</b> ${esc(e.titre)}</span>`; }).join('');
       const reste=evts.length-3;
       const pts=evts.slice(0,4).map(e=>`<i style="width:6px;height:6px;border-radius:99px;display:block;background:${(AGD_COUL[e.couleur]||AGD_COUL.bleu).c}"></i>`).join('');
       return `<div class="agd-case${sel?' sel':''}${dedans?'':' hors'}" onclick="agdChoisit('${iso}')"
@@ -5602,7 +5632,7 @@
         ${prochains.map(e=>`<div class="row" style="cursor:pointer" onclick="agdChoisit('${agdISO(new Date(agdProchain(e)))}')">
           <span style="width:4px;align-self:stretch;border-radius:99px;background:${(AGD_COUL[e.couleur]||AGD_COUL.bleu).c};flex:none"></span>
           <div class="info"><div class="nm">${esc(e.titre)}</div>
-          <div class="ds">${esc(new Date(agdProchain(e)).toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'}))} · ${esc(e.heure||'')}${agdAnnuel(e)?' · chaque année':''}</div></div></div>`).join('')}
+          <div class="ds">${esc(new Date(agdProchain(e)).toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'}))} · ${agdToutJour(e)?'toute la journée':esc(e.heure||'')}${agdAnnuel(e)?' · chaque année':''}</div></div></div>`).join('')}
       </div>`:''}
     </div>`;
     /* on se place sur le premier rendez-vous, ou sur l'heure qu'il est */
@@ -5667,7 +5697,11 @@
     viewAgenda();
   }
   function agdJournee(iso){
-    const evs=agdColonnes(agdDuJour(iso));
+    const tous=agdDuJour(iso);
+    /* ce qui dure toute la journée ne se pose pas sur une heure :
+       ça se met en bandeau au-dessus, comme dans un vrai agenda */
+    const pleins=tous.filter(agdToutJour);
+    const evs=agdColonnes(tous.filter(e=>!agdToutJour(e)));
     let h0=7, h1=21;
     evs.forEach(e=>{ h0=Math.min(h0,Math.floor(Math.max(0,agdMin(e)-agdTrajet(e))/60));
       h1=Math.max(h1,Math.ceil((agdMin(e)+agdDuree(e))/60)); });
@@ -5705,7 +5739,16 @@
     const now=new Date(); let maintenant='';
     if(iso===agdAuj()){ const m=now.getHours()*60+now.getMinutes();
       if(m>=h0*60&&m<=h1*60) maintenant=`<div class="agd-now" style="top:${(m-h0*60)/60*AGD_H}px"></div>`; }
-    return `<div class="agd-jour" id="agd-jour"><div class="agd-piste" style="height:${(h1-h0)*AGD_H}px">
+    const bandeau=pleins.length?`<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:9px">
+      ${pleins.map(e=>{ const c=(AGD_COUL[e.couleur]||AGD_COUL.bleu).c;
+        const a=agdAge(e,iso); const rap=(e.alerte===false)?'':' ⏰'; const pj=e.pj?' 📎':'';
+        return `<div onclick="agdForm('${e.id}')" title="${esc(e.titre)} — toute la journée"
+          style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:10px;cursor:pointer;
+                 background:${agdTeinte(c,.16)};border-left:3px solid ${c}">
+          <b style="flex:1;min-width:0;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.titre)}${a?' · '+a+' ans':''}</b>
+          <span style="font-size:11.5px;font-weight:700;color:var(--t2);flex:none">Toute la journée${rap}${pj}</span></div>`; }).join('')}
+      </div>`:'';
+    return bandeau+`<div class="agd-jour" id="agd-jour"><div class="agd-piste" style="height:${(h1-h0)*AGD_H}px">
       ${lignes}${creux}${trajets}${blocs}${maintenant}</div></div>`;
   }
   function agdLigne(e){
@@ -5715,7 +5758,7 @@
       <span style="width:4px;align-self:stretch;border-radius:99px;background:${c};flex:none"></span>
       <div class="info">
         <div class="nm">${esc(e.titre)}</div>
-        <div class="ds">${esc(e.heure||'')}${fin?' – '+esc(fin):''}${rap?' · ⏰ '+esc(rap):''}</div>
+        <div class="ds">${agdToutJour(e)?'Toute la journée':(esc(e.heure||'')+(fin?' – '+esc(fin):''))}${rap?' · ⏰ '+esc(rap):''}</div>
         ${e.note?`<div style="font-size:12.5px;color:var(--t2);margin-top:5px;white-space:pre-wrap">${esc(e.note)}</div>`:''}
       </div>
       <span style="color:var(--t3);font-size:15px;align-self:center">›</span></div>`;
@@ -5735,10 +5778,15 @@
     const dur=[[0,'Sans durée'],[15,'15 min'],[30,'30 min'],[60,'1 h'],[90,'1 h 30'],[120,'2 h'],[240,'4 h'],[480,'La journée']];
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${e?'Ce rendez-vous':'Nouveau rendez-vous'}</h3>
       <div class="field"><label>Quoi ?</label><input id="ag-t" maxlength="80" placeholder="ex : Dentiste, Anniversaire de Léa…" value="${e?esc(e.titre):''}"></div>
-      <div class="field"><label>Quand</label>${champDateHeure(e?e.date:(dateISO||_agdJour||agdAuj()), e?(e.heure||'09:00'):(heure||'09:00'))}</div>
-      <div class="field"><label>Combien de temps</label>
+      <div class="field"><label>Quand</label>
+        <div style="display:flex;gap:8px;margin-bottom:9px">
+          <button type="button" id="ag-j0" class="btn ghost sm" style="flex:1" onclick="agdJourEntier(false)">À une heure</button>
+          <button type="button" id="ag-j1" class="btn ghost sm" style="flex:1" onclick="agdJourEntier(true)">Journée entière</button>
+        </div>
+        ${champDateHeure(e?e.date:(dateISO||_agdJour||agdAuj()), e?(e.heure||'09:00'):(heure||'09:00'))}</div>
+      <div class="field" id="ag-durf"><label>Combien de temps</label>
         <select id="ag-dur">${dur.map(([v,l])=>`<option value="${v}" ${e&&Number(e.duree)===v?'selected':(!e&&v===60?'selected':'')}>${l}</option>`).join('')}</select></div>
-      <div class="field"><label>Temps de trajet</label>
+      <div class="field" id="ag-trajf"><label>Temps de trajet</label>
         <select id="ag-traj" onchange="agdDepartMaj()">${AGD_TRAJETS.map(([v,l])=>`<option value="${v}" ${agdTrajet(e||{})===v?'selected':''}>${l}</option>`).join('')}</select>
         <div id="ag-dep" class="muted" style="font-size:12px;margin-top:5px"></div></div>
       <div class="field"><label>Alerte</label>
@@ -5761,7 +5809,29 @@
     _agdPJ=(e&&e.pj)||'';
     _agdAlerte=!(e&&e.alerte===false);
     setTimeout(()=>{ agdCoulPose(_agdCoul); try{ dcLabel(); }catch(x){}
+      agdJourEntier(agdToutJour(e||{}));
       agdAlerte(_agdAlerte); agdPJMaj(); agdDepartMaj(); },30);
+  }
+  /* ── LA JOURNÉE ENTIÈRE ──
+     Un anniversaire, un congé, un déménagement : ça n'a pas d'heure. On le
+     dit une fois, et tout ce qui ne sert plus — l'heure, la durée, le temps
+     de trajet — s'efface au lieu de rester là à demander une réponse.
+     Le rappel, lui, reste : « préviens-moi la veille » garde tout son sens. */
+  let _agdJourEntier=false;
+  function agdJourEntier(oui){
+    _agdJourEntier=!!oui;
+    const a=$('ag-j1'), b=$('ag-j0');
+    if(a) a.classList.toggle('ghost',!oui);
+    if(b) b.classList.toggle('ghost',oui);
+    const t=$('dp-timecol'); if(t) t.style.display=oui?'none':'';
+    const d=$('ag-durf'); if(d) d.style.display=oui?'none':'';
+    const j=$('ag-trajf'); if(j) j.style.display=oui?'none':'';
+    if(oui){ const tp=$('dp-tp'); if(tp) tp.style.display='none'; }
+    /* prévenir « à l'heure de l'événement » ne veut rien dire sans heure :
+       on bascule sur la veille, qui est ce qu'on attend d'un jour entier */
+    const r=$('ag-rap');
+    if(r&&oui&&Number(r.value)<60) r.value='1440';
+    agdDepartMaj();
   }
   /* l'heure de départ, recalculée dès qu'on touche au trajet ou à l'heure */
   function agdDepartMaj(){
@@ -5827,9 +5897,10 @@
     const d=(($('dp-date')||{}).value||''), h=(($('dp-time')||{}).value||'');
     if(!d){ toast('Choisis une date'); return; }
     const o={ id:id||('a'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)),
-      titre:t.slice(0,80), date:d, heure:h||'09:00',
-      duree:Number((($('ag-dur')||{}).value)||0),
-      trajet:Number((($('ag-traj')||{}).value)||0),
+      titre:t.slice(0,80), date:d, heure:_agdJourEntier?'00:00':(h||'09:00'),
+      jour:!!_agdJourEntier,
+      duree:_agdJourEntier?0:Number((($('ag-dur')||{}).value)||0),
+      trajet:_agdJourEntier?0:Number((($('ag-traj')||{}).value)||0),
       alerte:!!_agdAlerte,
       rappel:Number((($('ag-rap')||{}).value)),
       couleur:_agdCoul, note:((($('ag-n')||{}).value)||'').trim().slice(0,500),
