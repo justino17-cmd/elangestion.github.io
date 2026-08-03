@@ -100,7 +100,7 @@
     --sep:oklch(0.29 0.026 263);
     --card:oklch(0.25 0.024 264); --card-brd:oklch(0.30 0.028 263);
     --bg1:oklch(0.225 0.022 265); --card2:oklch(0.25 0.024 264);
-    --inp:oklch(0.25 0.024 264); --inp-h:oklch(0.285 0.030 263); --hov:oklch(0.275 0.028 263);
+    --inp:oklch(0.305 0.028 263); --inp-h:oklch(0.34 0.032 263); --hov:oklch(0.275 0.028 263);
     --t1:oklch(0.94 0.008 265); --t2:oklch(0.69 0.016 263); --t3:oklch(0.62 0.018 263); --lbl:oklch(0.50 0.020 263);
     --op:oklch(0.56 0.15 258); --op-h:oklch(0.61 0.14 258); --op-tx:oklch(0.74 0.10 258); --op-l:oklch(0.74 0.10 258);
     --tint:oklch(0.295 0.05 260); --tint2:oklch(0.25 0.030 263); --tint3:oklch(0.30 0.045 260);
@@ -129,7 +129,7 @@
     --sep:oklch(0.29 0.03 294);
     --card:oklch(0.25 0.028 295); --card-brd:oklch(0.30 0.032 294);
     --bg1:oklch(0.225 0.026 297); --card2:oklch(0.25 0.028 295);
-    --inp:oklch(0.25 0.028 295); --inp-h:oklch(0.285 0.034 293); --hov:oklch(0.275 0.032 293);
+    --inp:oklch(0.305 0.032 294); --inp-h:oklch(0.34 0.036 293); --hov:oklch(0.275 0.032 293);
     --t1:oklch(0.94 0.008 295); --t2:oklch(0.70 0.018 293); --t3:oklch(0.63 0.02 293); --lbl:oklch(0.50 0.024 293);
     --op:oklch(0.58 0.14 288); --op-h:oklch(0.63 0.13 288); --op-tx:oklch(0.76 0.09 290); --op-l:oklch(0.76 0.09 290);
     --tint:oklch(0.295 0.055 292); --tint2:oklch(0.25 0.032 295); --tint3:oklch(0.30 0.05 291);
@@ -804,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='651';
+  const APP_VERSION='652';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6825,9 +6825,9 @@
     try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
     pc.onicecandidate=ev=>{ if(ev.candidate) _vDire({type:'ice',a:uid,cand:JSON.stringify(ev.candidate)}); };
     pc.ontrack=ev=>{ const st=ev.streams[0]||new MediaStream([ev.track]);
-      /* pas de tampon « au cas où » : chaque image s'affiche dès qu'elle
-         arrive — c'est la moitié du retard ressenti qui disparaît */
-      try{ if(ev.receiver){ ev.receiver.playoutDelayHint=0; ev.receiver.jitterBufferTarget=0; } }catch(e){}
+      /* un petit tampon de réception est NÉCESSAIRE : à zéro, la moindre
+         perte de paquet se décode sans sa référence — traînées, couleurs
+         folles. On laisse le navigateur choisir, il sait faire. */
       if(p.ecranIds.has(st.id)) p.streams.ecran=st;
       else if(!p.streams.cam||p.streams.cam.id===st.id) p.streams.cam=st;
       else p.streams.ecran=st;
@@ -7010,9 +7010,11 @@
   /* ce qu'on demande à la caméra : de quoi voir un visage, pas un film */
   function camContraintes(face){
     const tel=estTelephone();
+    /* la 2K demandée : 2560×1440. Si l'appareil ne l'a pas, le navigateur
+       donne ce qu'il a de mieux en dessous — jamais d'échec. */
     return { facingMode: face||'user',
-      width:{ideal:1280, max:1920},
-      height:{ideal:720,  max:1080},
+      width:{ideal:2560, max:2560},
+      height:{ideal:1440, max:1440},
       frameRate:{ideal:30, max:30} };
   }
   /* on prévient le navigateur : c'est du mouvement, pas un plan fixe.
@@ -7022,25 +7024,16 @@
   /* et on borne ce qu'on envoie : au-delà, on ne gagne rien de visible,
      on ne fait qu'engorger la liaison et fabriquer du retard */
   async function camRegleEnvoi(sn,pc){
-    /* la puce vidéo du téléphone parle H264 : elle encode sans fatiguer
-       le processeur — c'est ça qui supprime le retard à l'envoi */
-    try{
-      if(pc&&RTCRtpSender.getCapabilities){
-        const tr=pc.getTransceivers().find(t2=>t2.sender===sn);
-        if(tr&&tr.setCodecPreferences){
-          const caps=RTCRtpSender.getCapabilities('video').codecs;
-          const h264=caps.filter(c=>/H264/i.test(c.mimeType)), autres=caps.filter(c=>!/H264/i.test(c.mimeType));
-          if(h264.length) tr.setCodecPreferences(h264.concat(autres));
-        }
-      }
-    }catch(e){}
+    /* le codec, on le laisse aux deux navigateurs : ils négocient ce que
+       leurs puces savent VRAIMENT décoder — l'imposer à la main, c'était
+       la bouillie de couleurs d'hier */
     try{
       const pr=sn.getParameters();
       pr.encodings=(pr.encodings&&pr.encodings.length)?pr.encodings:[{}];
-      pr.encodings[0].maxBitrate=2600000;      // 2,6 Mb/s : du 720p franchement net
+      pr.encodings[0].maxBitrate=6000000;      // 6 Mb/s : la 2K respire
       pr.encodings[0].maxFramerate=30;
       pr.encodings[0].networkPriority='high';
-      pr.degradationPreference='maintain-framerate';  // fluide d'abord : le retard, jamais
+      pr.degradationPreference='maintain-framerate';  // fluide d'abord
       await sn.setParameters(pr);
     }catch(e){}
   }
@@ -11149,11 +11142,15 @@
             return `<option value="${k}" ${cur===k?'selected':''}>${ic} ${lbl}</option>`; }).join('')}
         </select>
         <span class="muted" style="display:block;font-size:11.5px;margin-top:5px">Visible par tes contacts avant qu\u2019ils t\u2019appellent.</span></div>
-      <div class="field" style="margin-bottom:6px"><label>Statut (à propos)</label>
-        <input id="pf-status" value="${esc(USER.status||'')}" placeholder="Ex : Disponible 🙂 / En réunion" maxlength="80" onchange="pfSauve('status',this.value)"></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px">
-        ${statusChips()}
-      </div>
+      <div class="field" style="margin-bottom:16px"><label>Statut (à propos)</label>
+        <div id="pf-statut-tete" onclick="pfStatutPlie()"
+          style="display:flex;align-items:center;gap:9px;padding:12px 13px;border-radius:11px;background:var(--inp);cursor:pointer">
+          <span id="pf-statut-lbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:700;${(USER.status||'').trim()?'':'color:var(--t3);font-weight:400'}">${esc((USER.status||'').trim()||'Touche pour choisir un statut…')}</span>
+          <b id="pf-statut-fleche" style="color:var(--t3);font-size:12px">▾</b></div>
+        <div id="pf-statut-corps" style="display:none;margin-top:10px">
+          <input id="pf-status" value="${esc(USER.status||'')}" placeholder="Ou écris-le ici…" maxlength="80" onchange="pfSauve('status',this.value)" style="margin-bottom:10px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">${statusChips()}</div>
+        </div></div>
       <p class="muted" style="font-size:11.5px;margin:-8px 2px 16px">Chaque champ s\u2019enregistre tout seul dès que tu le quittes.</p>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Réglages</div>
       <div class="row" style="cursor:default;align-items:flex-start;flex-wrap:wrap;gap:8px">
@@ -11236,7 +11233,7 @@
   function sheetAccount(){ openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">👤 Compte</h3>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="changePass()">Changer le mot de passe</button>
     <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();showView('prof')">Changer le numéro / le nom</button>
-    ${MODE==='perso'?`<p class="muted" style="font-size:12px;margin:4px 2px 12px">Identifiant : <b>@${esc(USER.handle||'')}</b></p>`:''}
+    ${(MODE==='perso'&&USER.handle)?`<p class="muted" style="font-size:12px;margin:4px 2px 12px">Identifiant : <b>@${esc(USER.handle)}</b></p>`:''}
     <button class="btn block" style="background:rgba(248,113,113,.15);color:var(--red)" onclick="deleteAccount()">🗑️ Supprimer mon compte</button>`); }
   async function deleteAccount(){ if(!await opConfirme('Cette action est irréversible : tout est effacé et rien ne peut être récupéré.',
     {titre:'Supprimer définitivement votre compte ?',oui:'Supprimer mon compte',danger:true})) return;
@@ -11259,6 +11256,12 @@
     h+=`<span style="display:inline-flex;align-items:center;padding:7px 12px;border-radius:100px;border:1px dashed var(--brd2);color:var(--op-l);font-size:12.5px;font-weight:700;cursor:pointer" onclick="addCustomStatus()">＋ Créer un statut</span>`;
     if(cur) h+=`<span style="display:inline-flex;align-items:center;padding:7px 12px;border-radius:100px;border:1px solid var(--brd2);color:var(--red);font-size:12.5px;font-weight:600;cursor:pointer" onclick="setStatus('')">Effacer le statut</span>`;
     return h;
+  }
+  function pfStatutPlie(){
+    const c=$('pf-statut-corps'), f=$('pf-statut-fleche'); if(!c) return;
+    const ouvert=c.style.display!=='none';
+    c.style.display=ouvert?'none':'block';
+    if(f) f.textContent=ouvert?'▾':'▴';
   }
   async function setStatus(s){
     try{ await fs.collection('op_users').doc(ME.uid).set({status:s},{merge:true}); USER.status=s;
