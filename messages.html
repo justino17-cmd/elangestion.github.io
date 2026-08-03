@@ -187,7 +187,9 @@
   .agd-creux:hover{background:var(--inp,rgba(128,128,128,.10))}
   .agd-bloc{position:absolute;border-radius:0 8px 8px 0;padding:2px 7px;overflow:hidden;cursor:pointer;
     display:flex;flex-direction:column;justify-content:flex-start;gap:0;color:var(--t1)}
+  .agd-bloc{touch-action:none}
   .agd-bloc:hover{filter:brightness(1.1)}
+  .agd-bloc.prise{opacity:.9;box-shadow:0 6px 18px rgba(0,0,0,.22);z-index:3;cursor:grabbing}
   .agd-bloc b{font-size:12px;font-weight:800;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .agd-bloc span{font-size:10px;line-height:1.15;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .agd-bnote{font-size:10.5px;color:var(--t3)!important;margin-top:1px}
@@ -795,7 +797,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='637';
+  const APP_VERSION='638';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -5218,6 +5220,7 @@
         <b style="font-size:15px;text-transform:capitalize">${esc(jourLib)}</b>
         <span style="font-size:12.5px;color:var(--t2)">${liste.length?liste.length+' rendez-vous':'rien de prévu'}</span>
         <span style="flex:1"></span>
+        ${liste.length?`<span style="font-size:11.5px;color:var(--t3)">glisse un rendez-vous pour le déplacer</span>`:''}
         <button class="btn sm" onclick="agdForm('')">＋ Ajouter</button>
       </div>
       ${agdJournee(_agdJour)}
@@ -5256,6 +5259,41 @@
       e._n=Math.max(1,evs.filter(o=>agdMin(o)<f && agdMin(o)+agdDuree(o)>d).reduce((m,o)=>Math.max(m,o._col+1),0)); });
     return evs;
   }
+  const AGD_PAS=15;                     // on aimante au quart d'heure
+  let _agdDrag=null;
+  const _agdHHMM=x=>String(Math.floor(x/60)).padStart(2,'0')+':'+String(x%60).padStart(2,'0');
+  function agdPrise(ev,id){
+    if(ev.button&&ev.button!==0) return;
+    const e=_agd.find(x=>x.id===id); if(!e) return;
+    const b=ev.currentTarget;
+    _agdDrag={id:id,y0:ev.clientY,min0:agdMin(e),min:agdMin(e),bouge:false,bloc:b,
+      h0:Number(b.dataset.h0||0),h1:Number(b.dataset.h1||24),duree:agdDuree(e),trajet:agdTrajet(e)};
+    try{ b.setPointerCapture(ev.pointerId); }catch(x){}
+  }
+  function agdGlisse(ev){
+    const d=_agdDrag; if(!d) return;
+    const dy=ev.clientY-d.y0;
+    if(!d.bouge){ if(Math.abs(dy)<4) return; d.bouge=true; d.bloc.classList.add('prise'); }
+    ev.preventDefault();
+    let m=d.min0+Math.round(dy/AGD_H*60/AGD_PAS)*AGD_PAS;
+    m=Math.max(d.h0*60+d.trajet,Math.min(d.h1*60-d.duree,m));
+    d.min=m;
+    d.bloc.style.top=((m-d.h0*60)/60*AGD_H)+'px';
+    const l=d.bloc.querySelector('span');
+    if(l) l.textContent=_agdHHMM(m)+' – '+_agdHHMM(m+d.duree);
+  }
+  async function agdLache(ev){
+    const d=_agdDrag; _agdDrag=null; if(!d) return;
+    d.bloc.classList.remove('prise');
+    if(!d.bouge){ agdForm(d.id); return; }            // un simple toucher ouvre la fiche
+    const e=_agd.find(x=>x.id===d.id); if(!e){ viewAgenda(); return; }
+    const h=_agdHHMM(d.min);
+    if(h===e.heure){ viewAgenda(); return; }
+    e.heure=h; e.sonne=0;                             // l'horaire a changé : le rappel se réarme
+    await agdEcrit();
+    toast('Déplacé à '+h);
+    viewAgenda();
+  }
   function agdJournee(iso){
     const evs=agdColonnes(agdDuJour(iso));
     let h0=7, h1=21;
@@ -5283,10 +5321,12 @@
       const rap=(e.alerte===false)?'':' ⏰';
       const dep=agdTrajet(e)?' · 🚗 partir à '+agdDepart(e):'';
       const pj=e.pj?' 📎':'';
-      return `<div class="agd-bloc" onclick="event.stopPropagation();agdForm('${e.id}')"
+      return `<div class="agd-bloc" data-h0="${h0}" data-h1="${h1}"
+        onpointerdown="agdPrise(event,'${e.id}')" onpointermove="agdGlisse(event)"
+        onpointerup="agdLache(event)" onpointercancel="agdLache(event)"
         style="top:${top}px;height:${haut}px;left:calc(${g}% + 2px);width:calc(${larg}% - 4px);
                background:${agdTeinte(c,.16)};border-left:3px solid ${c}"
-        title="${esc(e.titre)}${fin?' · '+esc(e.heure)+' – '+esc(fin):''}${e.note?' — '+esc(e.note):''}">
+        title="${esc(e.titre)}${fin?' · '+esc(e.heure)+' – '+esc(fin):''}${e.note?' — '+esc(e.note):''} — glisse-le pour le déplacer">
         <b>${esc(e.titre)}</b><span>${esc(e.heure||'')}${fin?' – '+esc(fin):''}${rap}${pj}</span>
         ${(haut>=42)?`<span class="agd-bnote">${esc(e.note||'')}${dep}</span>`:''}</div>`; }).join('');
     /* le trait rouge de l'heure qu'il est — seulement aujourd'hui */
