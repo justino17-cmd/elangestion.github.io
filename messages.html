@@ -804,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='654';
+  const APP_VERSION='655';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6660,7 +6660,8 @@
       /* un appel patiente déjà : on garde le même micro et la même caméra —
          deux demandes en même temps se battraient sur certains téléphones */
       if(_vAttente && _vLocal && _vLocal.getTracks().some(t=>t.readyState==='live')){ /* on réutilise */ }
-      else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:camContraintes(),audio:true});
+      else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:camContraintes(),
+        audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,latency:{ideal:0.01}}});
       /* la salle s'est refermée pendant la demande : on rend tout de suite */
       if(!_vRoom){ try{ _vLocal.getTracks().forEach(t=>t.stop()); }catch(e){} _vLocal=null; return; }
     }catch(e){
@@ -7050,6 +7051,19 @@
       return {p:2,stable:0};
     return {p:p,stable:stable};
   }
+  /* le tampon de lecture visé, en millisecondes — null : défaut du navigateur */
+  function camTamponDecide(perte,rtt){
+    if(perte>0.01||rtt>0.25) return null;               // ligne abîmée : le navigateur protège
+    if(perte<0.003&&(rtt===0||rtt<0.12)) return 40;     // ligne propre : lecture quasi directe
+    return 100;                                          // entre les deux : court mais couvert
+  }
+  function camTamponApplique(cible){
+    for(const p of Object.values(_vPairs)){
+      try{ (p.pc.getReceivers?p.pc.getReceivers():[]).forEach(r=>{
+        try{ if('jitterBufferTarget' in r) r.jitterBufferTarget=cible; }catch(e){}
+      }); }catch(e){}
+    }
+  }
   /* l'échelle d'envoi : la caméra capte en grand, on réduit à l'envoi */
   function camEchelle(sn){
     try{ const h=(sn&&sn.track&&sn.track.getSettings&&sn.track.getSettings().height)||1440;
@@ -7085,6 +7099,7 @@
       }catch(e){}
     }
     if(!vu) return;
+    camTamponApplique(camTamponDecide(perte,rtt));
     const av=_camPalier;
     const d2=camPalierDecide(_camPalier,_camStable,perte,rtt,dispo);
     _camPalier=d2.p; _camStable=d2.stable;
