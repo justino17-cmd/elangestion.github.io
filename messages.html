@@ -804,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='649';
+  const APP_VERSION='650';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -1824,7 +1824,7 @@
       await fs.collection('op_users').doc(ME.uid).set({statut:{code:code,jusqu:jusqu,maj:Date.now()}},{merge:true});
       if(USER) USER.statut={code:code,jusqu:jusqu};
       closeSheet(); const [ic,lbl]=STATUTS[code]; toast(ic+' Statut : '+lbl);
-      if(_curView==='prof') viewProfile(); if(_curView==='cont') viewCont();
+      if(_curView==='prof'&&!$('pf-dispo')) viewProfile(); if(_curView==='cont') viewCont();
     }catch(e){ opAlerte('Erreur : '+((e&&e.message)||e)); }
   }
   function fontSize(){ return pref('fontsize','m'); }
@@ -5465,6 +5465,7 @@
   }
   function addContactForm(c){
     c=c||null; _ctPhoto=(c&&c.photo)||''; _ctId=(c&&(c.id||c.uid))||'';
+    _ctTelCompte=null; _ctTelCache={};
     if(c&&!c.prenom&&!c.nom&&c.name){ const m=String(c.name).trim().split(/\s+/);
       c=Object.assign({},c,{prenom:m.shift()||'',nom:m.join(' ')}); }
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${c?'Modifier le contact':'Ajouter un contact'}</h3>
@@ -5480,10 +5481,9 @@
           <input id="ct-nom" maxlength="40" autocapitalize="words" value="${c?esc(c.nom||''):''}"></div>
       </div>
       <div class="field"><label>Téléphone</label>
-        <input id="ct-tel" type="tel" inputmode="tel" placeholder="06 12 34 56 78" value="${c?esc(c.phone||''):''}">
-        <span class="muted" style="display:block;font-size:11.5px;margin-top:5px;line-height:1.5">
-          Si ce numéro est celui d\u2019un compte OP MESSAGES, la fiche s\u2019y relie toute seule :
-          tu pourras lui écrire et l\u2019appeler dans l\u2019application, sans passer par le réseau téléphonique.</span></div>
+        <input id="ct-tel" type="tel" inputmode="tel" placeholder="06 12 34 56 78" value="${c?esc(c.phone||''):''}" oninput="ctTelMaj()">
+        <div id="ct-telnote" class="muted" style="font-size:11.5px;margin-top:5px;line-height:1.5">
+          Tape le numéro : si la personne est sur OP MESSAGES, sa fiche se remplit toute seule.</div></div>
       <div class="field"><label>Adresse e-mail</label>
         <input id="ct-mail" type="email" inputmode="email" autocapitalize="off" placeholder="prenom@exemple.fr" value="${c?esc(c.email||''):''}"></div>
       <div class="field" style="margin-bottom:8px"><label>Anniversaire</label>
@@ -5500,6 +5500,39 @@
       const l=$('dp-datelbl'); if(l&&!(c&&c.anniv)) l.textContent='Choisir une date';
       ctAnnivMaj(); const p=$('ct-prenom'); if(p&&!c) p.focus(); },40);
   }
+  /* le numéro tapé est-il un compte ? — une seule question par numéro */
+  let _ctTelCache={}, _ctTelT=null, _ctTelCompte=null;
+  function ctTelMaj(){
+    const z=$('ct-telnote'); if(!z) return;
+    const v=(($('ct-tel')||{}).value)||'', c=numCle(v);
+    if(_ctTelT){ clearTimeout(_ctTelT); _ctTelT=null; }
+    _ctTelCompte=null;
+    if(!c||!numValide(v)){
+      z.innerHTML='Tape le numéro : si la personne est sur OP MESSAGES, sa fiche se remplit toute seule.';
+      z.style.color=''; return;
+    }
+    const montre=(u)=>{
+      _ctTelCompte=u;
+      if(u){ z.innerHTML='✓ <b>'+esc(u.name||'Ce numéro')+'</b> est sur OP MESSAGES — la fiche est reliée à son compte.';
+        z.style.color='var(--pres)';
+        /* on remplit le nom, sans écraser ce qui a déjà été tapé */
+        const p=$('ct-prenom'), n=$('ct-nom');
+        if(p&&n&&!p.value.trim()&&!n.value.trim()){
+          const m=String(u.name||'').trim().split(/\s+/);
+          p.value=m.shift()||''; n.value=m.join(' ');
+        }
+      } else { z.innerHTML='Ce numéro n\u2019est sur aucun compte : tu garderas sa fiche et tu l\u2019appelleras par téléphone.';
+        z.style.color=''; }
+    };
+    if(c in _ctTelCache){ montre(_ctTelCache[c]); return; }
+    z.innerHTML='Recherche…'; z.style.color='';
+    _ctTelT=setTimeout(async()=>{
+      _ctTelT=null;
+      let u=null; try{ u=await numCompte(c); }catch(e){}
+      _ctTelCache[c]=u?{uid:u.uid,name:u.name||'',handle:u.handle||''}:null;
+      if(numCle((($('ct-tel')||{}).value)||'')===c) montre(_ctTelCache[c]);
+    },500);
+  }
   function ctAnnivMaj(){
     const v=(($('dp-date')||{}).value)||'', z=$('ct-annivnote'); if(!z) return;
     if(!v){ z.textContent=''; return; }
@@ -5513,7 +5546,12 @@
   /* ── ON ENREGISTRE ── */
   async function ctEnregistre(){
     const err=m=>{ const e=$('acerr'); if(e) e.innerHTML='<div class="err">'+m+'</div>'; };
-    const prenom=(($('ct-prenom')||{}).value||'').trim();
+    let prenom=(($('ct-prenom')||{}).value||'').trim();
+    /* le compte trouvé par le numéro connaît déjà son nom */
+    if(!prenom&&_ctTelCompte&&_ctTelCompte.name){
+      const m=String(_ctTelCompte.name).trim().split(/\s+/);
+      prenom=m.shift()||''; const n2=$('ct-nom'); if(n2&&!n2.value.trim()) n2.value=m.join(' ');
+    }
     if(!prenom){ err('Le prénom est nécessaire.'); const p=$('ct-prenom'); if(p) p.focus(); return; }
     const nom=(($('ct-nom')||{}).value||'').trim();
     const tel=(($('ct-tel')||{}).value||'').trim();
@@ -11060,13 +11098,22 @@
       ${isPro()?`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Code à transmettre aux employés</div>
       <button class="btn ghost block" style="margin-bottom:6px" onclick="showInvite()">Voir / partager le code d'invitation</button>
       <p class="muted" style="font-size:12px;margin:0 2px 6px">Vos employés téléchargent l'app, choisissent « Rejoindre » et entrent ce code.</p>`:''}
-      <div class="field"><label>Nom affiché</label><input id="pf-name" value="${esc(USER.name||'')}"></div>
-      <div class="field"><label>Statut (à propos)</label><input id="pf-status" value="${esc(USER.status||'')}" placeholder="Ex : Disponible 🙂 / En réunion" maxlength="80"></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:-6px 0 14px">
+      <div class="field"><label>Nom affiché</label>
+        <input id="pf-name" value="${esc(USER.name||'')}" onchange="pfSauve('name',this.value)"></div>
+      <div class="field"><label>Téléphone</label>
+        <input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78" onchange="pfSauve('phone',this.value)"></div>
+      <div class="field"><label>Disponibilité</label>
+        <select id="pf-dispo" onchange="statutPose(this.value)">
+          ${Object.entries(STATUTS).map(([k,[ic,lbl]])=>{ const cur=(statutDe(USER)||{code:'dispo'}).code;
+            return `<option value="${k}" ${cur===k?'selected':''}>${ic} ${lbl}</option>`; }).join('')}
+        </select>
+        <span class="muted" style="display:block;font-size:11.5px;margin-top:5px">Visible par tes contacts avant qu\u2019ils t\u2019appellent.</span></div>
+      <div class="field" style="margin-bottom:6px"><label>Statut (à propos)</label>
+        <input id="pf-status" value="${esc(USER.status||'')}" placeholder="Ex : Disponible 🙂 / En réunion" maxlength="80" onchange="pfSauve('status',this.value)"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px">
         ${statusChips()}
       </div>
-      <div class="field"><label>Téléphone</label><input id="pf-phone" type="tel" value="${esc(USER.phone||'')}" placeholder="06 12 34 56 78"></div>
-      <button class="btn block" style="margin-bottom:18px" onclick="saveName()">Enregistrer</button>
+      <p class="muted" style="font-size:11.5px;margin:-8px 2px 16px">Chaque champ s\u2019enregistre tout seul dès que tu le quittes.</p>
       <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:6px 2px 8px">Réglages</div>
       <div class="row" style="cursor:default;align-items:flex-start;flex-wrap:wrap;gap:8px">
         <div class="info"><div class="nm">Thème</div>
@@ -11205,6 +11252,26 @@
     {titre:'Nouvelle réponse rapide',max:120,placeholder:'Ex. : je suis sur place',oui:'Ajouter'}); if(t==null) return; const s=t.trim().slice(0,120); if(!s) return;
     const a=myQR(); if(!a.includes(s)){ a.unshift(s); saveMyQR(a); } openQuickReplies(); }
   function delQR(s){ saveMyQR(myQR().filter(x=>x!==s&&x!==s.replace(/’/g,"'"))); openQuickReplies(); }
+  /* un champ, une écriture : le profil n'attend plus un bouton */
+  async function pfSauve(champ,valeur){
+    const v=String(valeur==null?'':valeur).trim();
+    try{
+      if(champ==='name'){
+        if(!v){ toast('Le nom ne peut pas être vide'); const i=$('pf-name'); if(i) i.value=USER.name||''; return; }
+        await fs.collection('op_users').doc(ME.uid).set({name:v},{merge:true});
+        if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:v},{merge:true});
+        USER.name=v; toast('Nom enregistré');
+      } else if(champ==='phone'){
+        if(v&&!numValide(v)){ toast('Ce numéro est incomplet'); return; }
+        await fs.collection('op_users').doc(ME.uid).set({phone:v,tel:numCle(v)},{merge:true});
+        if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({phone:v},{merge:true});
+        USER.phone=v; USER.tel=numCle(v); toast(v?'Numéro enregistré':'Numéro retiré');
+      } else if(champ==='status'){
+        await fs.collection('op_users').doc(ME.uid).set({status:v},{merge:true});
+        USER.status=v; toast(v?'Statut enregistré':'Statut effacé');
+      }
+    }catch(e){ opAlerte('Erreur : '+(e.message||e)); }
+  }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim(); const status=($('pf-status')&&$('pf-status').value||'').trim();
     try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,tel:numCle(phone),status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
   /* ══ L'ÉCRAN SÉCURITÉ ══ */
