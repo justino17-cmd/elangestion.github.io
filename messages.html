@@ -798,7 +798,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='643';
+  const APP_VERSION='644';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -2005,8 +2005,8 @@
     const email=handle+'@opmsg.local'; _provisioning=true;
     try{
       const cred=await auth.createUserWithEmailAndPassword(email,pass); ME=cred.user;
-      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle,phone,role:'perso',lastActive:Date.now()});
-      USER={uid:ME.uid,email,name,handle,phone,role:'perso'}; COMP=null; HAS_COMPANY=false; MODE='perso'; _provisioning=false; gammeMaj(); enterApp();
+      await fs.collection('op_users').doc(ME.uid).set({uid:ME.uid,email,name,handle,phone,tel:numCle(phone),role:'perso',lastActive:Date.now()});
+      USER={uid:ME.uid,email,name,handle,phone,tel:numCle(phone),role:'perso'}; COMP=null; HAS_COMPANY=false; MODE='perso'; _provisioning=false; gammeMaj(); enterApp();
     }catch(e){ _provisioning=false; if((e.code||'')==='auth/email-already-in-use') aerr('Cet identifiant est déjà pris.'); else aerr(aMsg(e)); $('p-sub').disabled=false; }
   }
   /* ══════════════════════════════════════════════════════════════════
@@ -2150,6 +2150,7 @@
     try{ if(!_vrPret){ _vrPret=true; vrSurveille(); } if(vrActif()) vrOuvre('ouverture'); }catch(e){}
     try{ await syncDemarre(); }catch(e){}         // on récupère TOUT avant d'afficher quoi que ce soit
     gammeMaj();                                   // bleu (gratuit/PRO) ou violet (Business Premium)
+    try{ await telSync(); }catch(e){}             // mon numéro devient trouvable par mes contacts
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
     try{ await secuCharge(); }catch(e){}
     try{ secuNouvelAppareil(); }catch(e){}
@@ -4942,8 +4943,32 @@
       <div id="cont-list"><p class="muted center">Chargement…</p></div>${showFab?`<button class="fab" onclick="${fabAction}" title="Ajouter">${ms('person_add',24)}</button>`:''}`;
     try{
       const list = MODE==='perso' ? await listMembers() : (await (async()=>{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); const a=[]; qs.forEach(d=>a.push(d.data())); return a; })());
-      _contList=list; renderContList(emptyMsg); statutsCharge();
+      _contList=list; renderContList(emptyMsg); statutsCharge(); ctRelie();
     }catch(e){ $('cont-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+  }
+  /* on ne relit pas tout le carnet à chaque fois : dix fiches par passage,
+     par paquets de dix numéros, suffisent largement */
+  let _ctRelieEnCours=false;
+  async function ctRelie(){
+    if(_ctRelieEnCours||MODE!=='perso') return; _ctRelieEnCours=true;
+    try{
+      const seuls=(_contList||[]).filter(c=>c.local&&numCle(c.phone||'')).slice(0,10);
+      if(!seuls.length) return;
+      let change=false;
+      for(const c of seuls){
+        const u=await numCompte(c.phone);
+        if(!u) continue;
+        const maj=Object.assign({},c,{uid:u.uid,handle:u.handle||c.handle||'',
+          photo:c.photo||u.photo||'',local:false,tel:numCle(c.phone)});
+        delete maj.lastActive; delete maj.statut;
+        try{ await fs.collection('op_users').doc(ME.uid).collection('contacts').doc(c.id||c.uid).set(maj); change=true; }catch(e){}
+      }
+      if(change){ _contList=await listMembers();
+        if(_curView==='cont') renderContList();
+        try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name,phone:m.phone})); }catch(e){}
+      }
+    }catch(e){}
+    finally{ _ctRelieEnCours=false; }
   }
   async function statutsCharge(){
     try{
@@ -5054,8 +5079,18 @@
         <b>${esc(c.name||'Ce contact')}</b> n\u2019est pas sur OP MESSAGES.<br>
         La visio relie deux applications entre elles : elle a besoin d\u2019un compte des deux côtés.
         Un numéro de téléphone ne permet que la voix.</p>
-      ${c.phone?`<button class="btn block" style="margin-bottom:9px" onclick="closeSheet();numExtRappelle('${esc(c.phone)}')">${ic('phone',18)}L\u2019appeler au ${esc(numJoli(c.phone))}</button>`:''}
+      ${c.phone?`<button class="btn block" style="margin-bottom:9px" onclick="ctInvite('${esc(id)}')">${ms('person_add',18)} L\u2019inviter sur OP MESSAGES</button>`:''}
+      ${c.phone?`<button class="btn ghost block" style="margin-bottom:9px" onclick="closeSheet();numExtRappelle('${esc(c.phone)}')">${ic('phone',18)}L\u2019appeler au ${esc(numJoli(c.phone))}</button>`:''}
       <button class="btn ghost block" onclick="closeSheet();ctModifie('${esc(id)}')">Renseigner son identifiant OP MESSAGES</button>`);
+  }
+  /* l'invitation : un SMS tout prêt, avec le lien de l'application */
+  function ctInvite(id){
+    const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
+    if(!c||!c.phone){ toast('Il faut son numéro de téléphone'); return; }
+    const t='Salut '+(c.prenom||c.name||'')+' ! Je suis sur OP MESSAGES, on peut s\u2019appeler et s\u2019écrire gratuitement. '
+      +'Tu peux l\u2019installer ici : https://teamop.fr';
+    closeSheet();
+    try{ window.location.href='sms:'+numNettoie(c.phone)+'?&body='+encodeURIComponent(t); }catch(e){}
   }
   /* écrire à quelqu'un qui n'est pas dans l'application : c'est un SMS.
      On passe la main au téléphone, exactement comme le bouton Appeler. */
@@ -5373,7 +5408,10 @@
           <input id="ct-nom" maxlength="40" autocapitalize="words" value="${c?esc(c.nom||''):''}"></div>
       </div>
       <div class="field"><label>Téléphone</label>
-        <input id="ct-tel" type="tel" inputmode="tel" placeholder="06 12 34 56 78" value="${c?esc(c.phone||''):''}"></div>
+        <input id="ct-tel" type="tel" inputmode="tel" placeholder="06 12 34 56 78" value="${c?esc(c.phone||''):''}">
+        <span class="muted" style="display:block;font-size:11.5px;margin-top:5px;line-height:1.5">
+          Si ce numéro est celui d\u2019un compte OP MESSAGES, la fiche s\u2019y relie toute seule :
+          tu pourras lui écrire et l\u2019appeler dans l\u2019application, sans passer par le réseau téléphonique.</span></div>
       <div class="field"><label>Adresse e-mail</label>
         <input id="ct-mail" type="email" inputmode="email" autocapitalize="off" placeholder="prenom@exemple.fr" value="${c?esc(c.email||''):''}"></div>
       <div class="field" style="margin-bottom:8px"><label>Anniversaire</label>
@@ -5423,16 +5461,26 @@
         uid=u.uid;
       }catch(e){ err(esc(e.message||'Erreur')); if(btn)btn.disabled=false; return; }
     }
+    /* pas d'identifiant, mais un numéro : on regarde si ce numéro
+       correspond à un compte — c'est ainsi qu'on se retrouve, sans
+       avoir à demander « c'est quoi ton pseudo ? » */
+    let hdl2=hdl;
+    if(!uid && tel){
+      const u=await numCompte(tel);
+      if(u){ uid=u.uid; hdl2=u.handle||hdl; }
+    }
     const id=_ctId||uid||('loc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6));
     const name=(prenom+' '+nom).trim();
     const fiche={id:id,uid:uid||id,prenom:prenom,nom:nom,name:name,
-      phone:numNettoie(tel),email:mail,photo:_ctPhoto||'',handle:hdl,anniv:anniv,
+      phone:numNettoie(tel),tel:numCle(tel),email:mail,photo:_ctPhoto||'',handle:hdl2,anniv:anniv,
       local:!uid};
     try{ await fs.collection('op_users').doc(ME.uid).collection('contacts').doc(id).set(fiche); }
     catch(e){ err(esc(e.message||'Erreur')); if(btn)btn.disabled=false; return; }
     await ctAnnivAgenda(fiche);
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name,phone:m.phone})); }catch(e){}
-    closeSheet(); toast(_ctId?'Contact modifié':'Contact ajouté : '+name);
+    closeSheet();
+    toast(_ctId?'Contact modifié':'Contact ajouté : '+name);
+    if(uid&&!hdl) toast(name+' est sur OP MESSAGES : tu peux lui écrire et l\u2019appeler dans l\u2019application 🎉');
     _ctPhoto=''; _ctId='';
     if(_curView==='cont') viewCont();
   }
@@ -6142,8 +6190,64 @@
   /* 06 12 34 56 78 se lit mieux que 0612345678 */
   function numJoli(v){ const n=numNettoie(v);
     if(/^0\d{9}$/.test(n)) return n.replace(/(\d{2})(?=\d)/g,'$1 ').trim();
-    if(/^\+33\d{9}$/.test(n)) return '+33 '+n.slice(3).replace(/(\d{2})(?=\d)/g,'$1 ').trim();
+    /* un numéro français international s'écrit « +33 6 12 34 56 78 » :
+       le 6 est seul, les paires viennent après */
+    if(/^\+33\d{9}$/.test(n)){ const r=n.slice(3);
+      return '+33 '+r[0]+' '+r.slice(1).replace(/(\d{2})(?=\d)/g,'$1 ').trim(); }
     return n; }
+  /* ══ LE NUMÉRO, ÉCRIT PAREIL POUR TOUT LE MONDE ══
+     Chacun tape son numéro à sa façon : « 06 12 34 56 78 », « 0612345678 »,
+     « +33 6 12 34 56 78 ». Trois écritures, un seul téléphone. Pour les
+     comparer, il faut d'abord les ramener à la même forme. */
+  function numCle(v){
+    let n=numNettoie(v);
+    if(!n) return '';
+    if(n.slice(0,4)==='0033') n='+33'+n.slice(4);
+    else if(n[0]!=='+' && /^0\d{9}$/.test(n)) n='+33'+n.slice(1);
+    return /^\+\d{8,15}$/.test(n)?n:(/^\d{6,15}$/.test(n)?n:'');
+  }
+  /* les formes sous lesquelles ce numéro a pu être enregistré autrefois,
+     du temps où on gardait le texte tel quel */
+  function numVariantes(v){
+    const c=numCle(v); if(!c) return [];
+    const out=new Set([c]);
+    if(c.slice(0,3)==='+33'){
+      const nat='0'+c.slice(3);
+      out.add(nat); out.add(numJoli(nat)); out.add(numJoli(c)); out.add('0033'+c.slice(3));
+    } else { out.add(numJoli(c)); }
+    return [...out].filter(Boolean).slice(0,10);
+  }
+  /* ══ MON NUMÉRO DOIT ÊTRE TROUVABLE ══
+     On range à côté du numéro tel qu'il a été tapé une version normalisée.
+     C'est elle que les autres interrogent pour me reconnaître. Chacun
+     n'écrit que sa propre fiche : rien à ouvrir dans les règles. */
+  async function telSync(){
+    try{
+      if(!ME||!ME.uid||!USER) return;
+      const c=numCle(USER.phone||'');
+      if(!c || USER.tel===c) return;
+      await fs.collection('op_users').doc(ME.uid).set({tel:c},{merge:true});
+      USER.tel=c;
+    }catch(e){}
+  }
+  /* ══ CE NUMÉRO EST-IL SUR OP MESSAGES ? ══
+     On demande d'abord la forme normalisée ; si personne ne répond, on
+     essaie les écritures d'avant. Un compte trouvé, c'est un appel qui
+     passera par internet au lieu du réseau téléphonique. */
+  async function numCompte(tel){
+    const c=numCle(tel); if(!c) return null;
+    try{
+      let q=await fs.collection('op_users').where('tel','==',c).limit(1).get();
+      if(q.empty){
+        const v=numVariantes(tel);
+        if(v.length) q=await fs.collection('op_users').where('phone','in',v).limit(1).get();
+      }
+      if(q.empty) return null;
+      const u=q.docs[0].data()||{};
+      if(!u.uid || u.uid===ME.uid) return null;
+      return u;
+    }catch(e){ return null; }
+  }
   /* le numéro est-il déjà quelqu'un que je connais ? */
   function numContact(n){ const c=numNettoie(n);
     const m=(_members||[]).find(x=>x.phone&&numNettoie(x.phone)===c); return m?m.name:''; }
@@ -10856,7 +10960,7 @@
     const a=myQR(); if(!a.includes(s)){ a.unshift(s); saveMyQR(a); } openQuickReplies(); }
   function delQR(s){ saveMyQR(myQR().filter(x=>x!==s&&x!==s.replace(/’/g,"'"))); openQuickReplies(); }
   async function saveName(){ const n=($('pf-name').value||'').trim(); if(!n) return; const phone=($('pf-phone')&&$('pf-phone').value||'').trim(); const status=($('pf-status')&&$('pf-status').value||'').trim();
-    try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
+    try{ await fs.collection('op_users').doc(ME.uid).set({name:n,phone,tel:numCle(phone),status},{merge:true}); if(MODE!=='perso') await fs.collection('op_companies').doc(COMP.id).collection('members').doc(ME.uid).set({name:n,phone},{merge:true}); USER.name=n; USER.phone=phone; USER.status=status; toast('Profil enregistré'); if(_curView==='prof') viewProfile(); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
   /* ══ L'ÉCRAN SÉCURITÉ ══ */
   async function sheetSecu(){
     openSheet('<p class="muted center">Chargement…</p>');
