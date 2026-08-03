@@ -268,7 +268,7 @@
   const isAdmin=u=>u&&u.email&&u.email.toLowerCase()===ADMIN_EMAIL.toLowerCase();
   let _unsubMsgs=null,_unsubReqs=null,_unsubNews=null;
   let _clients=[]; // [{uid,label}] pour le ciblage des nouveautés
-  let _myUid=null, _meDoc=null, _meUser=null, _curView='menu';
+  let _myUid=null, _meDoc=null, _meUser=null, _curView='menu', _premierRendu=true;
 
   // Catalogue des applications activables
   const APPS={
@@ -367,6 +367,12 @@
     try{ cliSync(user,d); }catch(e){}
     try{ promoAlerteJ2(user.uid,d); }catch(e){}
     if(_curView && _curView!=='menu') return;   // ne pas quitter une sous-page lors d'une mise à jour
+    /* premier affichage : si l'adresse porte un écran, on y retourne */
+    if(_premierRendu){
+      _premierRendu=false;
+      const m=(location.hash||'').match(/v=([a-z]+)/);
+      if(m && VUES_CLIENT.indexOf(m[1])>=0){ openView(m[1]); return; }
+    }
     renderMenu();
   }
 
@@ -442,7 +448,9 @@
     try{ fetch('https://api.teamop.fr/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:'opmsg-user-'+uid,title:'⏳ Votre offre se termine bientôt — TeamOP',body:txt,url:'/espace.html'})}).catch(()=>{}); }catch(e){}
   }catch(e){} }
   function _cliBadge(d){ return d.status==='nouveau'?'<span class="badge b-new">Demande envoyée</span>':d.status==='encours'?'<span class="badge b-prog">Demande en cours</span>':d.status==='fourni'?'<span class="badge b-done">Accès activé</span>':''; }
-  function renderMenu(){ _curView='menu'; const user=_meUser,d=_meDoc||{}; if(!user) return;
+  function renderMenu(){ _curView='menu';
+    try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+    const user=_meUser,d=_meDoc||{}; if(!user) return;
     const apps=clientApps(user,d);
     const prenom=d.prenom||((d.name||user.email||'').split(' ')[0])||'';
     const avaL=((prenom[0]||user.email||'?')[0]||'?').toUpperCase();
@@ -483,7 +491,11 @@
     window.scrollTo(0,0);
   }
 
-  function openView(v){ _curView=v; const user=_meUser,d=_meDoc||{}; if(!user) return;
+  const VUES_CLIENT=['apps','demandes','abo','docs','info','bill','email','pass','notif','news','faq','support','del'];
+  function openView(v){ _curView=v;
+    /* l'écran s'inscrit dans l'adresse : actualiser revient ici */
+    try{ history.replaceState(null,'',location.pathname+location.search+'#v='+v); }catch(e){}
+    const user=_meUser,d=_meDoc||{}; if(!user) return;
     const apps=clientApps(user,d);
     const docs=Array.isArray(d.docs)?d.docs:[];
     const T={apps:'Mes applications',demandes:"Mes demandes d'accès",abo:'Mon abonnement',docs:'Mes documents',info:'Mes informations',bill:'Coordonnées de facturation',email:'Adresse e-mail',pass:'Mot de passe',notif:'Notifications',news:'Nouveautés',faq:'Aide & FAQ',support:'Support',del:'Supprimer mon compte'};

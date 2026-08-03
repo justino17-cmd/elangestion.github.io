@@ -798,7 +798,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='644';
+  const APP_VERSION='645';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -2131,7 +2131,30 @@
   // ========== APP SHELL ==========
   /* L'écran d'arrivée : le tableau de bord quand l'espace en a un
      (entreprise), sinon les messages (compte perso). */
-  function vueArrivee(){ return (MODE==='company'&&HAS_COMPANY)?'dash':'disc'; }
+  /* les écrans qui existent, et ceux qui n'existent que dans un espace */
+  const VUES=['dash','disc','cont','appel','agd','prof'];
+  function vuePossible(v){
+    if(VUES.indexOf(v)<0) return false;
+    if(v==='dash') return MODE==='company'&&HAS_COMPANY;   // le tableau de bord est à l'entreprise
+    if(v==='agd')  return MODE==='perso';                  // l'agenda est strictement personnel
+    return true;
+  }
+  /* ══ ON REVIENT LÀ OÙ ON ÉTAIT ══
+     Actualiser une page, la rouvrir depuis l'écran d'accueil du téléphone,
+     revenir en arrière : dans les trois cas on doit retrouver l'écran qu'on
+     regardait, pas l'accueil. L'écran est donc écrit dans l'adresse. */
+  function vueDansAdresse(){
+    try{ const m=(location.hash||'').match(/v=([a-z]+)/); return (m&&m[1])||''; }catch(e){ return ''; }
+  }
+  function vueArrivee(){
+    const v=vueDansAdresse();
+    if(v&&vuePossible(v)) return v;
+    return (MODE==='company'&&HAS_COMPANY)?'dash':'disc';
+  }
+  /* l'espace actif se retient aussi : revenir aux Appels côté Entreprise
+     et se retrouver côté Perso serait à moitié tenir la promesse */
+  function espaceMemo(){ try{ return localStorage.getItem('opmsg_espace')||''; }catch(e){ return ''; } }
+  function espaceRetiens(){ try{ localStorage.setItem('opmsg_espace',MODE); }catch(e){} }
   // Un seul compte : espace Perso (toujours) + éventuellement un espace Pro (entreprise).
   async function enterApp(){
     if(USER&&USER.companyId){ HAS_COMPANY=true; COMP={id:USER.companyId,name:USER.companyName}; }
@@ -2145,6 +2168,10 @@
         if(m.exists){ const rr=(m.data()||{}).role||''; if(ROLES[rr]) _monRole=rr; } }catch(e){}
       try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
     }
+    /* l'espace où l'on était la dernière fois, s'il existe encore */
+    { const e=espaceMemo();
+      if(e==='company'&&HAS_COMPANY) MODE='company';
+      else if(e==='perso') MODE='perso'; }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
     if(_curView==='agd'&&MODE!=='perso') _curView='disc';   // l'agenda n'existe qu'en perso
     try{ if(!_vrPret){ _vrPret=true; vrSurveille(); } if(vrActif()) vrOuvre('ouverture'); }catch(e){}
@@ -2154,6 +2181,7 @@
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
     try{ await secuCharge(); }catch(e){}
     try{ secuNouvelAppareil(); }catch(e){}
+    espaceRetiens();
     _curView=vueArrivee(); renderShell(); showView(_curView); _loginTs=Date.now(); startSpaceListeners(); startInviteWatch(); registerDevice(); listenMyDevice();
     setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') opPushSub(true); else setTimeout(opPushPropose,1500); }catch(e){} },1800);
   }
@@ -2199,7 +2227,7 @@
   async function switchSpace(sp){
     if(sp===MODE) return;
     if(sp==='company'&&!HAS_COMPANY){ return; }
-    closeChat(); MODE=sp;
+    closeChat(); MODE=sp; espaceRetiens();
     gammeMaj();                                   // Perso = bleu, Entreprise = violet
     IS_OWNER = (MODE==='company') && HAS_COMPANY && COMP && COMP.ownerUid===ME.uid;
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
@@ -2402,6 +2430,8 @@
     }catch(e){}
   }
   function showView(v){ _curView=v;
+    /* on laisse la trace de l'écran : actualiser ramènera ici */
+    try{ history.replaceState(history.state,'',location.pathname+location.search+'#v='+v); }catch(e){}
     try{ if(typeof closeSheet==='function') closeSheet(); }catch(e){}   // aucune feuille ne doit rester par-dessus
     /* la page « Réunions » se pose PAR-DESSUS l'écran : si on ne la ferme pas,
        cliquer sur un onglet ne change rien à l'écran. On la ferme toujours. */
@@ -5070,10 +5100,18 @@
       </div></div>`;
   }
   /* la visio demande un compte : on le dit, et on propose de le relier */
-  function ctVisio(id){
+  /* un aller-retour réseau sans rien à l'écran invite à re-toucher le
+     bouton : on le verrouille le temps de la réponse */
+  let _ctOccupe=false;
+  async function ctVisio(id){
     const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
     if(!c){ toast('Contact introuvable'); return; }
     if(!c.local){ startCall([c.uid],[c.name||''],'video'); return; }
+    if(c.phone){
+      if(_ctOccupe) return; _ctOccupe=true; toast('Un instant…');
+      let u=null; try{ u=await numCompte(c.phone); }catch(e){}
+      _ctOccupe=false;
+      if(u){ closeSheet(); startCall([u.uid],[c.name||u.name||''],'video'); ctRelie(); return; } }
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">Appel vidéo</h3>
       <p class="muted" style="font-size:13px;line-height:1.65;margin-bottom:14px">
         <b>${esc(c.name||'Ce contact')}</b> n\u2019est pas sur OP MESSAGES.<br>
@@ -5084,21 +5122,38 @@
       <button class="btn ghost block" onclick="closeSheet();ctModifie('${esc(id)}')">Renseigner son identifiant OP MESSAGES</button>`);
   }
   /* l'invitation : un SMS tout prêt, avec le lien de l'application */
+  let _ctInviteTxt='';
   function ctInvite(id){
     const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
     if(!c||!c.phone){ toast('Il faut son numéro de téléphone'); return; }
     const t='Salut '+(c.prenom||c.name||'')+' ! Je suis sur OP MESSAGES, on peut s\u2019appeler et s\u2019écrire gratuitement. '
       +'Tu peux l\u2019installer ici : https://teamop.fr';
-    closeSheet();
-    try{ window.location.href='sms:'+numNettoie(c.phone)+'?&body='+encodeURIComponent(t); }catch(e){}
+    _ctInviteTxt=t;
+    if(estTelephone()){ closeSheet(); opSort('sms:'+numNettoie(c.phone)+'?&body='+encodeURIComponent(t)); return; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">Inviter ${esc(c.prenom||c.name||'ce contact')}</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.6;margin-bottom:12px">
+        Un ordinateur n\u2019envoie pas de SMS. Copie ce message et envoie-le depuis ton téléphone.</p>
+      <div style="padding:13px;border-radius:12px;background:var(--inp);font-size:13px;line-height:1.6;margin-bottom:12px">${esc(t)}</div>
+      <button class="btn block" style="margin-bottom:9px" onclick="opCopie(_ctInviteTxt,'Message')">${ms('done_all',18)} Copier le message</button>
+      <button class="btn ghost block" onclick="opCopie('${esc(numJoli(c.phone))}','Numéro')">Copier son numéro</button>`);
   }
   /* écrire à quelqu'un qui n'est pas dans l'application : c'est un SMS.
      On passe la main au téléphone, exactement comme le bouton Appeler. */
-  function ctMessage(id){
+  async function ctMessage(id){
     const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
     if(!c){ toast('Contact introuvable'); return; }
     if(!c.local&&c.uid){ closeSheet(); openDM(c.uid,(c.name||'')); return; }
-    if(c.phone){ closeSheet(); try{ window.location.href='sms:'+numNettoie(c.phone); }catch(e){} return; }
+    if(c.phone){
+      /* il s'est peut-être inscrit depuis : on regarde avant de sortir */
+      if(_ctOccupe) return; _ctOccupe=true; toast('Un instant…');
+      let u=null; try{ u=await numCompte(c.phone); }catch(e){}
+      _ctOccupe=false;
+      if(u){ closeSheet(); openDM(u.uid,(c.name||u.name||'')); ctRelie(); return; }
+      const n=numNettoie(c.phone);
+      if(estTelephone()){ closeSheet(); opSort('sms:'+n); return; }
+      numDehors(n,'sms',`<button class="btn ghost block" style="margin-bottom:9px" onclick="ctInvite('${esc(id)}')">${ms('person_add',18)} L\u2019inviter sur OP MESSAGES</button>`);
+      return;
+    }
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">Lui écrire</h3>
       <p class="muted" style="font-size:13px;line-height:1.65;margin-bottom:14px">
         <b>${esc(c.name||'Ce contact')}</b> n’a ni compte OP MESSAGES, ni numéro de téléphone dans sa fiche.<br>
@@ -5234,7 +5289,7 @@
       <div class="card" style="padding:0;margin:0 0 14px;overflow:hidden">
         ${ctInfos([
           ctInfo('call','Téléphone',tel?numJoli(tel):'',tel?`closeSheet();numExtRappelle('${esc(tel)}')`:''),
-          ctInfo('mail','Adresse e-mail',mail,mail?`window.location.href='mailto:${esc(mail)}'`:''),
+          ctInfo('mail','Adresse e-mail',mail,mail?`mailOuvre('${escJS(mail)}')`:''),
           ctInfo('cake','Anniversaire',ajour,'',age),
           ctInfo('alternate_email','Identifiant OP MESSAGES',hdl?('@'+hdl):'','')])}
         ${(!tel&&!mail&&!ajour&&!hdl)?`<p class="muted" style="font-size:12.5px;padding:14px;margin:0">Aucune information enregistrée pour l\u2019instant. Touche <b>Modifier</b> pour ajouter un numéro, une adresse ou un anniversaire.</p>`:''}
@@ -5260,7 +5315,7 @@
       <button class="btn block" style="margin-bottom:10px" onclick="closeSheet();openDM('${uid}','${nm}')">${ic('chat',18)}Envoyer un message</button>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'audio')">${ic('phone',18)}Appel audio (in-app)</button>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();startCall(['${uid}'],['${nm}'],'video')">${ic('video',18)}Appel vidéo (in-app)</button>
-      ${phone?`<a class="btn ghost block" style="text-decoration:none;margin-bottom:10px" href="tel:${esc(phone.replace(/[^0-9+]/g,''))}">${ic('phone',18)}Appeler au téléphone</a>`:''}
+      ${phone?`<button class="btn ghost block" style="margin-bottom:10px" onclick="closeSheet();numExtRappelle('${esc(phone.replace(/[^0-9+]/g,''))}')">${ic('phone',18)}Appeler au téléphone</button>`:''}
       <button class="btn ghost block" style="margin-bottom:10px" onclick="contFav('${uid}')">${contEstFav(uid)?'★ Retirer des favoris':'☆ Mettre en favori'}</button>
       <button class="btn ghost block" style="margin-bottom:10px" onclick="shareContact('${uid}','${nm}')">${ic('users',18)}Partager ce contact</button>
       ${MODE==='perso'?`<button class="btn ghost block" style="${blk?'color:var(--pres)':'color:var(--red)'}" onclick="blockContact('${uid}','${nm}')">${blk?'Débloquer':'Bloquer'} ${esc(name)}</button>`:''}
@@ -6182,6 +6237,7 @@
         <span style="flex:1;height:1px;background:var(--brd)"></span>ou compose un numéro<span style="flex:1;height:1px;background:var(--brd)"></span></div>
       ${numClavier()}`);
     pickMaj('nc-members');
+    setTimeout(()=>{ try{ numExtBoutons(); }catch(e){} },20);
   }
   function launchCall(type){ const sel=[...document.querySelectorAll('#nc-members .chk.sel')]; if(!sel.length){ $('ncerr').innerHTML='<div class="err">Choisissez au moins une personne.</div>'; return; }
     closeSheet(); startCall(sel.map(x=>x.dataset.uid), sel.map(x=>x.dataset.name), type); }
@@ -6234,6 +6290,81 @@
      On demande d'abord la forme normalisée ; si personne ne répond, on
      essaie les écritures d'avant. Un compte trouvé, c'est un appel qui
      passera par internet au lieu du réseau téléphonique. */
+  /* la seule porte de sortie vers une autre application : elle est unique
+     pour qu'on sache toujours où et pourquoi on quitte OP MESSAGES */
+  function opSort(url){ try{ window.location.href=url; }catch(e){} }
+  /* un téléphone a une carte SIM ; un ordinateur, non */
+  function estTelephone(){
+    const u=navigator.userAgent||'';
+    if(/iPhone|iPad|iPod|Android/i.test(u)) return true;
+    /* depuis iPadOS 13, Safari sur iPad se présente comme un Mac : le seul
+       Mac tactile qui existe est en réalité un iPad — et il a une carte SIM */
+    try{ if(/Macintosh/i.test(u) && navigator.maxTouchPoints>1) return true; }catch(e){}
+    return false;
+  }
+  /* Une apostrophe dans une adresse e-mail (jean.o'neil@…) casse un
+     onclick : le navigateur redécode &#39; en ' AVANT de lire le code.
+     On échappe donc pour le JS, puis pour le HTML. */
+  function escJS(v){ return esc(String(v==null?'':v).replace(/\\/g,'\\\\').replace(/'/g,"\\'")); }
+  /* copier quelque chose, en le disant */
+  function opCopie(t,quoi){
+    try{ if(navigator.clipboard){
+      navigator.clipboard.writeText(t).then(()=>toast((quoi||'Texte')+' copié'))
+        .catch(()=>opAlerte(t,quoi||'À recopier'));      // refusé par le navigateur : on montre le texte
+      return; } }catch(e){}
+    try{ const a=document.createElement('textarea'); a.value=t; a.style.position='fixed'; a.style.opacity='0';
+      document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); toast((quoi||'Texte')+' copié'); }
+    catch(e){ opAlerte(t,quoi||'À recopier'); }
+  }
+  /* ══ CE QUE L'APPLICATION NE PEUT PAS FAIRE ELLE-MÊME ══
+     Un numéro qui n'est sur aucun compte ne peut être joint que par le
+     réseau téléphonique. Sur ordinateur, on le dit franchement et on
+     donne le numéro à recopier plutôt que d'ouvrir une fenêtre pour rien. */
+  function numDehors(n,quoi,extra){
+    const j=numJoli(n);
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${quoi==='sms'?'Écrire à ce numéro':'Appeler ce numéro'}</h3>
+      <p class="muted" style="font-size:13px;line-height:1.65;margin-bottom:14px">
+        Ce numéro n\u2019est sur aucun compte OP MESSAGES : l\u2019application ne peut pas le joindre par internet.
+        Un ordinateur n\u2019a pas de carte SIM — c\u2019est ton téléphone qui doit ${quoi==='sms'?'envoyer ce message':'passer cet appel'}.</p>
+      <div style="text-align:center;padding:16px 12px;border-radius:13px;background:var(--inp);margin-bottom:12px">
+        <div style="font-size:22px;font-weight:800;letter-spacing:.04em">${esc(j)}</div></div>
+      <button class="btn block" style="margin-bottom:9px" onclick="opCopie('${esc(j)}','Numéro')">${ms('done_all',18)} Copier le numéro</button>
+      ${extra||''}
+      <p class="muted" style="font-size:11.5px;line-height:1.55;margin-top:10px">
+        Depuis ton téléphone, le même bouton ${quoi==='sms'?'ouvre directement le SMS':'lance directement l\u2019appel'}.</p>`);
+  }
+  /* une adresse e-mail : on ne lance pas le logiciel de courrier de force */
+  function mailOuvre(adresse){
+    const a=String(adresse||'').trim(); if(!a) return;
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">Écrire un e-mail</h3>
+      <div style="text-align:center;padding:15px 12px;border-radius:13px;background:var(--inp);margin-bottom:12px">
+        <div style="font-size:15.5px;font-weight:800;word-break:break-all">${esc(a)}</div></div>
+      <button class="btn block" style="margin-bottom:9px" onclick="opCopie('${escJS(a)}','Adresse')">${ms('done_all',18)} Copier l\u2019adresse</button>
+      <a class="btn ghost block" style="text-decoration:none" href="mailto:${esc(a)}">Ouvrir mon logiciel de courrier</a>
+      <p class="muted" style="font-size:11.5px;line-height:1.55;margin-top:10px">
+        OP MESSAGES n\u2019envoie pas d\u2019e-mail : le courrier part de ton logiciel habituel.</p>`);
+  }
+  /* ══ CE NUMÉRO, EST-CE QUELQU'UN QUE JE CONNAIS ? ══
+     On ne regarde que MES contacts et MES collègues — jamais la base
+     entière. Immédiat, sans requête, et personne d'extérieur ne peut
+     être découvert en tapant des numéros au hasard. */
+  function numCompteLocal(tel){
+    const c=numCle(tel); if(!c) return null;
+    const gens=(_contList&&_contList.length)?_contList:(_members||[]);
+    const m=gens.find(x=>x&&x.uid&&x.uid!==ME.uid&&!x.local&&numCle(x.phone||x.tel||'')===c);
+    return m?{uid:m.uid,name:m.name||''}:null;
+  }
+  /* ══ APPELER : D'ABORD DANS L'APPLICATION ══
+     Le numéro est-il celui de quelqu'un que je connais et qui a un
+     compte ? Alors l'appel passe par internet, gratuitement, et
+     personne ne sort de l'application. */
+  function numAppelle(numero,type){
+    const u=numCompteLocal(numero);
+    if(!u) return false;
+    closeSheet();
+    startCall([u.uid],[u.name||numJoli(numNettoie(numero))],type||'audio');
+    return true;
+  }
   async function numCompte(tel){
     const c=numCle(tel); if(!c) return null;
     try{
@@ -6255,6 +6386,7 @@
                      ['7','PQRS'],['8','TUV'],['9','WXYZ'],['*',''],['0','+'],['#','']];
   /* le clavier, posé directement dans l'écran d'appel */
   function numClavier(){
+    _nxCompte=null;                                    // un clavier neuf ne garde rien de la fois d'avant
     return `<div id="nxerr"></div>
       <input id="nx-num" type="tel" inputmode="tel" autocomplete="tel" placeholder="Numéro de téléphone"
         oninput="numExtMaj()" onkeydown="if(event.key==='Enter'){event.preventDefault();numExtAppelle();}"
@@ -6269,15 +6401,32 @@
           <b style="font-size:21px;font-weight:700;line-height:1">${c}</b>
           ${l?`<span style="font-size:8.5px;font-weight:700;letter-spacing:.12em;color:var(--t3)">${l}</span>`:''}</span>`).join('')}
       </div>
-      <div style="display:flex;gap:9px;margin-top:11px">
-        <span onclick="numEfface()" ondblclick="numVide()" title="Effacer — deux fois pour tout effacer"
+      <div id="nx-actions" style="display:flex;gap:9px;margin-top:11px"></div>
+      <p id="nx-note" class="muted" style="font-size:11px;line-height:1.55;margin-top:10px"></p>`;
+  }
+  /* ══ LES BOUTONS SUIVENT LE NUMÉRO ══
+     Tant qu'on ne sait pas, un seul bouton « Appeler ». Dès qu'on
+     reconnaît un compte, la visio apparaît et on annonce que l'appel
+     passera par internet : c'est la différence qui compte. */
+  let _nxCompte=null;
+  const _nxEffacer=`<span onclick="numEfface()" ondblclick="numVide()" title="Effacer — deux fois pour tout effacer"
           style="display:flex;align-items:center;justify-content:center;width:52px;height:46px;border-radius:12px;
-                 background:var(--inp);cursor:pointer;font-size:17px;user-select:none">⌫</span>
-        <button class="btn" id="nx-btn" style="flex:1" onclick="numExtAppelle()">${ic('phone',18)}Appeler</button>
-      </div>
-      <p class="muted" style="font-size:11px;line-height:1.55;margin-top:10px">
-        Sur téléphone, ton application Téléphone prend le relais. Sur ordinateur, l'appel est confié au logiciel
-        de téléphonie de la machine — s'il n'y en a pas, rien ne se passera.</p>`;
+                 background:var(--inp);cursor:pointer;font-size:17px;user-select:none;flex:none">⌫</span>`;
+  function numExtBoutons(){
+    const z=$('nx-actions'), p=$('nx-note'); if(!z) return;
+    if(_nxCompte){
+      z.innerHTML=_nxEffacer
+        +`<button class="btn" id="nx-btn" style="flex:1" onclick="numExtAppelle('audio')">${ic('phone',18)}Appeler</button>`
+        +`<button class="btn" style="flex:1" onclick="numExtAppelle('video')">${ic('video',18)}Vidéo</button>`;
+      if(p) p.innerHTML='<b>'+esc(_nxCompte.name||'Ce numéro')+'</b> est sur OP MESSAGES : l\u2019appel passe par internet, '
+        +'gratuitement, depuis n\u2019importe quel appareil.';
+    } else {
+      z.innerHTML=_nxEffacer
+        +`<button class="btn" id="nx-btn" style="flex:1" onclick="numExtAppelle('audio')">${ic('phone',18)}Appeler</button>`;
+      if(p) p.textContent=estTelephone()
+        ? 'Si le numéro est sur OP MESSAGES, l\u2019appel reste dans l\u2019application. Sinon, ton application Téléphone prend le relais.'
+        : 'Si le numéro est sur OP MESSAGES, l\u2019appel part par internet. Sinon, il faudra ton téléphone : un ordinateur n\u2019a pas de carte SIM.';
+    }
   }
   function numTape(c){
     const i=$('nx-num'); if(!i) return;
@@ -6290,30 +6439,62 @@
   function numEfface(){ const i=$('nx-num'); if(!i) return; i.value=i.value.slice(0,-1); numExtMaj(); }
   function numVide(){ const i=$('nx-num'); if(!i) return; i.value=''; numExtMaj(); }
   function numExtMaj(){
-    const v=(($('nx-num')||{}).value)||'', z=$('nx-qui'); if(!z) return;
-    if(!v.trim()){ z.textContent=''; return; }
-    const nom=numContact(v);
-    z.textContent=nom?('C\u2019est '+nom):(numValide(v)?'':'Il manque des chiffres…');
-    z.style.color=nom?'var(--op-tx)':'var(--t3)';
-    z.style.fontWeight=nom?'700':'400';
+    const v=(($('nx-num')||{}).value)||'', z=$('nx-qui');
+    const av=(_nxCompte&&_nxCompte.uid)||'';
+    _nxCompte=numValide(v)?numCompteLocal(v):null;      // immédiat : on lit ses propres contacts
+    if(((_nxCompte&&_nxCompte.uid)||'')!==av) numExtBoutons();
+    if(z){
+      if(!v.trim()) z.textContent='';
+      else { const nom=(_nxCompte&&_nxCompte.name)||numContact(v);
+        z.textContent=nom?('C\u2019est '+nom):(numValide(v)?'':'Il manque des chiffres…');
+        z.style.color=nom?'var(--op-tx)':'var(--t3)';
+        z.style.fontWeight=nom?'700':'400'; }
+    }
   }
-  async function numExtAppelle(){
+  async function numExtAppelle(type){
     const v=(($('nx-num')||{}).value)||'';
     if(!numValide(v)){ $('nxerr').innerHTML='<div class="err">Entre un numéro valide, par exemple 06 12 34 56 78.</div>'; return; }
     const n=numNettoie(v), nom=numContact(n);
+    /* d'abord l'application : si ce numéro est un compte, rien ne sort d'ici */
+    if(numAppelle(n,type)) return;
+    if(type==='video'){
+      numDehors(n,'appel','<p class="muted" style="font-size:12.5px;line-height:1.6;margin:0 0 9px">'
+        +'La visio relie deux applications entre elles. Un numéro de téléphone ne transporte que la voix.</p>');
+      return;
+    }
+    /* sur ordinateur l'appel n'a pas lieu : l'inscrire dans l'historique
+       ferait croire à un appel passé. On explique, et on n'écrit rien. */
+    if(!estTelephone()){ numDehors(n,'appel'); return; }
     /* on garde la trace AVANT de partir : la page va changer d'application */
     try{ await callsCol().add({from:ME.uid,fromName:(USER&&USER.name)||'',members:[],memberNames:[],
       ext:true,numero:n,nom:nom||'',type:'audio',status:'ext',ts:FV()}); }catch(e){}
     closeSheet();
     toast('Appel de '+(nom||numJoli(n))+'…');
-    try{ window.location.href='tel:'+n; }catch(e){}
+    opSort('tel:'+n);
     setTimeout(()=>{ if(_curView==='appel') viewAppel(); },900);
   }
-  /* rappeler un numéro extérieur : on repasse par le téléphone */
-  function numExtRappelle(numero){
+  /* ══ UN NUMÉRO ÉCRIT PAR QUELQU'UN D'AUTRE ══
+     Un numéro touché dans un message ne vient pas de moi : avant de
+     lancer quoi que ce soit, on montre qui va être appelé. */
+  function numDepuisMessage(numero){
     const n=numNettoie(numero); if(!n) return;
-    toast('Appel de '+numJoli(n)+'…');
-    try{ window.location.href='tel:'+n; }catch(e){}
+    const u=numCompteLocal(n);
+    if(!u){ numExtRappelle(n); return; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:6px">${esc(u.name||numJoli(n))}</h3>
+      <p class="muted" style="font-size:12.5px;line-height:1.6;margin-bottom:14px">
+        Ce numéro est celui de <b>${esc(u.name||'ce contact')}</b>, dans l\u2019application.
+        L\u2019appel passera par internet.</p>
+      <button class="btn block" style="margin-bottom:9px" onclick="closeSheet();startCall(['${esc(u.uid)}'],['${escJS(u.name||'')}'],'audio')">${ic('phone',18)}Appeler</button>
+      <button class="btn ghost block" style="margin-bottom:9px" onclick="closeSheet();startCall(['${esc(u.uid)}'],['${escJS(u.name||'')}'],'video')">${ic('video',18)}Appel vidéo</button>
+      <button class="btn ghost block" onclick="closeSheet();numExtRappelle('${esc(n)}')">Composer le ${esc(numJoli(n))} au téléphone</button>`);
+  }
+  /* rappeler un numéro : dans l'application si c'est possible, sinon
+     par le téléphone — et jamais une fenêtre surprise sur ordinateur */
+  function numExtRappelle(numero,type){
+    const n=numNettoie(numero); if(!n) return;
+    if(numAppelle(n,type)) return;
+    if(estTelephone()){ toast('Appel de '+numJoli(n)+'…'); opSort('tel:'+n); return; }
+    numDehors(n,'appel');
   }
   async function recall(id){ try{ const d=await callsCol().doc(id).get(); const c=d.data()||{};
     if(c.ext){ numExtRappelle(c.numero); return; }
@@ -8461,7 +8642,8 @@
   /* ouverture depuis la notification d'appel : on cherche l'appel tout de suite */
   try{ if(/[?&]appel=1/.test(location.search)){
     [400,1200,2400,4000].forEach(ms=>setTimeout(()=>{ try{ appelsVerifie(); }catch(e){} },ms));
-    try{ history.replaceState(null,'',location.pathname); }catch(e){}
+    /* on efface le « ?appel=1 » de la notification, PAS l'écran en cours */
+    try{ history.replaceState(null,'',location.pathname+(location.hash||'')); }catch(e){}
   } }catch(e){}
   try{ window.addEventListener('focus',()=>{ try{ appelsVerifie(); }catch(e){} }); }catch(e){}
   setInterval(()=>{ try{ if(!document.hidden) appelsVerifie(); }catch(e){} },12000);
@@ -9784,7 +9966,7 @@
     return t.replace(_LIEN_TEL,m=>{
       const brut=m.replace(/[^0-9+]/g,'');
       if(brut.replace(/\D/g,'').length<9) return m;
-      return `<a href="tel:${brut}" style="color:var(--op-l);text-decoration:underline;white-space:nowrap" onclick="event.stopPropagation()" title="Appeler ${m}">${m}</a>`;
+      return `<a href="#" onclick="event.preventDefault();event.stopPropagation();numDepuisMessage('${brut}')" style="color:var(--op-l);text-decoration:underline;white-space:nowrap" title="Appeler ${m}">${m}</a>`;
     });
   }
   function _lienAdr(t){
