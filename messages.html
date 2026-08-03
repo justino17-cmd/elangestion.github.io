@@ -154,6 +154,21 @@
   /* le passage d'un thème à l'autre se fait en douceur, jamais d'un coup sec —
      mais seulement sur les grandes surfaces, pour ne rien ralentir */
   body,.sidebar,.dsk-side,.card,.panel,.topbar{transition:background-color .25s ease,color .25s ease,border-color .25s ease}
+  /* ── L'agenda personnel ── */
+  .agd-wrap{max-width:760px;margin:0 auto;padding:2px 0 24px}
+  .agd-sem{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px}
+  .agd-sem span{text-align:center;font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--t3)}
+  .agd-grille{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .agd-case{aspect-ratio:1;min-height:44px;border:1px solid var(--brd,rgba(128,128,128,.22));border-radius:11px;
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;padding:5px 2px 3px;
+    cursor:pointer;transition:background-color .12s ease,border-color .12s ease;user-select:none}
+  .agd-case:hover{background:var(--inp,rgba(128,128,128,.10))}
+  .agd-case.hors{opacity:.38}
+  .agd-case.sel{border-color:var(--acc,#3B82F6);background:var(--tint3,rgba(59,130,246,.10))}
+  .agd-num{font-size:12.5px;font-weight:700;line-height:1.1;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:999px}
+  .agd-num.auj{background:var(--acc,#3B82F6);color:#fff}
+  .agd-pts{display:flex;gap:3px;align-items:center;flex-wrap:wrap;justify-content:center;min-height:6px}
+  @media(max-width:560px){ .agd-case{min-height:38px;border-radius:9px} .agd-num{font-size:11.5px;width:20px;height:20px} }
   @media (prefers-reduced-motion: reduce){ *{transition:none!important} }
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:var(--bg);color:var(--t1);font-family:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;-webkit-font-smoothing:antialiased;height:100dvh;overflow:hidden}
@@ -744,7 +759,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='634';
+  const APP_VERSION='635';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -2056,6 +2071,7 @@
       try{ const g=await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').get(); if(!g.exists) await fs.collection('op_companies').doc(COMP.id).collection('channels').doc('general').set({name:'Général',type:'general',createdAt:FV()}); }catch(e){}
     }
     if(MODE==='company'&&!HAS_COMPANY) MODE='perso';
+    if(_curView==='agd'&&MODE!=='perso') _curView='disc';   // l'agenda n'existe qu'en perso
     try{ if(!_vrPret){ _vrPret=true; vrSurveille(); } if(vrActif()) vrOuvre('ouverture'); }catch(e){}
     try{ await syncDemarre(); }catch(e){}         // on récupère TOUT avant d'afficher quoi que ce soit
     gammeMaj();                                   // bleu (gratuit/PRO) ou violet (Business Premium)
@@ -2229,6 +2245,7 @@
     pills+=`<div id="nv2-appel" class="dsk-item${surLui('appel')}" onclick="showView('appel')">Appels</div>`;
     if(isPro()) pills+=`<div id="nv2-meet" class="dsk-item${_navPage==='meet'?' on':''}" onclick="dskMeet()">Réunions</div>`;
     if(isPro()) pills+=`<div id="nv2-mis" class="dsk-item${_navPage==='mis'?' on':''}" onclick="dskMissions()">Plan de charge${_misEnAttente()?`<span style="margin-left:7px;min-width:19px;height:19px;border-radius:999px;background:var(--badge-bg);color:var(--badge-tx);font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;vertical-align:1px">${_misEnAttente()}</span>`:''}</div>`;
+    if(MODE==='perso') pills+=`<div id="nv2-agd" class="dsk-item${surLui('agd')}" onclick="showView('agd')">Agenda</div>`;
     pills+=`<div id="nv2-cont" class="dsk-item" onclick="showView('cont')">Contacts</div>`;
     ROOT.innerHTML=`
       <aside id="dskside">
@@ -2268,6 +2285,7 @@
         <button id="nv-disc" class="${_curView==='disc'?'on':''}" onclick="showView('disc')"><span class="ni">${ic('chat')}<span class="navdot" id="nav-unread" style="display:none"></span></span>Discussions</button>
         <button id="nv-cont" onclick="showView('cont')"><span class="ni">${ic('users')}</span>Contacts</button>
         <button id="nv-appel" onclick="showView('appel')"><span class="ni">${ic('phone')}</span>Appels</button>
+        ${MODE==='perso'?`<button id="nv-agd" class="${_curView==='agd'?'on':''}" onclick="showView('agd')"><span class="ni">${ic('cal')}</span>Agenda</button>`:''}
         <button id="nv-prof" onclick="showView('prof')"><span class="ni">${USER.photo?`<img src="${USER.photo}" alt="">`:ic('user')}</span>Vous</button>
       </div>
       </div>`;
@@ -2322,7 +2340,7 @@
     setTimeout(navMaj,400);   // ré-assure la pastille active après le rendu
     moveNavBlob();
     try{ const vw=$('view'); if(vw) vw.classList.toggle('wide',v==='dash'); }catch(e){}
-    if(v==='dash') viewDash(); else if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else viewProfile();
+    if(v==='dash') viewDash(); else if(v==='disc') viewDisc(); else if(v==='cont') viewCont(); else if(v==='appel') viewAppel(); else if(v==='agd') viewAgenda(); else viewProfile();
   }
   // Fait glisser la bulle sous l'onglet actif (animation « liquid glass »)
   function moveNavBlob(instant){ const blob=$('nav-blob'); const b=$('nv-'+_curView); if(!blob||!b) return;
@@ -5053,6 +5071,201 @@
       closeSheet(); toast('Contact ajouté : '+(u.name||u.handle)); if(_curView==='cont') viewCont();
     }catch(e){ $('acerr').innerHTML='<div class="err">'+esc(e.message||'Erreur')+'</div>'; if(btn)btn.disabled=false; }
   }
+
+  /* ══════════════════════════════════════════════════════════════════
+     MON AGENDA — strictement personnel
+
+     Ce ne sont PAS des réunions : personne n'est invité, personne d'autre
+     ne le voit. C'est le carnet de rendez-vous de la personne, et lui seul.
+
+     Où il vit : op_users/{moi}/devices/__agenda — le même tiroir privé que
+     les réglages et la sécurité. Les règles Firestore le réservent déjà à
+     son propriétaire (cestMoi), donc rien à republier, et il suit la
+     personne d'un appareil à l'autre.
+     ══════════════════════════════════════════════════════════════════ */
+  const AGD_COUL={
+    bleu:  {l:'Bleu',   c:'#3B82F6'},
+    violet:{l:'Violet', c:'#7C3AED'},
+    vert:  {l:'Vert',   c:'#16A34A'},
+    orange:{l:'Orange', c:'#E8A33D'},
+    rose:  {l:'Rose',   c:'#DB2777'},
+    gris:  {l:'Gris',   c:'#64748B'}
+  };
+  const AGD_RAPPELS=[[0,'À l\u2019heure'],[10,'10 min avant'],[30,'30 min avant'],[60,'1 h avant'],[1440,'La veille'],[-1,'Aucun rappel']];
+  let _agd=[], _agdCharge=false, _agdMois=null, _agdJour='';
+  function agdDoc(){ return fs.collection('op_users').doc(ME.uid).collection('devices').doc('__agenda'); }
+  function agdISO(d){ return d.toLocaleDateString('sv-SE'); }
+  function agdAuj(){ return agdISO(new Date()); }
+  function agdQuand(e){ const t=(e.heure||'00:00'); return new Date(e.date+'T'+t).getTime(); }
+  function agdDuJour(iso){ return _agd.filter(e=>e.date===iso).sort((a,b)=>(a.heure||'').localeCompare(b.heure||'')); }
+  function agdFin(e){ const d=Number(e.duree)||0; if(!d) return '';
+    const f=new Date(agdQuand(e)+d*60000); return f.toTimeString().slice(0,5); }
+  async function agdLit(){
+    if(_agdCharge) return _agd;
+    try{ const d=await agdDoc().get(); const v=(d.exists?d.data():null)||{};
+      _agd=Array.isArray(v.evts)?v.evts:[]; }catch(e){ _agd=[]; }
+    _agdCharge=true; return _agd;
+  }
+  async function agdEcrit(){
+    try{ await agdDoc().set({evts:_agd,maj:Date.now()},{merge:true}); }
+    catch(e){ toast('Impossible d\u2019enregistrer — vérifie ta connexion'); }
+  }
+
+  /* ── L'ÉCRAN ── */
+  function agdMoisRef(){ if(!_agdMois){ const d=new Date(); d.setDate(1); d.setHours(0,0,0,0); _agdMois=d; } return _agdMois; }
+  function agdMoisBouge(n){ const d=new Date(agdMoisRef()); d.setMonth(d.getMonth()+n); _agdMois=d; viewAgenda(); }
+  function agdRevientAuj(){ const d=new Date(); _agdJour=agdISO(d); d.setDate(1); d.setHours(0,0,0,0); _agdMois=d; viewAgenda(); }
+  function agdChoisit(iso){ _agdJour=iso; viewAgenda(); }
+  async function viewAgenda(){
+    const view=$('view'); if(!view) return;
+    await agdLit();
+    if(_curView!=='agd') return;
+    if(!_agdJour) _agdJour=agdAuj();
+    const ref=agdMoisRef(), auj=agdAuj();
+    /* la grille part toujours d'un lundi, et couvre six semaines */
+    const p=new Date(ref); p.setDate(1); p.setDate(p.getDate()-((p.getDay()+6)%7));
+    const cases=[]; for(let k=0;k<42;k++){ const d=new Date(p); d.setDate(p.getDate()+k); cases.push(d); }
+    const moisLib=ref.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+    const jrs=['lun','mar','mer','jeu','ven','sam','dim'];
+    const grille=cases.map(d=>{
+      const iso=agdISO(d), dedans=(d.getMonth()===ref.getMonth());
+      const evts=agdDuJour(iso), sel=(iso===_agdJour), ajd=(iso===auj);
+      const pts=evts.slice(0,4).map(e=>`<i style="width:6px;height:6px;border-radius:99px;display:block;background:${(AGD_COUL[e.couleur]||AGD_COUL.bleu).c}"></i>`).join('');
+      return `<div class="agd-case${sel?' sel':''}${dedans?'':' hors'}" onclick="agdChoisit('${iso}')" title="${evts.length?evts.length+' rendez-vous':'Rien ce jour-là'}">
+        <span class="agd-num${ajd?' auj':''}">${d.getDate()}</span>
+        <span class="agd-pts">${pts}${evts.length>4?`<i style="font-size:9px;color:var(--t3);line-height:6px">+${evts.length-4}</i>`:''}</span></div>`;
+    }).join('');
+    const liste=agdDuJour(_agdJour);
+    const jourLib=new Date(_agdJour+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+    const prochains=_agd.filter(e=>agdQuand(e)>=Date.now()).sort((a,b)=>agdQuand(a)-agdQuand(b)).slice(0,3);
+    view.innerHTML=`<div class="agd-wrap">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="flex:1;min-width:170px">
+          <h2 style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0;text-transform:capitalize">${esc(moisLib)}</h2>
+          <div style="font-size:12.5px;color:var(--t2);margin-top:4px">Ton agenda — personne d'autre ne le voit.</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn ghost sm" onclick="agdMoisBouge(-1)" title="Mois précédent">‹</button>
+          <button class="btn ghost sm" onclick="agdRevientAuj()">Aujourd'hui</button>
+          <button class="btn ghost sm" onclick="agdMoisBouge(1)" title="Mois suivant">›</button>
+        </div>
+      </div>
+      <div class="agd-sem">${jrs.map(j=>`<span>${j}</span>`).join('')}</div>
+      <div class="agd-grille">${grille}</div>
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:18px 0 10px">
+        <b style="font-size:15px;text-transform:capitalize">${esc(jourLib)}</b>
+        <span style="font-size:12.5px;color:var(--t2)">${liste.length?liste.length+' rendez-vous':'rien de prévu'}</span>
+        <span style="flex:1"></span>
+        <button class="btn sm" onclick="agdForm('')">＋ Ajouter</button>
+      </div>
+      ${liste.length? liste.map(e=>agdLigne(e)).join('')
+        : `<div class="card" style="padding:16px;text-align:center;color:var(--t3);font-size:13.5px">Aucun rendez-vous ce jour-là.<br>Touche « ＋ Ajouter » pour en poser un.</div>`}
+      ${prochains.length?`<div style="margin-top:22px">
+        <div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--t3);text-transform:uppercase;margin-bottom:8px">Ce qui arrive</div>
+        ${prochains.map(e=>`<div class="row" style="cursor:pointer" onclick="agdChoisit('${e.date}')">
+          <span style="width:4px;align-self:stretch;border-radius:99px;background:${(AGD_COUL[e.couleur]||AGD_COUL.bleu).c};flex:none"></span>
+          <div class="info"><div class="nm">${esc(e.titre)}</div>
+          <div class="ds">${esc(new Date(e.date+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'}))} · ${esc(e.heure||'')}</div></div></div>`).join('')}
+      </div>`:''}
+    </div>`;
+  }
+  function agdLigne(e){
+    const c=(AGD_COUL[e.couleur]||AGD_COUL.bleu).c, fin=agdFin(e);
+    const rap=(Number(e.rappel)>=0)?(AGD_RAPPELS.find(r=>r[0]===Number(e.rappel))||[])[1]:'';
+    return `<div class="row" style="cursor:pointer;align-items:flex-start" onclick="agdForm('${e.id}')">
+      <span style="width:4px;align-self:stretch;border-radius:99px;background:${c};flex:none"></span>
+      <div class="info">
+        <div class="nm">${esc(e.titre)}</div>
+        <div class="ds">${esc(e.heure||'')}${fin?' – '+esc(fin):''}${rap?' · ⏰ '+esc(rap):''}</div>
+        ${e.note?`<div style="font-size:12.5px;color:var(--t2);margin-top:5px;white-space:pre-wrap">${esc(e.note)}</div>`:''}
+      </div>
+      <span style="color:var(--t3);font-size:15px;align-self:center">›</span></div>`;
+  }
+
+  /* ── POSER OU MODIFIER UN RENDEZ-VOUS ── */
+  let _agdCoul='bleu';
+  function agdCoulPose(k){ _agdCoul=k;
+    document.querySelectorAll('[data-agdc]').forEach(el=>{
+      const on=(el.dataset.agdc===k);
+      el.style.outline=on?('2px solid '+(AGD_COUL[k]||AGD_COUL.bleu).c):'none';
+      el.style.outlineOffset='2px'; });
+  }
+  function agdForm(id){
+    const e=_agd.find(x=>x.id===id)||null;
+    _agdCoul=(e&&e.couleur)||'bleu';
+    const dur=[[0,'Sans durée'],[15,'15 min'],[30,'30 min'],[60,'1 h'],[90,'1 h 30'],[120,'2 h'],[240,'4 h'],[480,'La journée']];
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${e?'Ce rendez-vous':'Nouveau rendez-vous'}</h3>
+      <div class="field"><label>Quoi ?</label><input id="ag-t" maxlength="80" placeholder="ex : Dentiste, Anniversaire de Léa…" value="${e?esc(e.titre):''}"></div>
+      <div style="display:flex;gap:10px">
+        <div class="field" style="flex:1"><label>Le</label><input id="ag-d" type="date" value="${e?esc(e.date):esc(_agdJour||agdAuj())}"></div>
+        <div class="field" style="flex:1"><label>À</label><input id="ag-h" type="time" value="${e?esc(e.heure||'09:00'):'09:00'}"></div>
+      </div>
+      <div class="field"><label>Combien de temps</label>
+        <select id="ag-dur">${dur.map(([v,l])=>`<option value="${v}" ${e&&Number(e.duree)===v?'selected':(!e&&v===60?'selected':'')}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Rappel</label>
+        <select id="ag-rap">${AGD_RAPPELS.map(([v,l])=>`<option value="${v}" ${e&&Number(e.rappel)===v?'selected':(!e&&v===30?'selected':'')}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Couleur</label>
+        <div style="display:flex;gap:9px;flex-wrap:wrap">${Object.keys(AGD_COUL).map(k=>
+          `<span data-agdc="${k}" onclick="agdCoulPose('${k}')" title="${AGD_COUL[k].l}"
+             style="width:28px;height:28px;border-radius:999px;cursor:pointer;background:${AGD_COUL[k].c}"></span>`).join('')}</div></div>
+      <div class="field"><label>Note <span class="muted" style="font-weight:400">(facultatif)</span></label>
+        <textarea id="ag-n" rows="3" maxlength="500" placeholder="Adresse, numéro, ce qu'il faut penser à prendre…">${e?esc(e.note||''):''}</textarea></div>
+      <button class="btn block" onclick="agdEnregistre('${id||''}')">${e?'Enregistrer':'Ajouter à mon agenda'}</button>
+      ${e?`<button class="btn ghost block" style="margin-top:9px;color:var(--danger,#EF4444)" onclick="agdSupprime('${e.id}')">Supprimer ce rendez-vous</button>`:''}`);
+    setTimeout(()=>agdCoulPose(_agdCoul),30);
+  }
+  async function agdEnregistre(id){
+    const t=(($('ag-t')||{}).value||'').trim();
+    if(!t){ toast('Donne un titre à ton rendez-vous'); const n=$('ag-t'); if(n) n.focus(); return; }
+    const d=(($('ag-d')||{}).value||''), h=(($('ag-h')||{}).value||'');
+    if(!d){ toast('Choisis une date'); return; }
+    const o={ id:id||('a'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)),
+      titre:t.slice(0,80), date:d, heure:h||'09:00',
+      duree:Number((($('ag-dur')||{}).value)||0),
+      rappel:Number((($('ag-rap')||{}).value)),
+      couleur:_agdCoul, note:((($('ag-n')||{}).value)||'').trim().slice(0,500) };
+    const i=_agd.findIndex(x=>x.id===o.id);
+    /* un rendez-vous déplacé redevient « à rappeler » : sinon on manquerait
+       le nouvel horaire parce que l'ancien a déjà sonné */
+    if(i>=0){ const av=_agd[i];
+      o.sonne=(av.sonne && av.date===o.date && av.heure===o.heure && Number(av.rappel)===o.rappel)?1:0;
+      _agd[i]=o; }
+    else { o.sonne=0; _agd.push(o); }
+    await agdEcrit();
+    closeSheet(); _agdJour=o.date; toast(i>=0?'Rendez-vous modifié':'Ajouté à ton agenda');
+    if(_curView==='agd') viewAgenda();
+  }
+  async function agdSupprime(id){
+    const e=_agd.find(x=>x.id===id); if(!e) return;
+    if(!confirm('Supprimer «\u00a0'+e.titre+'\u00a0» ?')) return;
+    _agd=_agd.filter(x=>x.id!==id); await agdEcrit();
+    closeSheet(); toast('Rendez-vous supprimé');
+    if(_curView==='agd') viewAgenda();
+  }
+
+  /* ── LE RAPPEL ──
+     Même mécanique que les rappels de messages : on regarde toutes les
+     30 secondes s'il y a quelque chose à annoncer. Un rappel ne sonne
+     qu'une fois, et seulement si l'application est ouverte quelque part —
+     c'est la limite d'un rappel sans serveur, autant le savoir. */
+  async function agdSonne(){
+    if(!ME||!_agdCharge) return;
+    const now=Date.now(); let bouge=false;
+    for(const e of _agd){
+      if(e.sonne) continue;
+      const r=Number(e.rappel); if(!(r>=0)) continue;
+      const quand=agdQuand(e)-r*60000;
+      if(quand>now || now-quand>3600000) continue;   // ni trop tôt, ni vieux d'une heure
+      e.sonne=1; bouge=true;
+      const q=e.heure||'';
+      try{ if('Notification' in window && Notification.permission==='granted' && navigator.serviceWorker)
+        navigator.serviceWorker.ready.then(g=>g.showNotification('Rendez-vous — '+e.titre,
+          {body:(r===0?'C\u2019est maintenant':'À '+q)+(e.note?' · '+e.note.slice(0,80):''),icon:'icons/icon-192.png'})); }catch(x){}
+      toast('Rendez-vous : '+e.titre+(r===0?' — maintenant':' à '+q));
+    }
+    if(bouge){ await agdEcrit(); if(_curView==='agd') viewAgenda(); }
+  }
+  setInterval(()=>{ try{ agdSonne(); }catch(e){} },30000);
 
   // ---- APPELS (style WhatsApp : direct + groupe d'appel) ----
   function tms(t){ return t&&t.toMillis?t.toMillis():0; }
