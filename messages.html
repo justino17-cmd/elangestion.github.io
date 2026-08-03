@@ -809,7 +809,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='656';
+  const APP_VERSION='657';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -882,6 +882,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
   if ('serviceWorker' in navigator) { window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); }); }
   const FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"elan-gestion.firebaseapp.com", projectId:"elan-gestion", storageBucket:"elan-gestion.firebasestorage.app", messagingSenderId:"910528393731", appId:"1:910528393731:web:128d97b6a3269fb6d21436" };
@@ -10002,6 +10003,9 @@
       if(m.event) body+=eventHtml(id,m);
       if(m.sticker) body+=`<div style="font-size:54px;line-height:1.05">${esc(m.sticker)}</div>`;
       if(m.file){ body+=`<div class="filechip" onclick="event.stopPropagation();openFile('${id}')">${ic('file',16)} ${esc(m.file.name)}</div>`; }
+      if(m.fichier2){ body+=`<div class="filechip" onclick="event.stopPropagation();window.open('${esc(m.fichier2.url)}','_blank')"
+        title="Fichier en qualité d\u2019origine">${ic('file',16)} ${esc(m.fichier2.nom)}
+        <span style="opacity:.65;font-size:11px;margin-left:4px">${esc(tailleDite(m.fichier2.taille||0))}</span></div>`; }
       let reacts=''; if(m.reactions){ const ps=Object.entries(m.reactions).filter(([e,a])=>a&&a.length).map(([e,a])=>`<span style="background:rgba(127,127,127,.2);border-radius:100px;padding:1px 7px;font-size:12px">${e} ${a.length}</span>`); if(ps.length) reacts=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">${ps.join('')}</div>`; }
       const starTag=_star.has(id)?'<span style="color:#f5c518;font-size:10px"> ★</span>':'';
       const ephTag=m.exp?'<span style="font-size:10px;opacity:.6" title="Éphémère"> ⏱</span>':'';
@@ -10321,7 +10325,7 @@
     try{ s.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){}
     const p=s.play(); if(p&&p.catch) p.catch(()=>{});
   }catch(e){} }
-  function previewOf(m){ if(m.locDem) return '🙋 Demande de position'; if(m.loc) return (m.live&&m.live.jusqu>Date.now())?'🔴 Position en direct':'📍 Position'; if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.poll) return '📊 Sondage'; if(m.event) return '📅 '+((m.event&&m.event.titre)||'Événement'); if(m.sticker) return m.sticker; return ''; }
+  function previewOf(m){ if(m.locDem) return '🙋 Demande de position'; if(m.loc) return (m.live&&m.live.jusqu>Date.now())?'🔴 Position en direct':'📍 Position'; if(m.text) return m.text; if(m.img) return '📷 Photo'; if(m.audio) return '🎤 Message vocal'+(m.dur?' ('+fmtDur(m.dur)+')':''); if(m.file) return '📄 '+((m.file&&m.file.name)||'Fichier'); if(m.fichier2) return '📦 '+m.fichier2.nom; if(m.poll) return '📊 Sondage'; if(m.event) return '📅 '+((m.event&&m.event.titre)||'Événement'); if(m.sticker) return m.sticker; return ''; }
   /* qui a lu, et quand — la donnée existait, elle n'était pas montrée */
   async function quiALu(mt){
     let mem=[]; try{ mem=await listMembers(); }catch(e){}
@@ -10441,7 +10445,7 @@
   }
   async function doForward(chId,name){ const it=_curMsgs.find(x=>x.id===_fwdId); if(!it){ closeSheet(); return; } const m=it.m;
     const data={uid:ME.uid,name:USER.name||ME.email,ts:FV(),fwd:true};
-    if(m.text) data.text=m.text; if(m.img) data.img=m.img; if(m.file) data.file=m.file; if(m.audio) data.audio=m.audio;
+    if(m.text) data.text=m.text; if(m.img) data.img=m.img; if(m.file) data.file=m.file; if(m.fichier2) data.fichier2=m.fichier2; if(m.audio) data.audio=m.audio;
     if(!data.text&&!data.img&&!data.file&&!data.audio){ toast('Ce message ne peut pas être transféré.'); closeSheet(); return; }
     try{ await addMsgTo(chId,data); closeSheet(); toast('Transféré à '+name); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
 
@@ -11179,9 +11183,72 @@
   }
   $('imgpick').addEventListener('change',handleImgPick);
   $('campick').addEventListener('change',handleImgPick);
-  $('filepick').addEventListener('change',function(e){ const f=e.target.files[0]; if(!f||!_curCh) return;
-    if(f.size>800000){ opAlerte('Fichier trop volumineux (max 800 Ko).'); e.target.value=''; return; }
-    const r=new FileReader(); r.onload=async()=>{ try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,file:{name:f.name,type:f.type||'',data:r.result},ts:FV()}); }catch(err){ opAlerte('Erreur fichier : '+(err.message||err)); } }; r.readAsDataURL(f); e.target.value=''; });
+  const FICHIER_INLINE_MAX=800000;                    // en dessous : dans le message lui-même
+  const FICHIER_MAX=2*1024*1024*1024;                 // 2 Go — au-delà : offre payante à venir
+  function tailleDite(n){ if(n>=1073741824) return (n/1073741824).toFixed(2).replace('.',',')+' Go';
+    if(n>=1048576) return (n/1048576).toFixed(1).replace('.',',')+' Mo';
+    if(n>=1024) return Math.round(n/1024)+' Ko'; return n+' o'; }
+  /* l'espace de fichiers est-il ouvert côté Firebase ? — on ne demande qu'une fois */
+  let _stockagePret=null;
+  async function stockagePret(){
+    if(_stockagePret!==null) return _stockagePret;
+    try{
+      if(!firebase.storage){ _stockagePret=false; return false; }
+      await firebase.storage().ref('__sonde/'+ME.uid).getDownloadURL()
+        .then(()=>{ _stockagePret=true; })
+        .catch(e=>{ const c=String((e&&e.code)||'');
+          /* « introuvable » veut dire : le service répond — donc il existe.
+             Toute autre erreur (projet sans espace) veut dire : pas ouvert. */
+          _stockagePret=(c==='storage/object-not-found'); });
+    }catch(e){ _stockagePret=false; }
+    return _stockagePret;
+  }
+  /* l'envoi, avec sa barre de progression dans la conversation */
+  async function envoiVersStockage(f){
+    const chemin='partages/'+ME.uid+'/'+Date.now().toString(36)+'_'+String(f.name||'fichier').replace(/[^\w.\-]+/g,'_').slice(0,80);
+    const tache=firebase.storage().ref(chemin).put(f,{contentType:f.type||'application/octet-stream',
+      customMetadata:{nom:String(f.name||'fichier'),de:ME.uid}});
+    const barre=document.createElement('div');
+    barre.id='envoi-fichier';
+    barre.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));z-index:60;background:var(--card);border:1px solid var(--card-brd);border-radius:14px;padding:12px 16px;box-shadow:0 12px 32px rgba(0,0,0,.35);display:flex;align-items:center;gap:12px;max-width:min(92vw,420px)';
+    barre.innerHTML='<div style="flex:1;min-width:0"><b style="display:block;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name||'Fichier')+'</b>'
+      +'<div style="height:5px;border-radius:99px;background:var(--inp);margin-top:7px;overflow:hidden"><i id="envoi-fichier-b" style="display:block;height:100%;width:0%;background:var(--op)"></i></div></div>'
+      +'<b id="envoi-fichier-p" style="font-size:12px;font-variant-numeric:tabular-nums">0%</b>'
+      +'<button onclick="try{window.__envoiTache&&window.__envoiTache.cancel()}catch(e){}" style="border:none;background:var(--inp);color:var(--t2);border-radius:9px;width:28px;height:28px;cursor:pointer">✕</button>';
+    document.body.appendChild(barre);
+    window.__envoiTache=tache;
+    return new Promise((ok,ko)=>{
+      tache.on('state_changed',
+        sn=>{ try{ const p=Math.round(sn.bytesTransferred/Math.max(1,sn.totalBytes)*100);
+          const b=$('envoi-fichier-b'), t=$('envoi-fichier-p');
+          if(b) b.style.width=p+'%'; if(t) t.textContent=p+'%'; }catch(e){} },
+        err=>{ try{ barre.remove(); }catch(e){} window.__envoiTache=null; ko(err); },
+        async()=>{ try{ barre.remove(); }catch(e){} window.__envoiTache=null;
+          try{ ok({chemin:chemin,url:await tache.snapshot.ref.getDownloadURL()}); }catch(e){ ko(e); } });
+    });
+  }
+  $('filepick').addEventListener('change',function(e){ const f=e.target.files[0]; e.target.value=''; envoiFichierChoisi(f); });
+  async function envoiFichierChoisi(f){ if(!f||!_curCh) return;
+    if(f.size>FICHIER_MAX){
+      opAlerte('Ce fichier fait '+tailleDite(f.size)+'. La limite est de 2 Go par fichier — au-delà, une offre payante arrivera bientôt.','Fichier trop lourd');
+      return; }
+    /* petit : il voyage dans le message, tel quel (les octets sont conservés) */
+    if(f.size<=FICHIER_INLINE_MAX){
+      const r=new FileReader(); r.onload=async()=>{ try{ await addMsg({uid:ME.uid,name:USER.name||ME.email,file:{name:f.name,type:f.type||'',data:r.result},ts:FV()}); }catch(err){ opAlerte('Erreur fichier : '+(err.message||err)); } }; r.readAsDataURL(f);
+      return; }
+    /* gros : l'ORIGINAL part dans l'espace de fichiers — jamais recompressé */
+    if(!(await stockagePret())){
+      opAlerte('Les fichiers jusqu\u2019à 2 Go arrivent bientôt : l\u2019espace de fichiers du projet n\u2019est pas encore activé. En attendant, la limite est de 800 Ko par fichier.','Bientôt disponible');
+      return; }
+    try{
+      const r=await envoiVersStockage(f);
+      await addMsg({uid:ME.uid,name:USER.name||ME.email,
+        fichier2:{nom:f.name,taille:f.size,type:f.type||'',url:r.url,chemin:r.chemin},ts:FV()});
+      toast('📦 '+f.name+' envoyé ('+tailleDite(f.size)+') — qualité d\u2019origine');
+    }catch(err){
+      if(String((err&&err.code)||'')==='storage/canceled') toast('Envoi annulé');
+      else opAlerte('L\u2019envoi a échoué : '+((err&&err.message)||err),'Erreur'); }
+  }
   /* Le fichier reçu est stocké en données brutes : on le reconstruit en vrai
      fichier pour que le téléphone sache l'ouvrir. */
   function fichierBlob(f){ const morceaux=String(f.data||'').split(',');
