@@ -804,7 +804,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='648';
+  const APP_VERSION='649';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6622,7 +6622,7 @@
       /* un appel patiente déjà : on garde le même micro et la même caméra —
          deux demandes en même temps se battraient sur certains téléphones */
       if(_vAttente && _vLocal && _vLocal.getTracks().some(t=>t.readyState==='live')){ /* on réutilise */ }
-      else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30},facingMode:'user'},audio:true});
+      else _vLocal=await navigator.mediaDevices.getUserMedia({video:audioOnly?false:camContraintes(),audio:true});
       /* la salle s'est refermée pendant la demande : on rend tout de suite */
       if(!_vRoom){ try{ _vLocal.getTracks().forEach(t=>t.stop()); }catch(e){} _vLocal=null; return; }
     }catch(e){
@@ -6781,7 +6781,7 @@
     if(_vGenre==='appel'&&_sonnerieT){ sonnerieSortante(false); visioSansReponse(false);
       sonAppel('debut'); _vT0=Date.now(); visioEtat(''); }
     try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>{ const sn=pc.addTrack(t,_vLocal);
-      if(t.kind==='video') p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); }); }catch(e){}
+      if(t.kind==='video'){ camRegleTrack(t); p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); camRegleEnvoi(sn); } }); }catch(e){}
     /* la qualité se règle dès la connexion, pas seulement au partage d'écran */
     setTimeout(()=>{ try{ _vRegleEnvoi(p); }catch(e){} },1200);
     try{ if(_vEcran){ _vEcran.getTracks().forEach(t=>p.ecranSendersMoi=(p.ecranSendersMoi||[]).concat([pc.addTrack(t,_vEcran)])); setTimeout(()=>_vRegleEnvoi(p),800); } }catch(e){}
@@ -6966,6 +6966,31 @@
   }
   function _vSeulStop(){ if(_vSeulT){ clearInterval(_vSeulT); _vSeulT=null; } }
   /* ── les réglages d'envoi : l'écran a la priorité et un gros débit ── */
+  /* ce qu'on demande à la caméra : de quoi voir un visage, pas un film */
+  function camContraintes(face){
+    const tel=estTelephone();
+    return { facingMode: face||'user',
+      width:{ideal:tel?960:1280, max:1920},
+      height:{ideal:tel?540:720,  max:1080},
+      frameRate:{ideal:30, max:30} };
+  }
+  /* on prévient le navigateur : c'est du mouvement, pas un plan fixe.
+     Quand le réseau se serre, il gardera la fluidité plutôt que la finesse
+     — sur un visage qui parle, c'est la fluidité qui compte. */
+  function camRegleTrack(t){ try{ if(t) t.contentHint='motion'; }catch(e){} }
+  /* et on borne ce qu'on envoie : au-delà, on ne gagne rien de visible,
+     on ne fait qu'engorger la liaison et fabriquer du retard */
+  async function camRegleEnvoi(sn){
+    try{
+      const pr=sn.getParameters();
+      pr.encodings=(pr.encodings&&pr.encodings.length)?pr.encodings:[{}];
+      pr.encodings[0].maxBitrate=1500000;      // 1,5 Mb/s : large pour un visage
+      pr.encodings[0].maxFramerate=30;
+      pr.degradationPreference='balanced';
+      await sn.setParameters(pr);
+    }catch(e){}
+  }
+  function camRegleTous(p){ (p&&p.camSendersMoi||[]).forEach(sn=>{ camRegleEnvoi(sn); }); }
   async function _vRegleEnvoi(p){
     try{
       /* d'abord le choix du codec, SANS attendre : il doit être posé avant
@@ -8075,13 +8100,15 @@
         toast('📷 Caméra coupée — personne ne te voit');
       } else {
         let flux;
-        try{ flux=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30},facingMode:'user'},audio:false}); }
+        try{ flux=await navigator.mediaDevices.getUserMedia({video:camContraintes(),audio:false}); }
         catch(e){ toast('Caméra indisponible — autorise-la dans le navigateur.'); _vCamBusy=false; return; }
         const t=flux.getVideoTracks()[0];
         if(!t){ _vCamBusy=false; return; }
         if(!_vLocal) _vLocal=new MediaStream();
+        camRegleTrack(t);
         try{ _vLocal.addTrack(t); }catch(e){}
-        Object.values(_vPairs).forEach(p=>{ try{ p.camSendersMoi=(p.camSendersMoi||[]).concat([p.pc.addTrack(t,_vLocal)]); }catch(e){} });
+        Object.values(_vPairs).forEach(p=>{ try{ const sn=p.pc.addTrack(t,_vLocal);
+          p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); camRegleEnvoi(sn); }catch(e){} });
         _vCamOn=true; _vAudioOnly=false; dcTous({t:'cam',on:true});
         try{ await visioCamsCompte(); }catch(e){}   // la liste des caméras est enfin complète
         visioFlipMaj();                             // …et le bouton « retourner » apparaît avec elle
@@ -8205,10 +8232,11 @@
     _vFlipBusy=true;
     const vise=_vFace==='user'?'environment':'user';
     let flux=null;
-    try{ flux=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:vise},width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}},audio:false}); }
+    try{ flux=await navigator.mediaDevices.getUserMedia({video:camContraintes({ideal:vise}),audio:false}); }
     catch(e){ toast('Cette caméra n\'est pas disponible'); _vFlipBusy=false; return; }
     const neuve=flux.getVideoTracks()[0];
     if(!neuve){ _vFlipBusy=false; return; }
+    camRegleTrack(neuve);
     const anciennes=_vLocal.getVideoTracks();
     /* on remplace l'image en cours d'envoi : personne ne voit de coupure */
     for(const p of Object.values(_vPairs)){
@@ -8217,6 +8245,7 @@
     anciennes.forEach(t=>{ try{ t.stop(); }catch(e){} try{ _vLocal.removeTrack(t); }catch(e){} });
     try{ _vLocal.addTrack(neuve); }catch(e){}
     _vFace=vise; _vCamOn=true;
+    Object.values(_vPairs).forEach(camRegleTous);
     visioFlipMaj();
     toast(vise==='user'?'📷 Caméra avant':'📷 Caméra arrière — montre ce que tu vois');
     _vFlipBusy=false;
