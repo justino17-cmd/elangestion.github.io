@@ -798,7 +798,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='641';
+  const APP_VERSION='642';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -3503,6 +3503,7 @@
      quel formulaire : le calendrier maison et la grille des minutes, au lieu
      du champ du navigateur où il faut taper au clavier. */
   function champDateHeure(dateISO,heure){
+    _dcAnnees=false;                       // un rendez-vous se prend cette année, pas en 1990
     const d=dateISO||_dstr(new Date()), h=heure||'09:00';
     return `<div style="display:flex;gap:8px">
         <div style="flex:1;min-width:0">
@@ -3586,6 +3587,7 @@
   }
   function dcOuvre(){
     const z=$('dp-cal'); if(!z) return;
+    if(!$('ct-annivnote')) _dcAnnees=false;      /* ailleurs, on n'a pas besoin des années */
     dcCharge();
     const t=$('dp-tp'); if(t) t.style.display='none';         // une seule fenêtre à la fois
     if(z.style.display==='block'){ z.style.display='none'; return; }
@@ -3623,7 +3625,8 @@
   function dcSurvolFin(){ const b=$('dc-bulle'); if(b) b.style.display='none'; }
   function dcMois(n){ const d=new Date(_dcMois+'T00:00:00'); d.setMonth(d.getMonth()+n); _dcMois=_dstr(d).slice(0,7)+'-01'; dcRender(); }
   function dcChoisir(iso){ const i=$('dp-date'); if(i) i.value=iso; const z=$('dp-cal'); if(z) z.style.display='none';
-    dcSurvolFin(); dcLabel(); dcDejaMaj(); try{ dashRepetMaj(); }catch(e){} }
+    dcSurvolFin(); dcLabel(); dcDejaMaj(); try{ dashRepetMaj(); }catch(e){}
+    try{ if($('ct-annivnote')) ctAnnivMaj(); }catch(e){}   /* la fiche contact recalcule son anniversaire */ }
   /* sous les champs : ce qui est déjà prévu le jour choisi */
   function dcDejaMaj(){
     const z=$('dp-deja'); if(!z) return;
@@ -3651,7 +3654,10 @@
     const b=$('dp-datelbl'), v=(($('dp-date')||{}).value)||'';
     if(!b) return; if(!v){ b.textContent='Choisir une date'; return; }
     const d=new Date(v+'T00:00:00');
-    b.textContent=d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+    /* une date de naissance sans année ne dit rien : on l'affiche */
+    b.textContent=d.toLocaleDateString('fr-FR',_dcAnnees
+      ?{weekday:'long',day:'numeric',month:'long',year:'numeric'}
+      :{weekday:'long',day:'numeric',month:'long'});
   }
   /* ══ CHOISIR L'HEURE ET LES MINUTES ══
      Le champ natif de Safari oblige à taper au clavier. Ici : une colonne
@@ -3713,6 +3719,25 @@
       const dec=(on.getBoundingClientRect().top-c.getBoundingClientRect().top)+c.scrollTop;
       c.scrollTop=Math.max(0,dec-c.clientHeight/2+on.offsetHeight/2); }); },20);
   }
+  /* le même bloc que champDateHeure, mais sans l'heure : un anniversaire
+     n'a pas d'horaire, et deux champs pour rien embrouillent */
+  let _dcAnnees=false;
+  function champDate(dateISO){
+    const d=dateISO||'';
+    return `<div onclick="dcOuvre()" style="display:flex;align-items:center;gap:7px;padding:12px 13px;border-radius:11px;background:var(--inp);font-size:13.5px;font-weight:700;cursor:pointer">
+        <span class="ms" style="font-size:16px;color:var(--tile-tx)">calendar_today</span>
+        <span id="dp-datelbl" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize">—</span>
+        <span style="color:var(--t3);font-size:11px">▾</span></div>
+      <input id="dp-date" type="hidden" value="${esc(d)}">
+      <div id="dp-cal" style="display:none;margin-top:9px;padding:13px;border-radius:13px;background:var(--inp)"></div>
+      <div id="dp-deja" style="display:none"></div>`;
+  }
+  /* d'une année à l'autre, sans user les flèches du mois */
+  function dcAn(n){
+    const d=new Date((_dcMois||_dstr(new Date()))+'T00:00:00');
+    d.setFullYear(d.getFullYear()+n);
+    _dcMois=_dstr(d).slice(0,7)+'-01'; dcRender();
+  }
   function dcRender(){
     const z=$('dp-cal'); if(!z) return;
     const prem=new Date(_dcMois+'T00:00:00');
@@ -3720,10 +3745,15 @@
     const dec=(prem.getDay()+6)%7;
     const nb=new Date(prem.getFullYear(),prem.getMonth()+1,0).getDate();
     const DN=['L','M','M','J','V','S','D'];
-    let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <span onclick="dcMois(-1)" style="width:30px;height:30px;border-radius:9px;border:1px solid var(--sep);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2)">‹</span>
+    const fl=(fn,car)=>`<span onclick="${fn}" style="width:30px;height:30px;border-radius:9px;border:1px solid var(--sep);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);flex:none">${car}</span>`;
+    let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:${_dcAnnees?'7':'10'}px">
+      ${fl('dcMois(-1)','‹')}
       <b style="flex:1;text-align:center;font-size:13.5px;font-weight:800;text-transform:capitalize">${esc(prem.toLocaleDateString('fr-FR',{month:'long',year:'numeric'}))}</b>
-      <span onclick="dcMois(1)" style="width:30px;height:30px;border-radius:9px;border:1px solid var(--sep);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2)">›</span></div>
+      ${fl('dcMois(1)','›')}</div>
+      ${_dcAnnees?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        ${fl('dcAn(-1)','«')}
+        <b style="flex:1;text-align:center;font-size:12.5px;font-weight:700;color:var(--t2)">${prem.getFullYear()}</b>
+        ${fl('dcAn(1)','»')}</div>`:''}
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`;
     DN.forEach(n=>{ h+=`<div style="text-align:center;font-size:10px;font-weight:800;color:var(--t3);padding-bottom:4px">${n}</div>`; });
     for(let k=0;k<dec;k++) h+='<div></div>';
@@ -3746,7 +3776,9 @@
     }
     h+='</div>';
     const dm=new Date(); const j2=new Date(Date.now()+86400000);
-    h+=`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+    /* « Aujourd'hui » et « Demain » n'ont aucun sens pour une date de naissance */
+    if(!_dcAnnees)
+      h+=`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
       <span onclick="dcChoisir('${_dstr(dm)}')" style="font-size:11px;font-weight:700;padding:6px 11px;border-radius:20px;border:1px solid var(--sep);color:var(--t2);cursor:pointer">Aujourd’hui</span>
       <span onclick="dcChoisir('${_dstr(j2)}')" style="font-size:11px;font-weight:700;padding:6px 11px;border-radius:20px;border:1px solid var(--sep);color:var(--t2);cursor:pointer">Demain</span></div>`;
     z.innerHTML=h;
@@ -3900,6 +3932,7 @@
   let _dashEdit=null;
   async function dashForm(dateISO,heure,edit,forcerType){
     if(!peutReunion()){ refusReunion(); return; }
+    _dcAnnees=false;                       // une réunion se prend cette année
     _dashEdit=edit||null;
     _dashSel=new Set([ME.uid]); _dashAlert=true; _dashRepet='une'; _dashRepetN=8;
     _dashNotes=(_dashEdit&&_dashEdit.consignes)?Object.assign({},_dashEdit.consignes):{};
@@ -5011,6 +5044,19 @@
         <button class="btn ghost sm" style="flex:1;min-width:104px" onclick="contSelAppel('video')">${ms('videocam',16)} Vidéo</button>
       </div></div>`;
   }
+  /* la visio demande un compte : on le dit, et on propose de le relier */
+  function ctVisio(id){
+    const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
+    if(!c){ toast('Contact introuvable'); return; }
+    if(!c.local){ startCall([c.uid],[c.name||''],'video'); return; }
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:10px">Appel vidéo</h3>
+      <p class="muted" style="font-size:13px;line-height:1.65;margin-bottom:14px">
+        <b>${esc(c.name||'Ce contact')}</b> n\u2019est pas sur OP MESSAGES.<br>
+        La visio relie deux applications entre elles : elle a besoin d\u2019un compte des deux côtés.
+        Un numéro de téléphone ne permet que la voix.</p>
+      ${c.phone?`<button class="btn block" style="margin-bottom:9px" onclick="closeSheet();numExtRappelle('${esc(c.phone)}')">${ic('phone',18)}L\u2019appeler au ${esc(numJoli(c.phone))}</button>`:''}
+      <button class="btn ghost block" onclick="closeSheet();ctModifie('${esc(id)}')">Renseigner son identifiant OP MESSAGES</button>`);
+  }
   /* rouvrir la fiche d'un contact pour la corriger */
   function ctModifie(id){
     const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
@@ -5037,6 +5083,7 @@
           <div style="font-size:13px;color:var(--t2);margin-top:2px">${m.local?(m.phone?esc(numJoli(m.phone)):'Carnet personnel'):sous}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
         ${(self||_contMode)?'':(m.local?`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
           ${m.phone?`<button class="rbtn" title="Appeler ${esc(numJoli(m.phone))}" onclick="event.stopPropagation();numExtRappelle('${esc(m.phone)}')">${ms('call',18)}</button>`:''}
+          <button class="rbtn" title="Appel vidéo" onclick="event.stopPropagation();ctVisio('${esc(m.id||m.uid)}')">${ms('videocam',18)}</button>
           <button class="rbtn" title="Modifier" onclick="event.stopPropagation();ctModifie('${esc(m.id||m.uid)}')">${ms('edit_square',18)}</button>
         </div>`:`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
           <button class="rbtn" title="Message" onclick="event.stopPropagation();openDM('${m.uid}','${nm}')">${ms('chat_bubble',18)}</button>
@@ -5048,7 +5095,99 @@
     contBarre();
   }
   function COMP_owner(){ return COMP&&COMP.ownerUid; }
-  async function contactActions(uid,name){ openSheet('<p class="muted center">Chargement…</p>'); let phone='',status='',handle='';
+  /* une ligne d'information : l'étiquette au-dessus, la valeur en dessous,
+     et quand c'est cliquable la ligne entière réagit — pas une icône de 12 px */
+  function ctInfo(icone,lbl,val,action,sous){
+    if(!val) return '';
+    return `<div ${action?`onclick="${action}"`:''}
+        style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--sep)${action?';cursor:pointer':''}">
+        <span class="ms" style="font-size:19px;color:var(--t3);flex:none">${icone}</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--t3);text-transform:uppercase">${esc(lbl)}</span>
+          <span style="display:block;font-size:14.5px;font-weight:700;margin-top:2px;word-break:break-word">${esc(val)}</span>
+          ${sous?`<span style="display:block;font-size:12px;color:var(--t2);margin-top:2px">${esc(sous)}</span>`:''}
+        </span>
+        ${action?'<span style="color:var(--t3);font-size:13px;flex:none">›</span>':''}</div>`;
+  }
+  /* le dernier trait de séparation ne sépare de rien : on l'enlève */
+  function ctInfos(lignes){
+    const l=(lignes||[]).filter(Boolean);
+    if(!l.length) return '';
+    const d=l.length-1;
+    l[d]=l[d].replace('border-bottom:1px solid var(--sep)','border-bottom:none');
+    return l.join('');
+  }
+  /* « 12 mars 1990 » — et, en dessous, l'âge et le temps qui reste */
+  function ctAnnivTexte(iso){
+    if(!iso) return ['',''];
+    const d=new Date(iso+'T00:00:00'); if(isNaN(d)) return ['',''];
+    const an=parseInt(iso.slice(0,4),10), connu=an>1900;
+    const lbl=d.toLocaleDateString('fr-FR',connu?{day:'numeric',month:'long',year:'numeric'}:{day:'numeric',month:'long'});
+    const n=new Date(); n.setHours(0,0,0,0);
+    let p=new Date(n.getFullYear()+'-'+iso.slice(5)+'T00:00:00');
+    if(isNaN(p)) return [lbl,''];
+    if(p<n) p=new Date((n.getFullYear()+1)+'-'+iso.slice(5)+'T00:00:00');
+    const j=Math.round((p-n)/86400000);
+    const age=connu?(p.getFullYear()-an):0;
+    const quand=j===0?'c\u2019est aujourd\u2019hui 🎂':(j===1?'demain':'dans '+j+' jours');
+    return [lbl,(age?(age+' ans '):'')+quand];
+  }
+  /* ── LA FICHE D'UN CONTACT ── */
+  async function ctFiche(id){
+    const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
+    if(!c){ toast('Contact introuvable'); return; }
+    let d={};
+    if(!c.local&&c.uid){
+      openSheet('<p class="muted center">Chargement…</p>');
+      try{ const s=await fs.collection('op_users').doc(c.uid).get(); if(s.exists) d=s.data(); }catch(e){}
+    }
+    const nom=c.name||[c.prenom,c.nom].filter(Boolean).join(' ')||'Contact';
+    const nmj=esc(nom.replace(/'/g,''));
+    const tel=c.phone||d.phone||'', mail=c.email||d.email||'';
+    const hdl=c.handle||d.handle||'', photo=c.photo||d.photo||'';
+    const mot=d.status||'', app=!c.local&&!!c.uid;
+    const vu=app?contVu({lastActive:d.lastActive||c.lastActive||0}):'Fiche de ton carnet';
+    const [ajour,age]=ctAnnivTexte(c.anniv||'');
+    const blk=app&&isBlocked(c.uid);
+    const rond=(fn,icone,lbl,coul)=>`<span onclick="${fn}" title="${esc(lbl)}"
+        style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:11px 4px;border-radius:13px;
+               background:var(--inp);cursor:pointer;user-select:none;color:${coul||'var(--op-tx)'}">
+        <span class="ms" style="font-size:21px">${icone}</span>
+        <span style="font-size:11px;font-weight:700;color:var(--t2)">${esc(lbl)}</span></span>`;
+    openSheet(`<div data-titre="${esc(nom)}" style="text-align:center;margin-bottom:14px">
+        ${photo?`<img src="${photo}" style="width:88px;height:88px;border-radius:999px;object-fit:cover;display:block;margin:0 auto 10px">`
+               :`<div style="width:88px;height:88px;border-radius:999px;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;${avatarStyle(nom)}">${ini(nom)}</div>`}
+        <div style="font-size:19px;font-weight:800;line-height:1.25">${esc(nom)}</div>
+        <div style="font-size:12.5px;color:var(--t2);margin-top:3px">${esc(vu)}${hdl?' · @'+esc(hdl):''}</div>
+        ${mot?`<div style="font-style:italic;color:var(--t2);font-size:13px;margin-top:6px">« ${esc(mot)} »</div>`:''}
+        ${blk?`<div style="display:inline-block;margin-top:8px;padding:4px 10px;border-radius:999px;background:var(--inp);color:#EF4444;font-size:11.5px;font-weight:800">🚫 Bloqué</div>`:''}
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        ${app?rond(`closeSheet();openDM('${c.uid}','${nmj}')`,'chat_bubble','Message'):''}
+        ${app?rond(`closeSheet();startCall(['${c.uid}'],['${nmj}'],'audio')`,'call','Appel')
+             :(tel?rond(`closeSheet();numExtRappelle('${esc(tel)}')`,'call','Appeler'):'')}
+        ${app?rond(`closeSheet();startCall(['${c.uid}'],['${nmj}'],'video')`,'videocam','Vidéo')
+             :rond(`ctVisio('${esc(id)}')`,'videocam','Vidéo')}
+        ${rond(`ctModifie('${esc(id)}')`,'edit_square','Modifier')}
+      </div>
+      <div class="card" style="padding:0;margin:0 0 14px;overflow:hidden">
+        ${ctInfos([
+          ctInfo('call','Téléphone',tel?numJoli(tel):'',tel?`closeSheet();numExtRappelle('${esc(tel)}')`:''),
+          ctInfo('mail','Adresse e-mail',mail,mail?`window.location.href='mailto:${esc(mail)}'`:''),
+          ctInfo('cake','Anniversaire',ajour,'',age),
+          ctInfo('alternate_email','Identifiant OP MESSAGES',hdl?('@'+hdl):'','')])}
+        ${(!tel&&!mail&&!ajour&&!hdl)?`<p class="muted" style="font-size:12.5px;padding:14px;margin:0">Aucune information enregistrée pour l\u2019instant. Touche <b>Modifier</b> pour ajouter un numéro, une adresse ou un anniversaire.</p>`:''}
+      </div>
+      <button class="btn ghost block" style="margin-bottom:9px" onclick="contFav('${c.uid||id}')">${contEstFav(c.uid||id)?'★ Retirer des favoris':'☆ Mettre en favori'}</button>
+      ${app?`<button class="btn ghost block" style="margin-bottom:9px" onclick="shareContact('${c.uid}','${nmj}')">${ic('users',18)}Partager ce contact</button>`:''}
+      ${app?`<button class="btn ghost block" style="margin-bottom:9px;${blk?'color:var(--pres)':'color:#EF4444'}" onclick="blockContact('${c.uid}','${nmj}')">${blk?'Débloquer':'Bloquer'} ${esc(nom)}</button>`:''}
+      <button class="btn ghost block" style="color:#EF4444;border-color:#EF4444" onclick="ctSupprime('${esc(id)}')">${ms('delete',17)} Supprimer ce contact</button>
+      <p class="muted" style="font-size:11.5px;line-height:1.55;margin-top:10px">La fiche part de ton téléphone et de ton agenda. ${app?'La personne garde son compte : elle n\u2019est pas prévenue.':''}</p>`);
+  }
+  async function contactActions(uid,name){
+    /* côté perso, un contact a une fiche : on l'ouvre plutôt qu'une pile de boutons */
+    if(MODE==='perso'&&(_contList||[]).some(x=>(x.id||x.uid)===uid)) return ctFiche(uid);
+    openSheet('<p class="muted center">Chargement…</p>'); let phone='',status='',handle='';
     try{ const d=await fs.collection('op_users').doc(uid).get(); if(d.exists){ phone=d.data().phone||''; status=d.data().status||''; handle=d.data().handle||''; } }catch(e){}
     if(!phone && MODE!=='perso'){ try{ const d=await fs.collection('op_companies').doc(COMP.id).collection('members').doc(uid).get(); if(d.exists) phone=d.data().phone||''; }catch(e){} }
     const nm=esc((name||'').replace(/'/g,'')); const blk=isBlocked(uid);
@@ -5192,6 +5331,8 @@
   }
   function addContactForm(c){
     c=c||null; _ctPhoto=(c&&c.photo)||''; _ctId=(c&&(c.id||c.uid))||'';
+    if(c&&!c.prenom&&!c.nom&&c.name){ const m=String(c.name).trim().split(/\s+/);
+      c=Object.assign({},c,{prenom:m.shift()||'',nom:m.join(' ')}); }
     openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${c?'Modifier le contact':'Ajouter un contact'}</h3>
       <div id="acerr"></div>
       <div style="display:flex;justify-content:center;margin-bottom:16px">
@@ -5209,7 +5350,7 @@
       <div class="field"><label>Adresse e-mail</label>
         <input id="ct-mail" type="email" inputmode="email" autocapitalize="off" placeholder="prenom@exemple.fr" value="${c?esc(c.email||''):''}"></div>
       <div class="field" style="margin-bottom:8px"><label>Anniversaire</label>
-        <input id="ct-anniv" type="date" value="${c?esc(c.anniv||''):''}" onchange="ctAnnivMaj()"></div>
+        ${champDate(c?(c.anniv||''):'')}</div>
       <div id="ct-annivnote" class="muted" style="font-size:12px;margin:0 2px 16px"></div>
       <div class="field"><label>Identifiant OP MESSAGES <span class="muted" style="font-weight:400">(facultatif)</span></label>
         <input id="ct-handle" autocapitalize="off" placeholder="ex : marie.d" value="${c?esc(c.handle||''):''}">
@@ -5218,10 +5359,12 @@
           Sinon, tu garderas sa fiche et tu l'appelleras par téléphone.</span></div>
       <button class="btn block" id="ac-btn" onclick="ctEnregistre()">${c?'Enregistrer':'Ajouter à mes contacts'}</button>
       ${c?`<button class="btn ghost block" style="margin-top:9px;color:#EF4444" onclick="ctSupprime('${esc(_ctId)}')">Supprimer ce contact</button>`:''}`);
-    setTimeout(()=>{ ctPhotoMaj(); ctAnnivMaj(); const p=$('ct-prenom'); if(p&&!c) p.focus(); },40);
+    setTimeout(()=>{ ctPhotoMaj(); _dcAnnees=true; try{ dcLabel(); }catch(x){}
+      const l=$('dp-datelbl'); if(l&&!(c&&c.anniv)) l.textContent='Choisir une date';
+      ctAnnivMaj(); const p=$('ct-prenom'); if(p&&!c) p.focus(); },40);
   }
   function ctAnnivMaj(){
-    const v=(($('ct-anniv')||{}).value)||'', z=$('ct-annivnote'); if(!z) return;
+    const v=(($('dp-date')||{}).value)||'', z=$('ct-annivnote'); if(!z) return;
     if(!v){ z.textContent=''; return; }
     const d=new Date(v+'T00:00:00');
     const jour=d.toLocaleDateString('fr-FR',{day:'numeric',month:'long'});
@@ -5238,7 +5381,7 @@
     const nom=(($('ct-nom')||{}).value||'').trim();
     const tel=(($('ct-tel')||{}).value||'').trim();
     const mail=(($('ct-mail')||{}).value||'').trim();
-    const anniv=(($('ct-anniv')||{}).value||'').trim();
+    const anniv=(($('dp-date')||{}).value||'').trim();
     const hdl=handleOf((($('ct-handle')||{}).value||'').trim());
     if(mail && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(mail)){ err('Cette adresse e-mail ne ressemble pas à une adresse.'); return; }
     if(tel && !numValide(tel)){ err('Ce numéro de téléphone est incomplet.'); return; }
@@ -5287,7 +5430,11 @@
   }
   async function ctSupprime(id){
     const c=(_contList||[]).find(x=>(x.id||x.uid)===id)||{};
-    if(!confirm('Supprimer '+((c.name)||'ce contact')+' de tes contacts ?')) return;
+    const ok=await opConfirme('Sa fiche et son anniversaire seront retirés de tes contacts et de ton agenda.'
+      +(c.local?'':' Son compte OP MESSAGES, lui, reste : la personne n\u2019est pas prévenue.')
+      +' Tes discussions avec elle sont conservées.',
+      {titre:'Supprimer '+((c.name)||'ce contact')+' ?',oui:'Supprimer',non:'Garder',danger:true});
+    if(!ok) return;
     try{ await fs.collection('op_users').doc(ME.uid).collection('contacts').doc(id).delete(); }catch(e){}
     try{ await agdLit(); _agd=_agd.filter(e=>e.id!=='anniv_'+id); await agdEcrit(); }catch(e){}
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name,phone:m.phone})); }catch(e){}
@@ -5913,8 +6060,8 @@
       <div id="ncerr"></div>${pickBloc('nc-members',chks,'Aucun contact.')}
       <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" style="flex:1" onclick="launchCall('audio')">${ic('phone',18)}Audio</button><button class="btn" style="flex:1" onclick="launchCall('video')">${ic('video',18)}Vidéo</button></div>
       <div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;color:var(--t3);font-size:11.5px">
-        <span style="flex:1;height:1px;background:var(--brd)"></span>ou<span style="flex:1;height:1px;background:var(--brd)"></span></div>
-      <button class="btn ghost block" onclick="numExtForm()">${ic('phone',18)}Appeler un numéro extérieur</button>`);
+        <span style="flex:1;height:1px;background:var(--brd)"></span>ou compose un numéro<span style="flex:1;height:1px;background:var(--brd)"></span></div>
+      ${numClavier()}`);
     pickMaj('nc-members');
   }
   function launchCall(type){ const sel=[...document.querySelectorAll('#nc-members .chk.sel')]; if(!sel.length){ $('ncerr').innerHTML='<div class="err">Choisissez au moins une personne.</div>'; return; }
@@ -5929,27 +6076,51 @@
   /* le numéro est-il déjà quelqu'un que je connais ? */
   function numContact(n){ const c=numNettoie(n);
     const m=(_members||[]).find(x=>x.phone&&numNettoie(x.phone)===c); return m?m.name:''; }
-  function numExtForm(){
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Appeler un numéro</h3>
-      <p class="muted" style="margin-bottom:12px">Un numéro qui n'est pas sur OP MESSAGES : l'appel part par le téléphone,
-        comme si tu le composais toi-même. Il apparaîtra ensuite dans tes appels.</p>
-      <div id="nxerr"></div>
-      <div class="field"><label>Numéro de téléphone</label>
-        <input id="nx-num" type="tel" inputmode="tel" autocomplete="tel" placeholder="06 12 34 56 78"
-          oninput="numExtMaj()"></div>
-      <div id="nx-qui" class="muted" style="font-size:12.5px;margin:-6px 2px 12px"></div>
-      <button class="btn block" id="nx-btn" onclick="numExtAppelle()">${ic('phone',18)}Appeler</button>
-      <p class="muted" style="font-size:11.5px;line-height:1.6;margin-top:12px">
+  const NUM_TOUCHES=[['1',''],['2','ABC'],['3','DEF'],['4','GHI'],['5','JKL'],['6','MNO'],
+                     ['7','PQRS'],['8','TUV'],['9','WXYZ'],['*',''],['0','+'],['#','']];
+  /* le clavier, posé directement dans l'écran d'appel */
+  function numClavier(){
+    return `<div id="nxerr"></div>
+      <input id="nx-num" type="tel" inputmode="tel" autocomplete="tel" placeholder="Numéro de téléphone"
+        oninput="numExtMaj()" onkeydown="if(event.key==='Enter'){event.preventDefault();numExtAppelle();}"
+        style="width:100%;box-sizing:border-box;text-align:center;background:var(--inp);border:1px solid transparent;
+               border-radius:12px;padding:14px 12px;color:var(--t1);font-size:22px;font-weight:800;
+               letter-spacing:.06em;font-family:inherit;outline:none">
+      <div id="nx-qui" class="muted" style="font-size:12.5px;text-align:center;margin:7px 2px 0;min-height:17px"></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:11px 0 0">
+        ${NUM_TOUCHES.map(([c,l])=>`<span onclick="numTape('${c}')"
+          style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+                 height:52px;border-radius:13px;background:var(--inp);cursor:pointer;user-select:none">
+          <b style="font-size:21px;font-weight:700;line-height:1">${c}</b>
+          ${l?`<span style="font-size:8.5px;font-weight:700;letter-spacing:.12em;color:var(--t3)">${l}</span>`:''}</span>`).join('')}
+      </div>
+      <div style="display:flex;gap:9px;margin-top:11px">
+        <span onclick="numEfface()" ondblclick="numVide()" title="Effacer — deux fois pour tout effacer"
+          style="display:flex;align-items:center;justify-content:center;width:52px;height:46px;border-radius:12px;
+                 background:var(--inp);cursor:pointer;font-size:17px;user-select:none">⌫</span>
+        <button class="btn" id="nx-btn" style="flex:1" onclick="numExtAppelle()">${ic('phone',18)}Appeler</button>
+      </div>
+      <p class="muted" style="font-size:11px;line-height:1.55;margin-top:10px">
         Sur téléphone, ton application Téléphone prend le relais. Sur ordinateur, l'appel est confié au logiciel
-        de téléphonie de la machine — s'il n'y en a pas, rien ne se passera.</p>`);
-    setTimeout(()=>{ const i=$('nx-num'); if(i) i.focus(); },80);
+        de téléphonie de la machine — s'il n'y en a pas, rien ne se passera.</p>`;
   }
+  function numTape(c){
+    const i=$('nx-num'); if(!i) return;
+    if(i.value.length>=20) return;
+    /* le 0 tenu longtemps donne un +, comme sur un téléphone : ici on le
+       propose sous la touche, un appui suffit quand le champ est vide */
+    i.value += c;
+    numExtMaj();
+  }
+  function numEfface(){ const i=$('nx-num'); if(!i) return; i.value=i.value.slice(0,-1); numExtMaj(); }
+  function numVide(){ const i=$('nx-num'); if(!i) return; i.value=''; numExtMaj(); }
   function numExtMaj(){
     const v=(($('nx-num')||{}).value)||'', z=$('nx-qui'); if(!z) return;
     if(!v.trim()){ z.textContent=''; return; }
     const nom=numContact(v);
-    z.textContent=nom?('C\u2019est '+nom+' — tu peux aussi l\u2019appeler dans l\u2019application.')
-      :(numValide(v)?'':'Il manque des chiffres.');
+    z.textContent=nom?('C\u2019est '+nom):(numValide(v)?'':'Il manque des chiffres…');
+    z.style.color=nom?'var(--op-tx)':'var(--t3)';
+    z.style.fontWeight=nom?'700':'400';
   }
   async function numExtAppelle(){
     const v=(($('nx-num')||{}).value)||'';
