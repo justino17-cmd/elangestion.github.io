@@ -798,7 +798,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='640';
+  const APP_VERSION='641';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -981,7 +981,14 @@
     if(MODE!=='perso'){ const out=[]; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); qs.forEach(d=>out.push(d.data())); }catch(e){} return out; }
     const out=[]; try{ const qs=await fs.collection('op_users').doc(ME.uid).collection('contacts').get();
       const arr=[]; qs.forEach(d=>arr.push(d.data()));
-      await Promise.all(arr.map(async c=>{ let la=0,photo=c.photo; try{ const u=await fs.collection('op_users').doc(c.uid).get(); if(u.exists){ la=u.data().lastActive||0; photo=u.data().photo||photo; } }catch(e){} out.push({uid:c.uid,name:c.name||'',phone:c.phone||'',handle:c.handle||'',photo,lastActive:la}); }));
+      /* on garde TOUTE la fiche : prénom, e-mail, anniversaire, photo…
+         Le compte relié ne fournit que ce qu'il sait de mieux — sa présence,
+         et sa photo de profil si le carnet n'en a pas. */
+      await Promise.all(arr.map(async c=>{ let la=0,photo=c.photo||'';
+        if(!c.local){ try{ const u=await fs.collection('op_users').doc(c.uid).get();
+          if(u.exists){ la=u.data().lastActive||0; photo=photo||u.data().photo||''; } }catch(e){} }
+        out.push(Object.assign({},c,{uid:c.uid,name:c.name||'',phone:c.phone||'',
+          handle:c.handle||'',photo:photo,lastActive:la})); }));
     }catch(e){} return out;
   }
   /* ══════════════════════════════════════════════════════════════════
@@ -1313,6 +1320,34 @@
       ${sous?`<div class="muted" style="font-size:11.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sous)}</div>`:''}</div>${extra||''}</div>`;
   }
   /* le bloc complet : recherche + compteur + liste. `lignes` vient de pickLigne. */
+  /* le même choix de personnes, mais rangé derrière un bouton */
+  function pickPliant(zone,lignes,vide,titre){
+    if(!lignes) return `<p class="muted" style="font-size:12.5px;padding:4px 0">${esc(vide||'Personne à afficher.')}</p>`;
+    return `<div id="${zone}-tete" onclick="pickPlie('${zone}')" title="Choisir les personnes"
+        style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:var(--inp);cursor:pointer;user-select:none">
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:13.5px;font-weight:700">${esc(titre||'Choisir des personnes')}</span>
+          <span id="${zone}-resume" style="display:block;font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Personne de choisi</span>
+        </span>
+        <b id="${zone}-fleche" style="color:var(--t3);font-size:12px">▾</b></div>
+      <div id="${zone}-corps" style="display:none;margin-top:10px">${pickBloc(zone,lignes,vide)}</div>`;
+  }
+  function pickPlie(zone){
+    const c=$(zone+'-corps'), f=$(zone+'-fleche'); if(!c) return;
+    const ouvert=c.style.display!=='none';
+    c.style.display=ouvert?'none':'block';
+    if(f) f.textContent=ouvert?'▾':'▴';
+    if(!ouvert){ const q=$(zone+'-q'); if(q) setTimeout(()=>{ try{ q.focus(); }catch(e){} },40); }
+  }
+  /* le résumé sous le titre : qui est choisi, en clair */
+  function pickResume(zone){
+    const z=$(zone+'-resume'); if(!z) return;
+    const noms=pickGens(zone).filter(el=>el.classList.contains('sel')).map(el=>el.dataset.name||'');
+    z.textContent = !noms.length ? 'Personne de choisi'
+      : (noms.length<=2 ? noms.join(', ')
+        : (noms.slice(0,2).join(', ')+' et '+(noms.length-2)+' autre'+(noms.length>3?'s':'')));
+    z.style.color = noms.length?'var(--op-tx)':'var(--t3)';
+  }
   function pickBloc(zone,lignes,vide){
     if(!lignes) return `<p class="muted" style="font-size:12.5px;padding:4px 0">${esc(vide||'Personne à afficher.')}</p>`;
     return `<div style="position:relative;margin-bottom:9px">
@@ -1352,6 +1387,7 @@
   }
   function pickChoisis(zone){ return pickGens(zone).filter(el=>el.classList.contains('sel')); }
   function pickMaj(zone){
+    try{ pickResume(zone); }catch(e){}      /* le bouton replié dit qui est choisi */
     const n=pickChoisis(zone).length, vus=pickVus(zone);
     const c=$(zone+'-compte');
     if(c){ c.textContent=n?(n+(n>1?' personnes choisies':' personne choisie')):'Personne de choisi';
@@ -4308,7 +4344,7 @@
       <div class="gsearch">${ms('search',19)}<input id="disc-search" placeholder="Rechercher une discussion ou un message…" value="${esc(_discSearch)}" oninput="discSearchInput(this.value)"></div>
       <div id="disc-partout"></div>
       <div class="disc-2col"><div id="disc-list"><p class="muted center">Chargement…</p></div>
-      <aside id="disc-side"></aside></div><button class="fab" onclick="newGroup()" title="Nouveau groupe">${ms('add',25)}</button>`;
+      <aside id="disc-side"></aside></div>`;
     if(keepFocus){ const si=$('disc-search'); if(si){ si.focus(); try{ si.setSelectionRange(si.value.length,si.value.length); }catch(e){} } }
     try{
       const ch=chanCol();
@@ -4528,7 +4564,13 @@
   }
 
   /* ── l'état du formulaire ── */
-  let _ngIcone='👥', _ngAdmins=new Set(), _ngReglages=false, _ngPalette=false;
+  let _ngIcone='👥', _ngAdmins=new Set(), _ngReglages=false, _ngPalette=false, _ngPhoto='';
+  async function ngPhotoPrend(ev){
+    const f=ev.target.files&&ev.target.files[0]; ev.target.value=''; if(!f) return;
+    try{ _ngPhoto=await ctPhotoReduit(f); _ngPalette=false; ngMaj(); }
+    catch(x){ opAlerte('Cette photo n\u2019a pas pu être ajoutée : '+(x.message||'trop lourde')+'.'); }
+  }
+  function ngPhotoRetire(){ _ngPhoto=''; ngMaj(); }
   let _ngEcrire='tous', _ngAjouter='admins', _ngModifier='admins', _ngUrgence=false, _ngEpingle=false, _ngFin=false;
   function ngIconeSet(e){ _ngIcone=e; _ngPalette=false; ngMaj(); }
   function ngPaletteBascule(){ _ngPalette=!_ngPalette; ngMaj(); }
@@ -4551,11 +4593,21 @@
   /* tout ce qui bouge à l'écran passe par ici */
   function ngMaj(){
     /* l'icône : une pastille qu'on touche, la palette s'ouvre en dessous */
-    const g=$('ng-gros'); if(g) g.textContent=_ngIcone;
+    const g=$('ng-gros');
+    if(g){ g.style.overflow='hidden';
+      g.innerHTML=_ngPhoto
+        ? `<img src="${_ngPhoto}" style="width:100%;height:100%;border-radius:inherit;object-fit:cover;display:block">`
+        : _ngIcone; }
     const z=$('ng-icones');
     if(z){ z.style.display=_ngPalette?'flex':'none';
-      z.innerHTML=GRP_ICONES.map(e=>`<span onclick="ngIconeSet('${e}')" style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;
-        background:${_ngIcone===e?'var(--tint)':'var(--inp)'};${_ngIcone===e?'outline:2px solid var(--op);outline-offset:-2px':''}">${e}</span>`).join(''); }
+      z.innerHTML=`<span onclick="document.getElementById('ng-pf').click()" title="Choisir une photo"
+          style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;
+          background:var(--inp);border:1px dashed var(--brd2)">📷</span>`
+        +(_ngPhoto?`<span onclick="ngPhotoRetire()" title="Retirer la photo"
+          style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;cursor:pointer;
+          background:var(--inp);color:#EF4444">✕</span>`:'')
+        +GRP_ICONES.map(e=>`<span onclick="ngIconeSet('${e}')" style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;
+        background:${(!_ngPhoto&&_ngIcone===e)?'var(--tint)':'var(--inp)'};${(!_ngPhoto&&_ngIcone===e)?'outline:2px solid var(--op);outline-offset:-2px':''}">${e}</span>`).join(''); }
     /* les pastilles ADMIN sur chaque ligne */
     pickGens('ng-members').forEach(el=>{
       const u=el.dataset.uid, a=_ngAdmins.has(u);
@@ -4590,7 +4642,7 @@
   }
   async function newGroup(){
     openSheet('<p class="muted center">Chargement…</p>');
-    _ngIcone='👥'; _ngAdmins=new Set(); _ngReglages=false; _ngPalette=false;
+    _ngIcone='👥'; _ngPhoto=''; _ngAdmins=new Set(); _ngReglages=false; _ngPalette=false;
     _ngEcrire='tous'; _ngAjouter='admins'; _ngModifier='admins'; _ngUrgence=false; _ngEpingle=false; _ngFin=false;
     let chks='';
     try{ const list=await listMembers();
@@ -4606,7 +4658,8 @@
       <div id="ngerr"></div>
 
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-        <div id="ng-gros" onclick="ngPaletteBascule()" title="Choisir une icône"
+        <input type="file" accept="image/*" id="ng-pf" style="display:none" onchange="ngPhotoPrend(event)">
+        <div id="ng-gros" onclick="ngPaletteBascule()" title="Choisir une photo ou une icône"
           style="width:56px;height:56px;border-radius:999px;background:var(--tint);border:1px solid var(--pill-on-brd);
           display:flex;align-items:center;justify-content:center;font-size:27px;flex:none;cursor:pointer">👥</div>
         <input id="ng-name" oninput="ngMaj()" maxlength="60" placeholder="Nom du groupe"
@@ -4615,7 +4668,7 @@
       <div id="ng-icones" style="display:none;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
 
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin:14px 0 7px">MEMBRES</div>
-      ${pickBloc('ng-members',chks,'Aucun autre membre. Ajoute des contacts d\u2019abord.')}
+      ${pickPliant('ng-members',chks,'Aucun autre membre. Ajoute des contacts d\u2019abord.','Choisir les membres')}
       <p class="muted" style="font-size:11.5px;line-height:1.5;margin:8px 0 14px">Tu es membre et administrateur. Touche <b>Admin</b> à côté d\u2019un nom pour lui confier la gestion du groupe.</p>
 
       <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--t2);margin-bottom:8px">AUTORISATIONS</div>
@@ -4672,6 +4725,7 @@
     const admins=Array.from(new Set([ME.uid,...[..._ngAdmins].filter(u=>members.indexOf(u)>=0)]));
     const d={name,type:'group',members,createdBy:ME.uid,createdAt:FV(),
              icone:_ngIcone,admins,ecrire:_ngEcrire,ajouter:_ngAjouter,modifier:_ngModifier};
+    if(_ngPhoto) d.photo=_ngPhoto;
     if(_ngUrgence) d.urgence=true;
     if(_ngEpingle) d.epingle=true;
     if(_ngFin){ const f=momentChoisi(); if(f) d.finLe=f; }
@@ -4957,6 +5011,12 @@
         <button class="btn ghost sm" style="flex:1;min-width:104px" onclick="contSelAppel('video')">${ms('videocam',16)} Vidéo</button>
       </div></div>`;
   }
+  /* rouvrir la fiche d'un contact pour la corriger */
+  function ctModifie(id){
+    const c=(_contList||[]).find(x=>(x.id||x.uid)===id);
+    if(!c){ toast('Contact introuvable'); return; }
+    addContactForm(c);
+  }
   function renderContList(emptyMsg){
     const box=$('cont-list'); if(!box) return;
     let list=_contList.filter(contGarde);
@@ -4974,12 +5034,15 @@
         <div style="flex:1;min-width:0">
           <div style="font-size:15.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.name||'')}</div>
           ${m.poste?`<div style="font-size:12.5px;font-weight:600;color:var(--t2);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.poste)}</div>`:''}
-          <div style="font-size:13px;color:var(--t2);margin-top:2px">${sous}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
-        ${(self||_contMode)?'':`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <div style="font-size:13px;color:var(--t2);margin-top:2px">${m.local?(m.phone?esc(numJoli(m.phone)):'Carnet personnel'):sous}${(MODE!=='perso'&&m.uid===COMP_owner())?' · admin':''}</div></div>
+        ${(self||_contMode)?'':(m.local?`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          ${m.phone?`<button class="rbtn" title="Appeler ${esc(numJoli(m.phone))}" onclick="event.stopPropagation();numExtRappelle('${esc(m.phone)}')">${ms('call',18)}</button>`:''}
+          <button class="rbtn" title="Modifier" onclick="event.stopPropagation();ctModifie('${esc(m.id||m.uid)}')">${ms('edit_square',18)}</button>
+        </div>`:`<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
           <button class="rbtn" title="Message" onclick="event.stopPropagation();openDM('${m.uid}','${nm}')">${ms('chat_bubble',18)}</button>
           <button class="rbtn" title="Appeler" onclick="event.stopPropagation();startCall(['${m.uid}'],['${nm}'],'audio')">${ms('call',18)}</button>
           <button class="rbtn" title="Appel vidéo" onclick="event.stopPropagation();startCall(['${m.uid}'],['${nm}'],'video')">${ms('videocam',18)}</button>
-        </div>`}
+        </div>`)}
       </div>`; });
     box.innerHTML = html?`<div class="listbox">${html}</div>`:('<p class="muted center">'+esc(emptyMsg||'Aucun contact.')+'</p>');
     contBarre();
@@ -5086,15 +5149,154 @@
     try{ const d=await ref.get(); if(!d.exists) await ref.set({type:'dm',members:pair,createdAt:FV()}); }catch(e){ opAlerte('Erreur : '+(e.message||e)); return; }
     openChannel(id,name); }
   // ---- Ajout de contact (mode perso) : par identifiant ou téléphone ----
-  function addContactForm(){
-    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:8px">Ajouter un contact</h3>
-      <p class="muted" style="margin-bottom:14px">Entrez l'identifiant unique de la personne (ou son numéro de téléphone).</p>
+  let _ctPhoto='', _ctId='';
+  function ctPhotoMaj(){
+    const z=$('ct-photo'); if(!z) return;
+    z.innerHTML=_ctPhoto
+      ? `<img src="${_ctPhoto}" onclick="document.getElementById('ct-pf').click()" title="Changer la photo"
+           style="width:76px;height:76px;border-radius:999px;object-fit:cover;cursor:pointer;display:block">
+         <span onclick="_ctPhoto='';ctPhotoMaj()" title="Retirer"
+           style="position:absolute;top:-2px;right:-2px;width:22px;height:22px;border-radius:999px;background:#EF4444;color:#fff;
+                  font-size:12px;line-height:22px;text-align:center;cursor:pointer">✕</span>`
+      : `<div onclick="document.getElementById('ct-pf').click()" title="Ajouter une photo"
+           style="width:76px;height:76px;border-radius:999px;border:1px dashed var(--brd);display:flex;flex-direction:column;
+                  align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--t3)">
+           <span style="font-size:20px">📷</span><span style="font-size:9.5px;font-weight:700">Photo</span></div>`;
+  }
+  async function ctPhotoPrend(ev){
+    const f=ev.target.files&&ev.target.files[0]; ev.target.value=''; if(!f) return;
+    try{ _ctPhoto=await ctPhotoReduit(f); ctPhotoMaj(); }
+    catch(x){ opAlerte('Cette photo n\u2019a pas pu être ajoutée : '+(x.message||'trop lourde')+'.'); }
+  }
+  /* une photo de contact n'a pas besoin d'être grande : un rond de 76 px */
+  function ctPhotoReduit(fichier){
+    return new Promise((ok,ko)=>{
+      const r=new FileReader();
+      r.onerror=()=>ko(new Error('lecture impossible'));
+      r.onload=()=>{ const img=new Image();
+        img.onerror=()=>ko(new Error('ce fichier n\u2019est pas une image'));
+        img.onload=()=>{
+          for(const [mx,q] of [[320,.72],[256,.65],[190,.6],[140,.55]]){
+            /* on recadre au carré, comme une photo de profil */
+            const c=Math.min(img.width,img.height);
+            const cv=document.createElement('canvas'); cv.width=mx; cv.height=mx;
+            cv.getContext('2d').drawImage(img,(img.width-c)/2,(img.height-c)/2,c,c,0,0,mx,mx);
+            const d=cv.toDataURL('image/jpeg',q);
+            if(d.length<=60000) return ok(d);
+          }
+          ko(new Error('elle reste trop lourde'));
+        };
+        img.src=r.result; };
+      r.readAsDataURL(fichier);
+    });
+  }
+  function addContactForm(c){
+    c=c||null; _ctPhoto=(c&&c.photo)||''; _ctId=(c&&(c.id||c.uid))||'';
+    openSheet(`<h3 style="font-family:'Space Mono',monospace;font-size:16px;margin-bottom:12px">${c?'Modifier le contact':'Ajouter un contact'}</h3>
       <div id="acerr"></div>
-      <div class="field"><label>Identifiant ou téléphone</label><input id="ac-q" placeholder="ex : marie.d ou 0612…" autocapitalize="off"></div>
-      <button class="btn block" id="ac-btn" onclick="addContact()">Rechercher et ajouter</button>`);
+      <div style="display:flex;justify-content:center;margin-bottom:16px">
+        <div id="ct-photo" style="position:relative"></div>
+        <input type="file" accept="image/*" id="ct-pf" style="display:none" onchange="ctPhotoPrend(event)">
+      </div>
+      <div style="display:flex;gap:10px">
+        <div class="field" style="flex:1"><label>Prénom <span style="color:#EF4444">*</span></label>
+          <input id="ct-prenom" maxlength="40" autocapitalize="words" value="${c?esc(c.prenom||''):''}"></div>
+        <div class="field" style="flex:1"><label>Nom</label>
+          <input id="ct-nom" maxlength="40" autocapitalize="words" value="${c?esc(c.nom||''):''}"></div>
+      </div>
+      <div class="field"><label>Téléphone</label>
+        <input id="ct-tel" type="tel" inputmode="tel" placeholder="06 12 34 56 78" value="${c?esc(c.phone||''):''}"></div>
+      <div class="field"><label>Adresse e-mail</label>
+        <input id="ct-mail" type="email" inputmode="email" autocapitalize="off" placeholder="prenom@exemple.fr" value="${c?esc(c.email||''):''}"></div>
+      <div class="field" style="margin-bottom:8px"><label>Anniversaire</label>
+        <input id="ct-anniv" type="date" value="${c?esc(c.anniv||''):''}" onchange="ctAnnivMaj()"></div>
+      <div id="ct-annivnote" class="muted" style="font-size:12px;margin:0 2px 16px"></div>
+      <div class="field"><label>Identifiant OP MESSAGES <span class="muted" style="font-weight:400">(facultatif)</span></label>
+        <input id="ct-handle" autocapitalize="off" placeholder="ex : marie.d" value="${c?esc(c.handle||''):''}">
+        <span class="muted" style="display:block;font-size:11.5px;margin-top:5px;line-height:1.5">
+          Renseigne-le si la personne a un compte : tu pourras lui écrire et l'appeler dans l'application.
+          Sinon, tu garderas sa fiche et tu l'appelleras par téléphone.</span></div>
+      <button class="btn block" id="ac-btn" onclick="ctEnregistre()">${c?'Enregistrer':'Ajouter à mes contacts'}</button>
+      ${c?`<button class="btn ghost block" style="margin-top:9px;color:#EF4444" onclick="ctSupprime('${esc(_ctId)}')">Supprimer ce contact</button>`:''}`);
+    setTimeout(()=>{ ctPhotoMaj(); ctAnnivMaj(); const p=$('ct-prenom'); if(p&&!c) p.focus(); },40);
+  }
+  function ctAnnivMaj(){
+    const v=(($('ct-anniv')||{}).value)||'', z=$('ct-annivnote'); if(!z) return;
+    if(!v){ z.textContent=''; return; }
+    const d=new Date(v+'T00:00:00');
+    const jour=d.toLocaleDateString('fr-FR',{day:'numeric',month:'long'});
+    const an=parseInt(v.slice(0,4),10);
+    const age=(an>1900)?(new Date().getFullYear()-an):0;
+    z.innerHTML='Il sera ajouté à ton agenda le <b>'+esc(jour)+'</b>, et il reviendra chaque année'
+      +(age?(' — '+age+' ans cette année.'):'.');
+  }
+  /* ── ON ENREGISTRE ── */
+  async function ctEnregistre(){
+    const err=m=>{ const e=$('acerr'); if(e) e.innerHTML='<div class="err">'+m+'</div>'; };
+    const prenom=(($('ct-prenom')||{}).value||'').trim();
+    if(!prenom){ err('Le prénom est nécessaire.'); const p=$('ct-prenom'); if(p) p.focus(); return; }
+    const nom=(($('ct-nom')||{}).value||'').trim();
+    const tel=(($('ct-tel')||{}).value||'').trim();
+    const mail=(($('ct-mail')||{}).value||'').trim();
+    const anniv=(($('ct-anniv')||{}).value||'').trim();
+    const hdl=handleOf((($('ct-handle')||{}).value||'').trim());
+    if(mail && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(mail)){ err('Cette adresse e-mail ne ressemble pas à une adresse.'); return; }
+    if(tel && !numValide(tel)){ err('Ce numéro de téléphone est incomplet.'); return; }
+    const btn=$('ac-btn'); if(btn) btn.disabled=true;
+    /* un identifiant renseigné doit correspondre à un vrai compte */
+    let uid='';
+    if(hdl){
+      try{ const snap=await fs.collection('op_users').where('handle','==',hdl).limit(1).get();
+        if(snap.empty){ err('Aucun compte ne correspond à l\u2019identifiant «&nbsp;'+esc(hdl)+'&nbsp;». Laisse-le vide si la personne n\u2019est pas sur OP MESSAGES.'); if(btn)btn.disabled=false; return; }
+        const u=snap.docs[0].data();
+        if(u.uid===ME.uid){ err('C\u2019est toi 🙂'); if(btn)btn.disabled=false; return; }
+        uid=u.uid;
+      }catch(e){ err(esc(e.message||'Erreur')); if(btn)btn.disabled=false; return; }
+    }
+    const id=_ctId||uid||('loc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6));
+    const name=(prenom+' '+nom).trim();
+    const fiche={id:id,uid:uid||id,prenom:prenom,nom:nom,name:name,
+      phone:numNettoie(tel),email:mail,photo:_ctPhoto||'',handle:hdl,anniv:anniv,
+      local:!uid};
+    try{ await fs.collection('op_users').doc(ME.uid).collection('contacts').doc(id).set(fiche); }
+    catch(e){ err(esc(e.message||'Erreur')); if(btn)btn.disabled=false; return; }
+    await ctAnnivAgenda(fiche);
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name,phone:m.phone})); }catch(e){}
+    closeSheet(); toast(_ctId?'Contact modifié':'Contact ajouté : '+name);
+    _ctPhoto=''; _ctId='';
+    if(_curView==='cont') viewCont();
+  }
+  /* ── L'ANNIVERSAIRE PART DANS L'AGENDA ──
+     Une seule fiche d'agenda par contact : on la remplace à chaque
+     enregistrement, on la retire si l'anniversaire est effacé. Ainsi on
+     ne se retrouve jamais avec deux gâteaux le même jour. */
+  async function ctAnnivAgenda(c){
+    try{
+      await agdLit();
+      const cle='anniv_'+c.id;
+      _agd=_agd.filter(e=>e.id!==cle);
+      if(c.anniv){
+        _agd.push({id:cle,titre:'Anniversaire de '+(c.prenom||c.name||'ce contact'),
+          date:c.anniv,heure:'09:00',duree:0,trajet:0,
+          rappel:1440,alerte:true,annuel:true,couleur:'rose',
+          note:(c.phone?'📞 '+numJoli(c.phone):'')+(c.email?(c.phone?' · ':'')+c.email:''),
+          pj:'',contact:c.id,sonne:0});
+      }
+      await agdEcrit();
+    }catch(e){}
+  }
+  async function ctSupprime(id){
+    const c=(_contList||[]).find(x=>(x.id||x.uid)===id)||{};
+    if(!confirm('Supprimer '+((c.name)||'ce contact')+' de tes contacts ?')) return;
+    try{ await fs.collection('op_users').doc(ME.uid).collection('contacts').doc(id).delete(); }catch(e){}
+    try{ await agdLit(); _agd=_agd.filter(e=>e.id!=='anniv_'+id); await agdEcrit(); }catch(e){}
+    try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name,phone:m.phone})); }catch(e){}
+    closeSheet(); toast('Contact supprimé');
+    if(_curView==='cont') viewCont();
   }
   async function addContact(){
-    const raw=($('ac-q').value||'').trim(); if(!raw){ $('acerr').innerHTML='<div class="err">Entrez un identifiant ou un numéro.</div>'; return; }
+    const q=$('ac-q'); if(!q) return;                      // ancien formulaire, gardé pour compatibilité
+    const raw=(q.value||'').trim(); if(!raw){ $('acerr').innerHTML='<div class="err">Entrez un identifiant ou un numéro.</div>'; return; }
     const btn=$('ac-btn'); if(btn) btn.disabled=true;
     const isPhone=/^[0-9+ .]{6,}$/.test(raw);
     try{
@@ -5150,7 +5352,27 @@
   }
   function agdAuj(){ return agdISO(new Date()); }
   function agdQuand(e){ const t=(e.heure||'00:00'); return new Date(e.date+'T'+t).getTime(); }
-  function agdDuJour(iso){ return _agd.filter(e=>e.date===iso).sort((a,b)=>(a.heure||'').localeCompare(b.heure||'')); }
+  function agdAnnuel(e){ return !!(e&&e.annuel); }
+  function agdDuJour(iso){
+    return _agd.filter(e=>agdAnnuel(e)?((e.date||'').slice(5)===iso.slice(5)):(e.date===iso))
+      .sort((a,b)=>(a.heure||'').localeCompare(b.heure||''));
+  }
+  /* la prochaine fois que ça tombe — cette année, ou l'an prochain */
+  function agdProchain(e){
+    if(!agdAnnuel(e)) return agdQuand(e);
+    const n=new Date(), mmjj=(e.date||'').slice(5);
+    let t=new Date(n.getFullYear()+'-'+mmjj+'T'+(e.heure||'00:00')).getTime();
+    if(isNaN(t)) return agdQuand(e);
+    if(t<Date.now()-3600000) t=new Date((n.getFullYear()+1)+'-'+mmjj+'T'+(e.heure||'00:00')).getTime();
+    return t;
+  }
+  /* combien de bougies, quand on connaît l'année de naissance */
+  function agdAge(e,iso){
+    if(!agdAnnuel(e)||!e.date) return 0;
+    const an=parseInt((e.date||'').slice(0,4),10);
+    const cible=parseInt((iso||agdAuj()).slice(0,4),10);
+    return (an>1900&&cible>an)?(cible-an):0;
+  }
   function agdFin(e){ const d=Number(e.duree)||0; if(!d) return '';
     const f=new Date(agdQuand(e)+d*60000); return f.toTimeString().slice(0,5); }
   async function agdLit(){
@@ -5203,7 +5425,8 @@
     }).join('');
     const liste=agdDuJour(_agdJour);
     const jourLib=new Date(_agdJour+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
-    const prochains=_agd.filter(e=>agdQuand(e)>=Date.now()).sort((a,b)=>agdQuand(a)-agdQuand(b)).slice(0,3);
+    const prochains=_agd.map(e=>({e:e,t:agdProchain(e)})).filter(x=>x.t>=Date.now())
+      .sort((a,b)=>a.t-b.t).slice(0,3).map(x=>x.e);
     view.innerHTML=`<div class="agd-wrap">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
         <div style="flex:1;min-width:170px">
@@ -5229,10 +5452,10 @@
       ${liste.length?'':`<div style="text-align:center;color:var(--t3);font-size:12.5px;margin-top:10px">Rien de prévu — touche une heure pour poser un rendez-vous.</div>`}
       ${prochains.length?`<div style="margin-top:22px" id="agd-suite">
         <div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--t3);text-transform:uppercase;margin-bottom:8px">Ce qui arrive</div>
-        ${prochains.map(e=>`<div class="row" style="cursor:pointer" onclick="agdChoisit('${e.date}')">
+        ${prochains.map(e=>`<div class="row" style="cursor:pointer" onclick="agdChoisit('${agdISO(new Date(agdProchain(e)))}')">
           <span style="width:4px;align-self:stretch;border-radius:99px;background:${(AGD_COUL[e.couleur]||AGD_COUL.bleu).c};flex:none"></span>
           <div class="info"><div class="nm">${esc(e.titre)}</div>
-          <div class="ds">${esc(new Date(e.date+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'}))} · ${esc(e.heure||'')}</div></div></div>`).join('')}
+          <div class="ds">${esc(new Date(agdProchain(e)).toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'}))} · ${esc(e.heure||'')}${agdAnnuel(e)?' · chaque année':''}</div></div></div>`).join('')}
       </div>`:''}
     </div>`;
     /* on se place sur le premier rendez-vous, ou sur l'heure qu'il est */
@@ -5329,7 +5552,7 @@
         style="top:${top}px;height:${haut}px;left:calc(${g}% + 2px);width:calc(${larg}% - 4px);
                background:${agdTeinte(c,.16)};border-left:3px solid ${c}"
         title="${esc(e.titre)}${fin?' · '+esc(e.heure)+' – '+esc(fin):''}${e.note?' — '+esc(e.note):''} — glisse-le pour le déplacer">
-        <b>${esc(e.titre)}</b><span>${esc(e.heure||'')}${fin?' – '+esc(fin):''}${rap}${pj}</span>
+        <b>${esc(e.titre)}${(()=>{ const a=agdAge(e,iso); return a?' · '+a+' ans':''; })()}</b><span>${esc(e.heure||'')}${fin?' – '+esc(fin):''}${rap}${pj}</span>
         ${(haut>=42)?`<span class="agd-bnote">${esc(e.note||'')}${dep}</span>`:''}</div>`; }).join('');
     /* le trait rouge de l'heure qu'il est — seulement aujourd'hui */
     const now=new Date(); let maintenant='';
@@ -5500,12 +5723,14 @@
     if(!ME||!_agdCharge) return;
     const now=Date.now(); let bouge=false;
     for(const e of _agd){
-      if(e.sonne) continue;
       if(e.alerte===false) continue;
+      const annee=new Date().getFullYear();
+      /* un anniversaire retient l'ANNÉE où il a sonné : il resonne l'an prochain */
+      if(agdAnnuel(e)? (e.sonne===annee) : !!e.sonne) continue;
       const r=Number(e.rappel); if(!(r>=0)) continue;
-      const quand=agdQuand(e)-r*60000;
+      const quand=agdProchain(e)-r*60000;
       if(quand>now || now-quand>3600000) continue;   // ni trop tôt, ni vieux d'une heure
-      e.sonne=1; bouge=true;
+      e.sonne=agdAnnuel(e)?annee:1; bouge=true;
       const q=e.heure||'';
       try{ if('Notification' in window && Notification.permission==='granted' && navigator.serviceWorker)
         navigator.serviceWorker.ready.then(g=>g.showNotification('Rendez-vous — '+e.titre,
