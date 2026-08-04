@@ -809,7 +809,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='658';
+  const APP_VERSION='659';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6708,6 +6708,9 @@
     _vIciDebut();
     _vMini=false; _vFace='user'; _vQualVu={}; _vFaible=false; _vEchange=false; _vCoin=0;
     _vHP=!(_vGenre==='appel'&&_vAudioOnly);   // appel audio : à l'oreille · visio : haut-parleur
+    _vSonChoix='';
+    try{ sonBoutonMaj(); }catch(e){}
+    try{ const sp=$('visio-son-pop'); if(sp) sp.remove(); }catch(e){}
     _vVue='galerie'; _vPinManuel=false; _vMainMoi=false; _vReacs={};
     try{ const vz=$('visio-ver'); if(vz) vz.textContent='v'+(window.OPMSG_VERSION||'?'); }catch(e){}
     try{ vueBoutonsMaj(); const bm=$('visio-main'); if(bm) bm.style.background='rgba(255,255,255,.13)';
@@ -8115,28 +8118,64 @@
     b.style.display=ok?'':'none';
     if(ok){ b.innerHTML=ic(_vHP?'volume_up':'headphones',21); b.style.background=_vHP?'var(--op)':'rgba(255,255,255,.13)'; }
   }
-  async function visioHautParleur(){
-    _vHP=!_vHP;
+  let _vSonChoix='';
+  const SON_CHOIX_TEL=[
+    ['oreille','phone','À l\u2019oreille','La voix au creux de l\u2019oreille, comme un appel classique'],
+    ['hp','volume_up','Haut-parleur','Tout le monde autour entend'],
+    ['casque','headphones','Écouteurs','Dès qu\u2019ils sont branchés, le son y va tout seul']];
+  function visioHautParleur(){ visioSonPop(); }
+  function visioSonPop(){
+    const deja=$('visio-son-pop'); if(deja){ deja.remove(); return; }
+    const z=document.createElement('div'); z.id='visio-son-pop';
+    z.style.cssText='position:absolute;left:50%;transform:translateX(-50%);bottom:calc(112px + env(safe-area-inset-bottom));z-index:9;'
+      +'background:rgba(18,24,42,.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);'
+      +'border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:6px;min-width:240px;max-width:86vw;'
+      +'box-shadow:0 16px 44px rgba(0,0,0,.55)';
+    const ligne=(id,ico,titre,sous,actif)=>`<div onclick="visioSonChoisit('${esc(id)}')"
+        style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;cursor:pointer;${actif?'background:rgba(255,255,255,.10)':''}">
+      <span style="color:#fff;flex:none">${ic(ico,20)}</span>
+      <span style="flex:1;min-width:0"><b style="display:block;font-size:13.5px;color:#fff">${esc(titre)}</b>
+        ${sous?`<span style="display:block;font-size:11px;color:#8b93a5;margin-top:1px;line-height:1.4">${esc(sous)}</span>`:''}</span>
+      ${actif?'<b style="color:#9fc3ff;flex:none">✓</b>':''}</div>`;
+    (async()=>{
+      let h='';
+      if(estTelephone()){
+        const cur=_vSonChoix||(_vHP?'hp':'oreille');
+        SON_CHOIX_TEL.forEach(c2=>{ h+=ligne(c2[0],c2[1],c2[2],c2[3],cur===c2[0]); });
+      } else {
+        let outs=[]; try{ outs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audiooutput'); }catch(e){}
+        h+=ligne('default','volume_up','Sortie par défaut','Celle choisie par la machine',(_vSonChoix||'default')==='default');
+        outs.filter(d=>d.deviceId&&d.deviceId!=='default').forEach((d,i)=>{
+          h+=ligne(d.deviceId,/casque|head|écout|ecout|airpod|buds/i.test(d.label||'')?'headphones':'volume_up',
+            d.label||('Sortie '+(i+1)),'',_vSonChoix===d.deviceId); });
+      }
+      z.innerHTML=h;
+    })();
+    const v=$('visio'); if(v) v.appendChild(z);
+  }
+  async function visioSonChoisit(id){
+    _vSonChoix=id;
+    const z=$('visio-son-pop'); if(z) z.remove();
     if(estTelephone()){
-      /* sur téléphone : on change le CHEMIN du son, pas la prise */
+      _vHP=(id==='hp');                      // l'oreille et les écouteurs passent par le moteur
       visioSons();
-      const b0=$('visio-hp'); if(b0){ b0.innerHTML=ic(_vHP?'volume_up':'headphones',21); b0.style.background=_vHP?'var(--op)':'rgba(255,255,255,.13)'; }
-      toast(_vHP?'🔊 Haut-parleur':'🎧 À l\u2019oreille');
-      return;
+      toast(id==='hp'?'🔊 Haut-parleur':(id==='casque'?'🎧 Écouteurs':'👂 À l\u2019oreille'));
+    } else {
+      const sortie=(id==='default')?'default':id;
+      let n=0;
+      document.querySelectorAll('#visio audio, #visio video').forEach(el=>{
+        try{ if(el.setSinkId){ el.setSinkId(sortie); n++; } }catch(e){} });
+      toast(n?'Sortie du son changée':'Cette sortie n\u2019a pas pu être prise');
     }
-    let sortie='default';
-    try{
-      const l=await navigator.mediaDevices.enumerateDevices();
-      const hp=l.filter(d=>d.kind==='audiooutput');
-      if(_vHP){ const g=hp.find(d=>/speaker|haut|parleur/i.test(d.label||'')); if(g) sortie=g.deviceId; }
-      else { const c=hp.find(d=>/head|casque|écouteur|ecouteur/i.test(d.label||'')); if(c) sortie=c.deviceId; }
-    }catch(e){}
-    let n=0;
-    document.querySelectorAll('#visio audio, #visio video').forEach(el=>{
-      try{ if(el.setSinkId){ el.setSinkId(sortie); n++; } }catch(e){}
-    });
-    const b=$('visio-hp'); if(b){ b.innerHTML=ic(_vHP?'volume_up':'headphones',21); b.style.background=_vHP?'var(--op)':'rgba(255,255,255,.13)'; }
-    toast(_vHP?'🔊 Haut-parleur':'🎧 Écouteur');
+    sonBoutonMaj();
+  }
+  function sonBoutonMaj(){
+    const b=$('visio-hp'); if(!b) return;
+    const cur=_vSonChoix||(_vHP?'hp':'oreille');
+    const ico=(cur==='hp'||cur==='default')?'volume_up'
+      :(cur==='oreille'?'phone':'headphones');
+    b.innerHTML=ic(ico,21);
+    b.style.background=(cur==='hp')?'var(--op)':'rgba(255,255,255,.13)';
   }
   /* ══ PERSONNE NE RÉPOND ══
      Au bout de 45 secondes, on arrête de sonner dans le vide : l'appel
