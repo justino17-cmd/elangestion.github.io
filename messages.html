@@ -835,7 +835,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='663';
+  const APP_VERSION='664';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -6589,7 +6589,7 @@
     if(c.ext){ numExtRappelle(c.numero); return; }
     const {ids,names}=rappelGens(c); startCall(ids, names, c.type||'video'); }catch(e){ opAlerte('Erreur : '+(e.message||e)); } }
 
-  let _activeCall=null,_callDocUnsub=null,_japi=null;
+  let _activeCall=null,_callDocUnsub=null,_japi=null,_vRingbackT=null;
   /* ══ LE TITRE D'UN APPEL ══
      Rappeler quelqu'un empilait les noms : « Karim, Philippe, Karim,
      Philippe, Karim ». On dédoublonne, on s'enlève de la liste, et au-delà
@@ -6633,7 +6633,12 @@
     }catch(e){}
     _activeCall={ref,answered:false,oneToOne:ids.length===1};
     if(_callDocUnsub)_callDocUnsub();
-    _callDocUnsub=ref.onSnapshot(d=>{ if(!d.exists||!_activeCall) return; const st=d.data().status;
+    _callDocUnsub=ref.onSnapshot(d=>{ if(!d.exists||!_activeCall) return; const dd=d.data(); const st=dd.status;
+      /* le téléphone d'en face nous dit qu'il sonne : NOTRE tonalité démarre */
+      if(dd.sonne&&st==='ringing'&&!_activeCall.answered&&!_sonnerieT){
+        if(_vRingbackT){ clearTimeout(_vRingbackT); _vRingbackT=null; }
+        try{ sonnerieSortante(true); visioEtat('sonnerie…'); }catch(e){}
+      }
       if(st==='answered'){ _activeCall.answered=true; }
       else if(st==='declined' && _activeCall.oneToOne){ const nm=(names&&names[0])||'Le contact';
         if(_callDocUnsub){_callDocUnsub();_callDocUnsub=null;} _activeCall=null;
@@ -6725,7 +6730,15 @@
     _vTimer=setInterval(()=>{ const s2=Math.floor((Date.now()-_vT0)/1000); const el=$('visio-duree');
       if(el) el.textContent=String(Math.floor(s2/60)).padStart(2,'0')+':'+String(s2%60).padStart(2,'0'); },1000);
     visioTuiles();
-    if(_vGenre==='appel'){ visioEtat('sonnerie…'); sonnerieSortante(true); visioSansReponse(true); }
+    if(_vGenre==='appel'){
+      /* on n'entend « tuuut » que quand le téléphone d'en face sonne
+         vraiment : il nous le dit dès qu'il affiche l'appel. Filet de
+         sécurité : au bout de 2,5 s sans nouvelle, on sonne quand même. */
+      visioEtat('appel…'); visioSansReponse(true);
+      if(_vRingbackT) clearTimeout(_vRingbackT);
+      _vRingbackT=setTimeout(()=>{ _vRingbackT=null;
+        if(_vRoom&&_vGenre==='appel'&&!_sonnerieT&&!Object.keys(_vPairs).length){ sonnerieSortante(true); visioEtat('sonnerie…'); } },2500);
+    }
     else visioEtat('en attente des autres…');
     await _vDire({type:'salut'});
     const traite=d=>{ try{ visioTraiter(d); }catch(e){} };
@@ -6831,6 +6844,7 @@
       else toast('▶︎ '+(m.nom||'Ton correspondant')+' est de retour');
       visioTuiles(); return; }
     if(m.t==='cam'){ const p=_vPairs[uid]; if(!p) return; p.camOff=!m.on; visioTuiles(); return; }
+    if(m.t==='bye'){ try{ visioTraiter({sig:1,room:_vRoom,id:'bye_'+uid+'_'+Date.now(),de:uid,type:'pars',nom:m.nom||'',ts:Date.now()}); }catch(e){} return; }
     if(m.t==='ecranId'){ const p=_vPairs[uid]; if(!p) return; p.ecranIds.add(m.id); _vReclasse(p); ecranArrive(uid); visioTuiles(); return; }
     if(m.t==='ecranFin'){ const p=_vPairs[uid]; if(!p) return; p.streams.ecran=null; delete _vNotes[uid];
       if(_vGrand===uid+'::E') _vGrand=null; visioTuiles(); return; }
@@ -6864,7 +6878,9 @@
     if(_vGenre==='appel'&&_activeCall) _activeCall.answered=true;
     /* ON A DÉCROCHÉ : la sonnerie s'arrête, un petit son le confirme, et
        la durée repart de zéro — comme sur un téléphone. */
-    if(_vGenre==='appel'&&_sonnerieT){ sonnerieSortante(false); visioSansReponse(false);
+    if(_vGenre==='appel'&&(_sonnerieT||_vRingbackT)){
+      if(_vRingbackT){ clearTimeout(_vRingbackT); _vRingbackT=null; }
+      sonnerieSortante(false); visioSansReponse(false);
       sonAppel('debut'); _vT0=Date.now(); visioEtat(''); }
     try{ (_vLocal?_vLocal.getTracks():[]).forEach(t=>{ const sn=pc.addTrack(t,_vLocal);
       if(t.kind==='video'){ camRegleTrack(t); p.camSendersMoi=(p.camSendersMoi||[]).concat([sn]); camRegleEnvoi(sn,pc); } }); }catch(e){}
@@ -6980,6 +6996,7 @@
     }
     if(d.type==='pars'){
       const p=_vPairs[d.de]; const qui=(p&&p.nom)||d.nom||'';
+      if(!p&&!_vRoom) return;   // déjà terminé par le canal direct : rien à refaire
       if(p){ try{ p.pc.close(); }catch(e){} delete _vPairs[d.de]; visioTuiles(); }
       /* UN APPEL À DEUX : si l'autre raccroche, il n'y a plus d'appel du tout.
          On ne laisse personne seul dans le studio. Une réunion, elle, reste
@@ -8661,6 +8678,9 @@
   async function visioFermer(sansClore){
     if(_vNettoye&&!_vRoom) return; _vNettoye=true;
     const room=_vRoom, restants=Object.keys(_vPairs).length, groupe=(_vGenre==='appel'&&_vMaxGens>=3);
+    /* PREMIÈRE CHOSE : dire « je raccroche » par le canal direct — chez
+       l'autre, l'appel se termine à l'instant, pas après le détour serveur */
+    try{ if(_vGenre==='appel') dcTous({t:'bye',nom:(USER&&USER.name)||''}); }catch(e){}
     _vRoom=null;
     /* PREMIER GESTE, AVANT TOUT LE RESTE : éteindre l'écran partagé.
        Si une étape plus bas casse, les voyants du Mac doivent déjà être
@@ -8673,6 +8693,7 @@
     if(_vQualT){ clearInterval(_vQualT); _vQualT=null; }
     if(_vAdaptT){ clearInterval(_vAdaptT); _vAdaptT=null; }
     try{ sonnerieSortante(false); }catch(e){} try{ visioSansReponse(false); }catch(e){}
+    if(_vRingbackT){ clearTimeout(_vRingbackT); _vRingbackT=null; }
     if(_vCalmeT){ clearTimeout(_vCalmeT); _vCalmeT=null; }
     { const v=$('visio'); if(v) v.classList.remove('calme'); }
     _vEchange=false; _vCoin=0;
@@ -9104,6 +9125,7 @@
         </div>
       </div>`;
     { const _rw=$('ring').classList.contains('open'); $('ring').classList.add('open'); if(!_rw) pushBack(); } ringStart();
+    try{ ref.update({sonne:Date.now()}); }catch(e){}   // « ça sonne chez moi » — l'appelant l'entend
     _ringRefUnsub=ref.onSnapshot(d=>{ if(!d.exists||d.data().status!=='ringing') hideRing(); });
   }
   /* ══ REFUSER AVEC UN MOT ══
