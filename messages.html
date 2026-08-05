@@ -835,7 +835,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='661';
+  const APP_VERSION='662';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -8148,10 +8148,21 @@
     if(ok){ b.innerHTML=ic(_vHP?'volume_up':'headphones',21); b.style.background=_vHP?'var(--op)':'rgba(255,255,255,.13)'; }
   }
   let _vSonChoix='';
-  const SON_CHOIX_TEL=[
-    ['oreille','phone','À l\u2019oreille','La voix au creux de l\u2019oreille, comme un appel classique'],
-    ['hp','volume_up','Haut-parleur','Tout le monde autour entend'],
-    ['casque','headphones','Écouteurs','Dès qu\u2019ils sont branchés, le son y va tout seul']];
+  /* ══ DES ÉCOUTEURS SONT-ILS LÀ ? ══
+     On ne propose « Écouteurs » QUE s'il y en a de connectés. Pendant un
+     appel, le téléphone nomme le micro actif : des AirPods branchés, c'est
+     leur nom qui apparaît. C'est le signal fiable — et on affiche ce nom. */
+  async function casqueDetecte(){
+    const motif=/airpod|head|casque|écout|ecout|buds|bluetooth|homepod|\bbt\b/i;
+    try{ const t=_vLocal&&_vLocal.getAudioTracks()[0];
+      if(t&&motif.test(t.label||'')) return t.label; }catch(e){}
+    try{
+      const l=await navigator.mediaDevices.enumerateDevices();
+      const d=l.find(x=>(x.kind==='audioinput'||x.kind==='audiooutput')&&motif.test(x.label||''));
+      if(d) return d.label||'Écouteurs';
+    }catch(e){}
+    return '';
+  }
   function visioHautParleur(){ visioSonPop(); }
   function visioSonPop(){
     const deja=$('visio-son-pop'); if(deja){ deja.remove(); return; }
@@ -8169,8 +8180,12 @@
     (async()=>{
       let h='';
       if(estTelephone()){
-        const cur=_vSonChoix||(_vHP?'hp':'oreille');
-        SON_CHOIX_TEL.forEach(c2=>{ h+=ligne(c2[0],c2[1],c2[2],c2[3],cur===c2[0]); });
+        let casque=''; try{ casque=await casqueDetecte(); }catch(e){}
+        const cur0=_vSonChoix||(_vHP?'hp':'oreille');
+        const cur=(cur0==='casque'&&!casque)?'oreille':cur0;   // les écouteurs sont partis : on retombe à l'oreille
+        h+=ligne('oreille','phone','À l\u2019oreille','La voix au creux de l\u2019oreille, comme un appel classique',cur==='oreille');
+        h+=ligne('hp','volume_up','Haut-parleur','Tout le monde autour entend',cur==='hp');
+        if(casque) h+=ligne('casque','headphones',casque,'Connectés — le son passe dessus',cur==='casque');
       } else {
         let outs=[]; try{ outs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audiooutput'); }catch(e){}
         h+=ligne('default','volume_up','Sortie par défaut','Celle choisie par la machine',(_vSonChoix||'default')==='default');
