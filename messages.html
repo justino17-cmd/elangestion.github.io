@@ -835,7 +835,7 @@
   /* LE NUMÉRO DE VERSION : écrit ici, affiché dans le studio et joint à
      chaque incident. On sait TOUJOURS quelle version tourne sur l'appareil
      — plus jamais de doute « es-tu bien à jour ? ». */
-  const APP_VERSION='662';
+  const APP_VERSION='663';
   try{ window.OPMSG_VERSION=APP_VERSION; }catch(e){}   // lisible depuis tout le code
   function tmVer(){ try{ return String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); }catch(_){ return ''; } }
   function tmEnt(){ var nom='',email='';
@@ -2228,6 +2228,7 @@
     try{ await syncDemarre(); }catch(e){}         // on récupère TOUT avant d'afficher quoi que ce soit
     gammeMaj();                                   // bleu (gratuit/PRO) ou violet (Business Premium)
     try{ await telSync(); }catch(e){}             // mon numéro devient trouvable par mes contacts
+    try{ sonnerieTampon(); }catch(e){}            // la sonnerie se précharge : elle part sans délai
     try{ _members=(await listMembers()).map(m=>({uid:m.uid,name:m.name})); }catch(e){ _members=[]; }
     try{ await secuCharge(); }catch(e){}
     try{ secuNouvelAppareil(); }catch(e){}
@@ -9220,6 +9221,37 @@
      boucle jusqu'à ce qu'on décroche. Si le fichier n'arrive pas (réseau
      coupé au tout premier appel), on retombe sur le son de l'application. */
   const SONNERIE_APPEL='sons/appel.mp3';
+  /* le mode de sonnerie choisi DANS l'application : sonner, ou vibrer */
+  function ringMode(){ try{ return localStorage.getItem('opmsg_ring_mode')||'normal'; }catch(e){ return 'normal'; } }
+  function ringModePose(m){ try{ localStorage.setItem('opmsg_ring_mode',m); }catch(e){} toast(m==='vibreur'?'📳 Les appels vibreront sans sonner':'🔔 Les appels sonneront'); }
+  /* la sonnerie décodée pour le moteur audio */
+  let _ringBuf=null,_ringSrcNode=null,_ringGain=null,_ringT2=null;
+  async function sonnerieTampon(){
+    if(_ringBuf) return _ringBuf;
+    try{
+      _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
+      const r=await fetch(SONNERIE_APPEL); const b=await r.arrayBuffer();
+      _ringBuf=await new Promise((ok,ko)=>{ _ac.decodeAudioData(b,ok,ko); });
+    }catch(e){ _ringBuf=null; }
+    return _ringBuf;
+  }
+  function sonnerieMoteurJoue(){
+    try{
+      if(!_ringBuf||!_ac) return false;
+      if(_ac.state==='suspended'){ try{ _ac.resume(); }catch(e){} }
+      sonnerieMoteurStop();
+      const src=_ac.createBufferSource(); src.buffer=_ringBuf; src.loop=true;
+      const g=_ac.createGain(); g.gain.value=Math.max(.35,sonVolume());
+      src.connect(g); g.connect(_ac.destination); src.start();
+      _ringSrcNode=src; _ringGain=g;
+      return true;
+    }catch(e){ return false; }
+  }
+  function sonnerieMoteurStop(){
+    try{ if(_ringSrcNode){ _ringSrcNode.stop(); _ringSrcNode.disconnect(); } }catch(e){}
+    try{ if(_ringGain) _ringGain.disconnect(); }catch(e){}
+    _ringSrcNode=null; _ringGain=null;
+  }
   let _ringA=null;
   function ringStart(){ ringStop();
     /* sur téléphone, le son doit être réveillé, et on vibre en plus :
@@ -9227,12 +9259,18 @@
     try{ _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); if(_ac.state==='suspended') _ac.resume(); }catch(e){}
     const vibrer=()=>{ try{ if(navigator.vibrate) navigator.vibrate([600,300,600]); }catch(e){} };
     if(estTelephone()){
-      /* la sonnerie composée (Web Audio) respecte le bouton silencieux du
-         téléphone et n'affiche pas de lecteur audio sur l'écran verrouillé
-         — un fichier .mp3 fait les deux */
+      /* TA sonnerie, jouée par le moteur audio : le bouton silencieux du
+         téléphone reste le maître, et l'écran verrouillé n'affiche rien */
       const discret=(function(){ try{ return silenceActif(); }catch(e){ return false; } })();
-      const sonner=()=>{ if(!discret) sonJoue('cloche',true); vibrer(); };
-      sonner(); _ringT=setInterval(sonner,1400);
+      vibrer(); _ringT=setInterval(vibrer,1900);
+      if(discret||ringMode()==='vibreur') return;   // vibreur : ça vibre, ça ne sonne pas
+      (async()=>{
+        const buf=await sonnerieTampon();
+        if(!_ringT) return;                          // décroché pendant le chargement
+        if(buf&&sonnerieMoteurJoue()) return;        // la vraie sonnerie
+        const sonner=()=>{ sonJoue('cloche',true); };
+        sonner(); _ringT2=setInterval(sonner,1400);  // secours : la cloche composée
+      })();
       return;
     }
     let dejaOk=false, dejaSecours=false;
@@ -9255,6 +9293,8 @@
     setTimeout(()=>{ try{ if(_ringT&&!dejaOk&&(!_ringA||_ringA.paused)) secours(); }catch(e){} },2000);
   }
   function ringStop(){ if(_ringT){clearInterval(_ringT);_ringT=null;}
+    if(_ringT2){clearInterval(_ringT2);_ringT2=null;}
+    sonnerieMoteurStop();
     try{ if(_ringA){ _ringA.pause(); _ringA.currentTime=0; _ringA.loop=false; _ringA=null; } }catch(e){}
     /* on coupe net : plus de sonnerie qui traine apres avoir decroche */
     try{ if(_ac&&_ac.state==='running'){ const g=_ac.createGain(); g.gain.value=0; } }catch(e){}
@@ -11608,6 +11648,12 @@
     ${soundOn()?`<button class="btn ghost block" style="margin:2px 0 10px" onclick="sheetSons()">🔊 Choisir le son : <b>${esc((SONS[sonChoisi()]||{}).nom||'')}</b> ${esc((SONS[sonChoisi()]||{}).ic||'')}</button>`:''}
     ${toggleLine('Vibration',vibrateOn(),"togglePref('vibrate',true);sheetNotif()")}
     ${toggleLine('Aperçus dans l’app',notifOn(),"togglePref('notif',true);sheetNotif()")}
+    <div style="font-size:11px;text-transform:uppercase;color:var(--t3);margin:12px 2px 8px">Sonnerie d'appel</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn ${ringMode()==='normal'?'':'ghost'} sm" style="flex:1" onclick="ringModePose('normal');sheetNotif()">🔔 Sonner</button>
+      <button class="btn ${ringMode()==='vibreur'?'':'ghost'} sm" style="flex:1" onclick="ringModePose('vibreur');sheetNotif()">📳 Vibreur</button>
+    </div>
+    <p class="muted" style="font-size:11.5px;line-height:1.5;margin:6px 2px 4px">En vibreur, les appels vibrent sans sonner. Et dans tous les cas, le bouton silencieux du téléphone reste le maître.</p>
     <div style="height:10px"></div>
     <button class="btn block" onclick="opPushSub()">${(typeof Notification!=='undefined'&&Notification.permission==='granted'&&localStorage.getItem('opmsg_push_on'))?'✓ Notifications app fermée : activées':'🔔 Activer les notifications (app fermée)'}</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="silenceOuvre()">${(function(){ const v=silenceLire(); return v.on?('🌙 Heures de silence : '+esc(v.de)+' → '+esc(v.a)):'🌙 Heures de silence : désactivées'; })()}</button>
