@@ -51,9 +51,14 @@
       INDISPO[jours[7].iso] = [CRENEAUX[3]];
     }
 
+    var prisLocal = {};
+    try { prisLocal = JSON.parse(localStorage.getItem('ban_indispo') || '{}'); } catch (e) {}
+
     function estPris(iso, creneau) {
       var liste = INDISPO[iso];
-      return !!liste && (liste[0] === '*' || liste.indexOf(creneau) !== -1);
+      if (liste && (liste[0] === '*' || liste.indexOf(creneau) !== -1)) return true;
+      var loc = prisLocal[iso];
+      return !!loc && loc.indexOf(creneau) !== -1;
     }
 
     /* ── le tableau, six jours par semaine, deux semaines ── */
@@ -105,6 +110,7 @@
             if (choisi) b.textContent = 'Choisi ✓';
             b.addEventListener('click', function () {
               etat.jour = j.libelle;
+              etat.iso = j.iso;
               etat.creneau = creneau;
               plustot.setAttribute('aria-pressed', 'false');
               dessiner();
@@ -124,6 +130,7 @@
     /* « au plus tôt » : pas de case précise, on propose le premier créneau libre */
     plustot.addEventListener('click', function () {
       etat.jour = 'Dès que possible';
+      etat.iso = null;
       etat.creneau = 'premier créneau libre';
       plustot.setAttribute('aria-pressed', 'true');
       dessiner();
@@ -317,9 +324,20 @@
     }
 
     /* À VENIR : brancher ici l'envoi réel de la demande (e-mail ou serveur)
-       dès qu'un canal de réception existe. La demande complète est dans `demande`. */
+       dès qu'un canal de réception existe. La demande complète est dans `demande`.
+       EN ATTENDANT, MODE TEST : la demande est enregistrée sur cet appareil
+       (visible sur demandes.html) et le créneau choisi passe « Pris ». */
     function envoyerDemande(demande) {
-      void demande;
+      try {
+        var toutes = JSON.parse(localStorage.getItem('ban_demandes') || '[]');
+        toutes.unshift(demande);
+        localStorage.setItem('ban_demandes', JSON.stringify(toutes));
+        if (demande.iso) {
+          (prisLocal[demande.iso] = prisLocal[demande.iso] || []).push(demande.creneau);
+          localStorage.setItem('ban_indispo', JSON.stringify(prisLocal));
+          dessiner();
+        }
+      } catch (e) {}
     }
 
     form.addEventListener('submit', function (e) {
@@ -343,7 +361,8 @@
       var forfaitNid = GRILLE[form.nuisible.value] && GRILLE[form.nuisible.value].forfait;
       var estim = estimation();
       var demande = {
-        jour: etat.jour, creneau: etat.creneau,
+        jour: etat.jour, iso: etat.iso, creneau: etat.creneau,
+        recu: new Date().toLocaleString('fr-FR'),
         nom: nom, telephone: tel, commune: commune,
         departement: form.departement.value,
         nuisible: form.nuisible.value, lieu: form.lieu.value,
@@ -386,6 +405,52 @@
     });
   }
 
+  /* ── demandes reçues en mode test (page demandes.html) ── */
+  function initDemandes() {
+    var zone = document.getElementById('liste-demandes');
+    if (!zone) return;
+    var toutes = [];
+    try { toutes = JSON.parse(localStorage.getItem('ban_demandes') || '[]'); } catch (e) {}
+    zone.innerHTML = '';
+    if (!toutes.length) {
+      var vide = document.createElement('p');
+      vide.textContent = 'Aucune demande de test pour le moment. Faites un essai depuis la page « Prendre rendez-vous » sur cet appareil : elle apparaîtra ici instantanément.';
+      zone.appendChild(vide);
+    }
+    toutes.forEach(function (dm) {
+      var carte = document.createElement('div');
+      carte.className = 'carte';
+      var titre = document.createElement('h3');
+      titre.textContent = dm.jour + ' · ' + dm.creneau;
+      carte.appendChild(titre);
+      [['Reçue le', dm.recu], ['Nom', dm.nom], ['Téléphone', dm.telephone],
+       ['Commune', dm.commune + ' — ' + dm.departement], ['Nuisible', dm.nuisible],
+       ['Lieu', dm.lieu], ['Surface', dm.surface], ['Ampleur', dm.ampleur],
+       ['Passages', dm.passages], ['Garantie', dm.garantie],
+       ['Estimation', dm.estimation], ['Précisions', dm.details || '—']
+      ].forEach(function (ligne) {
+        var p = document.createElement('p');
+        var b = document.createElement('b');
+        b.textContent = ligne[0] + ' : ';
+        p.appendChild(b);
+        p.appendChild(document.createTextNode(ligne[1] || '—'));
+        carte.appendChild(p);
+      });
+      zone.appendChild(carte);
+    });
+    var vider = document.getElementById('vider-demandes');
+    if (vider && !vider.dataset.pret) {
+      vider.dataset.pret = '1';
+      vider.addEventListener('click', function () {
+        localStorage.removeItem('ban_demandes');
+        localStorage.removeItem('ban_indispo');
+        initDemandes();
+      });
+    }
+  }
+
   window.initRdv = initRdv;
+  window.initDemandes = initDemandes;
   initRdv();
+  initDemandes();
 })();
