@@ -70,16 +70,26 @@
       'Présence régulière depuis quelques semaines': 1.15,
       "C'est installé, j'en vois partout": 1.35
     };
+    /* À AJUSTER : frais de déplacement par secteur (essence + temps de route).
+       Mettre 0 pour le département où l'entreprise est basée, et le vrai
+       supplément pour les autres. */
+    var FRAIS_SECTEUR = {
+      'Charente-Maritime (17)': 0,
+      'Vendée (85)': 20,
+      'Loire-Atlantique (44)': 40
+    };
 
     var form = document.getElementById('rdv-form');
     var erreur = document.getElementById('rdv-erreur');
     var montantEl = document.getElementById('rdv-montant');
+    var detailEl = document.getElementById('rdv-detail');
     var precisionEl = document.getElementById('rdv-precision');
     var champSurface = document.getElementById('champ-surface');
     var champAmpleur = document.getElementById('champ-ampleur');
 
     function dix(v) { return Math.round(v / 10) * 10; }
 
+    /* le calcul : traitement (main-d'œuvre + produits) puis déplacement selon le secteur */
     function estimation() {
       var regle = GRILLE[form.nuisible.value];
       if (!regle) return null;
@@ -90,7 +100,11 @@
         bas = dix(bas * cs * ca);
         haut = dix(haut * cs * ca);
       }
-      return bas + ' € – ' + haut + ' €';
+      var frais = FRAIS_SECTEUR[form.departement.value] || 0;
+      return {
+        traitementBas: bas, traitementHaut: haut, frais: frais,
+        texte: (bas + frais) + ' € – ' + (haut + frais) + ' €'
+      };
     }
 
     function majEstimation() {
@@ -101,15 +115,19 @@
       champAmpleur.style.display = forfait ? 'none' : '';
       var e = estimation();
       if (e) {
-        montantEl.textContent = e;
-        precisionEl.textContent = 'Fourchette habituelle pour ce type d’intervention, déplacement et diagnostic compris. Le prix définitif est confirmé gratuitement sur place, avant toute intervention — jamais au-delà du devis validé ensemble.';
+        montantEl.textContent = e.texte;
+        detailEl.innerHTML =
+          '<span>Traitement (main-d’œuvre et produits) : ' + e.traitementBas + ' € – ' + e.traitementHaut + ' €</span> · ' +
+          '<span>Déplacement : ' + (e.frais ? '+' + e.frais + ' €' : 'inclus') + '</span>';
+        precisionEl.textContent = 'Estimation indicative, diagnostic compris. Le prix définitif est confirmé gratuitement sur place, avant toute intervention — jamais au-delà du devis validé ensemble.';
       } else {
         montantEl.textContent = 'Sur diagnostic';
+        detailEl.textContent = '';
         precisionEl.textContent = 'Pas encore sûr de l’espèce ? Le technicien l’identifie lors du passage gratuit et vous annonce le prix avant toute intervention.';
       }
     }
 
-    ['nuisible', 'surface', 'ampleur'].forEach(function (n) {
+    ['nuisible', 'surface', 'ampleur', 'departement'].forEach(function (n) {
       form[n].addEventListener('change', majEstimation);
     });
     majEstimation();
@@ -145,13 +163,17 @@
       erreur.classList.remove('visible');
 
       var forfaitNid = GRILLE[form.nuisible.value] && GRILLE[form.nuisible.value].forfait;
+      var estim = estimation();
       var demande = {
         jour: etat.jour, creneau: etat.creneau,
         nom: nom, telephone: tel, commune: commune,
+        departement: form.departement.value,
         nuisible: form.nuisible.value, lieu: form.lieu.value,
         surface: forfaitNid ? '—' : form.surface.value,
         ampleur: forfaitNid ? '—' : form.ampleur.value,
-        estimation: estimation() || 'Sur diagnostic gratuit',
+        estimation: estim
+          ? estim.texte + (estim.frais ? ' (dont ' + estim.frais + ' € de déplacement)' : ' (déplacement inclus)')
+          : 'Sur diagnostic gratuit',
         details: form.details.value.trim()
       };
       envoyerDemande(demande);
@@ -161,6 +183,7 @@
       remplir('recap-nom', demande.nom);
       remplir('recap-tel', demande.telephone);
       remplir('recap-commune', demande.commune);
+      remplir('recap-departement', demande.departement);
       remplir('recap-nuisible', demande.nuisible);
       remplir('recap-lieu', demande.lieu);
       remplir('recap-surface', demande.surface);
