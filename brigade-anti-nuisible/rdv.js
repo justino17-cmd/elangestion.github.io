@@ -46,9 +46,73 @@
       });
     });
 
-    /* ── étape 3 : validation et récapitulatif ── */
+    /* ── estimation de devis en direct ──
+       À AJUSTER : grille tarifaire INDICATIVE (fourchettes TTC, déplacement et
+       diagnostic compris). Remplacer par les vrais tarifs de l'entreprise. */
+    var GRILLE = {
+      'Rats ou souris':                     { base: [90, 150] },
+      'Cafards / blattes':                  { base: [110, 180] },
+      'Punaises de lit':                    { base: [180, 350] },
+      'Nid de guêpes':                      { base: [90, 140], forfait: true },
+      'Frelons (européens ou asiatiques)':  { base: [110, 180], forfait: true },
+      'Fourmis':                            { base: [80, 130] },
+      'Puces':                              { base: [110, 170] },
+      'Je ne sais pas encore':              null
+    };
+    var COEF_SURFACE = {
+      'Moins de 50 m²': 1,
+      'Entre 50 et 100 m²': 1.25,
+      'Plus de 100 m²': 1.5,
+      'Je ne sais pas': 1.25
+    };
+    var COEF_AMPLEUR = {
+      'Je viens de le remarquer': 1,
+      'Présence régulière depuis quelques semaines': 1.15,
+      "C'est installé, j'en vois partout": 1.35
+    };
+
     var form = document.getElementById('rdv-form');
     var erreur = document.getElementById('rdv-erreur');
+    var montantEl = document.getElementById('rdv-montant');
+    var precisionEl = document.getElementById('rdv-precision');
+    var champSurface = document.getElementById('champ-surface');
+    var champAmpleur = document.getElementById('champ-ampleur');
+
+    function dix(v) { return Math.round(v / 10) * 10; }
+
+    function estimation() {
+      var regle = GRILLE[form.nuisible.value];
+      if (!regle) return null;
+      var bas = regle.base[0], haut = regle.base[1];
+      if (!regle.forfait) {
+        var cs = COEF_SURFACE[form.surface.value] || 1;
+        var ca = COEF_AMPLEUR[form.ampleur.value] || 1;
+        bas = dix(bas * cs * ca);
+        haut = dix(haut * cs * ca);
+      }
+      return bas + ' € – ' + haut + ' €';
+    }
+
+    function majEstimation() {
+      var regle = GRILLE[form.nuisible.value];
+      /* un nid se chiffre au forfait : surface et ampleur ne s'appliquent pas */
+      var forfait = regle && regle.forfait;
+      champSurface.style.display = forfait ? 'none' : '';
+      champAmpleur.style.display = forfait ? 'none' : '';
+      var e = estimation();
+      if (e) {
+        montantEl.textContent = e;
+        precisionEl.textContent = 'Fourchette habituelle pour ce type d’intervention, déplacement et diagnostic compris. Le prix définitif est confirmé gratuitement sur place, avant toute intervention — jamais au-delà du devis validé ensemble.';
+      } else {
+        montantEl.textContent = 'Sur diagnostic';
+        precisionEl.textContent = 'Pas encore sûr de l’espèce ? Le technicien l’identifie lors du passage gratuit et vous annonce le prix avant toute intervention.';
+      }
+    }
+
+    ['nuisible', 'surface', 'ampleur'].forEach(function (n) {
+      form[n].addEventListener('change', majEstimation);
+    });
+    majEstimation();
 
     function remplir(id, valeur) {
       var el = document.getElementById(id);
@@ -80,10 +144,14 @@
       }
       erreur.classList.remove('visible');
 
+      var forfaitNid = GRILLE[form.nuisible.value] && GRILLE[form.nuisible.value].forfait;
       var demande = {
         jour: etat.jour, creneau: etat.creneau,
         nom: nom, telephone: tel, commune: commune,
         nuisible: form.nuisible.value, lieu: form.lieu.value,
+        surface: forfaitNid ? '—' : form.surface.value,
+        ampleur: forfaitNid ? '—' : form.ampleur.value,
+        estimation: estimation() || 'Sur diagnostic gratuit',
         details: form.details.value.trim()
       };
       envoyerDemande(demande);
@@ -95,6 +163,9 @@
       remplir('recap-commune', demande.commune);
       remplir('recap-nuisible', demande.nuisible);
       remplir('recap-lieu', demande.lieu);
+      remplir('recap-surface', demande.surface);
+      remplir('recap-ampleur', demande.ampleur);
+      remplir('recap-estimation', demande.estimation);
       remplir('recap-details', demande.details || '—');
 
       document.getElementById('rdv-app').style.display = 'none';
