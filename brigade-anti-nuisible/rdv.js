@@ -78,6 +78,10 @@
       'Vendée (85)': 20,
       'Loire-Atlantique (44)': 40
     };
+    /* À AJUSTER : prix de chaque passage au-delà du premier, et supplément
+       pour la garantie longue. */
+    var PRIX_PASSAGE_SUPP = 40;
+    var PRIX_GARANTIE = { '3 mois': 0, '6 mois': 30 };
 
     var form = document.getElementById('rdv-form');
     var erreur = document.getElementById('rdv-erreur');
@@ -86,39 +90,56 @@
     var precisionEl = document.getElementById('rdv-precision');
     var champSurface = document.getElementById('champ-surface');
     var champAmpleur = document.getElementById('champ-ampleur');
+    var champPassages = document.getElementById('champ-passages');
+    var champGarantie = document.getElementById('champ-garantie');
 
     function dix(v) { return Math.round(v / 10) * 10; }
 
-    /* le calcul : traitement (main-d'œuvre + produits) puis déplacement selon le secteur */
+    /* le calcul : traitement (main-d'œuvre + produits), passages supplémentaires,
+       garantie choisie, puis déplacement selon le secteur */
     function estimation() {
       var regle = GRILLE[form.nuisible.value];
       if (!regle) return null;
       var bas = regle.base[0], haut = regle.base[1];
+      var supPassages = 0, supGarantie = 0;
       if (!regle.forfait) {
         var cs = COEF_SURFACE[form.surface.value] || 1;
         var ca = COEF_AMPLEUR[form.ampleur.value] || 1;
         bas = dix(bas * cs * ca);
         haut = dix(haut * cs * ca);
+        var nb = parseInt(form.passages.value, 10);       /* NaN pour « Sur conseil » */
+        if (nb >= 2) supPassages = (nb - 1) * PRIX_PASSAGE_SUPP;
+        supGarantie = PRIX_GARANTIE[form.garantie.value] || 0;
       }
       var frais = FRAIS_SECTEUR[form.departement.value] || 0;
+      var totalBas = bas + supPassages + supGarantie + frais;
+      var totalHaut = haut + supPassages + supGarantie + frais;
       return {
-        traitementBas: bas, traitementHaut: haut, frais: frais,
-        texte: (bas + frais) + ' € – ' + (haut + frais) + ' €'
+        traitementBas: bas, traitementHaut: haut,
+        supPassages: supPassages, supGarantie: supGarantie, frais: frais,
+        texte: totalBas + ' € – ' + totalHaut + ' €'
       };
     }
 
     function majEstimation() {
       var regle = GRILLE[form.nuisible.value];
-      /* un nid se chiffre au forfait : surface et ampleur ne s'appliquent pas */
+      /* un nid se chiffre au forfait, réglé en un seul passage : surface,
+         ampleur, passages et garantie ne s'appliquent pas */
       var forfait = regle && regle.forfait;
       champSurface.style.display = forfait ? 'none' : '';
       champAmpleur.style.display = forfait ? 'none' : '';
+      champPassages.style.display = forfait ? 'none' : '';
+      champGarantie.style.display = forfait ? 'none' : '';
       var e = estimation();
       if (e) {
         montantEl.textContent = e.texte;
-        detailEl.innerHTML =
-          '<span>Traitement (main-d’œuvre et produits) : ' + e.traitementBas + ' € – ' + e.traitementHaut + ' €</span> · ' +
-          '<span>Déplacement : ' + (e.frais ? '+' + e.frais + ' €' : 'inclus') + '</span>';
+        var morceaux = ['<span>Traitement (main-d’œuvre et produits) : ' + e.traitementBas + ' € – ' + e.traitementHaut + ' €</span>'];
+        if (!forfait) {
+          if (e.supPassages) morceaux.push('<span>Passages supplémentaires : +' + e.supPassages + ' €</span>');
+          morceaux.push('<span>Garantie ' + form.garantie.value + ' : ' + (e.supGarantie ? '+' + e.supGarantie + ' €' : 'incluse') + '</span>');
+        }
+        morceaux.push('<span>Déplacement : ' + (e.frais ? '+' + e.frais + ' €' : 'inclus') + '</span>');
+        detailEl.innerHTML = morceaux.join(' · ');
         precisionEl.textContent = 'Estimation indicative, diagnostic compris. Le prix définitif est confirmé gratuitement sur place, avant toute intervention — jamais au-delà du devis validé ensemble.';
       } else {
         montantEl.textContent = 'Sur diagnostic';
@@ -127,10 +148,82 @@
       }
     }
 
-    ['nuisible', 'surface', 'ampleur', 'departement'].forEach(function (n) {
+    ['nuisible', 'surface', 'ampleur', 'passages', 'garantie', 'departement'].forEach(function (n) {
       form[n].addEventListener('change', majEstimation);
     });
     majEstimation();
+
+    /* ── autocomplétion de la commune (liste officielle 17 · 85 · 44) ── */
+    var communeInput = form.commune;
+    var boiteSugg = document.getElementById('rdv-suggestions');
+    if (window.COMMUNES && boiteSugg) {
+      var NOMS_DEP = { '17': 'Charente-Maritime (17)', '85': 'Vendée (85)', '44': 'Loire-Atlantique (44)' };
+      var actif = -1;
+      var plat = function (s) {
+        return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                .replace(/[-'’ ]+/g, ' ').trim();
+      };
+      var fermer = function () {
+        boiteSugg.classList.remove('visible');
+        boiteSugg.innerHTML = '';
+        actif = -1;
+        communeInput.setAttribute('aria-expanded', 'false');
+      };
+      var choisir = function (nom, dep) {
+        communeInput.value = nom;
+        form.departement.value = NOMS_DEP[dep];
+        majEstimation();
+        fermer();
+      };
+      var suggerer = function () {
+        var q = plat(communeInput.value);
+        if (q.length < 2) { fermer(); return; }
+        var debut = [], dedans = [];
+        for (var i = 0; i < COMMUNES.length; i++) {
+          var n = plat(COMMUNES[i][0]);
+          if (n.indexOf(q) === 0) debut.push(COMMUNES[i]);
+          else if (n.indexOf(q) !== -1) dedans.push(COMMUNES[i]);
+          if (debut.length >= 8) break;
+        }
+        var res = debut.concat(dedans).slice(0, 8);
+        if (!res.length) { fermer(); return; }
+        boiteSugg.innerHTML = '';
+        res.forEach(function (c) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          var nomEl = document.createElement('span');
+          nomEl.textContent = c[0];
+          var depEl = document.createElement('span');
+          depEl.className = 'dep';
+          depEl.textContent = c[1];
+          b.appendChild(nomEl);
+          b.appendChild(depEl);
+          b.addEventListener('click', function () { choisir(c[0], c[1]); });
+          boiteSugg.appendChild(b);
+        });
+        actif = -1;
+        boiteSugg.classList.add('visible');
+        communeInput.setAttribute('aria-expanded', 'true');
+      };
+      communeInput.addEventListener('input', suggerer);
+      communeInput.addEventListener('focus', suggerer);
+      communeInput.addEventListener('blur', function () { setTimeout(fermer, 180); });
+      communeInput.addEventListener('keydown', function (e) {
+        var boutons = boiteSugg.querySelectorAll('button');
+        if (!boutons.length) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          actif = (actif + (e.key === 'ArrowDown' ? 1 : -1) + boutons.length) % boutons.length;
+          boutons.forEach(function (b, i) { b.classList.toggle('active', i === actif); });
+          boutons[actif].scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter' && actif >= 0) {
+          e.preventDefault();
+          boutons[actif].click();
+        } else if (e.key === 'Escape') {
+          fermer();
+        }
+      });
+    }
 
     function remplir(id, valeur) {
       var el = document.getElementById(id);
@@ -171,6 +264,8 @@
         nuisible: form.nuisible.value, lieu: form.lieu.value,
         surface: forfaitNid ? '—' : form.surface.value,
         ampleur: forfaitNid ? '—' : form.ampleur.value,
+        passages: forfaitNid ? '1 passage (forfait nid)' : form.passages.value,
+        garantie: forfaitNid ? '—' : form.garantie.value,
         estimation: estim
           ? estim.texte + (estim.frais ? ' (dont ' + estim.frais + ' € de déplacement)' : ' (déplacement inclus)')
           : 'Sur diagnostic gratuit',
@@ -188,6 +283,8 @@
       remplir('recap-lieu', demande.lieu);
       remplir('recap-surface', demande.surface);
       remplir('recap-ampleur', demande.ampleur);
+      remplir('recap-passages', demande.passages);
+      remplir('recap-garantie', demande.garantie);
       remplir('recap-estimation', demande.estimation);
       remplir('recap-details', demande.details || '—');
 
