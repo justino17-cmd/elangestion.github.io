@@ -1,50 +1,136 @@
 /* BRIGADE ANTI-NUISIBLE — prise de rendez-vous.
-   Le client choisit un jour (deux prochaines semaines, dimanche exclu),
-   un créneau horaire, laisse ses coordonnées et obtient un récapitulatif. */
+   Le client choisit un créneau dans le tableau des disponibilités
+   (deux semaines, dimanche exclu), laisse ses coordonnées et obtient
+   un récapitulatif avec estimation. */
 (function () {
   function initRdv() {
-    var zone = document.getElementById('rdv-jours');
-    if (!zone || zone.dataset.pret) return;
-    zone.dataset.pret = '1';
+    var table = document.getElementById('rdv-table');
+    if (!table || table.dataset.pret) return;
+    table.dataset.pret = '1';
 
     var JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
     var MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin',
                 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+    var CRENEAUX = ['8 h – 10 h', '10 h – 12 h', '14 h – 16 h', '16 h – 18 h'];
     var etat = { jour: null, creneau: null };
 
-    /* ── étape 1 : les douze prochains jours ouvrés (lundi–samedi) ── */
+    /* ══ DISPONIBILITÉS ══
+       À GÉRER : marquer ici les créneaux déjà pris, au format
+         'AAAA-MM-JJ': ['8 h – 10 h', '14 h – 16 h']
+       ou 'AAAA-MM-JJ': ['*'] pour bloquer toute la journée.
+       (En attendant un agenda connecté, cette liste se met à jour à la main.) */
+    var INDISPO = {};
+    /* À PASSER à false pour la mise en ligne réelle : bloque quelques
+       créneaux d'exemple pour montrer le rendu des cases « Pris ». */
+    var DEMO_INDISPO = true;
+
+    /* ── les douze prochains jours ouvrés (lundi–samedi) ── */
+    var jours = [];
     var d = new Date();
     d.setDate(d.getDate() + 1);
-    var ajoutes = 0;
-    while (ajoutes < 12) {
+    while (jours.length < 12) {
       if (d.getDay() !== 0) {
-        (function (dd) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'rdv-jour';
-          b.setAttribute('aria-pressed', 'false');
-          b.innerHTML = '<small>' + JOURS[dd.getDay()] + '</small><b>' + dd.getDate() + '</b><span>' + MOIS[dd.getMonth()] + '</span>';
-          var libelle = JOURS[dd.getDay()] + ' ' + dd.getDate() + ' ' + MOIS[dd.getMonth()];
-          b.addEventListener('click', function () {
-            zone.querySelectorAll('.rdv-jour').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
-            b.setAttribute('aria-pressed', 'true');
-            etat.jour = libelle;
-          });
-          zone.appendChild(b);
-        })(new Date(d));
-        ajoutes++;
+        var iso = d.getFullYear() + '-' +
+                  String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                  String(d.getDate()).padStart(2, '0');
+        jours.push({
+          iso: iso,
+          jourSem: JOURS[d.getDay()],
+          num: d.getDate(),
+          mois: MOIS[d.getMonth()],
+          libelle: JOURS[d.getDay()] + ' ' + d.getDate() + ' ' + MOIS[d.getMonth()]
+        });
       }
       d.setDate(d.getDate() + 1);
     }
 
-    /* ── étape 2 : le créneau horaire ── */
-    document.querySelectorAll('.rdv-creneau').forEach(function (c) {
-      c.addEventListener('click', function () {
-        document.querySelectorAll('.rdv-creneau').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
-        c.setAttribute('aria-pressed', 'true');
-        etat.creneau = c.textContent.replace(/\s+/g, ' ').trim();
+    if (DEMO_INDISPO) {
+      INDISPO[jours[1].iso] = [CRENEAUX[1], CRENEAUX[2]];
+      INDISPO[jours[2].iso] = [CRENEAUX[0]];
+      INDISPO[jours[4].iso] = ['*'];
+      INDISPO[jours[7].iso] = [CRENEAUX[3]];
+    }
+
+    function estPris(iso, creneau) {
+      var liste = INDISPO[iso];
+      return !!liste && (liste[0] === '*' || liste.indexOf(creneau) !== -1);
+    }
+
+    /* ── le tableau, six jours par semaine, deux semaines ── */
+    var page = 0;
+    var titreSem = document.getElementById('rdv-sem-titre');
+    var btnPrec = document.getElementById('rdv-sem-prec');
+    var btnSuiv = document.getElementById('rdv-sem-suiv');
+    var plustot = document.getElementById('rdv-plustot');
+
+    function dessiner() {
+      var visibles = jours.slice(page * 6, page * 6 + 6);
+      titreSem.textContent = 'Du ' + visibles[0].jourSem + ' ' + visibles[0].num + ' ' + visibles[0].mois +
+                             ' au ' + visibles[visibles.length - 1].jourSem + ' ' + visibles[visibles.length - 1].num + ' ' + visibles[visibles.length - 1].mois;
+      btnPrec.disabled = page === 0;
+      btnSuiv.disabled = (page + 1) * 6 >= jours.length;
+
+      table.innerHTML = '';
+      var thead = document.createElement('thead');
+      var ligneTete = document.createElement('tr');
+      ligneTete.appendChild(document.createElement('th'));
+      visibles.forEach(function (j) {
+        var th = document.createElement('th');
+        th.scope = 'col';
+        th.innerHTML = j.jourSem + '<b>' + j.num + '</b>' + j.mois;
+        ligneTete.appendChild(th);
       });
+      thead.appendChild(ligneTete);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      CRENEAUX.forEach(function (creneau) {
+        var tr = document.createElement('tr');
+        var tdLib = document.createElement('td');
+        tdLib.textContent = creneau;
+        tr.appendChild(tdLib);
+        visibles.forEach(function (j) {
+          var td = document.createElement('td');
+          var b = document.createElement('button');
+          b.type = 'button';
+          if (estPris(j.iso, creneau)) {
+            b.className = 'cell cell-prise';
+            b.disabled = true;
+            b.textContent = 'Pris';
+          } else {
+            b.className = 'cell cell-libre';
+            b.textContent = 'Libre';
+            var choisi = etat.jour === j.libelle && etat.creneau === creneau;
+            b.setAttribute('aria-pressed', choisi ? 'true' : 'false');
+            if (choisi) b.textContent = 'Choisi ✓';
+            b.addEventListener('click', function () {
+              etat.jour = j.libelle;
+              etat.creneau = creneau;
+              plustot.setAttribute('aria-pressed', 'false');
+              dessiner();
+            });
+          }
+          td.appendChild(b);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+    }
+
+    btnPrec.addEventListener('click', function () { if (page > 0) { page--; dessiner(); } });
+    btnSuiv.addEventListener('click', function () { if ((page + 1) * 6 < jours.length) { page++; dessiner(); } });
+
+    /* « au plus tôt » : pas de case précise, on propose le premier créneau libre */
+    plustot.addEventListener('click', function () {
+      etat.jour = 'Dès que possible';
+      etat.creneau = 'premier créneau libre';
+      plustot.setAttribute('aria-pressed', 'true');
+      dessiner();
+      plustot.setAttribute('aria-pressed', 'true');
     });
+
+    dessiner();
 
     /* ── estimation de devis en direct ──
        À AJUSTER : grille tarifaire INDICATIVE (fourchettes TTC, déplacement et
@@ -78,10 +164,10 @@
       'Vendée (85)': 20,
       'Loire-Atlantique (44)': 40
     };
-    /* À AJUSTER : prix de chaque passage au-delà du premier, et supplément
-       pour la garantie longue. */
+    /* À AJUSTER : prix de chaque passage au-delà du premier. */
     var PRIX_PASSAGE_SUPP = 40;
-    var PRIX_GARANTIE = { '3 mois': 0, '6 mois': 30 };
+    /* Tarifs de la garantie (confirmés) : 3 mois 45 €, 6 mois 80 €. */
+    var PRIX_GARANTIE = { '3 mois': 45, '6 mois': 80 };
 
     var form = document.getElementById('rdv-form');
     var erreur = document.getElementById('rdv-erreur');
@@ -239,8 +325,7 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var manques = [];
-      if (!etat.jour) manques.push('le jour (étape 1)');
-      if (!etat.creneau) manques.push("le créneau horaire (étape 2)");
+      if (!etat.jour || !etat.creneau) manques.push('votre créneau dans le tableau (étape 1)');
       var nom = form.nom.value.trim();
       var tel = form.telephone.value.trim();
       var commune = form.commune.value.trim();
