@@ -44,6 +44,9 @@ if [ ! -f /opt/teamop/config.json ]; then
   PUB=$(echo "$VAPID" | cut -d' ' -f1)
   PRIV=$(echo "$VAPID" | cut -d' ' -f2)
   KEY=$(openssl rand -hex 24)
+  # Code d'accès de l'assistant devis : généré ici, jamais écrit dans le dépôt.
+  # C'est ce code que l'équipe saisit une fois par appareil dans OP GESTION.
+  SECRET_DEVIS=$(openssl rand -hex 8)
   cat > /opt/teamop/config.json <<EOF
 {
   "vapidPublicKey": "$PUB",
@@ -51,7 +54,12 @@ if [ ! -f /opt/teamop/config.json ]; then
   "apiKey": "$KEY",
   "contactEmail": "contact@teamop.fr",
   "origins": ["https://teamop.fr", "https://www.teamop.fr"],
-  "smtp": {}
+  "smtp": {},
+  "anthropic": {
+    "apiKey": "",
+    "secretDevis": "$SECRET_DEVIS",
+    "quotaJour": 100
+  }
 }
 EOF
   chmod 600 /opt/teamop/config.json
@@ -95,6 +103,25 @@ echo "  Test local : $(curl -s http://127.0.0.1:8080/health || echo 'API pas enc
 echo ""
 echo "  Clé publique push (VAPID) à donner à Claude :"
 node -e "console.log('  '+JSON.parse(require('fs').readFileSync('/opt/teamop/config.json')).vapidPublicKey)"
+echo ""
+echo "  ── Assistant devis ─────────────────────────────────────"
+node -e "
+const c=JSON.parse(require('fs').readFileSync('/opt/teamop/config.json'));
+const a=c.anthropic||{};
+if(!a.secretDevis){
+  console.log('  Bloc absent de config.json. Ajoute-le (exemple, remplace les valeurs) :');
+  console.log('    \"anthropic\": {');
+  console.log('      \"apiKey\": \"sk-ant-api03-EXEMPLE-remplace-moi\",');
+  console.log('      \"secretDevis\": \"EXEMPLE-code-equipe\",');
+  console.log('      \"quotaJour\": 100');
+  console.log('    }');
+} else {
+  console.log('  Code d\\'accès équipe (à saisir une fois par appareil) : '+a.secretDevis);
+  console.log(a.apiKey ? '  Clé Anthropic : configurée.'
+    : '  Clé Anthropic MANQUANTE — colle-la dans anthropic.apiKey de /opt/teamop/config.json,');
+  if(!a.apiKey) console.log('  puis : systemctl restart teamop-api');
+}
+" 2>/dev/null || echo "  (config.json illisible)"
 echo ""
 echo "  ⚠️  Vérifie que le DNS 'api.teamop.fr' pointe vers CE serveur,"
 echo "      puis teste :  https://$DOMAIN/health"

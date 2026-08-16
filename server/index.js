@@ -47,7 +47,7 @@ app.use((req, res, next) => {
   if (o && ORIGINS.includes(o)) {
     res.setHeader('Access-Control-Allow-Origin', o);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Teamop-Devis');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -103,6 +103,16 @@ app.post('/api/checkcode', (req, res) => {
 
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
 app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
+
+// ── Assistant devis : l'agent qui compose un devis à partir d'une conversation.
+//    Il ne fait que parler à Claude ; c'est OP GESTION qui enregistre le devis
+//    et produit le PDF. Sans clé Anthropic dans config.json, la route répond 503
+//    et le reste du serveur fonctionne normalement.
+try {
+  require('./agent-devis').monterAgentDevis(app, config, DATA_DIR);
+} catch (e) {
+  console.error('assistant devis non monté :', e.message);
+}
 
 // ── Stripe : liste des tarifs actifs (lecture seule — les prix sont publics sur le site)
 app.get('/api/stripe/prices', async (req, res) => {

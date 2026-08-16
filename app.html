@@ -2834,6 +2834,7 @@ const NAV = [
   ]},
   {g:'Ventes', items:[
     {k:'devis',ic:'💰',l:'Devis',b:'dev'},
+    {k:'assistantDevis',ic:'🤖',l:'Assistant devis'},
     {k:'factures',ic:'🧾',l:'Factures',b:'fac'},
     {k:'contrats',ic:'📑',l:'Contrats',b:'ctr'},
     {k:'comptabilite',ic:'📊',l:'Comptabilité',admin:true},
@@ -17202,6 +17203,128 @@ function msgInputChange(){ const inp=$('msg-input'), pop=$('mention-pop'); if(!i
 function mentionPick(handle){ const inp=$('msg-input'); if(!inp) return; const caret=inp.selectionStart;
   const upto=inp.value.slice(0,caret).replace(/@([\wÀ-ÿ]*)$/,'@'+handle+' '); const rest=inp.value.slice(caret);
   inp.value=upto+rest; inp.focus(); inp.setSelectionRange(upto.length,upto.length); const pop=$('mention-pop'); if(pop) pop.style.display='none'; }
+
+/* ══ Assistant devis ══════════════════════════════════════════════════════
+   On décrit le chantier en langage courant, l'assistant compose le devis.
+   Le serveur ne fait que parler à Claude : le devis est créé ICI, dans
+   db.devis, avec la numérotation habituelle, et son PDF sort par printDoc()
+   comme n'importe quel autre devis. Le code d'accès d'équipe est demandé une
+   fois par appareil et reste dans le navigateur — jamais dans le dépôt. */
+const AD_CODE_KEY='elan_devis_code';
+let adFil=[];        // [{role, content, devisId?}] — la conversation en cours
+let adBusy=false;
+
+const adCode = () => (localStorage.getItem(AD_CODE_KEY)||'').trim();
+function adDemanderCode(){
+  openModal(`<div class="modal-head"><h3>Code d'accès de l'assistant</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p style="font-size:13px;color:var(--t2);line-height:1.6;margin:0 0 12px">L'assistant devis fait appel à un service payant. Saisis le code d'équipe une seule fois : il reste sur cet appareil.</p>
+    <input id="ad-code" type="password" class="search-inp" placeholder="Code d'équipe" autocomplete="off" style="margin-bottom:0">
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick="adEnregistrerCode()">Valider</button><button class="btn ghost" onclick="closeModal()">Annuler</button></div>`);
+  setTimeout(()=>{ const i=$('ad-code'); if(i) i.focus(); },60);
+}
+function adEnregistrerCode(){
+  const v=(($('ad-code')||{}).value||'').trim();
+  if(!v){ toast('Tape le code'); return; }
+  localStorage.setItem(AD_CODE_KEY,v); closeModal(); toast('🔑 Code enregistré'); views.assistantDevis();
+}
+function adOublierCode(){ localStorage.removeItem(AD_CODE_KEY); toast('Code effacé de cet appareil'); views.assistantDevis(); }
+
+views.assistantDevis=function(){
+  setHeader('Assistant devis','Décris le chantier, il compose le devis',
+    adCode()?`<button class="btn ghost sm" onclick="adOublierCode()">Oublier le code</button>`:'');
+  if(!adCode()){
+    $('content').innerHTML=`<div class="card"><div class="card-head"><h3>🔒 Code d'accès requis</h3></div>
+      <p style="font-size:13px;color:var(--t2);line-height:1.6">L'assistant devis est réservé à l'équipe. Demande le code au responsable, puis saisis-le une fois sur cet appareil.</p>
+      <button class="btn" style="margin-top:12px" onclick="adDemanderCode()">Saisir le code</button></div>`;
+    return;
+  }
+  const bulles = adFil.length ? adFil.map((m,i)=>{
+    const mine = m.role==='user';
+    const carte = m.devisId ? adCarteDevis(m.devisId) : '';
+    return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};margin-bottom:12px">
+      <div style="font-size:11px;color:var(--t3);margin-bottom:3px">${mine?'Vous':'🤖 Assistant'}</div>
+      <div class="msg ${mine?'user':'bot'}" style="max-width:80%;white-space:pre-wrap">${esc(m.content)}</div>
+      ${carte}</div>`;
+  }).join('') : `<div style="text-align:center;color:var(--t3);font-size:13px;padding:26px 10px;line-height:1.7">
+      Exemples :<br><b style="color:var(--t2)">« Dératisation chez Mme Martin, 12 rue des Lilas à Rochefort, 280 € TTC »</b><br>
+      <b style="color:var(--t2)">« Punaises de lit, appartement 60 m², La Rochelle, à 650 »</b></div>`;
+  $('content').innerHTML=`
+    <div class="card" style="height:calc(100dvh - 300px);min-height:300px;max-height:66vh;overflow-y:auto" id="ad-list">${bulles}
+      ${adBusy?`<div style="display:flex;align-items:center;gap:8px;color:var(--t3);font-size:12px;padding:4px 2px">⏳ L'assistant réfléchit…</div>`:''}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="ad-input" class="search-inp" style="flex:1;margin-bottom:0" placeholder="Décris le chantier…" ${adBusy?'disabled':''} onkeydown="if(event.key==='Enter'){event.preventDefault();adEnvoyer();}">
+      <button class="btn" onclick="adEnvoyer()" ${adBusy?'disabled':''}>Envoyer</button>
+      ${adFil.length?`<button class="btn ghost" onclick="adFil=[];views.assistantDevis()" title="Nouvelle conversation">🗑</button>`:''}
+    </div>`;
+  const l=$('ad-list'); if(l) l.scrollTop=l.scrollHeight;
+  const i=$('ad-input'); if(i&&!adBusy) i.focus();
+};
+
+/* La carte qui suit le devis créé : mêmes actions que depuis la liste des devis */
+function adCarteDevis(id){
+  const d=(db.devis||[]).find(x=>x.id===id); if(!d) return '';
+  const t=docTot(d);
+  return `<div class="card" style="margin-top:8px;max-width:80%;padding:12px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:2px">💰 ${esc(d.num)}</div>
+    <div style="font-size:12px;color:var(--t2);margin-bottom:8px">${esc(clientName(d.clientId))} · ${eur(t.ttc)} TTC</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" onclick="printDoc('devis','${d.id}')">Ouvrir le PDF</button>
+      <button class="btn ghost sm" onclick="go('devis');setTimeout(()=>{try{formDoc('devis','${d.id}')}catch(e){}},80)">Modifier</button>
+    </div></div>`;
+}
+
+/* Création du devis dans la base de l'app : même chemin qu'une saisie manuelle */
+function adCreerDevis(p){
+  const nom=(p.clientNom||'').trim();
+  let cli=(db.clients||[]).find(c=>(c.nom||'').trim().toLowerCase()===nom.toLowerCase());
+  if(!cli){ cli={id:uid(),nom:nom||'Client',adresse:(p.clientAdresse||'').trim(),x:10+Math.random()*80,y:10+Math.random()*80};
+    db.clients.push(cli); logEvent('Client créé',cli.nom,'crud'); }
+  else if(!cli.adresse && p.clientAdresse) cli.adresse=String(p.clientAdresse).trim();
+  const lignes=(p.lignes||[]).map(l=>({designation:String(l.designation||''),qte:Number(l.qte)||0,pu:Number(l.pu_ht)||0}));
+  const soc=(p.societe||'').trim();
+  const d={ id:uid(), num:docNum('devis'), clientId:cli.id,
+    rapportModele: soc && (db.societes||[]).some(s=>s.toLowerCase()===soc.toLowerCase()) ? soc : (intSocDefaut()||'Modèle générique'),
+    date:todayISO(), statut:'brouillon', tva:Number(p.tvaTaux)||10,
+    notes:[p.objet,p.notes].filter(Boolean).join('\n'), lignes };
+  db.devis.push(d);
+  logEvent('Création','devis : '+d.num+' (assistant)','crud');
+  save();
+  return d.id;
+}
+
+async function adEnvoyer(){
+  if(adBusy) return;
+  const inp=$('ad-input'); const v=inp?inp.value.trim():'';
+  if(!v) return;
+  adFil.push({role:'user',content:v});
+  adBusy=true; views.assistantDevis();
+  try{
+    const r=await fetch(PUSH_API+'/api/devis/agent',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Teamop-Devis':adCode()},
+      body:JSON.stringify({
+        messages: adFil.map(m=>({role:m.role,content:m.content})),
+        contexte:{
+          societes:(db.societes||[]),
+          clients:(db.clients||[]).slice(0,60).map(c=>({nom:c.nom,adresse:c.adresse,ville:c.ville}))
+        }
+      })
+    });
+    if(r.status===403){ adBusy=false; adFil.pop(); localStorage.removeItem(AD_CODE_KEY);
+      toast('Code d’accès refusé'); views.assistantDevis(); adDemanderCode(); return; }
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ adBusy=false; adFil.push({role:'assistant',content:j.error||'Le serveur n’a pas répondu.'}); views.assistantDevis(); return; }
+    const msg={role:'assistant',content:j.reply||'…'};
+    if(j.devis){ try{ msg.devisId=adCreerDevis(j.devis); }catch(e){ console.error('création devis assistant',e); msg.content+='\n\n(le devis n’a pas pu être enregistré)'; } }
+    adFil.push(msg); adBusy=false; views.assistantDevis();
+    if(msg.devisId) toast('💰 Devis créé');
+  }catch(e){
+    adBusy=false;
+    adFil.push({role:'assistant',content:'Serveur injoignable. Vérifie la connexion et réessaie.'});
+    views.assistantDevis();
+  }
+}
+
 views.messagerie=function(){
   db.groupes=db.groupes||[];
   const isMgr=currentUser&&['admin','dr','chefEquipe','commercial'].includes(currentUser.role);
