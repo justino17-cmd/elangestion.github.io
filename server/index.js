@@ -1244,5 +1244,92 @@ try {
   console.log('messagerie : module chargé');
 } catch (e) { console.error('messagerie indisponible :', e.message); }
 
+/* ══════════ DEVIS IA — génération de devis par Claude ══════════
+   La clé API vit UNIQUEMENT dans /opt/teamop/config.json → bloc "anthropic" :
+     "anthropic": { "cleApi": "sk-ant-…", "secretDevis": "<code partagé à l'équipe>", "quotaJour": 100 }
+   Elle ne transite jamais par le navigateur ni par le dépôt. L'app envoie le
+   code d'équipe + la demande ; le serveur appelle Claude et renvoie les lignes. */
+const DEVIS_QUOTA_PATH = path.join(DATA_DIR, 'devis-quota.json');
+let devisQuota = { jour: '', n: 0 };
+try { devisQuota = JSON.parse(fs.readFileSync(DEVIS_QUOTA_PATH, 'utf8')); } catch (e) {}
+function devisConf() { return config.anthropic || {}; }
+function devisActif() { const c = devisConf(); return !!(c.cleApi && c.secretDevis); }
+function devisQuotaJour() { return Number(devisConf().quotaJour) || 100; }
+function devisUtilises() {
+  const auj = new Date().toISOString().slice(0, 10);
+  if (devisQuota.jour !== auj) devisQuota = { jour: auj, n: 0 };
+  return devisQuota.n;
+}
+function devisCompte() { devisUtilises(); devisQuota.n++; try { fs.writeFileSync(DEVIS_QUOTA_PATH, JSON.stringify(devisQuota)); } catch (e) {} }
+
+app.get('/api/devis/etat', (req, res) => {
+  res.json({ ok: true, actif: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
+});
+
+let anthropicClient = null;
+function getAnthropic() {
+  if (!anthropicClient) {
+    const Anthropic = require('@anthropic-ai/sdk');
+    anthropicClient = new Anthropic({ apiKey: devisConf().cleApi });
+  }
+  return anthropicClient;
+}
+
+// Le schéma garantit une réponse JSON exploitable : mêmes champs que les lignes de devis de l'app
+const DEVIS_SCHEMA = {
+  type: 'object',
+  properties: {
+    titre: { type: 'string' },
+    lignes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { designation: { type: 'string' }, qte: { type: 'number' }, pu: { type: 'number' } },
+        required: ['designation', 'qte', 'pu'],
+        additionalProperties: false
+      }
+    },
+    tva: { type: 'number' },
+    remarque: { type: 'string' }
+  },
+  required: ['titre', 'lignes', 'tva', 'remarque'],
+  additionalProperties: false
+};
+
+app.post('/api/devis/generer', async (req, res) => {
+  try {
+    if (!devisActif()) return res.status(503).json({ error: "Devis IA non configuré sur le serveur (config.json → anthropic)" });
+    const { code, demande, client: cli, contexte } = req.body || {};
+    if (!code || String(code) !== String(devisConf().secretDevis)) return res.status(401).json({ error: "Code d'accès équipe invalide" });
+    if (!demande || String(demande).trim().length < 5) return res.status(400).json({ error: 'Décris la prestation à chiffrer' });
+    if (devisUtilises() >= devisQuotaJour()) return res.status(429).json({ error: 'Quota du jour atteint (' + devisQuotaJour() + ' devis) — réessaie demain' });
+
+    const sys = "Tu prépares des devis pour une entreprise française de gestion de nuisibles (dératisation, désinsectisation, désinfection, dépigeonnage) et petits travaux associés. À partir de la demande, produis un devis réaliste et sobre : des lignes claires (désignation précise, quantité, prix unitaire HT en euros, cohérent avec le marché français), la main d'œuvre et le déplacement en lignes séparées quand c'est pertinent, TVA 20 par défaut (10 seulement pour des travaux d'amélioration d'un logement de plus de 2 ans). « remarque » : 1 ou 2 phrases utiles pour le client (garantie, nombre de passages, conditions). Pas de lignes de remplissage.";
+    const msg = await getAnthropic().messages.create({
+      model: 'claude-opus-5',
+      max_tokens: 16000,
+      system: sys,
+      output_config: { format: { type: 'json_schema', schema: DEVIS_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: 'Demande : ' + String(demande).slice(0, 2000)
+          + (cli ? '\nClient : ' + String(cli).slice(0, 300) : '')
+          + (contexte ? '\nContexte : ' + String(contexte).slice(0, 1000) : '')
+      }]
+    });
+    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Génération refusée — reformule la demande' });
+    const texte = (msg.content.find(b => b.type === 'text') || {}).text || '';
+    let devis; try { devis = JSON.parse(texte); } catch (e) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+    devisCompte();
+    res.json({ ok: true, devis, restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
+  } catch (e) {
+    const status = e && e.status;
+    if (status === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur — vérifier config.json → anthropic.cleApi' });
+    if (status === 429 || status === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    console.error('devis IA:', e && e.message);
+    res.status(500).json({ error: 'Erreur du serveur de devis' });
+  }
+});
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '127.0.0.1', () => console.log('TeamOP API sur 127.0.0.1:' + PORT));
