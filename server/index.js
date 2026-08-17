@@ -1331,5 +1331,37 @@ app.post('/api/devis/generer', async (req, res) => {
   }
 });
 
+/* ══════════ CODES PROMO — mois offerts, sans carte bancaire ══════════
+   Les codes vivent dans /opt/teamop/config.json → "promos" :
+     "promos": [ { "code": "BIENVENUE3", "formule": "premium", "mois": 3, "maxUtilisations": 50 } ]
+   formule : pro | business | premium. Les usages sont comptés dans
+   data/promos-usages.json — un même code ne compte qu'une fois par équipe. */
+const PROMO_USAGE_PATH = path.join(DATA_DIR, 'promos-usages.json');
+let promoUsages = {};
+try { promoUsages = JSON.parse(fs.readFileSync(PROMO_USAGE_PATH, 'utf8')); } catch (e) {}
+function savePromoUsages() { try { fs.writeFileSync(PROMO_USAGE_PATH, JSON.stringify(promoUsages)); } catch (e) {} }
+
+app.post('/api/promo/valider', (req, res) => {
+  const { code, teamId, apercu } = req.body || {};
+  const c = String(code || '').trim().toUpperCase();
+  if (!c) return res.status(400).json({ error: 'Entre ton code promo' });
+  const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+  if (!p) return res.status(404).json({ error: 'Code promo inconnu' });
+  const u = promoUsages[c] || { n: 0, equipes: {} };
+  const team = String(teamId || '').slice(0, 80);
+  const deja = team && u.equipes[team];
+  if (!deja && p.maxUtilisations && u.n >= p.maxUtilisations) return res.status(410).json({ error: "Ce code a atteint son nombre maximum d'utilisations" });
+  const mois = Math.max(1, Number(p.mois) || 1);
+  let finLe;
+  if (deja) {
+    finLe = deja.finLe;   // le même code retape par la même équipe : on redonne la même échéance
+  } else {
+    const d = new Date(); d.setMonth(d.getMonth() + mois);
+    finLe = d.toISOString().slice(0, 10);
+    if (!apercu) { u.n++; if (team) u.equipes[team] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages(); }
+  }
+  res.json({ ok: true, formule: ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium', mois, finLe, dejaUtilise: !!deja });
+});
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '127.0.0.1', () => console.log('TeamOP API sur 127.0.0.1:' + PORT));
