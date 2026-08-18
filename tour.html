@@ -165,7 +165,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.38</div>
+    <div class="lg-pied">console interne · v2.39</div>
   </div>
 </div>
 
@@ -192,7 +192,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.38</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.39</div>
 </div>
 
 <div id="toast"></div>
@@ -417,6 +417,17 @@ function tourLienEntreprise(email,nom){
   catch(e2){ prompt('Copie ce message :',txt); }
 }
 /* ✅ Accepter la demande : espace + lien + formule demandée (en attente de paiement) + message de bienvenue prêt */
+function tourPanneau(html){
+  var v=document.getElementById('tour-panneau'); if(v) v.remove();
+  var d=document.createElement('div'); d.id='tour-panneau';
+  d.style.cssText='position:fixed;inset:0;background:rgba(4,8,18,.72);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+  d.innerHTML='<div style="background:var(--fond2,#141F36);border:1px solid var(--line);border-radius:18px;max-width:640px;width:100%;max-height:88vh;overflow:auto;padding:24px 26px">'+html+
+    '<div style="text-align:right;margin-top:16px"><button class="btn-fant" onclick="document.getElementById(\'tour-panneau\').remove()">Fermer</button></div></div>';
+  d.addEventListener('click',function(ev){ if(ev.target===d) d.remove(); });
+  document.body.appendChild(d);
+}
+function tourCopie(id,btn){ var el=document.getElementById(id); if(!el) return;
+  try{ navigator.clipboard.writeText(el.value!==undefined?el.value:el.textContent); var o=btn.textContent; btn.textContent='Copié !'; setTimeout(function(){ btn.textContent=o; },1500); }catch(e){ toast('Copie impossible'); } }
 function tourAccepterDemande(email,nom){
   var c=(CLI.list||[]).find(function(x){ return x.email===email; })||{};
   var dm=(c.demandes||[]).slice().sort(function(a,b){ return (b.date||0)-(a.date||0); })[0]||{};
@@ -427,9 +438,20 @@ function tourAccepterDemande(email,nom){
   apiPost('/api/monitor/espaces/formule',{nom:e.nom,formule:formule,quantite:q}).then(function(r){
     if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Formule non attribuée'); return; }
     tourPackPrefill(e.nom);
-    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi : teamop.fr/app.html → champ « Entreprise » : tape « '+e.nom+' » (ou clique ton lien : '+e.lien+' )\n2. Première connexion : identifiant admin — mot de passe 1234. L\'app te fait choisir TON identifiant, TON mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi : teamop.fr/connexion.html → écris le nom de ton entreprise : « '+e.nom+' » (ou clique ton lien direct : '+e.lien+' )\n2. Première connexion : identifiant admin — mot de passe 1234. L\'app te fait choisir TON identifiant, TON mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs : chacun se connecte pareil (nom de l\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+    var F2={gratuit:'Gratuit',pro:'Pro',business:'Business',premium:'Business Premium'};
+    tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">✅ Demande acceptée — '+esc(e.nom)+'</div>'+
+      '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">L\'espace est prêt et activé. Il ne te reste qu\'à envoyer le message ci-dessous.</div>'+
+      '<div class="sec">FORMULE RÉSERVÉE</div><div style="margin:6px 0 14px;font-size:15px"><b>'+(F2[formule]||formule)+(q>1?' ×'+q:'')+'</b> <span class="past p-orange">💳 en attente de paiement</span></div>'+
+      '<div class="sec">LIEN DE CONNEXION (le nom de l\'entreprise est dedans)</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="acc-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:#7cc6ff">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'acc-lien\',this)">Copier</button></div>'+
+      '<div class="sec">OU SUR LA PAGE DE CONNEXION</div><div style="margin:6px 0 14px;font-size:13.5px;color:var(--muted)">teamop.fr/connexion.html → entreprise : <b style="color:inherit">'+esc(e.nom)+'</b> · première connexion : <b>admin</b> / <b>1234</b> (il choisira ensuite son identifiant et son mot de passe)</div>'+
+      '<div class="sec">MESSAGE DE BIENVENUE À ENVOYER</div>'+
+      '<textarea id="acc-msg" rows="9" style="width:100%;margin-top:6px;background:#0d1526;border:1px solid var(--line);border-radius:10px;color:inherit;font-size:12.5px;line-height:1.55;padding:10px"></textarea>'+
+      '<div style="margin-top:8px"><button class="btn-plein" onclick="tourCopie(\'acc-msg\',this)">📋 Copier le message</button></div>');
+    var ta=document.getElementById('acc-msg'); if(ta) ta.value=txt;
     try{ navigator.clipboard.writeText(txt); }catch(e2){}
-    toast('✅ Demande acceptée : espace prêt, formule '+formule+(q>1?' ×'+q:'')+' réservée — message de bienvenue copié, envoie-le à '+e.nom);
+    toast('✅ Espace prêt — formule '+formule+(q>1?' ×'+q:'')+' réservée');
   }).catch(function(){ toast('Serveur injoignable'); });
 }
 function chargerEspaces(){
