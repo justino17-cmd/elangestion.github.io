@@ -448,6 +448,33 @@ app.post('/api/sendmail', async (req, res) => {
   } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
 });
 
+/* ── Gabarit d'e-mail TEAM OP (modèle « Suivi ») : logo, pastille d'état, frise,
+   boutons. Sert à tous les e-mails automatiques envoyés aux clients. ── */
+function mailTeamOP(o) {
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const etapes = (o.frise || []).map((e, i) =>
+    '<td width="' + Math.floor(100 / (o.frise.length || 1)) + '%" style="border-top:3px solid ' + (e.fait ? '#34D399' : '#DEE5EF') + ';padding-top:9px;font-size:12px;color:' + (e.fait ? '#17233B' : '#93A2BF') + '"><b>' + (e.fait && i === 0 ? '✔ ' : '') + esc(e.titre) + '</b><br><span style="color:#93A2BF">' + esc(e.sous) + '</span></td>').join('');
+  const bouton2 = o.bouton2Txt ? '<a href="' + esc(o.bouton2Url) + '" style="display:inline-block;color:#4A5A7A;text-decoration:none;font-size:13.5px;padding:12px 14px">' + esc(o.bouton2Txt) + '</a>' : '';
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#F3F5F9">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F5F9"><tr><td align="center" style="padding:28px 12px">' +
+    '<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#FFFFFF;border-radius:12px;border:1px solid #E3E8F1;font-family:-apple-system,\'Segoe UI\',Roboto,Arial,sans-serif">' +
+    '<tr><td style="padding:26px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    '<td><table cellpadding="0" cellspacing="0"><tr>' +
+    '<td><img src="https://teamop.fr/icons/teamop-512.png" width="34" height="34" alt="TEAM OP" style="border-radius:8px;display:block"></td>' +
+    '<td style="padding-left:10px;font-family:\'Courier New\',monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:#17233B">TEAM OP</td>' +
+    '</tr></table></td>' +
+    (o.chip ? '<td align="right"><span style="background:#E7F8F1;color:#1E7A57;font-size:12px;font-weight:700;padding:6px 12px;border-radius:100px">● ' + esc(o.chip) + '</span></td>' : '') +
+    '</tr></table></td></tr>' +
+    '<tr><td style="padding:22px 34px 0;font-size:19px;font-weight:800;color:#17233B">' + esc(o.titre) + '</td></tr>' +
+    '<tr><td style="padding:10px 34px 0;font-size:14.5px;line-height:1.7;color:#4A5A7A">' + o.corpsHtml + '</td></tr>' +
+    (etapes ? '<tr><td style="padding:24px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' + etapes + '</tr></table></td></tr>' : '') +
+    '<tr><td style="padding:26px 34px 30px">' +
+    (o.boutonTxt ? '<a href="' + esc(o.boutonUrl) + '" style="display:inline-block;background:#34D399;color:#08251A;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:10px">' + esc(o.boutonTxt) + '</a>' : '') +
+    bouton2 + '</td></tr>' +
+    '<tr><td style="padding:16px 34px 22px;border-top:1px solid #EDF1F7;font-size:11.5px;color:#93A2BF">TEAM OP · la suite de gestion des pros du terrain · <a href="https://teamop.fr" style="color:#34A97E">teamop.fr</a></td></tr>' +
+    '</table></td></tr></table></body></html>';
+}
+
 // envoi d'e-mail (rapports, avis de passage) — nécessite la config smtp
 app.post('/api/email', async (req, res) => {
   if (!mailer) return res.status(503).json({ error: "e-mail non configuré sur le serveur (config.json → smtp)" });
@@ -1024,8 +1051,20 @@ app.post('/api/clients/sync', async (req, res) => {
         'Votre demande d\'application (' + nv.map(d => d.app || 'application').join(', ') + ') a bien été prise en compte par TEAM OP.\n' +
         'Vous aurez une réponse sous 24 heures.\n\n' +
         '— L\'équipe TEAM OP · teamop.fr';
+      const accuseHtml = mailTeamOP({
+        chip: 'Reçue',
+        titre: 'Demande d\'application ' + (nv.map(d => d.app || 'application').join(', ')),
+        corpsHtml: 'Bonjour,<br>votre demande a bien été prise en compte par TEAM OP.',
+        frise: [
+          { titre: 'Reçue', sous: 'aujourd\'hui', fait: true },
+          { titre: 'À l\'étude', sous: 'notre équipe la lit', fait: true },
+          { titre: 'Réponse', sous: 'sous 24 heures', fait: false }
+        ],
+        boutonTxt: 'Suivre ma demande', boutonUrl: 'https://teamop.fr/espace.html',
+        bouton2Txt: 'Écrire à l\'équipe', bouton2Url: 'mailto:contact@teamop.fr'
+      });
       mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: email,
-        subject: '✅ Votre demande a bien été reçue — TEAM OP', text: accuse })
+        subject: '✅ Votre demande a bien été reçue — TEAM OP', text: accuse, html: accuseHtml })
         .then(() => console.log('accusé de réception envoyé →', email))
         .catch(e => console.error('mail accusé:', e.message));
     }
