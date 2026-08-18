@@ -164,7 +164,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.33</div>
+    <div class="lg-pied">console interne · v2.34</div>
   </div>
 </div>
 
@@ -191,7 +191,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.33</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.34</div>
 </div>
 
 <div id="toast"></div>
@@ -384,6 +384,33 @@ function vueDevisIA(){
       '<br><br>Le « code d’espace », c’est l’identifiant que l’entreprise utilise pour synchroniser son équipe (visible dans sa demande). Activation et coupure sont immédiates.</div>'+
   '</div>';
   return tete+'<div class="deux"><div class="col-liste">'+liste+'</div><div class="col-detail">'+form+'</div></div>';
+}
+/* ── Lien de connexion d'une entreprise : généré ICI quand une demande arrive.
+   Le lien met l'appareil de l'entreprise sur SON espace isolé (app.html#entreprise=CODE) ;
+   sa 1re connexion : admin / 1234 → l'app fait créer mot de passe + e-mail. Un lien
+   généré est mémorisé sur cet appareil (tour_liens) : re-cliquer redonne le même. */
+function tourLienEntreprise(email,nom){
+  var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
+  var sp=reg[email];
+  if(!sp){
+    var slug=(nom||'espace').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20)||'espace';
+    var al='abcdefghjkmnpqrstuvwxyz23456789', k='', i;
+    for(i=0;i<24;i++) k+=al[Math.floor(Math.random()*al.length)];
+    sp={t:slug+'-'+Math.random().toString(36).slice(2,6),k:k,n:nom||''};
+    reg[email]=sp; localStorage.setItem('tour_liens',JSON.stringify(reg));
+  }
+  var code=btoa(unescape(encodeURIComponent(JSON.stringify(sp)))).replace(/=+$/,'');
+  var lien='https://teamop.fr/app.html#entreprise='+code;
+  var txt='Bienvenue sur OP GESTION !\n\n1. Clique sur ton lien de connexion (garde-le précieusement) :\n'+lien+'\n\n2. Première connexion : identifiant admin — mot de passe 1234.\n3. L\'app te fait créer TON mot de passe et enregistrer ton e-mail.\n4. Tu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun reçoit ce même lien + son identifiant.\n\nBonne prise en main !';
+  try{ navigator.clipboard.writeText(txt); toast('Lien + mode d\'emploi copiés — colle-les dans un message à '+(nom||email)); }
+  catch(e){ prompt('Copie ce message :',txt); }
+}
+function tourRetirerEntreprise(email){
+  if(!confirm('Retirer « '+email+' » de la liste des entreprises ?\n\n(Sert au ménage des entrées de test — ne supprime aucune donnée chez le client.)')) return;
+  apiPost('/api/monitor/clients/retirer',{email:email}).then(function(r){
+    if(r&&r.ok){ toast('Entreprise retirée'); CLI.sel=null; chargerClients(); }
+    else toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron');
+  }).catch(function(){ toast('Serveur injoignable'); });
 }
 function chargerClients(){
   apiGet('/api/monitor/clients').then(function(d){
@@ -987,7 +1014,9 @@ function ficheClient(){
       '<span class="past '+s[1]+'">'+esc(s[0])+'</span></div>'+
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">'+
       '<button class="btn-plein" onclick="compoOuvrir(\''+jsq(c.email)+'\');setTab(\'support\')">Écrire à '+esc(prenom)+'</button>'+
-      '<button class="btn-fant" onclick="window.open(\'https://dashboard.stripe.com/search?query='+encodeURIComponent(c.email)+'\',\'_blank\',\'noopener\')">Voir dans Stripe '+svg('ext',14)+'</button></div>'+
+      '<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(c.email)+'\',\''+jsq(nm)+'\')">🔗 Lien de connexion</button>'+
+      '<button class="btn-fant" onclick="window.open(\'https://dashboard.stripe.com/search?query='+encodeURIComponent(c.email)+'\',\'_blank\',\'noopener\')">Voir dans Stripe '+svg('ext',14)+'</button>'+
+      '<button class="btn-fant" style="color:var(--rouge,#f87171)" onclick="tourRetirerEntreprise(\''+jsq(c.email)+'\')">Retirer de la liste</button></div>'+
     sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
     sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>']])+

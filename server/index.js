@@ -654,6 +654,15 @@ app.post('/api/monitor/users/delete', monPatronStrict, (req, res) => {
   res.json({ ok: true });
 });
 
+// retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
+app.post('/api/monitor/clients/retirer', monPatronStrict, (req, res) => {
+  const email = monStr((req.body || {}).email, 120).toLowerCase();
+  if (!clientsData[email]) return res.status(404).json({ error: 'entreprise introuvable' });
+  delete clientsData[email]; cliSave();
+  console.log('Tour :', req.tourUser.nom, 'a retiré l\'entreprise', email);
+  res.json({ ok: true });
+});
+
 // liste des problèmes + compteurs (admin)
 app.get('/api/monitor/issues', monAdmin, (req, res) => {
   monPurge();
