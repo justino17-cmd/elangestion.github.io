@@ -1253,7 +1253,15 @@ const DEVIS_QUOTA_PATH = path.join(DATA_DIR, 'devis-quota.json');
 let devisQuota = { jour: '', n: 0 };
 try { devisQuota = JSON.parse(fs.readFileSync(DEVIS_QUOTA_PATH, 'utf8')); } catch (e) {}
 function devisConf() { return config.anthropic || {}; }
-function devisActif() { const c = devisConf(); return !!(c.cleApi && c.secretDevis); }
+function devisActif() { return !!devisConf().cleApi; }
+/* ── Accès par entreprise : activé depuis la Tour de contrôle — aucun code ni clé ne
+   circule chez les clients. data/devis-acces.json : { "<espace>": { actif, depuis, n, dernier } }
+   L'ancien code partagé (secretDevis) reste accepté en dépannage tant qu'il est configuré. */
+const DEVIS_ACCES_PATH = path.join(DATA_DIR, 'devis-acces.json');
+let devisAcces = {};
+try { devisAcces = JSON.parse(fs.readFileSync(DEVIS_ACCES_PATH, 'utf8')); } catch (e) {}
+function saveDevisAcces() { try { fs.writeFileSync(DEVIS_ACCES_PATH, JSON.stringify(devisAcces)); } catch (e) {} }
+function devisTeamOk(team) { const t = devisAcces[String(team || '').trim().slice(0, 80)]; return !!(t && t.actif); }
 function devisQuotaJour() { return Number(devisConf().quotaJour) || 100; }
 function devisUtilises() {
   const auj = new Date().toISOString().slice(0, 10);
@@ -1263,7 +1271,10 @@ function devisUtilises() {
 function devisCompte() { devisUtilises(); devisQuota.n++; try { fs.writeFileSync(DEVIS_QUOTA_PATH, JSON.stringify(devisQuota)); } catch (e) {} }
 
 app.get('/api/devis/etat', (req, res) => {
-  res.json({ ok: true, actif: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
+  const team = String(req.query.team || '').trim().slice(0, 80);
+  const rep = { ok: true, actif: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
+  if (team) rep.equipe = devisActif() && devisTeamOk(team);
+  res.json(rep);
 });
 
 let anthropicClient = null;
@@ -1299,8 +1310,11 @@ const DEVIS_SCHEMA = {
 app.post('/api/devis/generer', async (req, res) => {
   try {
     if (!devisActif()) return res.status(503).json({ error: "Devis IA non configuré sur le serveur (config.json → anthropic)" });
-    const { code, demande, client: cli, contexte } = req.body || {};
-    if (!code || String(code) !== String(devisConf().secretDevis)) return res.status(401).json({ error: "Code d'accès équipe invalide" });
+    const { code, team, demande, client: cli, contexte } = req.body || {};
+    const teamKey = String(team || '').trim().slice(0, 80);
+    const okEquipe = devisTeamOk(teamKey);
+    const okCode = !!(code && devisConf().secretDevis && String(code) === String(devisConf().secretDevis));
+    if (!okEquipe && !okCode) return res.status(401).json({ error: "Devis IA non activé pour cette entreprise — demande l'activation à TeamOP" });
     if (!demande || String(demande).trim().length < 5) return res.status(400).json({ error: 'Décris la prestation à chiffrer' });
     if (devisUtilises() >= devisQuotaJour()) return res.status(429).json({ error: 'Quota du jour atteint (' + devisQuotaJour() + ' devis) — réessaie demain' });
 
@@ -1321,6 +1335,7 @@ app.post('/api/devis/generer', async (req, res) => {
     const texte = (msg.content.find(b => b.type === 'text') || {}).text || '';
     let devis; try { devis = JSON.parse(texte); } catch (e) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
     devisCompte();
+    if (okEquipe) { const t = devisAcces[teamKey]; t.n = (t.n || 0) + 1; t.dernier = new Date().toISOString().slice(0, 10); saveDevisAcces(); }
     res.json({ ok: true, devis, restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
   } catch (e) {
     const status = e && e.status;
@@ -1329,6 +1344,22 @@ app.post('/api/devis/generer', async (req, res) => {
     console.error('devis IA:', e && e.message);
     res.status(500).json({ error: 'Erreur du serveur de devis' });
   }
+});
+
+// ── Tour de contrôle : activation du Devis IA entreprise par entreprise.
+//    Le patron active/désactive un espace depuis tour.html — rien à donner aux clients.
+app.get('/api/monitor/devisia', monAdmin, (req, res) => {
+  res.json({ ok: true, cle: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), equipes: devisAcces });
+});
+app.post('/api/monitor/devisia', monAdmin, (req, res) => {
+  const b = req.body || {};
+  const team = String(b.teamId || '').trim().slice(0, 80);
+  if (!team) return res.status(400).json({ error: "code d'espace requis" });
+  if (b.supprimer) delete devisAcces[team];
+  else if (b.actif) devisAcces[team] = { ...(devisAcces[team] || {}), actif: true, depuis: (devisAcces[team] || {}).depuis || new Date().toISOString().slice(0, 10) };
+  else if (devisAcces[team]) devisAcces[team].actif = false;
+  saveDevisAcces();
+  res.json({ ok: true, equipes: devisAcces });
 });
 
 /* ══════════ CODES PROMO — mois offerts, sans carte bancaire ══════════

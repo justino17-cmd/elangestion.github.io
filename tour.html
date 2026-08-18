@@ -206,7 +206,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
 var API='https://api.teamop.fr';
 var TOKEN='', MYNOM='', MYROLE='';
 var TAB='accueil';
-var VUES=['accueil','surveillance','support','entreprises','abonnements','equipe','journal'];
+var VUES=['accueil','surveillance','support','entreprises','abonnements','devisia','equipe','journal'];
 var INJOIGNABLE='Serveur injoignable — nouvelle tentative dans un instant.';
 
 function $(i){ return document.getElementById(i); }
@@ -293,13 +293,14 @@ var IC={
   ext:'<path d="M14 4h6v6"></path><path d="M20 4 11 13"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path>',
   chev:'<path d="M9 5l7 7-7 7"></path>',
   cadenas:'<rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path>',
-  cb:'<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18"></path>'
+  cb:'<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18"></path>',
+  devisia:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path><path d="M18.5 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"></path>'
 };
 function svg(n,t){ t=t||17; return '<svg width="'+t+'" height="'+t+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(IC[n]||'')+'</svg>'; }
 
 function renderTabs(){
   var t=[['accueil','Accueil'],null,['surveillance','Surveillance','bdg-surv'],['support','Support','bdg-supp'],
-         null,['entreprises','Entreprises'],['abonnements','Abonnements'],null,['equipe','Équipe'],['journal','Journal']];
+         null,['entreprises','Entreprises'],['abonnements','Abonnements'],['devisia','Devis IA'],null,['equipe','Équipe'],['journal','Journal']];
   var grp=['ACTIVITÉ','CLIENTS','ADMIN'], gi=0, h='';
   t.forEach(function(x){
     if(!x){ h+='<div class="grp"><i></i><span>'+grp[gi++]+'</span></div>'; return; }
@@ -315,6 +316,7 @@ function setTab(t){
   if(t==='support'&&!MSG.loaded) chargerMail();
   if(t==='entreprises'&&!CLI.loaded) chargerClients();
   if(t==='abonnements'&&!ABO.loaded) chargerAbos();
+  if(t==='devisia'&&!DIA.loaded) chargerDevisIA();
   if(t==='equipe'&&!EQ.loaded) chargerEquipe();
   if(t==='journal'&&!JR.loaded) chargerJournal();
   window.scrollTo(0,0);
@@ -340,6 +342,48 @@ function chargerIncidents(){
     setBdg('bdg-surv',incOuverts().length);
     if(TAB==='surveillance'||TAB==='accueil') render();
   }).catch(function(){ INC.err=INJOIGNABLE; INC.loaded=true; if(TAB==='surveillance'||TAB==='accueil') render(); });
+}
+/* ── ✨ Devis IA : activation entreprise par entreprise (la clé et les codes restent côté serveur) ── */
+var DIA={equipes:{},cle:false,quotaJour:0,utilises:0,loaded:false,err:'',nv:''};
+function chargerDevisIA(){
+  apiGet('/api/monitor/devisia').then(function(d){ if(!d) return;
+    DIA.equipes=d.equipes||{}; DIA.cle=!!d.cle; DIA.quotaJour=d.quotaJour||0; DIA.utilises=d.utilises||0; DIA.loaded=true; DIA.err='';
+    if(TAB==='devisia') render();
+  }).catch(function(){ DIA.err=INJOIGNABLE; DIA.loaded=true; if(TAB==='devisia') render(); });
+}
+function diaEnvoyer(body){
+  fetch(API+'/api/monitor/devisia',{method:'POST',headers:hAuth(),body:JSON.stringify(body)})
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(d&&d.equipes){ DIA.equipes=d.equipes; render(); } else if(d&&d.error) alert(d.error); })
+    .catch(function(){ alert(INJOIGNABLE); });
+}
+function diaActiver(){ var t=(DIA.nv||'').trim(); if(!t){ alert("Entre le code d'espace de l'entreprise (celui avec lequel son équipe se synchronise)."); return; } DIA.nv=''; diaEnvoyer({teamId:t,actif:true}); }
+function diaToggle(t,on){ diaEnvoyer({teamId:t,actif:!!on}); }
+function diaRetirer(t){ if(confirm('Retirer complètement « '+t+' » de la liste ?')) diaEnvoyer({teamId:t,supprimer:true}); }
+function vueDevisIA(){
+  var tete='<div class="ttl-page">✨ Devis IA</div><div class="desc">Active la génération de devis par IA entreprise par entreprise. La clé et les accès restent sur le serveur : l’entreprise ne reçoit ni clé ni code — la fonction se met simplement à marcher chez elle.</div><div style="height:18px"></div>';
+  if(!DIA.loaded) return tete+'<div class="vide">Chargement…</div>';
+  if(DIA.err) return tete+'<div class="vide">'+esc(DIA.err)+'</div>';
+  var ids=Object.keys(DIA.equipes);
+  var liste=ids.map(function(t){ var e=DIA.equipes[t]||{};
+    return '<div class="item" style="cursor:default"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600" class="mono">'+esc(t)+'</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+(e.depuis?'Activé le '+esc(e.depuis)+' · ':'')+(e.n||0)+' devis généré(s)'+(e.dernier?' · dernier le '+esc(e.dernier):'')+'</div></div>'+
+      '<span class="past '+(e.actif?'p-vert':'p-gris')+'">'+(e.actif?'Actif':'Coupé')+'</span>'+
+      '<span style="display:flex;gap:7px">'+
+        '<button class="pill-act" onclick="diaToggle(\''+jsq(t)+'\','+(e.actif?'false':'true')+')">'+(e.actif?'Couper':'Réactiver')+'</button>'+
+        '<button class="pill-act" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="diaRetirer(\''+jsq(t)+'\')">Retirer</button></span>'+
+    '</div></div>'; }).join('')||'<div class="vide">Aucune entreprise activée pour l’instant.</div>';
+  var form='<div class="carte"><div class="ttl-carte">Activer une entreprise</div>'+
+    '<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">'+
+      '<div><div class="lbl">CODE D’ESPACE DE L’ENTREPRISE</div><input class="inp mono" value="'+esc(DIA.nv)+'" oninput="DIA.nv=this.value" placeholder="ex. brigade-anti-nuisible"></div>'+
+      '<button class="btn-plein" onclick="diaActiver()">✨ Activer le Devis IA</button></div>'+
+    '<div style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:14px">'+
+      (DIA.cle?'Clé IA du serveur : <b style="color:var(--green)">configurée ✓</b>':'⚠ Clé IA du serveur : <b style="color:var(--redText)">absente</b> — rien ne peut fonctionner (config.json → anthropic.cleApi)')+
+      '<br>Quota global : '+DIA.utilises+' / '+DIA.quotaJour+' devis aujourd’hui.'+
+      '<br><br>Le « code d’espace », c’est l’identifiant que l’entreprise utilise pour synchroniser son équipe (visible dans sa demande). Activation et coupure sont immédiates.</div>'+
+  '</div>';
+  return tete+'<div class="deux"><div class="col-liste">'+liste+'</div><div class="col-detail">'+form+'</div></div>';
 }
 function chargerClients(){
   apiGet('/api/monitor/clients').then(function(d){
@@ -401,6 +445,7 @@ function render(){
   else if(TAB==='support') v.innerHTML=vueSupport();
   else if(TAB==='entreprises') v.innerHTML=vueEntreprises();
   else if(TAB==='abonnements') v.innerHTML=vueAbonnements();
+  else if(TAB==='devisia') v.innerHTML=vueDevisIA();
   else if(TAB==='equipe') v.innerHTML=vueEquipe();
   else if(TAB==='journal') v.innerHTML=vueJournal();
 }
