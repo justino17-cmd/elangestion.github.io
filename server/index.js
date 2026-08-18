@@ -1019,6 +1019,15 @@ app.post('/api/clients/sync', async (req, res) => {
         subject: '📥 Demande d\'application — ' + (clientsData[email].entreprise || email), text: texte })
         .then(() => console.log('mail demande envoyé →', dest, '(' + nv.map(d => d.app).join(', ') + ')'))
         .catch(e => console.error('mail demande:', e.message));
+      // accusé de réception au client : sobre, une promesse claire
+      const accuse = 'Bonjour,\n\n' +
+        'Votre demande d\'application (' + nv.map(d => d.app || 'application').join(', ') + ') a bien été prise en compte par TEAM OP.\n' +
+        'Vous aurez une réponse sous 24 heures.\n\n' +
+        '— L\'équipe TEAM OP · teamop.fr';
+      mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: email,
+        subject: '✅ Votre demande a bien été reçue — TEAM OP', text: accuse })
+        .then(() => console.log('accusé de réception envoyé →', email))
+        .catch(e => console.error('mail accusé:', e.message));
     }
   } catch (e) { console.error('notif demande:', e && e.message); }
   res.json({ ok: true });
