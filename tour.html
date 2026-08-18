@@ -165,7 +165,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.37</div>
+    <div class="lg-pied">console interne · v2.38</div>
   </div>
 </div>
 
@@ -192,7 +192,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.37</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.38</div>
 </div>
 
 <div id="toast"></div>
@@ -426,6 +426,7 @@ function tourAccepterDemande(email,nom){
   var e=tourEspaceDe(email,nom);
   apiPost('/api/monitor/espaces/formule',{nom:e.nom,formule:formule,quantite:q}).then(function(r){
     if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Formule non attribuée'); return; }
+    tourPackPrefill(e.nom);
     var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi : teamop.fr/app.html → champ « Entreprise » : tape « '+e.nom+' » (ou clique ton lien : '+e.lien+' )\n2. Première connexion : identifiant admin — mot de passe 1234. L\'app te fait choisir TON identifiant, TON mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
     try{ navigator.clipboard.writeText(txt); }catch(e2){}
     toast('✅ Demande acceptée : espace prêt, formule '+formule+(q>1?' ×'+q:'')+' réservée — message de bienvenue copié, envoie-le à '+e.nom);
@@ -449,6 +450,21 @@ function chargerEspaces(){
     }).join('');
   }).catch(function(){ var el=document.getElementById('esp-formules'); if(el) el.textContent='Serveur injoignable.'; });
 }
+function tourPackPrefill(nom){
+  var info=document.getElementById('pack-info'); if(!info) return;
+  apiPost('/api/monitor/espaces/statut',{nom:nom}).then(function(r){
+    var el=document.getElementById('pack-info'); if(!el) return;
+    if(!(r&&r.ok&&r.d)){ el.innerHTML='<span style="color:var(--rouge,#f87171)">'+((r&&r.d&&r.d.error)||'Statut indisponible — le serveur a-t-il été mis à jour ?')+'</span>'; return; }
+    var d=r.d;
+    if(d.formule){
+      var sf=document.getElementById('pack-f'); if(sf) sf.value=d.formule;
+      var sq=document.getElementById('pack-q'); if(sq) sq.value=d.quantite||1;
+      el.innerHTML='Formule actuelle : <b>'+esc(d.formule)+(d.quantite>1?' ×'+d.quantite:'')+'</b> — '+(d.paye?'<span style="color:#34D399">✅ payé ('+esc(d.motif||'')+')</span>':'<span style="color:#F5BE4F">💳 en attente de paiement</span>');
+    } else {
+      el.innerHTML='Aucune formule attribuée pour l\'instant.';
+    }
+  }).catch(function(){ var el=document.getElementById('pack-info'); if(el) el.textContent='Serveur injoignable.'; });
+}
 function tourStatutPack(nom){
   apiPost('/api/monitor/espaces/statut',{nom:nom}).then(function(r){
     if(r&&r.ok&&r.d) toast(r.d.formule?('📦 '+r.d.formule+(r.d.quantite>1?' ×'+r.d.quantite:'')+' — '+(r.d.paye?'✅ payé ('+r.d.motif+')':'💳 en attente de paiement')):'Aucune formule attribuée');
@@ -467,8 +483,8 @@ function supConnecterBoite(){
 function tourAttribuerPack(nom){
   var f=(document.getElementById('pack-f')||{}).value, q=parseInt((document.getElementById('pack-q')||{}).value,10)||1;
   apiPost('/api/monitor/espaces/formule',{nom:nom,formule:f,quantite:q}).then(function(r){
-    if(r&&r.ok) toast('📦 Formule attribuée : '+f+(q>1?' ×'+q:'')+' — active à la prochaine ouverture de leur app');
-    else toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron');
+    if(r&&r.ok){ toast('📦 Formule attribuée : '+f+(q>1?' ×'+q:'')+' — active à la prochaine ouverture de leur app'); tourPackPrefill(nom); }
+    else toast((r&&r.d&&r.d.error)||'Refusé — mets le serveur à jour (git pull) ou réservé au patron');
   }).catch(function(){ toast('Serveur injoignable'); });
 }
 function tourRetirerEntreprise(email){
@@ -1029,7 +1045,9 @@ function voirClient(email){ var c=CLI.list.filter(function(x){ return x.email===
   CLI.sel=c.email; setTab('entreprises'); }
 
 /* ══════════ 4. ENTREPRISES ══════════ */
-function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); render(); }
+function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); render();
+  if(CLI.sel){ var c=(CLI.list||[]).find(function(x){ return x.email===CLI.sel; })||{};
+    setTimeout(function(){ tourPackPrefill(c.entreprise||c.nom||c.email); },150); } }
 function cliQ(v){ CLI.q=v||''; render(); }
 function cliStatut(c){
   var p=String(c.planStatus||'').toLowerCase();
@@ -1093,7 +1111,8 @@ function ficheClient(){
       '<input id="pack-q" type="number" min="1" max="50" value="1" title="Nombre d\'abonnements (les places s\'additionnent)" style="width:70px;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
       '<button class="btn-plein" onclick="tourAttribuerPack(\''+jsq(nm)+'\')">📦 Attribuer</button>'+
       '<button class="btn-fant" onclick="tourStatutPack(\''+jsq(nm)+'\')">💳 Statut paiement</button></div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-top:8px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
+      '<div id="pack-info" style="font-size:12.5px;color:var(--muted);margin-top:8px">Chargement du statut…</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:6px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
     sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
     sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>']])+
