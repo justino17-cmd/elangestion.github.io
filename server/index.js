@@ -772,6 +772,7 @@ app.post('/api/espaces/etat', (req, res) => {
     if (x.t) return x.t === t;
     try { const o = JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')); return String(o.t || '') === t; } catch (err) { return false; }
   });
+  if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
   if (!e || !e.formule) return res.json({ ok: true });
   espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif }))
     .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible' }));
@@ -784,13 +785,50 @@ app.post('/api/espaces/trouver', (req, res) => {
   res.json({ ok: true, nom: e.nom, code: e.code });
 });
 
+// ── Fermeture totale d'une entreprise (patron) : code de confirmation par e-mail,
+//    puis retrait de la liste, du nom, du lien, de la formule — et les applications
+//    des appareils reliés se vident toutes seules à leur prochain lancement. ──
+const FERMES_PATH = path.join(DATA_DIR, 'entreprises-fermees.json');
+let entFermes = { emails: [], espaces: [] };
+try { entFermes = JSON.parse(fs.readFileSync(FERMES_PATH, 'utf8')); } catch (e) {}
+function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFermes)); } catch (e) {} }
+const retraitCodes = new Map();   // email -> { code, exp, tries }
 // retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
-app.post('/api/monitor/clients/retirer', monPatronStrict, (req, res) => {
+app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   const email = monStr((req.body || {}).email, 120).toLowerCase();
   if (!clientsData[email]) return res.status(404).json({ error: 'entreprise introuvable' });
+  const codeRecu = monStr((req.body || {}).code, 10).trim();
+  if (!codeRecu) {   // 1er temps : on envoie le code de confirmation au patron
+    if (!mailer) return res.status(503).json({ error: 'e-mail non configuré — impossible d\'envoyer le code' });
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    retraitCodes.set(email, { code, exp: Date.now() + 10 * 60000, tries: 0 });
+    const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
+    try {
+      await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
+        subject: '🗑 Code de confirmation — fermeture de « ' + (clientsData[email].entreprise || email) + ' »',
+        text: 'Tu es sur le point de FERMER DÉFINITIVEMENT l\'entreprise « ' + (clientsData[email].entreprise || email) + ' » (' + email + ').\n\nCode de confirmation : ' + code + '\n\nValable 10 minutes. Après validation : plus de nom, plus de lien, plus de formule, et les applications de ses appareils se vident à leur prochain lancement.\nSi ce n\'est pas toi, ignore ce message.' });
+    } catch (e) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(e.message).slice(0, 120) }); }
+    console.log('Tour : code de fermeture envoyé pour', email, '→', dest);
+    return res.json({ ok: true, codeEnvoye: true, dest });
+  }
+  const c = retraitCodes.get(email);
+  if (!c || Date.now() > c.exp) { retraitCodes.delete(email); return res.status(400).json({ error: 'code expiré — recommence' }); }
+  c.tries++; if (c.tries > 5) { retraitCodes.delete(email); return res.status(429).json({ error: 'trop d\'essais — recommence' }); }
+  if (codeRecu !== c.code) return res.status(400).json({ error: 'code incorrect (' + (6 - c.tries) + ' essai(s) restants)' });
+  retraitCodes.delete(email);
+  // fermeture effective : liste, annuaire (nom + lien + formule), et blocage des espaces reliés
+  if (!entFermes.emails.includes(email)) entFermes.emails.push(email);
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    if ((e.email || '').toLowerCase() === email) {
+      if (e.t && !entFermes.espaces.includes(e.t)) entFermes.espaces.push(e.t);
+      delete espacesReg[slug];
+    }
+  }
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+  fermesSave();
   delete clientsData[email]; cliSave();
-  console.log('Tour :', req.tourUser.nom, 'a retiré l\'entreprise', email);
-  res.json({ ok: true });
+  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', email);
+  res.json({ ok: true, supprime: true });
 });
 
 // liste des problèmes + compteurs (admin)
@@ -1092,6 +1130,7 @@ app.post('/api/clients/sync', async (req, res) => {
   if (!ident) return res.status(401).json({ error: 'connexion non vérifiée' });
   const email = monStr(ident.email, 120).trim().toLowerCase();   // l'e-mail vient du jeton signé, jamais du corps
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(401).json({ error: 'compte sans e-mail' });
+  if (entFermes.emails.includes(email)) return res.status(410).json({ error: 'compte fermé par TeamOP' });
   if (Object.keys(clientsData).length >= 2000 && !clientsData[email]) return res.json({ ok: true });   // cap silencieux
   const prev = clientsData[email] || {};
   const demandes = (Array.isArray(b.demandes) ? b.demandes.slice(0, 20) : []).map(d => ({
