@@ -571,10 +571,14 @@ app.post('/api/monitor/report', express.text({ type: 'text/plain', limit: '200kb
 //    stockés dans monitor.json (le premier compte patron est créé par server/set-admin.sh).
 //    POST /api/monitor/login {nom, pass} → token de session 24 h en mémoire, lié à l'utilisateur.
 const monTokens = new Map();          // token -> { exp, userId, nom, role }
+// les sessions de la Tour survivent aux redémarrages du serveur
+const TOKENS_PATH = path.join(DATA_DIR, 'tour-sessions.json');
+try { for (const [t, v] of JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8'))) if (v && v.exp > Date.now()) monTokens.set(t, v); } catch (e) {}
+function monTokensSave() { try { fs.writeFileSync(TOKENS_PATH, JSON.stringify([...monTokens].filter(([, v]) => v.exp > Date.now()))); } catch (e) {} }
 const monLoginTries = new Map();      // ip -> { count, reset }
 const monLock = new Map();            // ident -> { fails, until } : 5 échecs consécutifs = verrou 15 min
 const monHash = p => crypto.createHash('sha256').update(String(p)).digest('hex');
-setInterval(() => { const now = Date.now(); for (const [t, s] of monTokens) if (now > s.exp) monTokens.delete(t); }, 600000).unref();
+setInterval(() => { const now = Date.now(); let ch = false; for (const [t, s] of monTokens) if (now > s.exp) { monTokens.delete(t); ch = true; } if (ch) monTokensSave(); }, 600000).unref();
 function monUA(req) {   // appareil simplifié pour le journal (jamais l'UA complet)
   const u = String(req.headers['user-agent'] || '');
   const ap = /iPhone|iPad|iPod/i.test(u) ? 'iPhone' : (/Android/i.test(u) ? 'Android' : 'PC');
@@ -613,7 +617,9 @@ app.post('/api/monitor/login', (req, res) => {
     user = { id: 'u0', nom: nom || 'Patron', role: 'patron' };
   }
   const token = crypto.randomBytes(24).toString('hex');
-  monTokens.set(token, { exp: Date.now() + 24 * 3600000, userId: user.id, nom: user.nom, role: user.role });
+  const duree = (req.body || {}).rester ? 30 * 24 * 3600000 : 24 * 3600000;   // « rester connecté » : 30 jours
+  monTokens.set(token, { exp: Date.now() + duree, userId: user.id, nom: user.nom, role: user.role });
+  monTokensSave();
   monLoginTries.delete(ip); monLock.delete(ident);
   monLog(user.nom, true, req, '');
   res.json({ ok: true, token, exp: 24 * 3600, nom: user.nom, role: user.role });
@@ -694,9 +700,38 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
   const code = monStr((req.body || {}).code, 4000).trim();
   const slug = espSlug(nom);
   if (!slug || !code) return res.status(400).json({ error: 'nom et code requis' });
-  espacesReg[slug] = { nom, code, ts: Date.now(), par: req.tourUser.nom };
+  let t = '';
+  try { const o = JSON.parse(Buffer.from(code, 'base64').toString('utf8')); t = String(o.t || ''); } catch (e) {}
+  const prev = espacesReg[slug] || {};
+  espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom,
+    formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs };
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
   res.json({ ok: true, slug });
+});
+// le patron attribue la formule d'un espace (Gratuit/Pro/Business/Premium × quantité)
+app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
+  const f = monStr((req.body || {}).formule, 20);
+  if (!['gratuit', 'pro', 'business', 'premium'].includes(f)) return res.status(400).json({ error: 'formule inconnue' });
+  const q = Math.max(1, Math.min(50, parseInt((req.body || {}).quantite, 10) || 1));
+  e.formule = f; e.quantite = q; e.formulePar = req.tourUser.nom; e.formuleTs = Date.now();
+  try { if (!e.t) { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); e.t = String(o.t || ''); } } catch (err) {}
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  console.log('Tour :', req.tourUser.nom, 'attribue', f, '×' + q, 'à', slug);
+  res.json({ ok: true, slug, formule: f, quantite: q });
+});
+// l'app d'un espace demande sa formule attribuée (public — ne révèle que la formule)
+app.post('/api/espaces/etat', (req, res) => {
+  const t = monStr((req.body || {}).t, 80);
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const e = Object.values(espacesReg).find(x => {
+    if (x.t) return x.t === t;
+    try { const o = JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')); return String(o.t || '') === t; } catch (err) { return false; }
+  });
+  if (!e || !e.formule) return res.json({ ok: true });
+  res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1 });
 });
 app.post('/api/espaces/trouver', (req, res) => {
   const slug = espSlug((req.body || {}).nom);

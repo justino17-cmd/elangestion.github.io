@@ -156,6 +156,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
         <div><div class="lbl">MOT DE PASSE</div>
           <input class="inp" id="lg-pass" type="password" placeholder="••••••••••" autocomplete="current-password"
                  onkeydown="if(event.key==='Enter')doLogin()"></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--muted)"><input type="checkbox" id="lg-rester" checked style="width:16px;height:16px;accent-color:#6c8cff"> Rester connecté sur cet appareil (30 jours)</label>
         <button class="btn-plein large" onclick="doLogin()">Se connecter</button>
       </div>
       <div id="lg-err"></div>
@@ -164,7 +165,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.34</div>
+    <div class="lg-pied">console interne · v2.35</div>
   </div>
 </div>
 
@@ -191,7 +192,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.34</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.35</div>
 </div>
 
 <div id="toast"></div>
@@ -250,17 +251,18 @@ function doLogin(){
   var nom=($('lg-id').value||'').trim(), pass=$('lg-pass').value||'';
   if(!nom||!pass){ $('lg-err').textContent='Nom d’utilisateur et mot de passe requis.'; return; }
   $('lg-err').textContent='';
-  fetch(API+'/api/monitor/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:nom,pass:pass})})
+  fetch(API+'/api/monitor/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:nom,pass:pass,rester:!!(document.getElementById('lg-rester')||{}).checked})})
     .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
     .then(function(x){
       if(!x.ok){ $('lg-err').textContent=x.d.error||'Connexion refusée.'; return; }
       TOKEN=x.d.token; MYNOM=x.d.nom||nom; MYROLE=x.d.role||'collaborateur';
-      try{ sessionStorage.setItem('tour_token',TOKEN); sessionStorage.setItem('tour_nom',MYNOM); sessionStorage.setItem('tour_role',MYROLE); }catch(e){}
+      try{ var st=(document.getElementById('lg-rester')||{}).checked?localStorage:sessionStorage;
+        st.setItem('tour_token',TOKEN); st.setItem('tour_nom',MYNOM); st.setItem('tour_role',MYROLE); }catch(e){}
       entrer();
     })
     .catch(function(){ $('lg-err').textContent='Serveur injoignable — réessayez dans un instant.'; });
 }
-function doLogout(){ try{ sessionStorage.removeItem('tour_token'); }catch(e){} location.hash=''; location.reload(); }
+function doLogout(){ try{ sessionStorage.removeItem('tour_token'); localStorage.removeItem('tour_token'); localStorage.removeItem('tour_nom'); localStorage.removeItem('tour_role'); }catch(e){} location.hash=''; location.reload(); }
 
 function entrer(){
   $('login').style.display='none'; $('app').classList.add('on');
@@ -408,6 +410,22 @@ function tourLienEntreprise(email,nom){
   var txt='Bienvenue sur OP GESTION !\n\nDeux façons de te connecter (choisis la plus simple) :\n\nA. Va sur teamop.fr/app.html, champ « Entreprise » : tape « '+(nom||email)+' », puis ton identifiant et ton mot de passe.\n\nB. Ou clique ton lien direct (garde-le précieusement) :\n'+lien+'\n\nPremière connexion : identifiant admin — mot de passe 1234.\nL\'app te fait créer TON mot de passe et enregistrer ton e-mail.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte pareil (nom d\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !';
   try{ navigator.clipboard.writeText(txt); toast('Lien + mode d\'emploi copiés — colle-les dans un message à '+(nom||email)); }
   catch(e){ prompt('Copie ce message :',txt); }
+}
+function supConnecterBoite(){
+  var email=prompt('Adresse de la boîte à connecter au Support :','contact@teamop.fr'); if(!email) return;
+  var pass=prompt('Mot de passe de cette boîte (celui du webmail OVH) :'); if(!pass) return;
+  toast('Connexion à '+email+'…');
+  apiPost('/api/monitor/support/connect',{email:email.trim(),pass:pass}).then(function(r){
+    if(r&&r.ok){ toast('📬 Boîte '+email.trim()+' connectée — ses mails arrivent dans Support'); setTimeout(function(){ location.reload(); },900); }
+    else toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron');
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+function tourAttribuerPack(nom){
+  var f=(document.getElementById('pack-f')||{}).value, q=parseInt((document.getElementById('pack-q')||{}).value,10)||1;
+  apiPost('/api/monitor/espaces/formule',{nom:nom,formule:f,quantite:q}).then(function(r){
+    if(r&&r.ok) toast('📦 Formule attribuée : '+f+(q>1?' ×'+q:'')+' — active à la prochaine ouverture de leur app');
+    else toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron');
+  }).catch(function(){ toast('Serveur injoignable'); });
 }
 function tourRetirerEntreprise(email){
   if(!confirm('Retirer « '+email+' » de la liste des entreprises ?\n\n(Sert au ménage des entrées de test — ne supprime aucune donnée chez le client.)')) return;
@@ -936,6 +954,7 @@ function vueSupport(){
 
   return '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
       '<div><div class="ttl-page">Support</div><div class="desc">Les messages reçus par les boîtes de l’entreprise, et vos réponses.</div></div>'+
+      '<button class="btn-fant" onclick="supConnecterBoite()">🔗 Connecter la boîte</button>'+
       '<button class="btn-plein" onclick="compoOuvrir()">'+svg('crayon',15)+' Écrire un message</button></div>'+
     '<div style="height:18px"></div>'+compo+dossiers+
     '<div class="deux"><div class="col-liste">'+
@@ -1021,6 +1040,13 @@ function ficheClient(){
       '<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(c.email)+'\',\''+jsq(nm)+'\')">🔗 Lien de connexion</button>'+
       '<button class="btn-fant" onclick="window.open(\'https://dashboard.stripe.com/search?query='+encodeURIComponent(c.email)+'\',\'_blank\',\'noopener\')">Voir dans Stripe '+svg('ext',14)+'</button>'+
       '<button class="btn-fant" style="color:var(--rouge,#f87171)" onclick="tourRetirerEntreprise(\''+jsq(c.email)+'\')">Retirer de la liste</button></div>'+
+    '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">FORMULE ATTRIBUÉE PAR TEAM OP</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">'+
+      '<select id="pack-f" style="background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
+        '<option value="gratuit">Gratuit · 1 place</option><option value="pro">Pro · 1 place</option><option value="business" selected>Business · 2 places</option><option value="premium">Business Premium · 3 places</option></select>'+
+      '<input id="pack-q" type="number" min="1" max="50" value="1" title="Nombre d\'abonnements (les places s\'additionnent)" style="width:70px;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
+      '<button class="btn-plein" onclick="tourAttribuerPack(\''+jsq(nm)+'\')">📦 Attribuer</button></div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:8px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
     sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
     sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>']])+
@@ -1170,8 +1196,9 @@ function vueJournal(){
 /* ══ démarrage : une session déjà ouverte reprend la main ══ */
 (function(){
   try{
-    var t=sessionStorage.getItem('tour_token');
-    if(t){ TOKEN=t; MYNOM=sessionStorage.getItem('tour_nom')||''; MYROLE=sessionStorage.getItem('tour_role')||'collaborateur'; entrer(); }
+    var st=localStorage.getItem('tour_token')?localStorage:sessionStorage;
+    var t=st.getItem('tour_token');
+    if(t){ TOKEN=t; MYNOM=st.getItem('tour_nom')||''; MYROLE=st.getItem('tour_role')||'collaborateur'; entrer(); }
   }catch(e){}
 })();
 </script>
