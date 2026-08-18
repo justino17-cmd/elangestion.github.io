@@ -703,7 +703,7 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
   let t = '';
   try { const o = JSON.parse(Buffer.from(code, 'base64').toString('utf8')); t = String(o.t || ''); } catch (e) {}
   const prev = espacesReg[slug] || {};
-  espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom,
+  espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom, email: monStr((req.body || {}).email, 120).toLowerCase() || prev.email || '',
     formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs };
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
   res.json({ ok: true, slug });
@@ -722,6 +722,48 @@ app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
   console.log('Tour :', req.tourUser.nom, 'attribue', f, '×' + q, 'à', slug);
   res.json({ ok: true, slug, formule: f, quantite: q });
 });
+// payé ? — trois portes : formule gratuite, code promo actif pour l'espace, abonnement Stripe actif pour l'e-mail
+const espStripeCache = { ts: 0, data: null };
+async function espacePaye(e) {
+  if (!e || !e.formule) return { paye: false, motif: 'aucune formule' };
+  if (e.formule === 'gratuit') return { paye: true, motif: 'gratuit' };
+  try {   // code promo : compté par espace (teamId = identifiant de l'espace)
+    for (const [code, u] of Object.entries(promoUsages || {})) {
+      const eq = u && u.equipes && u.equipes[e.t];
+      if (eq && eq.finLe && eq.finLe >= new Date().toISOString().slice(0, 10)) return { paye: true, motif: 'code promo ' + code + ' (jusqu\'au ' + eq.finLe + ')' };
+    }
+  } catch (err) {}
+  const sk = config.stripe && config.stripe.secretKey;
+  if (sk && e.email) {
+    try {
+      if (Date.now() - espStripeCache.ts > 5 * 60000 || !espStripeCache.data) { espStripeCache.data = await stripeAbosBruts(sk); espStripeCache.ts = Date.now(); }
+      const abo = (espStripeCache.data || []).find(sb => ['active', 'trialing', 'past_due'].includes(sb.status) &&
+        sb.customer && typeof sb.customer === 'object' && String(sb.customer.email || '').toLowerCase() === e.email);
+      if (abo) return { paye: true, motif: 'abonnement Stripe (' + abo.status + ')' };
+    } catch (err) { console.error('espacePaye stripe:', err.message); }
+  }
+  return { paye: false, motif: 'aucun paiement ni code promo' };
+}
+// liste complète des espaces (formule attribuée, payé/promo) — pour l'onglet Abonnements de la Tour
+app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
+  const sortie = [];
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    let p = { paye: false, motif: '' };
+    try { p = await espacePaye(e); } catch (err) {}
+    sortie.push({ slug, nom: e.nom || slug, email: e.email || '', formule: e.formule || '', quantite: e.quantite || 1,
+      paye: p.paye, motif: p.motif, attribueLe: e.formuleTs || 0, par: e.formulePar || '' });
+  }
+  sortie.sort((a, b) => (b.attribueLe || 0) - (a.attribueLe || 0));
+  res.json({ ok: true, espaces: sortie });
+});
+// statut complet d'un espace, côté contrôle
+app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  const p = await espacePaye(e);
+  res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif });
+});
 // l'app d'un espace demande sa formule attribuée (public — ne révèle que la formule)
 app.post('/api/espaces/etat', (req, res) => {
   const t = monStr((req.body || {}).t, 80);
@@ -731,7 +773,8 @@ app.post('/api/espaces/etat', (req, res) => {
     try { const o = JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')); return String(o.t || '') === t; } catch (err) { return false; }
   });
   if (!e || !e.formule) return res.json({ ok: true });
-  res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1 });
+  espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif }))
+    .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible' }));
 });
 app.post('/api/espaces/trouver', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
@@ -1052,7 +1095,7 @@ app.post('/api/clients/sync', async (req, res) => {
   if (Object.keys(clientsData).length >= 2000 && !clientsData[email]) return res.json({ ok: true });   // cap silencieux
   const prev = clientsData[email] || {};
   const demandes = (Array.isArray(b.demandes) ? b.demandes.slice(0, 20) : []).map(d => ({
-    app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200) }));
+    app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200), users: monStr(d && d.users, 10) }));
   clientsData[email] = {
     email, nom: monStr(b.nom, 80), entreprise: monStr(b.entreprise, 80),
     inscrit: parseInt(b.inscrit, 10) || prev.inscrit || Date.now(),
@@ -1075,7 +1118,7 @@ app.post('/api/clients/sync', async (req, res) => {
       const texte = 'Nouvelle demande d\'application sur teamop.fr\n\n' +
         'Entreprise : ' + (clientsData[email].entreprise || clientsData[email].nom || email) + '\n' +
         'E-mail : ' + email + '\n\n' +
-        nv.map(d => '• ' + (d.app || 'Application') + (d.formule ? ' — formule « ' + d.formule + ' »' : '') + (d.besoin && d.besoin !== 'x' ? '\n  Besoin : ' + d.besoin : '')).join('\n') +
+        nv.map(d => '• ' + (d.app || 'Application') + (d.formule ? ' — formule « ' + d.formule + ' »' : ' — formule non précisée') + (d.users ? '\n  Utilisateurs souhaités : ' + d.users : '') + (d.besoin && d.besoin !== 'x' ? '\n  Besoin : ' + d.besoin : '')).join('\n') +
         '\n\nÀ traiter dans ta Tour de contrôle : https://teamop.fr/tour.html (Entreprises → sa fiche → « 🔗 Lien de connexion »).';
       mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
         subject: '📥 Demande d\'application — ' + (clientsData[email].entreprise || email), text: texte })

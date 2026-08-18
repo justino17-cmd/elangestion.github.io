@@ -165,7 +165,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.35</div>
+    <div class="lg-pied">console interne · v2.37</div>
   </div>
 </div>
 
@@ -192,7 +192,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.35</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.37</div>
 </div>
 
 <div id="toast"></div>
@@ -391,7 +391,7 @@ function vueDevisIA(){
    Le lien met l'appareil de l'entreprise sur SON espace isolé (app.html#entreprise=CODE) ;
    sa 1re connexion : admin / 1234 → l'app fait créer mot de passe + e-mail. Un lien
    généré est mémorisé sur cet appareil (tour_liens) : re-cliquer redonne le même. */
-function tourLienEntreprise(email,nom){
+function tourEspaceDe(email,nom){
   var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
   var sp=reg[email];
   if(!sp){
@@ -402,14 +402,58 @@ function tourLienEntreprise(email,nom){
     reg[email]=sp; localStorage.setItem('tour_liens',JSON.stringify(reg));
   }
   var code=btoa(unescape(encodeURIComponent(JSON.stringify(sp)))).replace(/=+$/,'');
-  var lien='https://teamop.fr/app.html#entreprise='+code;
-  // enregistre le nom dans l'annuaire serveur → connexion possible en tapant juste le nom de l'entreprise
-  apiPost('/api/monitor/espaces',{nom:(nom||email),code:code}).then(function(r){
+  var slug=(nom||email).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
+  var lien='https://teamop.fr/app.html#e='+slug;   // lisible : le nom de l'entreprise est dans le lien
+  // enregistre nom + e-mail dans l'annuaire serveur (connexion par nom, et vérification Stripe par e-mail)
+  apiPost('/api/monitor/espaces',{nom:(nom||email),code:code,email:email}).then(function(r){
     if(!(r&&r.ok)) toast('Attention : nom non enregistré côté serveur ('+((r&&r.d&&r.d.error)||'?')+') — le lien, lui, marche');
   }).catch(function(){ toast('Attention : serveur injoignable pour l\'annuaire — le lien, lui, marche'); });
-  var txt='Bienvenue sur OP GESTION !\n\nDeux façons de te connecter (choisis la plus simple) :\n\nA. Va sur teamop.fr/app.html, champ « Entreprise » : tape « '+(nom||email)+' », puis ton identifiant et ton mot de passe.\n\nB. Ou clique ton lien direct (garde-le précieusement) :\n'+lien+'\n\nPremière connexion : identifiant admin — mot de passe 1234.\nL\'app te fait créer TON mot de passe et enregistrer ton e-mail.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte pareil (nom d\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !';
-  try{ navigator.clipboard.writeText(txt); toast('Lien + mode d\'emploi copiés — colle-les dans un message à '+(nom||email)); }
-  catch(e){ prompt('Copie ce message :',txt); }
+  return { lien:lien, nom:(nom||email) };
+}
+function tourLienEntreprise(email,nom){
+  var e=tourEspaceDe(email,nom);
+  var txt='Bienvenue sur OP GESTION !\n\nDeux façons de te connecter (choisis la plus simple) :\n\nA. Va sur teamop.fr/app.html, champ « Entreprise » : tape « '+e.nom+' », puis ton identifiant et ton mot de passe.\n\nB. Ou clique ton lien direct (garde-le précieusement) :\n'+e.lien+'\n\nPremière connexion : identifiant admin — mot de passe 1234.\nL\'app te fait choisir TON identifiant, TON mot de passe et ton e-mail.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte pareil (nom d\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !';
+  try{ navigator.clipboard.writeText(txt); toast('Lien + mode d\'emploi copiés — colle-les dans un message à '+e.nom); }
+  catch(e2){ prompt('Copie ce message :',txt); }
+}
+/* ✅ Accepter la demande : espace + lien + formule demandée (en attente de paiement) + message de bienvenue prêt */
+function tourAccepterDemande(email,nom){
+  var c=(CLI.list||[]).find(function(x){ return x.email===email; })||{};
+  var dm=(c.demandes||[]).slice().sort(function(a,b){ return (b.date||0)-(a.date||0); })[0]||{};
+  var F={'business premium':'premium','premium':'premium','business':'business','pro':'pro','gratuit':'gratuit'};
+  var formule=F[String(dm.formule||'').toLowerCase()]||'business';
+  var q=Math.max(1,parseInt(dm.users,10)||1);
+  var e=tourEspaceDe(email,nom);
+  apiPost('/api/monitor/espaces/formule',{nom:e.nom,formule:formule,quantite:q}).then(function(r){
+    if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Formule non attribuée'); return; }
+    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi : teamop.fr/app.html → champ « Entreprise » : tape « '+e.nom+' » (ou clique ton lien : '+e.lien+' )\n2. Première connexion : identifiant admin — mot de passe 1234. L\'app te fait choisir TON identifiant, TON mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+    try{ navigator.clipboard.writeText(txt); }catch(e2){}
+    toast('✅ Demande acceptée : espace prêt, formule '+formule+(q>1?' ×'+q:'')+' réservée — message de bienvenue copié, envoie-le à '+e.nom);
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+function chargerEspaces(){
+  apiGet('/api/monitor/espaces/liste').then(function(d){
+    var el=document.getElementById('esp-formules'); if(!el||!d) return;
+    var L=(d.espaces||[]);
+    if(!L.length){ el.innerHTML='Aucune formule attribuée pour l\'instant — bouton « ✅ Accepter la demande » ou « 📦 Attribuer » sur la fiche d\'une entreprise.'; return; }
+    var F={gratuit:'Gratuit',pro:'Pro',business:'Business',premium:'Business Premium'};
+    el.innerHTML=L.map(function(e){
+      var statut = e.paye
+        ? (/promo/i.test(e.motif) ? '<span class="past p-orange">🎁 '+esc(e.motif)+'</span>' : '<span class="past p-vert">✅ payé — '+esc(e.motif)+'</span>')
+        : (e.formule ? '<span class="past p-rouge">💳 en attente de paiement</span>' : '<span class="past">—</span>');
+      return '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line)">'+
+        '<b style="min-width:140px">'+esc(e.nom)+'</b>'+
+        '<span style="color:var(--muted);font-size:12px;min-width:170px">'+esc(e.email||'—')+'</span>'+
+        '<span style="min-width:150px">'+(e.formule?(F[e.formule]||e.formule)+(e.quantite>1?' ×'+e.quantite:''):'<span style=\'color:var(--muted)\'>aucune formule</span>')+'</span>'+
+        statut+'</div>';
+    }).join('');
+  }).catch(function(){ var el=document.getElementById('esp-formules'); if(el) el.textContent='Serveur injoignable.'; });
+}
+function tourStatutPack(nom){
+  apiPost('/api/monitor/espaces/statut',{nom:nom}).then(function(r){
+    if(r&&r.ok&&r.d) toast(r.d.formule?('📦 '+r.d.formule+(r.d.quantite>1?' ×'+r.d.quantite:'')+' — '+(r.d.paye?'✅ payé ('+r.d.motif+')':'💳 en attente de paiement')):'Aucune formule attribuée');
+    else toast((r&&r.d&&r.d.error)||'Statut indisponible');
+  }).catch(function(){ toast('Serveur injoignable'); });
 }
 function supConnecterBoite(){
   var email=prompt('Adresse de la boîte à connecter au Support :','contact@teamop.fr'); if(!email) return;
@@ -443,6 +487,7 @@ function chargerClients(){
   }).catch(function(){ CLI.err=INJOIGNABLE; CLI.loaded=true; if(TAB==='entreprises') render(); });
 }
 function chargerAbos(){
+  setTimeout(chargerEspaces, 400);
   Promise.all([apiGet('/api/monitor/stripe/abos').catch(function(){ return null; }),
                apiGet('/api/monitor/stripe/paiements').catch(function(){ return null; })])
   .then(function(r){
@@ -1037,6 +1082,7 @@ function ficheClient(){
       '<span class="past '+s[1]+'">'+esc(s[0])+'</span></div>'+
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">'+
       '<button class="btn-plein" onclick="compoOuvrir(\''+jsq(c.email)+'\');setTab(\'support\')">Écrire à '+esc(prenom)+'</button>'+
+      '<button class="btn-plein" onclick="tourAccepterDemande(\''+jsq(c.email)+'\',\''+jsq(nm)+'\')">✅ Accepter la demande</button>'+
       '<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(c.email)+'\',\''+jsq(nm)+'\')">🔗 Lien de connexion</button>'+
       '<button class="btn-fant" onclick="window.open(\'https://dashboard.stripe.com/search?query='+encodeURIComponent(c.email)+'\',\'_blank\',\'noopener\')">Voir dans Stripe '+svg('ext',14)+'</button>'+
       '<button class="btn-fant" style="color:var(--rouge,#f87171)" onclick="tourRetirerEntreprise(\''+jsq(c.email)+'\')">Retirer de la liste</button></div>'+
@@ -1045,7 +1091,8 @@ function ficheClient(){
       '<select id="pack-f" style="background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
         '<option value="gratuit">Gratuit · 1 place</option><option value="pro">Pro · 1 place</option><option value="business" selected>Business · 2 places</option><option value="premium">Business Premium · 3 places</option></select>'+
       '<input id="pack-q" type="number" min="1" max="50" value="1" title="Nombre d\'abonnements (les places s\'additionnent)" style="width:70px;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
-      '<button class="btn-plein" onclick="tourAttribuerPack(\''+jsq(nm)+'\')">📦 Attribuer</button></div>'+
+      '<button class="btn-plein" onclick="tourAttribuerPack(\''+jsq(nm)+'\')">📦 Attribuer</button>'+
+      '<button class="btn-fant" onclick="tourStatutPack(\''+jsq(nm)+'\')">💳 Statut paiement</button></div>'+
       '<div style="font-size:12px;color:var(--muted);margin-top:8px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
     sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
     sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
@@ -1106,7 +1153,9 @@ function vueAbonnements(){
   return tete+kpi+
     '<div class="filtres" style="margin:20px 0 14px"><select class="sel-f" onchange="aboF(this.value)">'+
       opt('','Tous les statuts')+opt('active','Actifs')+opt('trialing','En essai')+opt('past_due','Impayés')+opt('canceled','Annulés')+'</select></div>'+
-    '<div class="ttl-carte" style="margin-bottom:10px">Abonnements en cours</div>'+tbl1+
+    '<div class="ttl-carte" style="margin-bottom:10px">📦 Formules TeamOP (attribuées depuis la console)</div>'+
+    '<div id="esp-formules" class="carte" style="padding:14px 16px;color:var(--muted);font-size:13px">Chargement…</div>'+
+    '<div class="ttl-carte" style="margin:22px 0 10px">Abonnements en cours (Stripe)</div>'+tbl1+
     '<div class="ttl-carte" style="margin:22px 0 10px">Derniers paiements</div>'+tbl2+
     '<div class="encart" style="margin-top:18px">'+
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)">'+IC.cadenas+'</svg>'+
