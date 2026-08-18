@@ -401,7 +401,11 @@ function tourLienEntreprise(email,nom){
   }
   var code=btoa(unescape(encodeURIComponent(JSON.stringify(sp)))).replace(/=+$/,'');
   var lien='https://teamop.fr/app.html#entreprise='+code;
-  var txt='Bienvenue sur OP GESTION !\n\n1. Clique sur ton lien de connexion (garde-le précieusement) :\n'+lien+'\n\n2. Première connexion : identifiant admin — mot de passe 1234.\n3. L\'app te fait créer TON mot de passe et enregistrer ton e-mail.\n4. Tu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun reçoit ce même lien + son identifiant.\n\nBonne prise en main !';
+  // enregistre le nom dans l'annuaire serveur → connexion possible en tapant juste le nom de l'entreprise
+  apiPost('/api/monitor/espaces',{nom:(nom||email),code:code}).then(function(r){
+    if(!(r&&r.ok)) toast('Attention : nom non enregistré côté serveur ('+((r&&r.d&&r.d.error)||'?')+') — le lien, lui, marche');
+  }).catch(function(){ toast('Attention : serveur injoignable pour l\'annuaire — le lien, lui, marche'); });
+  var txt='Bienvenue sur OP GESTION !\n\nDeux façons de te connecter (choisis la plus simple) :\n\nA. Va sur teamop.fr/app.html, champ « Entreprise » : tape « '+(nom||email)+' », puis ton identifiant et ton mot de passe.\n\nB. Ou clique ton lien direct (garde-le précieusement) :\n'+lien+'\n\nPremière connexion : identifiant admin — mot de passe 1234.\nL\'app te fait créer TON mot de passe et enregistrer ton e-mail.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte pareil (nom d\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !';
   try{ navigator.clipboard.writeText(txt); toast('Lien + mode d\'emploi copiés — colle-les dans un message à '+(nom||email)); }
   catch(e){ prompt('Copie ce message :',txt); }
 }

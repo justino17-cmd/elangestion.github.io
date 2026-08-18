@@ -654,6 +654,31 @@ app.post('/api/monitor/users/delete', monPatronStrict, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ── Annuaire des espaces entreprise : « nom d'entreprise » → code de connexion ──
+   Rempli depuis la Tour (patron) quand un lien de connexion est généré. Permet la
+   connexion à la Organilog : l'utilisateur tape le nom de son entreprise dans l'app,
+   le serveur lui rend le code d'espace, puis identifiant + mot de passe. */
+const ESPACES_PATH = path.join(DATA_DIR, 'espaces.json');
+let espacesReg = {};
+try { espacesReg = JSON.parse(fs.readFileSync(ESPACES_PATH, 'utf8')); } catch (e) {}
+const espSlug = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '');
+app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
+  const nom = monStr((req.body || {}).nom, 80).trim();
+  const code = monStr((req.body || {}).code, 4000).trim();
+  const slug = espSlug(nom);
+  if (!slug || !code) return res.status(400).json({ error: 'nom et code requis' });
+  espacesReg[slug] = { nom, code, ts: Date.now(), par: req.tourUser.nom };
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+  res.json({ ok: true, slug });
+});
+app.post('/api/espaces/trouver', (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Entreprise inconnue — vérifie l\'orthographe, ou demande ton lien de connexion' });
+  res.json({ ok: true, nom: e.nom, code: e.code });
+});
+
 // retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
 app.post('/api/monitor/clients/retirer', monPatronStrict, (req, res) => {
   const email = monStr((req.body || {}).email, 120).toLowerCase();
@@ -978,6 +1003,22 @@ app.post('/api/clients/sync', async (req, res) => {
     demandesTraitees: prev.demandesTraitees || {}
   };
   cliSave();
+  // Nouvelle demande d'application → e-mail au patron (destinataire : config.notifDemandes,
+  // sinon l'expéditeur SMTP). Au plus 1 mail par demande nouvellement apparue.
+  try {
+    const avant = (prev.demandes || []).length;
+    if (mailer && demandes.length > avant) {
+      const dest = (config.notifDemandes || config.smtp.from || config.smtp.user);
+      const nv = demandes.slice(avant);
+      const texte = 'Nouvelle demande d\'application sur teamop.fr\n\n' +
+        'Entreprise : ' + (clientsData[email].entreprise || clientsData[email].nom || email) + '\n' +
+        'E-mail : ' + email + '\n\n' +
+        nv.map(d => '• ' + (d.app || 'Application') + (d.formule ? ' — formule « ' + d.formule + ' »' : '') + (d.besoin && d.besoin !== 'x' ? '\n  Besoin : ' + d.besoin : '')).join('\n') +
+        '\n\nÀ traiter dans ta Tour de contrôle : https://teamop.fr/tour.html (Entreprises → sa fiche → « 🔗 Lien de connexion »).';
+      mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
+        subject: '📥 Demande d\'application — ' + (clientsData[email].entreprise || email), text: texte }).catch(e => console.error('mail demande:', e.message));
+    }
+  } catch (e) { console.error('notif demande:', e && e.message); }
   res.json({ ok: true });
 });
 // lecture depuis le contrôle (patron ET collaborateurs)
