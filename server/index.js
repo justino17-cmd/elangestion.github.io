@@ -1016,7 +1016,9 @@ app.post('/api/clients/sync', async (req, res) => {
         nv.map(d => '• ' + (d.app || 'Application') + (d.formule ? ' — formule « ' + d.formule + ' »' : '') + (d.besoin && d.besoin !== 'x' ? '\n  Besoin : ' + d.besoin : '')).join('\n') +
         '\n\nÀ traiter dans ta Tour de contrôle : https://teamop.fr/tour.html (Entreprises → sa fiche → « 🔗 Lien de connexion »).';
       mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
-        subject: '📥 Demande d\'application — ' + (clientsData[email].entreprise || email), text: texte }).catch(e => console.error('mail demande:', e.message));
+        subject: '📥 Demande d\'application — ' + (clientsData[email].entreprise || email), text: texte })
+        .then(() => console.log('mail demande envoyé →', dest, '(' + nv.map(d => d.app).join(', ') + ')'))
+        .catch(e => console.error('mail demande:', e.message));
     }
   } catch (e) { console.error('notif demande:', e && e.message); }
   res.json({ ok: true });
