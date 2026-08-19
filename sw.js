@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v733';
+const CACHE = 'elan-gestion-v734';
 const ASSETS = [
   './',
   'index.html',
@@ -62,6 +62,7 @@ self.addEventListener('fetch', e => {
   if (url.pathname.endsWith('/tour.html')) return;
   // beta.html (canal d'essai) : jamais mise en cache — la bêta est toujours la dernière poussée
   if (url.pathname.endsWith('/beta.html')) return;
+  if (url.pathname.endsWith('/messages-beta.html')) return;   // canal d'essai OP MESSAGES : toujours la dernière poussée
   if (url.origin !== self.location.origin) return;   // le reste du web ne nous regarde pas
 
   const isDoc = req.mode === 'navigate' || req.destination === 'document';
