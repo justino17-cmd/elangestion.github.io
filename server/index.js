@@ -60,6 +60,26 @@ app.use((req, res, next) => {
 //    état périmé — par exemple « Stripe non configuré » alors que Stripe vient d'être relié.
 //    Cela évite aussi de laisser des données privées de clients dans le cache disque.
 app.use('/api/monitor', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+/* ── Journal des e-mails sortants + copie dans la boîte contact ──
+   Chaque envoi est noté (date, destinataire, sujet) pour l'onglet Journal de la
+   Tour, et reçoit une copie cachée (bcc) dans la boîte contact — SAUF les mails
+   contenant des codes secrets, jamais copiés. */
+const MAILS_PATH = path.join(DATA_DIR, 'mails-envoyes.json');
+let mailsLog = []; try { mailsLog = JSON.parse(fs.readFileSync(MAILS_PATH, 'utf8')); } catch (e) {}
+function mailsSave() { try { fs.writeFileSync(MAILS_PATH, JSON.stringify(mailsLog)); } catch (e) {} }
+function mailerEnvoi(opts) {
+  try {
+    mailsLog.unshift({ ts: Date.now(), a: String(opts.to || ''), sujet: String(opts.subject || '').slice(0, 140) });
+    if (mailsLog.length > 300) mailsLog.length = 300; mailsSave();
+  } catch (e) {}
+  const o2 = Object.assign({}, opts);
+  try {
+    const moi = String(config.notifDemandes || (config.smtp && (config.smtp.from || config.smtp.user)) || '').toLowerCase();
+    const secret = /code/i.test(String(opts.subject || ''));
+    if (moi && !secret && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
+  } catch (e) {}
+  return mailer.sendMail(o2);
+}
 
 // anti-abus très simple : 120 requêtes / minute / IP
 const hits = new Map();
@@ -81,7 +101,7 @@ app.post('/api/sendcode', async (req, res) => {
   const code = String(Math.floor(100000 + Math.random() * 900000));
   codes.set(teamId + '|' + (purpose || 'reset'), { code, email, exp: Date.now() + 10 * 60000, tries: 0 });
   try {
-    await mailer.sendMail({
+    await mailerEnvoi({
       from: config.smtp.from || config.smtp.user, to: email,
       subject: 'TeamOP — code de confirmation : ' + code,
       text: 'Votre code de confirmation TeamOP : ' + code + '\n\nIl expire dans 10 minutes.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.'
@@ -171,7 +191,7 @@ app.post('/api/bug', (req, res) => {
   if (mailer && Date.now() - (bugSeen.get(hash) || 0) > 6 * 3600000) {
     bugSeen.set(hash, Date.now());
     const to = config.alertEmail || config.contactEmail || 'contact@teamop.fr';
-    mailer.sendMail({
+    mailerEnvoi({
       from: config.smtp.from || config.smtp.user, to,
       subject: '🐛 Bug ' + appLisible(entry.app) + (entry.version !== '?' ? ' v' + entry.version : '') + ' — espace « ' + team + ' »',
       text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + appLisible(entry.app) + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».'
@@ -441,7 +461,7 @@ app.post('/api/sendmail', async (req, res) => {
       const name = String((brand && brand.name) || 'TeamOP').replace(/["<>\r\n]/g, '').slice(0, 80);
       const replyTo = (brand && brand.replyTo && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(brand.replyTo))) ? String(brand.replyTo) : undefined;
       const addr = (config.smtp.from || config.smtp.user).match(/<([^>]+)>/) ? (config.smtp.from || config.smtp.user).match(/<([^>]+)>/)[1] : (config.smtp.user);
-      await mailer.sendMail({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
+      await mailerEnvoi({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
     }
     if (meta && (meta.bonNum || meta.track)) rememberSent(teamId, meta.bonNum || '', to);   // pour rattacher la future réponse
     res.json({ ok: true });
@@ -482,7 +502,7 @@ app.post('/api/email', async (req, res) => {
   if (key !== config.apiKey) return res.status(403).json({ error: 'clé invalide' });
   if (!to || !subject) return res.status(400).json({ error: 'to et subject requis' });
   try {
-    await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to, subject: String(subject).slice(0, 200), text, html });
+    await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to, subject: String(subject).slice(0, 200), text, html });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -655,6 +675,7 @@ app.get('/api/monitor/users', monPatronStrict, (req, res) => {
   res.json({ users: monUsers.map(u => ({ id: u.id, nom: u.nom, email: u.email || '', role: u.role, actif: !!u.actif, ts: u.ts || 0, creePar: u.creePar || '' })) });
 });
 // journal des connexions (réussies et échouées) — visible par le patron dans la section Équipe
+app.get('/api/monitor/mails', monAdmin, (req, res) => { res.json({ ok: true, mails: mailsLog.slice(0, 120) }); });
 app.get('/api/monitor/journal', monPatronStrict, (req, res) => {
   res.json({ journal: monJournal.slice(-100).reverse() });
 });
@@ -901,7 +922,7 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
     bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
   });
   try {
-    await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: e.email,
+    await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
       subject: '🔗 Votre lien de connexion — TEAM OP', text: texte, html });
     console.log('Tour :', req.tourUser.nom, 'a envoyé le lien de', slug, '→', e.email);
     // son « Mon espace » passe à Accès activé · OP GESTION active (+ abonnement si formule posée)
@@ -1083,7 +1104,7 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
     retraitCodes.set(email, { code, exp: Date.now() + 10 * 60000, tries: 0 });
     const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
     try {
-      await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
+      await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
         subject: '🗑 Code de confirmation — fermeture de « ' + (clientsData[email].entreprise || email) + ' »',
         text: 'Tu es sur le point de FERMER DÉFINITIVEMENT l\'entreprise « ' + (clientsData[email].entreprise || email) + ' » (' + email + ').\n\nCode de confirmation : ' + code + '\n\nValable 10 minutes. Après validation : plus de nom, plus de lien, plus de formule, et les applications de ses appareils se vident à leur prochain lancement.\nSi ce n\'est pas toi, ignore ce message.' });
     } catch (e) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(e.message).slice(0, 120) }); }
@@ -1172,7 +1193,7 @@ app.post('/api/monitor/status', monAdmin, async (req, res) => {
     const texte = 'Bonjour,\n\nNotre système de surveillance a détecté puis corrigé un dysfonctionnement mineur sur ' + (issue.categorie || 'votre application') + '. Votre application est déjà à jour — vous n\'avez rien à faire.\n\n— L\'équipe TEAM OP';
     for (const d of dests) {
       if (mailer) {
-        try { await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: d.email, subject: sujet, text: texte }); mails++; }
+        try { await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: d.email, subject: sujet, text: texte }); mails++; }
         catch (e) { console.error('monitor mail', d.email + ':', e.message); }
       } else { mailsSimules++; console.log('monitor mail (simulé, smtp non configuré) →', d.email, '·', sujet); }
     }
@@ -1541,7 +1562,7 @@ app.post('/api/clients/sync', async (req, res) => {
             (auto.formule ? 'Formule enregistrée : ' + auto.formule + ' × ' + auto.quantite + ' — se débloque au paiement (ou code promo).'
                           : 'Formule non précisée par le client → à attribuer dans ta Tour (Abonnements).')) +
         '\n\nTout est visible dans ta Tour de contrôle : https://teamop.fr/tour.html';
-      mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
+      mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
         subject: '📥 Demande traitée automatiquement — ' + (clientsData[email].entreprise || email), text: texte })
         .then(() => console.log('mail demande envoyé →', dest, '(' + nv.map(d => d.app).join(', ') + ')'))
         .catch(e => console.error('mail demande:', e.message));
@@ -1582,7 +1603,7 @@ app.post('/api/clients/sync', async (req, res) => {
         boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
         bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
       });
-      mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: email,
+      mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: email,
         subject: '🔗 Votre lien de connexion est prêt — TEAM OP', text: accuse, html: accuseHtml })
         .then(() => console.log('lien de connexion envoyé →', email, '(' + lien + ')'))
         .catch(e => console.error('mail lien:', e.message));
