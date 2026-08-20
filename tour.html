@@ -437,6 +437,16 @@ function tourMdpDefaut(email){
   n=n?(n.charAt(0).toUpperCase()+n.slice(1)):'Teamop';
   return n+'!!';
 }
+function tourPromoEntreprise(nomEnt,btn){
+  var inp=document.getElementById('pack-promo'); var code=((inp&&inp.value)||'').trim().toUpperCase();
+  if(!code){ toast('Entre le code promo'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='🎁 Activation…'; }
+  apiPost('/api/monitor/espaces/promo',{nom:nomEnt,code:code}).then(function(r){
+    if(r&&r.ok&&r.d&&r.d.ok){ toast('🎁 Code '+code+' activé — offert jusqu\'au '+(r.d.finLe||'?')); if(btn) btn.textContent='✅ Code activé';
+      tourPackPrefill(nomEnt); setTimeout(chargerEspaces,300); }
+    else { toast((r&&r.d&&r.d.error)||'Activation impossible'); if(btn){ btn.disabled=false; btn.textContent='🎁 Activer le code'; } }
+  }).catch(function(){ toast('Serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='🎁 Activer le code'; } });
+}
 function tourMailAcces(nomEnt,btn){
   if(btn){ btn.disabled=true; btn.textContent='📧 Envoi…'; }
   apiPost('/api/monitor/espaces/mail-acces',{nom:nomEnt}).then(function(r){
@@ -1207,6 +1217,9 @@ function ficheClient(){
       '<input id="pack-q" type="number" min="1" max="50" value="1" title="Nombre d\'abonnements (les places s\'additionnent)" style="width:70px;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
       '<button class="btn-plein" onclick="tourAttribuerPack(\''+jsq(nm)+'\')">📦 Attribuer</button>'+
       '<button class="btn-fant" onclick="tourStatutPack(\''+jsq(nm)+'\')">💳 Statut paiement</button></div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">'+
+      '<input id="pack-promo" placeholder="Code promo (ex. TEAMOP3MOIS)" style="text-transform:uppercase;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px;width:230px">'+
+      '<button class="btn-fant" onclick="tourPromoEntreprise(\''+jsq(nm)+'\',this)">🎁 Activer le code</button></div>'+
       '<div id="pack-info" style="font-size:12.5px;color:var(--muted);margin-top:8px">Chargement du statut…</div>'+
       '<div style="font-size:12px;color:var(--muted);margin-top:6px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
     sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
