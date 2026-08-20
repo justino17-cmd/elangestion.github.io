@@ -1370,8 +1370,17 @@ app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
   if (!corps.trim()) return res.status(400).json({ error: 'message vide' });
   try {
     const nodemailer = require('nodemailer');
-    const t = nodemailer.createTransport({ host: supportBox.smtpHost, port: supportBox.smtpPort, secure: supportBox.smtpPort === 465, auth: { user: supportBox.email, pass: supportBox.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
-    await t.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps });
+    const tr = nodemailer.createTransport({ host: supportBox.smtpHost, port: supportBox.smtpPort, secure: supportBox.smtpPort === 465, auth: { user: supportBox.email, pass: supportBox.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
+    // le beau modèle TeamOP (logo, mise en page) — le texte brut reste en secours
+    const echap = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = mailTeamOP({
+      chip: 'Message',
+      titre: obj,
+      corpsHtml: echap(corps).replace(/\n/g, '<br>'),
+      boutonTxt: 'Mon espace client', boutonUrl: 'https://teamop.fr/espace.html',
+      bouton2Txt: 'Répondre à TEAM OP', bouton2Url: 'mailto:' + supportBox.email
+    });
+    await tr.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps, html });
   } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
   try { mailsLog.unshift({ ts: Date.now(), a: dest, sujet: obj, txt: corps.slice(0, 2000) }); if (mailsLog.length > 300) mailsLog.length = 300; mailsSave(); } catch (e) {}
   supportEnvoyes.unshift({ id: 'e' + crypto.randomBytes(5).toString('hex'), to: dest, subject: obj, text: corps.slice(0, 2000), ts: Date.now(), par: req.tourUser.nom });
