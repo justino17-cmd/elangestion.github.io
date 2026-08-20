@@ -3265,7 +3265,7 @@ const DASH_CARDS={
   interventions:{label:'Interventions',ic:'🧰',color:'#378ADD',view:'interventions',val:()=>visibleInts(db.interventions).filter(i=>i.statut!=='terminee'&&i.statut!=='annulee').length},
   boxes:{label:'Boxes',ic:'📦',color:'#22B14C',view:'boxes',val:()=>visibleBoxes(db.boxes).length},
   aCommander:{label:'À commander',ic:'📉',color:'#FB923C',view:'stock',val:()=>dashACommander().length},
-  validationsDR:{label:'Demandes en attente',ic:'✈️',color:'#A78BFA',view:'validations',val:()=>db.demandes.filter(d=>d.statut==='enAttente').length},
+  validationsDR:{label:'Demandes en attente',ic:'✈️',color:'#A78BFA',view:'validations',val:()=>db.demandes.filter(d=>d.statut==='enAttente').length+(db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente').length},
   bonsCommande:{label:'Bons à envoyer',ic:'✉️',color:'#60A5FA',view:'bons',val:()=>db.bons.filter(b=>b.statut==='brouillon').length},
   produits:{label:'Produits catalogue',ic:'🧴',color:'#D4537E',view:'produits',val:()=>db.produits.length},
   enveloppes:{label:'Enveloppes',ic:'📮',color:'#EF9F27',view:'enveloppes',val:()=>db.enveloppes.length},
@@ -12162,7 +12162,7 @@ function openArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) ret
     <div class="form-sec" style="margin-top:16px">Photo du bon de commande / livraison</div>
     <input type="file" id="arr-file" accept="image/*" capture="environment" style="display:none" onchange="arrPhoto(event)">
     <div id="arr-photo-zone"><button type="button" class="btn ghost" style="width:100%;justify-content:center;padding:13px" onclick="document.getElementById('arr-file').click()">Prendre / choisir une photo</button></div>
-    <div style="font-size:11.5px;color:var(--t3);margin-top:12px">À l'enregistrement, les quantités sont ajoutées directement au stock de la box (sans validation) et l'équipe reçoit une notification « Arrivage box ».</div>`);
+    <div style="font-size:11.5px;color:var(--t3);margin-top:12px">${boxValidRequis()?'À l\'enregistrement, l\'arrivage part au <b>DR pour validation</b> — le stock ne bougera qu\'après son accord.':'À l\'enregistrement, les quantités sont ajoutées directement au stock de la box et l\'équipe reçoit une notification « Arrivage box ».'}</div>`);
   arrRender(); }
 function arrRender(){ const el=$('arr-lignes'); if(!el) return;
   el.innerHTML=_arrLignes.map((l,k)=>`<div style="display:flex;gap:7px;align-items:center;margin-bottom:8px">
@@ -12177,6 +12177,9 @@ async function arrPhoto(e){ const f=e.target.files&&e.target.files[0]; if(!f) re
 function saveArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) return;
   const four=($('arr-four')?$('arr-four').value.trim():''); if(!four){ toast('Indique le fournisseur'); return; }
   const lignes=_arrLignes.filter(l=>l.produitId&&l.qte>0); if(!lignes.length){ toast('Ajoute au moins un produit reçu'); return; }
+  if(boxValidRequis()){
+    boxMvtEnvoyer({type:'arrivage',boxId:b.id,fournisseur:four,lignes:lignes.map(l=>({produitId:l.produitId,qte:l.qte})),photo:_arrPhoto||''});
+    closeModal(); renderBoxDetail(); toast('📨 Arrivage envoyé au DR pour validation — le stock bougera après son accord'); return; }
   b.stock=b.stock||{};
   lignes.forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
     db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+four+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,technicien:fullName(currentUser)}); });
@@ -12260,14 +12263,71 @@ function stepQte(id,d){ const i=$(id); if(i) i.value=Math.max(0,(parseInt(i.valu
    (qui, quoi, où, quand) dans le journal, automatiquement. */
 function traceBox(b,pid,delta,unit,motif){ if(!b||!pid||!delta) return;
   db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:delta<0?'sortie':'entree',qte:Math.abs(delta),motif:(motif||(delta<0?'Sortie box':'Entrée box'))+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,unite:unit||'u',technicien:(currentUser&&fullName(currentUser))||''}); }
+/* ── VALIDATION DR DES MOUVEMENTS DE BOX ──
+   Quand le réglage est actif (c'est le cas par défaut), TOUT mouvement de box fait
+   par quelqu'un d'autre que le DR ou l'administrateur — arrivage, ajustement de
+   quantité, tap ＋/−, retrait de produit — part d'abord en file de validation :
+   le stock ne bouge qu'après le « Valider » du DR (écran Validations DR). */
+function boxValidDrOn(){ return db.boxValidDR!==false; }
+function boxValidRequis(){ return boxValidDrOn() && !(currentUser&&['admin','dr'].includes(currentUser.role)); }
+function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
+  if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn; }
+  if(m.type==='retrait'){ const p=produit(m.produitId); return 'Retrait de '+(p.nom||'produit')+' — '+bn; }
+  const p=produit(m.produitId); const parts=[]; if(m.du) parts.push((m.du>0?'+':'')+m.du+' u'); if(m.dc) parts.push((m.dc>0?'+':'')+m.dc+' ctn');
+  return (p.nom||'Produit')+' '+(parts.join(' · ')||'±0')+' — '+bn; }
+function boxMvtEnvoyer(m){ db.boxMvtAttente=db.boxMvtAttente||[];
+  m.id=uid(); m.ts=Date.now(); m.statut='enAttente'; m.par=fullName(currentUser); m.parId=currentUser&&currentUser.id;
+  db.boxMvtAttente.unshift(m); if(db.boxMvtAttente.length>80) db.boxMvtAttente.length=80;
+  logEvent('Mouvement box → validation DR',boxMvtLibelle(m),'stock');
+  try{ const dest=(db.users||[]).filter(x=>x&&x.actif!==false&&(x.role==='dr'||x.role==='admin')).map(x=>x.id);
+    if(dest.length) pushNotify('🔒 À valider — mouvement de box',boxMvtLibelle(m)+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){}
+  save(); return m; }
+function boxMvtValider(id,statut){ if(!currentUser||!['admin','dr'].includes(currentUser.role)){ toast('Validation réservée au DR / administrateur'); return; }
+  const m=(db.boxMvtAttente||[]).find(x=>x.id===id&&x.statut==='enAttente'); if(!m) return;
+  if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return;
+    m.motifRefus=motif; m.statut='refuse'; m.drNom=fullName(currentUser); m.dateValidation=todayISO();
+    logEvent('Mouvement box refusé',boxMvtLibelle(m),'stock');
+    try{ if(m.parId) pushNotify('🚫 Mouvement de box refusé',boxMvtLibelle(m)+(motif?' — '+motif:''),'/app.html#v=boxes',[m.parId]); }catch(e){}
+    save(); if(current==='validations') views.validations(); toast('Mouvement refusé'); return; }
+  const b=db.boxes.find(x=>x.id===m.boxId);
+  if(!b){ m.statut='refuse'; m.motifRefus='box introuvable'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); save(); if(current==='validations') views.validations(); toast('Box introuvable — mouvement refusé'); return; }
+  b.stock=b.stock||{};
+  if(m.type==='arrivage'){
+    (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
+      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR)',vehiculeId:'',boxId:b.id,technicien:m.par||''}); });
+    b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).map(l=>({produitId:l.produitId,qte:l.qte})),photo:m.photo||'',par:m.par||''});
+    if(b.arrivages.length>40) b.arrivages.length=40;
+  } else if(m.type==='retrait'){
+    const s=(b.stock||{})[m.produitId]||{ctn:0,u:0};
+    if(s.u) traceBox(b,m.produitId,-s.u,'u','Retiré de la box (validé DR)');
+    if(s.ctn) traceBox(b,m.produitId,-s.ctn,'ctn','Retiré de la box (validé DR)');
+    delete b.stock[m.produitId];
+  } else {
+    const cur=b.stock[m.produitId]||{ctn:0,u:0};
+    if(m.du){ cur.u=Math.max(0,(cur.u||0)+m.du); traceBox(b,m.produitId,m.du,'u','Ajustement (validé DR)'); }
+    if(m.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+m.dc); traceBox(b,m.produitId,m.dc,'ctn','Ajustement (validé DR)'); }
+    b.stock[m.produitId]=cur;
+  }
+  m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO();
+  logEvent('Mouvement box validé',boxMvtLibelle(m),'stock');
+  try{ if(m.parId) pushNotify('✅ Mouvement de box validé',boxMvtLibelle(m),'/app.html#v=boxes',[m.parId]); }catch(e){}
+  save(); if(current==='validations') views.validations(); toast('Validé — stock mis à jour'); }
 function saveBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; const prev=b.stock[pid]||{ctn:0,u:0}; const prevU=prev.u||0, prevC=prev.ctn||0;
-  b.stock[pid]={ctn:Math.max(0,parseInt($('eq-ctn').value)||0),u:Math.max(0,parseInt($('eq-u').value)||0)};
+  const nc=Math.max(0,parseInt($('eq-ctn').value)||0), nu=Math.max(0,parseInt($('eq-u').value)||0);
+  if(((nu-prevU)||(nc-prevC)) && boxValidRequis()){
+    boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:pid,du:nu-prevU,dc:nc-prevC});
+    closeModal(); renderBoxDetail(); toast('📨 Modification envoyée au DR pour validation'); return; }
+  b.stock[pid]={ctn:nc,u:nu};
   notifyDrBoxLow(b,pid,prevU);
   const du=(b.stock[pid].u||0)-prevU; if(du){ notifyDrBoxMove(b,pid,du<0?'sortie':'entree',Math.abs(du),'u'); traceBox(b,pid,du,'u','Ajustement'); }
   const dc=(b.stock[pid].ctn||0)-prevC; if(dc){ notifyDrBoxMove(b,pid,dc<0?'sortie':'entree',Math.abs(dc),'ctn'); traceBox(b,pid,dc,'ctn','Ajustement'); }
   save(); closeModal(); renderBoxDetail(); toast('Quantité mise à jour'); }
 function removeBoxProd(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return;
   const s=(b.stock||{})[pid]||{ctn:0,u:0}; const p=produit(pid);
+  if(boxValidRequis()){
+    if(!confirm('Demander le retrait de « '+(p.nom||'ce produit')+' » de la box ?\n\nLa demande partira au DR pour validation.')) return;
+    boxMvtEnvoyer({type:'retrait',boxId:b.id,produitId:pid});
+    closeModal(); renderBoxDetail(); toast('📨 Retrait envoyé au DR pour validation'); return; }
   if(!confirm('Retirer « '+(p.nom||'ce produit')+' » de la box ?'+((s.u||s.ctn)?' Les quantités restantes ('+(s.ctn||0)+' ctn · '+(s.u||0)+' u) seront sorties du stock.':''))) return;
   if(s.u){ traceBox(b,pid,-s.u,'u','Retiré de la box'); notifyDrBoxMove(b,pid,'sortie',s.u,'u'); }
   if(s.ctn){ traceBox(b,pid,-s.ctn,'ctn','Retiré de la box'); notifyDrBoxMove(b,pid,'sortie',s.ctn,'ctn'); }
@@ -12301,6 +12361,17 @@ function addBoxProd(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; i
    tracé (qui/quoi/où/quand) et le responsable reçoit la notification. */
 function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; b.stock[pid]=b.stock[pid]||{ctn:0,u:0}; const prevU=b.stock[pid].u||0;
   if(delta<0&&(b.stock[pid][field]||0)<=0){ toast('Déjà à 0'); return; }
+  if(boxValidRequis()){
+    // les taps successifs sur le même produit se REGROUPENT dans une seule demande
+    db.boxMvtAttente=db.boxMvtAttente||[];
+    const ex=db.boxMvtAttente.find(x=>x.statut==='enAttente'&&x.type==='ajustement'&&x.boxId===b.id&&x.produitId===pid&&x.parId===(currentUser&&currentUser.id));
+    if(ex){ if(field==='u') ex.du=(ex.du||0)+delta; else ex.dc=(ex.dc||0)+delta;
+      if(!ex.du&&!ex.dc){ db.boxMvtAttente=db.boxMvtAttente.filter(x=>x!==ex); save(); toast('Demande annulée (retour à zéro)'); }
+      else { save(); toast('🔒 En attente du DR : '+boxMvtLibelle(ex)); }
+      renderBoxProdList(); return; }
+    boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:pid,du:field==='u'?delta:0,dc:field==='ctn'?delta:0});
+    toast('📨 Envoyé au DR pour validation — le stock bougera après son accord');
+    renderBoxProdList(); return; }
   b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
   traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box');
   if(field==='u') notifyDrBoxLow(b,pid,prevU);
@@ -12644,13 +12715,23 @@ function saveDemande(e){ e.preventDefault(); const f=Object.fromEntries(new Form
 
 /* ═══════════════ VALIDATIONS DR ═══════════════ */
 views.validations=function(){
-  setHeader('Validations DR','File de validation des demandes de commande');
+  setHeader('Validations DR','Demandes de commande et mouvements de box');
   const att=db.demandes.filter(d=>d.statut==='enAttente');
   const autres=db.demandes.filter(d=>d.statut!=='enAttente').sort((a,b)=>(b.dateValidation||b.date||'').localeCompare(a.dateValidation||a.date||''));
   const row=d=>`<div class="pl-row" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))} <span class="tag">${(d.lignes||[]).length} produit(s)</span></div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${demTotal(d)} unité(s)</div></div>`;
-  $('content').innerHTML=`<div class="card"><div class="card-head"><h3>À traiter (${att.length})</h3></div>
-    ${att.length? att.map(d=>row(d)+`${(currentUser&&['admin','dr'].includes(currentUser.role))?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="validerDemande('${d.id}','refuse')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
-  </div>${autres.length?`<div class="card"><div class="card-head"><h3>Historique</h3></div>
+  // ── Mouvements de box en attente du DR (arrivages, ajustements, retraits) ──
+  const estDr=(currentUser&&['admin','dr'].includes(currentUser.role));
+  const MICO={arrivage:'📦',ajustement:'✏️',retrait:'🗑️'};
+  const mv=(db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente');
+  const mvHisto=(db.boxMvtAttente||[]).filter(m=>m.statut!=='enAttente').slice(0,12);
+  const mvRow=m=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${MICO[m.type]||'📦'} ${esc(boxMvtLibelle(m))}</div><div class="pl-meta">${esc(m.par||'')} · ${new Date(m.ts||0).toLocaleDateString('fr-FR')}${m.motifRefus?' · motif : '+esc(m.motifRefus):''}</div></div>`;
+  const blocMv=`<div class="card"><div class="card-head"><h3>Mouvements de box (${mv.length})</h3></div>
+    ${mv.length? mv.map(m=>mvRow(m)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button> <button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
+  </div>`;
+  $('content').innerHTML=blocMv+`<div class="card"><div class="card-head"><h3>Demandes de commande (${att.length})</h3></div>
+    ${att.length? att.map(d=>row(d)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="validerDemande('${d.id}','refuse')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
+  </div>${(autres.length||mvHisto.length)?`<div class="card"><div class="card-head"><h3>Historique</h3></div>
+    ${mvHisto.map(m=>mvRow(m)+`<span class="st ${m.statut==='valide'?'st-green':'st-red'}">${m.statut==='valide'?'Validé':'Refusé'}${m.drNom?' · '+esc(m.drNom):''}</span></div>`).join('')}
     ${autres.map(d=>row(d)+`${badge(STATV,d.statut)}</div>`).join('')}</div>`:''}`;
 };
 function validerDemande(id,statut){ if(!currentUser||!['admin','dr'].includes(currentUser.role)){ toast('Validation réservée au DR / administrateur'); return; }
