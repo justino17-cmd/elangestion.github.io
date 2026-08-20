@@ -1131,11 +1131,23 @@ function ficheClient(){
   if(!c) return '<div class="vide"><span style="color:var(--dim)">'+svg('entreprises',22)+'</span><div style="margin-top:10px">Sélectionnez une entreprise pour afficher sa fiche.</div></div>';
   var s=cliStatut(c), nm=c.entreprise||c.nom||c.email, prenom=String(c.nom||nm).split(' ')[0];
   var apps=(c.apps||[]).map(function(a){ return '<span class="chip acc">'+esc(a)+'</span>'; }).join(' ')||'<span style="color:var(--muted)">—</span>';
-  var dem=(c.demandes||[]).slice(0,6).map(function(d){
-    var t=(typeof d==='string')?d:(d.texte||d.message||d.demande||JSON.stringify(d));
-    return '<div style="display:flex;gap:9px;align-items:flex-start"><span class="pt" style="background:#4f7cff;margin-top:6px"></span>'+
-      '<span style="font-size:13px;color:var(--text2);line-height:1.5">'+esc(t)+'</span></div>';
-  }).join('')||'<div style="color:var(--muted);font-size:13px">Aucune demande enregistrée.</div>';
+  var traites=c.demandesTraitees||{};
+  var dem=(c.demandes||[]).map(function(d,i){ return {d:d,i:i}; })
+    .sort(function(a,b){ return (((b.d||{}).date)||0)-(((a.d||{}).date)||0); }).slice(0,6)
+    .map(function(x){
+      var d=x.d||{}; if(typeof d==='string') d={besoin:d};
+      var tr=traites[x.i];
+      var lig=[];
+      if(d.formule) lig.push('💼 '+d.formule);
+      if(d.users) lig.push('👥 '+d.users+' utilisateur(s)');
+      if(d.lien) lig.push('🔗 '+d.lien);
+      if(d.code) lig.push('🎁 '+d.code);
+      return '<div style="display:flex;gap:9px;align-items:flex-start"><span class="pt" style="background:'+(tr?'#34d399':'#4f7cff')+';margin-top:6px"></span>'+
+        '<span style="font-size:13px;color:var(--text2);line-height:1.55"><b>'+esc(d.app||'Demande')+'</b>'+(d.date?(' · '+esc(fmtJour(d.date))):'')+
+        (tr?(' <span style="font-size:11.5px;color:#34d399">✅ '+esc((tr.par||'traitée'))+'</span>'):' <span style="font-size:11.5px;color:#7ea2ff">⏳ à traiter</span>')+
+        (lig.length?('<br>'+esc(lig.join(' · '))):'')+
+        (d.besoin?('<br><span style="color:var(--muted)">'+esc(String(d.besoin).slice(0,140))+'</span>'):'')+'</span></div>';
+    }).join('')||'<div style="color:var(--muted);font-size:13px">Aucune demande enregistrée.</div>';
   var sect=function(t,l){ return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">'+t+'</div>'+
     '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">'+l.map(function(x){
       return '<div style="display:flex;gap:12px;font-size:13px"><span style="color:var(--muted);min-width:104px;flex-shrink:0">'+x[0]+'</span><span style="color:var(--text2);word-break:break-word">'+x[1]+'</span></div>'; }).join('')+'</div></div>'; };
