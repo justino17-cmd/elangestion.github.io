@@ -165,7 +165,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.53</div>
+    <div class="lg-pied">console interne · v2.54</div>
   </div>
 </div>
 
@@ -192,7 +192,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.53</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.54</div>
 </div>
 
 <div id="toast"></div>
@@ -913,6 +913,21 @@ function vueSurveillance(){
           '<span style="font-size:12px;color:var(--muted)">'+g.length+' problème'+(g.length>1?'s':'')+' · dernier '+esc(fmtAgo(dernierDe(g)))+'</span></div>'+
       '</div>';
     }).join('') : '<div class="vide">Aucun incident ne correspond à ces filtres.</div>';
+  // les entreprises SANS problème sont là aussi — en bonne santé, c'est dit clairement
+  if(!INC.f.ent){
+    var connues={}; nomsG.forEach(function(n){ connues[n]=1; });
+    var saines=(CLI.list||[]).map(function(c){ return c.entreprise||c.nom||c.email; })
+      .filter(function(n,ix,arr){ return n&&!connues[n]&&arr.indexOf(n)===ix; })
+      .map(function(n){
+        return '<div class="item" style="cursor:default">'+
+          '<div style="display:flex;align-items:center;gap:10px">'+
+            '<span class="pt" style="background:#34d399"></span>'+
+            '<span style="flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(n)+'</span>'+
+            '<span class="past p-vert">✅ Aucun problème</span></div>'+
+          '<div style="font-size:12px;color:var(--muted);margin-top:7px">Son application est surveillée en continu — le moindre pépin apparaîtra ici tout seul.</div></div>';
+      }).join('');
+    if(saines) liste=(nomsG.length?liste:'')+saines;
+  }
 
   var ouverts=incOuverts().length;
   return '<div class="ttl-page">Surveillance</div>'+
@@ -1153,6 +1168,21 @@ function vueSupport(){
       liste+'</div>'+
     '<div class="col-detail"><div class="col-detail-sticky">'+lecture()+'</div></div></div>';
 }
+function envoyeLire(i){ MSG.envSel=i; render(); }
+function envoyeLecture(){
+  var m=(MSG.envoyes||[])[MSG.envSel];
+  if(!m) return '<div class="vide"><span style="color:var(--dim)">'+svg('avion',22)+'</span><div style="margin-top:10px">Choisis un envoi dans la liste pour le relire.</div></div>';
+  var c=(CLI.list||[]).find(function(x){ return String(x.email||'').toLowerCase()===String(m.a||'').toLowerCase(); });
+  var ent=c?(c.entreprise||c.nom||m.a):(m.a||'—');
+  return '<div class="carte p24">'+
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'+
+      '<span style="font-size:11px;font-weight:800;letter-spacing:.5px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.4);color:#34d399;border-radius:99px;padding:3px 10px">📤 ENVOYÉ</span>'+
+      '<span class="mono" style="font-size:12px;color:var(--muted)">'+esc(fmtDate(m.ts))+'</span></div>'+
+    '<div style="font-size:16.5px;font-weight:700;line-height:1.4">'+esc(m.sujet||'(sans objet)')+'</div>'+
+    '<div style="font-size:12.5px;color:var(--muted);margin-top:6px">🏢 <b style="color:var(--text2)">'+esc(ent)+'</b> · '+esc(m.a||'')+'</div>'+
+    '<div class="sec" style="margin-top:18px">LE MESSAGE ENVOYÉ</div>'+
+    '<div style="margin-top:10px;background:var(--inset,#0d1526);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word">'+esc(m.txt||'(aperçu non conservé pour ce message)')+'</div></div>';
+}
 function envoyesOuvrir(){
   MSG.sel={boite:'envoyes',dossier:'',titre:'Envoyés'}; MSG.envQ=MSG.envQ||''; render();
   apiGet('/api/monitor/mails').then(function(d){ if(!d) return;
@@ -1180,16 +1210,21 @@ function vueEnvoyes(){
   var corps=noms.map(function(g){
     var ms=groupes[g];
     return '<div class="carte" style="margin-bottom:14px"><div class="ttl-carte">🏢 '+esc(g)+' <span style="color:var(--muted);font-weight:400;font-size:12px">· '+ms.length+' envoi'+(ms.length>1?'s':'')+'</span></div>'+
-      '<div style="margin-top:6px">'+ms.slice(0,30).map(function(m){
-        return '<div style="display:flex;gap:12px;align-items:baseline;padding:9px 0;border-top:1px solid var(--hairline)">'+
-          '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0">'+esc(fmtDate(m.ts))+'</span>'+
-          '<span style="flex:1;min-width:0;font-size:13px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.sujet||'(sans objet)')+'</span>'+
-          '<span class="mono" style="font-size:11.5px;color:var(--muted);flex-shrink:0">'+esc(m.a||'')+'</span></div>';
+      '<div style="margin-top:8px">'+ms.slice(0,30).map(function(m){
+        var i=L.indexOf(m);
+        return '<div class="item'+(MSG.envSel===i?' on':'')+'" style="margin-top:8px;cursor:pointer" onclick="envoyeLire('+i+')">'+
+          '<div style="display:flex;align-items:center;gap:10px">'+
+            '<span style="flex-shrink:0;font-size:10.5px;font-weight:800;letter-spacing:.5px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.4);color:#34d399;border-radius:99px;padding:2px 9px">📤</span>'+
+            '<span style="flex:1;min-width:0;font-size:13.5px;font-weight:700;color:var(--strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.sujet||'(sans objet)')+'</span>'+
+            '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0">'+esc(fmtDate(m.ts))+'</span></div>'+
+          '<div style="font-size:12px;color:var(--muted);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">→ '+esc(m.a||'')+(m.txt?' · '+esc(String(m.txt).slice(0,80)):'')+'</div></div>';
       }).join('')+'</div></div>';
   }).join('')||'<div class="vide">'+(q?'Aucun envoi ne correspond à « '+esc(MSG.envQ)+' ».':'Aucun e-mail envoyé pour l\'instant — le journal se remplit à chaque envoi (mail de demande, lien de connexion, code…), et chaque envoi arrive aussi en copie dans contact@teamop.fr.')+'</div>';
-  return '<div style="display:flex;gap:9px;margin-bottom:14px"><div class="rech" style="flex:1">'+svg('loupe',16)+
+  return '<div class="deux"><div class="col-liste">'+
+    '<div style="display:flex;gap:9px;margin-bottom:12px"><div class="rech" style="flex:1">'+svg('loupe',16)+
       '<input placeholder="Rechercher une entreprise, un sujet, une adresse…" value="'+esc(MSG.envQ||'')+'" onchange="envoyesQ(this.value)"></div>'+
-      '<button class="btn-icone" onclick="envoyesOuvrir()" title="Actualiser">'+svg('refresh',15)+'</button></div>'+corps;
+      '<button class="btn-icone" onclick="envoyesOuvrir()" title="Actualiser">'+svg('refresh',15)+'</button></div>'+corps+'</div>'+
+    '<div class="col-detail"><div class="col-detail-sticky">'+envoyeLecture()+'</div></div></div>';
 }
 function lecture(){
   var m=MSG.ouvert;
