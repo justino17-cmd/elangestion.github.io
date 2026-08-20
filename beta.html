@@ -12008,7 +12008,7 @@ function openAjoutProduitBoxes(){ bulkBoxes=new Set();
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>Ajouter un produit aux boxes</h3><button type="button" class="btn sm" onclick="applyAjoutProduitBoxes()">Ajouter</button></div>
     <div class="form-sec">Produit</div>
     <div class="field"><label>Produit *</label><select id="apb-prod"><option value="">—</option>${db.produits.map(p=>`<option value="${p.id}">${esc(p.ref?p.ref+' — ':'')}${esc(p.nom)}</option>`).join('')}</select></div>
-    <div class="field-row"><div class="field"><label>Cartons</label><input type="number" id="apb-ctn" min="0" value="0"></div><div class="field"><label>Unités</label><input type="number" id="apb-u" min="0" value="1"></div></div>
+    <div class="field"><label>Unités</label><input type="number" id="apb-u" min="0" value="1"></div>
     <div class="form-sec">Boxes — <span id="apb-count">0</span> sélectionnée(s)</div>
     <div style="margin-bottom:8px;display:flex;gap:8px"><button type="button" class="btn ghost sm" onclick="apbAll(true)">Tout sélectionner</button><button type="button" class="btn ghost sm" onclick="apbAll(false)">Aucune</button></div>
     <div id="apb-list"></div>`);
@@ -12018,9 +12018,16 @@ function renderApbList(){ const el=$('apb-list'); if(!el) return; el.innerHTML=v
 function apbToggle(id,on){ if(on)bulkBoxes.add(id); else bulkBoxes.delete(id); const c=$('apb-count'); if(c)c.textContent=bulkBoxes.size; }
 function apbAll(on){ bulkBoxes=new Set(on?visibleBoxes(db.boxes).map(b=>b.id):[]); renderApbList(); }
 function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast('Choisis un produit');return;} if(!bulkBoxes.size){toast('Choisis au moins une box');return;}
-  const ctn=parseInt($('apb-ctn').value)||0, u=parseInt($('apb-u').value)||0; const p=produit(pid);
-  bulkBoxes.forEach(id=>{ const b=db.boxes.find(x=>x.id===id); if(!b)return; b.stock=b.stock||{}; const cur=b.stock[pid]||{ctn:0,u:0}; b.stock[pid]={ctn:cur.ctn+ctn,u:cur.u+u};
-    if(u) traceBox(b,pid,u,'u','Ajout produit'); if(ctn) traceBox(b,pid,ctn,'ctn','Ajout produit'); if(u||ctn) notifyDrBoxMove(b,pid,'entree',u||ctn,u?'u':'ctn'); });
+  const u=parseInt($('apb-u').value)||0; const p=produit(pid);
+  if(u&&boxValidRequis()){
+    // pas DR : chaque ajout part en file de validation, une notification pour le tout
+    bulkBoxes.forEach(id=>{ const b=db.boxes.find(x=>x.id===id); if(!b)return;
+      boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:pid,du:u,dc:0,note:'Ajout produit'},true); });
+    try{ const dest=(db.users||[]).filter(x=>x&&x.actif!==false&&(x.role==='dr'||x.role==='admin')).map(x=>x.id);
+      if(dest.length) pushNotify('🔒 À valider — ajouts en box',p.nom+' +'+u+' u → '+bulkBoxes.size+' box · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){}
+    closeModal(); toast('📨 Ajout envoyé au DR pour validation ('+bulkBoxes.size+' box)'); views.boxes(); return; }
+  bulkBoxes.forEach(id=>{ const b=db.boxes.find(x=>x.id===id); if(!b)return; b.stock=b.stock||{}; const cur=b.stock[pid]||{ctn:0,u:0}; b.stock[pid]={ctn:cur.ctn||0,u:(cur.u||0)+u};
+    if(u){ traceBox(b,pid,u,'u','Ajout produit'); notifyDrBoxMove(b,pid,'entree',u,'u'); } });
   logEvent('Produit ajouté aux boxes',`${p.nom} → ${bulkBoxes.size} box`,'stock'); save(); closeModal(); toast(p.nom+' ajouté à '+bulkBoxes.size+' box'); views.boxes(); }
 
 /* Détail box plein écran — inventaire produits (ctn / u), façon ELAN */
@@ -12125,9 +12132,9 @@ async function shareBoxStock(id){ const b=db.boxes.find(x=>x.id===id); if(!b)ret
     const lieu=[b.adresse,((b.codePostal||'')+' '+(b.ville||'')).trim()].filter(Boolean).join(' - '); if(lieu){ doc.text(lieu,40,y); y+=13; }
     if(b.categorie){ doc.text('Categorie : '+b.categorie,40,y); y+=13; }
     y+=8; doc.setDrawColor(22,128,60); doc.setLineWidth(1.2); doc.line(40,y,555,y); y+=20;
-    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(30,31,40); doc.text('Produit',40,y); doc.text('Cartons',400,y); doc.text('Unites',480,y); y+=8;
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(30,31,40); doc.text('Produit',40,y); doc.text('Unites',480,y); y+=8;
     doc.setDrawColor(220); doc.setLineWidth(.5); doc.line(40,y,555,y); y+=16; doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    if(prods.length){ prods.forEach(x=>{ if(y>800){ doc.addPage(); y=50; } doc.setTextColor(30,31,40); doc.text(String(x.p.nom||'').slice(0,58),40,y); doc.text(String(x.s.ctn||0),415,y); doc.text(String(x.s.u||0),492,y); y+=16; }); }
+    if(prods.length){ prods.forEach(x=>{ if(y>800){ doc.addPage(); y=50; } doc.setTextColor(30,31,40); doc.text(String(x.p.nom||'').slice(0,58),40,y); doc.text(String(x.s.u||0),492,y); y+=16; }); }
     else { doc.setTextColor(130); doc.text('Aucun produit dans cette box.',40,y); y+=16; }
     doc.setFontSize(9); doc.setTextColor(150); doc.text('OP GESTION - '+new Date().toLocaleDateString('fr-FR'),40,820);
     const fname='stock_'+String(b.numero||b.nom||'box').replace(/[^a-z0-9]/gi,'_')+'.pdf';
@@ -12155,7 +12162,7 @@ function printBox(id){ const b=db.boxes.find(x=>x.id===id); if(!b)return; const 
       ${b.notes?'<br><b>Notes :</b> '+esc(b.notes):''}</div>
     ${b.photo?`<img src="${b.photo}" style="max-width:280px;border-radius:8px;border:1px solid #E3E8F0;margin:6px 0">`:''}
     <h3 style="color:#1E7A4E;font-size:14px">Produits (${prods.length})</h3>
-    <table><thead><tr><th>Produit</th><th>Cartons</th><th>Unités</th></tr></thead><tbody>${prods.map(x=>`<tr><td>${esc(x.p.nom)}</td><td>${x.s.ctn||0}</td><td>${x.s.u||0}</td></tr>`).join('')||'<tr><td colspan="3">—</td></tr>'}</tbody></table>
+    <table><thead><tr><th>Produit</th><th>Unités</th></tr></thead><tbody>${prods.map(x=>`<tr><td>${esc(x.p.nom)}</td><td>${x.s.u||0}</td></tr>`).join('')||'<tr><td colspan="2">—</td></tr>'}</tbody></table>
     <h3 style="color:#1E7A4E;font-size:14px;margin-top:18px">Passages & relevés (${ps.length})</h3>
     <table><thead><tr><th>Date</th><th>Technicien</th><th>État</th><th>Observations</th></tr></thead><tbody>${ps.map(p=>`<tr><td>${new Date((p.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')}</td><td>${esc(p.technicienNom||'')}</td><td>${esc((APPAT_ETATS[p.etat]||{}).l||'')}</td><td>${esc(p.note||'')}</td></tr>`).join('')||'<tr><td colspan="4">Aucun passage</td></tr>'}</tbody></table>
     <div style="margin-top:24px;font-size:11px;color:#999;text-align:center">Document généré par OP GESTION — ${new Date().toLocaleDateString('fr-FR')}</div>
@@ -12262,10 +12269,7 @@ function renderBoxProdList(){
 function editBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; const s=b.stock[pid]||{ctn:0,u:0}; const p=produit(pid);
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>Quantité</h3><button type="button" class="btn sm" onclick="saveBoxQte('${pid}')">OK</button></div>
     <div class="form-sec">${esc(p.nom)}</div>
-    <div class="field-row">
-      <div class="field"><label>Cartons</label><div style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" onclick="stepQte('eq-ctn',-1)">−</button><input id="eq-ctn" type="number" min="0" value="${s.ctn||0}" style="text-align:center"><button type="button" class="btn ghost" onclick="stepQte('eq-ctn',1)">＋</button></div></div>
-      <div class="field"><label>Unités</label><div style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" onclick="stepQte('eq-u',-1)">−</button><input id="eq-u" type="number" min="0" value="${s.u||0}" style="text-align:center"><button type="button" class="btn ghost" onclick="stepQte('eq-u',1)">＋</button></div></div>
-    </div>
+    <div class="field"><label>Unités</label><div style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" onclick="stepQte('eq-u',-1)">−</button><input id="eq-u" type="number" min="0" value="${s.u||0}" style="text-align:center"><button type="button" class="btn ghost" onclick="stepQte('eq-u',1)">＋</button></div></div>
     <div class="detail-desc" style="margin-top:8px">0 unité = Épuisé · 1-2 = À commander · 3+ = En stock</div>
     <div class="modal-foot"><button type="button" class="btn danger" onclick="removeBoxProd('${pid}')">Retirer de la box</button></div>`);
 }
@@ -12325,7 +12329,7 @@ function boxMvtValider(id,statut){ if(!currentUser||!['admin','dr'].includes(cur
   try{ if(m.parId) pushNotify('✅ Mouvement de box validé',boxMvtLibelle(m),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations(); toast('Validé — stock mis à jour'); }
 function saveBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; const prev=b.stock[pid]||{ctn:0,u:0}; const prevU=prev.u||0, prevC=prev.ctn||0;
-  const nc=Math.max(0,parseInt($('eq-ctn').value)||0), nu=Math.max(0,parseInt($('eq-u').value)||0);
+  const nc=$('eq-ctn')?Math.max(0,parseInt($('eq-ctn').value)||0):prevC, nu=Math.max(0,parseInt($('eq-u').value)||0);
   if(((nu-prevU)||(nc-prevC)) && boxValidRequis()){
     boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:pid,du:nu-prevU,dc:nc-prevC});
     closeModal(); renderBoxDetail(); toast('📨 Modification envoyée au DR pour validation'); return; }
@@ -12340,7 +12344,7 @@ function removeBoxProd(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)ret
     if(!confirm('Demander le retrait de « '+(p.nom||'ce produit')+' » de la box ?\n\nLa demande partira au DR pour validation.')) return;
     boxMvtEnvoyer({type:'retrait',boxId:b.id,produitId:pid});
     closeModal(); renderBoxDetail(); toast('📨 Retrait envoyé au DR pour validation'); return; }
-  if(!confirm('Retirer « '+(p.nom||'ce produit')+' » de la box ?'+((s.u||s.ctn)?' Les quantités restantes ('+(s.ctn||0)+' ctn · '+(s.u||0)+' u) seront sorties du stock.':''))) return;
+  if(!confirm('Retirer « '+(p.nom||'ce produit')+' » de la box ?'+((s.u||s.ctn)?' La quantité restante ('+((s.u||0)+(s.ctn||0))+' u) sera sortie du stock.':''))) return;
   if(s.u){ traceBox(b,pid,-s.u,'u','Retiré de la box'); notifyDrBoxMove(b,pid,'sortie',s.u,'u'); }
   if(s.ctn){ traceBox(b,pid,-s.ctn,'ctn','Retiré de la box'); notifyDrBoxMove(b,pid,'sortie',s.ctn,'ctn'); }
   delete b.stock[pid]; logEvent('Produit retiré d\'une box',(p.nom||'')+' — '+(b.nom||b.numero||''),'stock');
@@ -12492,8 +12496,7 @@ function renderBoxFormProds(){ const el=$('box-form-prods'); if(!el)return;
   if(!ids.length){ el.innerHTML='<div class="frow" style="color:var(--t3)">Aucun produit. Touche « Ajouter des produits ».</div>'; return; }
   el.innerHTML=ids.map(pid=>{ const p=produit(pid); const s=boxFormStock[pid];
     return `<div class="frow"><div style="flex:1;min-width:0"><div style="font-size:14px;color:var(--t1)">${esc(p.nom)}</div><div style="font-size:11px;color:var(--t3)">${esc(p.categorie||'')}</div></div>
-      <div class="frow-val"><input type="number" min="0" value="${s.ctn||0}" title="cartons" style="width:42px;text-align:center" oninput="boxFormStock['${pid}'].ctn=parseInt(this.value)||0"><span style="font-size:11px;color:var(--t3)">ctn</span>
-      <input type="number" min="0" value="${s.u||0}" title="unités" style="width:42px;text-align:center" oninput="boxFormStock['${pid}'].u=parseInt(this.value)||0"><span style="font-size:11px;color:var(--t3)">u</span>
+      <div class="frow-val"><input type="number" min="0" value="${s.u||0}" title="unités" style="width:56px;text-align:center" oninput="boxFormStock['${pid}'].u=parseInt(this.value)||0"><span style="font-size:11px;color:var(--t3)">u</span>
       <button type="button" class="btn danger sm" onclick="delete boxFormStock['${pid}'];renderBoxFormProds()">✕</button></div></div>`;}).join('');
 }
 let boxFormCatOpen=false;
@@ -18035,6 +18038,12 @@ async function boot(){
   }catch(e){}
   // Renommage : les comptes « ELAN Admin » existants deviennent « OP Admin »
   for(const u of db.users){ if((u.prenom||'')==='ELAN'&&(u.nom||'')==='Admin'){ u.prenom='OP'; ch=true; } }
+  // Boxes : tout en UNITÉS — les anciens cartons sont convertis une bonne fois
+  // (ctn × unités-par-carton du produit) puis les cartons disparaissent des box.
+  try{
+    (db.boxes||[]).forEach(b=>{ Object.entries(b.stock||{}).forEach(([pid,s])=>{
+      if(s&&(s.ctn||0)>0){ const p=produit(pid); s.u=(s.u||0)+(s.ctn||0)*((p&&p.qteCarton>0)?p.qteCarton:1); s.ctn=0; ch=true; } }); });
+  }catch(e){}
   if(ch) save();
   // identifiant de départ choisi par TeamOP (via le lien) : le compte « admin » jamais activé le prend
   try{
