@@ -165,7 +165,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.51</div>
+    <div class="lg-pied">console interne · v2.52</div>
   </div>
 </div>
 
@@ -192,7 +192,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.51</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.52</div>
 </div>
 
 <div id="toast"></div>
@@ -1124,6 +1124,7 @@ function vueSupport(){
     '<button class="chip" style="cursor:pointer;border:1px solid '+(MSG.sel.boite==='toutes'?'#4f7cff':'transparent')+'" onclick="mailAller(\'toutes\',\'\',\'Toutes les réceptions\',\'inbox\')">Toutes les réceptions'+(MSG.nonLus?' · '+MSG.nonLus:'')+'</button>'+
     MSG.boites.map(function(x){ var b=x.boite||{}; var id=b.id||b.email||'';
       return '<button class="chip" style="cursor:pointer;border:1px solid '+(MSG.sel.boite===id?'#4f7cff':'transparent')+'" onclick="mailAller(\''+jsq(id)+'\',\'\',\''+jsq(b.email||'Boîte')+'\',\'inbox\')">'+esc(b.email||'Boîte')+(x.nonLus?' · '+x.nonLus:'')+'</button>'; }).join('')+
+    '<button class="chip" style="cursor:pointer;border:1px solid '+(MSG.sel.boite==='envoyes'?'#4f7cff':'transparent')+'" onclick="envoyesOuvrir()">📤 Envoyés</button>'+
   '</div>';
   var liste=(MSG.messages||[]).map(function(m){
     var cle=m.boite+'|'+m.dossier+'|'+m.uid;
@@ -1136,6 +1137,10 @@ function vueSupport(){
       '<div style="font-size:12px;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.de||'')+'</div></div>';
   }).join('')||'<div class="vide">'+(MSG.err?esc(MSG.err):(MSG.boites.length?'Aucun message dans ce dossier.':'Aucune boîte reliée pour le moment.'))+'</div>';
 
+  if(MSG.sel.boite==='envoyes') return '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
+      '<div><div class="ttl-page">Support</div><div class="desc">Tous les e-mails envoyés par TeamOP, rangés par entreprise.</div></div>'+
+      '<button class="btn-plein" onclick="compoOuvrir()">'+svg('crayon',15)+' Écrire un message</button></div>'+
+    '<div style="height:18px"></div>'+compo+dossiers+vueEnvoyes();
   return '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
       '<div><div class="ttl-page">Support</div><div class="desc">Les messages reçus par les boîtes de l’entreprise, et vos réponses.</div></div>'+
       '<button class="btn-fant" onclick="supConnecterBoite()">🔗 Connecter la boîte</button>'+
@@ -1147,6 +1152,44 @@ function vueSupport(){
         '<button class="btn-icone" onclick="mailActualiser()" title="Actualiser">'+svg('refresh',15)+'</button></div>'+
       liste+'</div>'+
     '<div class="col-detail"><div class="col-detail-sticky">'+lecture()+'</div></div></div>';
+}
+function envoyesOuvrir(){
+  MSG.sel={boite:'envoyes',dossier:'',titre:'Envoyés'}; MSG.envQ=MSG.envQ||''; render();
+  apiGet('/api/monitor/mails').then(function(d){ if(!d) return;
+    MSG.envoyes=d.mails||[]; MSG.envErr='';
+    if(TAB==='support'&&MSG.sel.boite==='envoyes') render();
+  }).catch(function(){ MSG.envErr='Serveur injoignable — ou serveur à mettre à jour (git pull + restart).'; if(TAB==='support') render(); });
+}
+function envoyesQ(v){ MSG.envQ=String(v||''); render(); }
+function vueEnvoyes(){
+  var L=MSG.envoyes;
+  if(MSG.envErr) return '<div class="vide">'+esc(MSG.envErr)+'</div>';
+  if(!L) return '<div class="vide">Chargement des envois…</div>';
+  // e-mail destinataire → nom d'entreprise (via la liste des fiches)
+  var entDe=function(a){ a=String(a||'').toLowerCase();
+    var c=(CLI.list||[]).find(function(x){ return String(x.email||'').toLowerCase()===a; });
+    if(c) return c.entreprise||c.nom||a;
+    var moi=/teamop\.fr$/i.test(a)?'TeamOP (interne)':'';
+    return moi||a||'—'; };
+  var q=String(MSG.envQ||'').toLowerCase();
+  var filtres=L.filter(function(m){ if(!q) return true;
+    return (entDe(m.a)+' '+(m.a||'')+' '+(m.sujet||'')).toLowerCase().indexOf(q)>=0; });
+  var groupes={};
+  filtres.forEach(function(m){ var g=entDe(m.a); (groupes[g]=groupes[g]||[]).push(m); });
+  var noms=Object.keys(groupes).sort(function(a,b){ return (groupes[b][0].ts||0)-(groupes[a][0].ts||0); });
+  var corps=noms.map(function(g){
+    var ms=groupes[g];
+    return '<div class="carte" style="margin-bottom:14px"><div class="ttl-carte">🏢 '+esc(g)+' <span style="color:var(--muted);font-weight:400;font-size:12px">· '+ms.length+' envoi'+(ms.length>1?'s':'')+'</span></div>'+
+      '<div style="margin-top:6px">'+ms.slice(0,30).map(function(m){
+        return '<div style="display:flex;gap:12px;align-items:baseline;padding:9px 0;border-top:1px solid var(--hairline)">'+
+          '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0">'+esc(fmtDate(m.ts))+'</span>'+
+          '<span style="flex:1;min-width:0;font-size:13px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.sujet||'(sans objet)')+'</span>'+
+          '<span class="mono" style="font-size:11.5px;color:var(--muted);flex-shrink:0">'+esc(m.a||'')+'</span></div>';
+      }).join('')+'</div></div>';
+  }).join('')||'<div class="vide">'+(q?'Aucun envoi ne correspond à « '+esc(MSG.envQ)+' ».':'Aucun e-mail envoyé pour l\'instant — le journal se remplit à chaque envoi (mail de demande, lien de connexion, code…), et chaque envoi arrive aussi en copie dans contact@teamop.fr.')+'</div>';
+  return '<div style="display:flex;gap:9px;margin-bottom:14px"><div class="rech" style="flex:1">'+svg('loupe',16)+
+      '<input placeholder="Rechercher une entreprise, un sujet, une adresse…" value="'+esc(MSG.envQ||'')+'" onchange="envoyesQ(this.value)"></div>'+
+      '<button class="btn-icone" onclick="envoyesOuvrir()" title="Actualiser">'+svg('refresh',15)+'</button></div>'+corps;
 }
 function lecture(){
   var m=MSG.ouvert;
