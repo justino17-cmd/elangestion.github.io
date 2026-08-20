@@ -1372,6 +1372,21 @@ app.post('/api/clients/sync', async (req, res) => {
     demandesTraitees: prev.demandesTraitees || {}
   };
   cliSave();
+  // Un code promo activé sur le SITE se relaie à l'espace de l'application :
+  // même échéance, l'app se débloque toute seule à sa prochaine vérification.
+  try {
+    const pc = monStr(b.promoCode, 40).toUpperCase(), pf = monStr(b.promoFin, 10);
+    if (pc && /^\d{4}-\d{2}-\d{2}$/.test(pf)) {
+      const esp = Object.values(espacesReg).find(x => (x.email || '').toLowerCase() === email);
+      let tEsp = esp && esp.t;
+      if (esp && !tEsp) { try { tEsp = String(JSON.parse(Buffer.from(esp.code, 'base64').toString('utf8')).t || ''); } catch (e2) {} }
+      if (tEsp) {
+        const u = promoUsages[pc] || { n: 0, equipes: {} };
+        if (!u.equipes[tEsp]) { u.n++; u.equipes[tEsp] = { date: new Date().toISOString().slice(0, 10), finLe: pf }; promoUsages[pc] = u; savePromoUsages(); console.log('code promo du site relayé →', pc, tEsp, 'fin', pf); }
+        else if (pf > (u.equipes[tEsp].finLe || '')) { u.equipes[tEsp].finLe = pf; savePromoUsages(); }
+      }
+    }
+  } catch (e) {}
   // Nouvelle demande d'application → e-mail au patron (destinataire : config.notifDemandes,
   // sinon l'expéditeur SMTP). Au plus 1 mail par demande nouvellement apparue.
   try {
@@ -1899,6 +1914,14 @@ app.post('/api/promo/valider', (req, res) => {
   const u = promoUsages[c] || { n: 0, equipes: {} };
   const team = String(teamId || '').slice(0, 80);
   const deja = team && u.equipes[team];
+  // un seul code à la fois par espace : si un AUTRE code est encore actif, refus clair
+  if (team && !deja) {
+    for (const [c2, u2] of Object.entries(promoUsages || {})) {
+      const eq2 = u2 && u2.equipes && u2.equipes[team];
+      if (c2 !== c && eq2 && eq2.finLe && eq2.finLe >= new Date().toISOString().slice(0, 10))
+        return res.status(409).json({ error: 'Un code (« ' + c2 + ' ») est déjà actif sur cet espace jusqu\'au ' + eq2.finLe + ' — un seul code à la fois.' });
+    }
+  }
   if (!deja && p.maxUtilisations && u.n >= p.maxUtilisations) return res.status(410).json({ error: "Ce code a atteint son nombre maximum d'utilisations" });
   const mois = Math.max(1, Number(p.mois) || 1);
   let finLe;
