@@ -9638,7 +9638,7 @@ function stockConv(q,de,vers){ if(!de||!vers||de===vers) return q;
 function intStockDeduire(i){ if(!i||i.stockDeduit) return; const lines=i.produitsUtilises||[];
   i.stockDeduit=true;                                  // posé quoi qu'il arrive : plus de « sera déduit » fantôme
   if(!lines.length) return;
-  let n=0; const manques=[];
+  let n=0,_intBoxAttente=0; const manques=[];
   // la box du technicien : la première qu'il a le droit de voir et qui contient le produit
   const tids=intTechIds(i);
   const boxDuTech=pid=>db.boxes.find(b=>b.actif!==false&&(b.stock&&b.stock[pid]&&(b.stock[pid].u||0)>0)&&(b.visibleTous||(b.techIds||[]).some(t=>tids.includes(t))));
@@ -9647,15 +9647,26 @@ function intStockDeduire(i){ if(!i||i.stockDeduit) return; const lines=i.produit
     q=stockConv(q,l.unite||p.unite,p.unite);
     const b=boxDuTech(p.id); let restant=q;
     if(b){ const s=b.stock[p.id]; const prevU=s.u||0; const pris=Math.min(restant,prevU);
-      if(pris>0){ s.u=prevU-pris; restant-=pris;
-        db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'sortie',qte:pris,motif:'Intervention '+(i.num||i.titre||''),vehiculeId:'',boxId:b.id,unite:p.unite||'u',technicien:(currentUser&&fullName(currentUser))||''});
-        try{ notifyDrBoxLow(b,p.id,prevU); notifyDrBoxMove(b,p.id,'sortie',pris,'u'); }catch(_){}} }
+      if(pris>0){
+        if(boxValidRequis()){
+          // la part prise dans la box attend le « Valider » du DR — rien ne se retire avant
+          restant-=pris; _intBoxAttente++;
+          boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:p.id,du:-pris,dc:0,note:'Intervention '+(i.num||i.titre||'')},true);
+        } else {
+          s.u=prevU-pris; restant-=pris;
+          db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'sortie',qte:pris,motif:'Intervention '+(i.num||i.titre||''),vehiculeId:'',boxId:b.id,unite:p.unite||'u',technicien:(currentUser&&fullName(currentUser))||''});
+          try{ notifyDrBoxLow(b,p.id,prevU); notifyDrBoxMove(b,p.id,'sortie',pris,'u'); }catch(_){}
+        } } }
     if(restant>0){ const dispo=p.qte||0; const pris=Math.min(restant,dispo);
       if(pris<restant) manques.push(p.nom+' (manque '+(restant-pris)+' '+(p.unite||'u')+')');
       p.qte=Math.max(0,dispo-restant);
       db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'sortie',qte:restant,motif:'Intervention '+(i.num||i.titre||''),vehiculeId:'',unite:p.unite||'u',technicien:(currentUser&&fullName(currentUser))||''}); }
     n++; });
-  if(n) intHisto(i,'Stock déduit à la clôture : '+n+' produit(s)');
+  if(n) intHisto(i,'Stock déduit à la clôture : '+n+' produit(s)'+(_intBoxAttente?' — dont '+_intBoxAttente+' pris en box, en attente de validation DR':''));
+  if(_intBoxAttente){
+    try{ const dest=(db.users||[]).filter(x=>x&&x.actif!==false&&(x.role==='dr'||x.role==='admin')).map(x=>x.id);
+      if(dest.length) pushNotify('🔒 À valider — produits pris en box','Intervention '+(i.num||i.titre||'')+' : '+_intBoxAttente+' produit(s) · par '+((currentUser&&fullName(currentUser))||''),'/app.html#v=validations',dest); }catch(e){}
+    toast('📨 Produits pris en box envoyés au DR pour validation'); }
   if(manques.length) toast('⚠️ Stock insuffisant : '+manques.join(', ')); }
 /* Retouche des produits APRÈS la clôture : le stock suit immédiatement,
    et un mouvement « Ajustement après clôture » le raconte — plus d'écart
@@ -12274,12 +12285,12 @@ function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const b
   if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn; }
   if(m.type==='retrait'){ const p=produit(m.produitId); return 'Retrait de '+(p.nom||'produit')+' — '+bn; }
   const p=produit(m.produitId); const parts=[]; if(m.du) parts.push((m.du>0?'+':'')+m.du+' u'); if(m.dc) parts.push((m.dc>0?'+':'')+m.dc+' ctn');
-  return (p.nom||'Produit')+' '+(parts.join(' · ')||'±0')+' — '+bn; }
-function boxMvtEnvoyer(m){ db.boxMvtAttente=db.boxMvtAttente||[];
+  return (p.nom||'Produit')+' '+(parts.join(' · ')||'±0')+' — '+bn+(m.note?' · '+m.note:''); }
+function boxMvtEnvoyer(m,silencieux){ db.boxMvtAttente=db.boxMvtAttente||[];
   m.id=uid(); m.ts=Date.now(); m.statut='enAttente'; m.par=fullName(currentUser); m.parId=currentUser&&currentUser.id;
   db.boxMvtAttente.unshift(m); if(db.boxMvtAttente.length>80) db.boxMvtAttente.length=80;
   logEvent('Mouvement box → validation DR',boxMvtLibelle(m),'stock');
-  try{ const dest=(db.users||[]).filter(x=>x&&x.actif!==false&&(x.role==='dr'||x.role==='admin')).map(x=>x.id);
+  if(!silencieux) try{ const dest=(db.users||[]).filter(x=>x&&x.actif!==false&&(x.role==='dr'||x.role==='admin')).map(x=>x.id);
     if(dest.length) pushNotify('🔒 À valider — mouvement de box',boxMvtLibelle(m)+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){}
   save(); return m; }
 function boxMvtValider(id,statut){ if(!currentUser||!['admin','dr'].includes(currentUser.role)){ toast('Validation réservée au DR / administrateur'); return; }
@@ -12304,8 +12315,9 @@ function boxMvtValider(id,statut){ if(!currentUser||!['admin','dr'].includes(cur
     delete b.stock[m.produitId];
   } else {
     const cur=b.stock[m.produitId]||{ctn:0,u:0};
-    if(m.du){ cur.u=Math.max(0,(cur.u||0)+m.du); traceBox(b,m.produitId,m.du,'u','Ajustement (validé DR)'); }
-    if(m.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+m.dc); traceBox(b,m.produitId,m.dc,'ctn','Ajustement (validé DR)'); }
+    const mot=(m.note||'Ajustement')+' (validé DR)';
+    if(m.du){ cur.u=Math.max(0,(cur.u||0)+m.du); traceBox(b,m.produitId,m.du,'u',mot); }
+    if(m.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+m.dc); traceBox(b,m.produitId,m.dc,'ctn',mot); }
     b.stock[m.produitId]=cur;
   }
   m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO();
