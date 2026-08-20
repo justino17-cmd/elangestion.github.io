@@ -64,6 +64,9 @@ app.use('/api/monitor', (req, res, next) => { res.setHeader('Cache-Control', 'no
    Chaque envoi est noté (date, destinataire, sujet) pour l'onglet Journal de la
    Tour, et reçoit une copie cachée (bcc) dans la boîte contact — SAUF les mails
    contenant des codes secrets, jamais copiés. */
+const LOGO_PATH = path.join(__dirname, '..', 'icons', 'teamop-512.png');
+const LOGO_OK = (() => { try { return fs.existsSync(LOGO_PATH); } catch (e) { return false; } })();
+const LOGO_PIECE = { filename: 'teamop.png', path: LOGO_PATH, cid: 'logoteamop' };
 const MAILS_PATH = path.join(DATA_DIR, 'mails-envoyes.json');
 let mailsLog = []; try { mailsLog = JSON.parse(fs.readFileSync(MAILS_PATH, 'utf8')); } catch (e) {}
 function mailsSave() { try { fs.writeFileSync(MAILS_PATH, JSON.stringify(mailsLog)); } catch (e) {} }
@@ -80,6 +83,8 @@ function mailerEnvoi(opts) {
     const secret = /code/i.test(String(opts.subject || ''));
     if (moi && !secret && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
   } catch (e) {}
+  if (LOGO_OK && o2.html && String(o2.html).indexOf('cid:logoteamop') >= 0)
+    o2.attachments = (o2.attachments || []).concat([LOGO_PIECE]);
   return mailer.sendMail(o2);
 }
 
@@ -482,7 +487,7 @@ function mailTeamOP(o) {
     '<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#FFFFFF;border-radius:12px;border:1px solid #E3E8F1;font-family:-apple-system,\'Segoe UI\',Roboto,Arial,sans-serif">' +
     '<tr><td style="padding:26px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' +
     '<td><table cellpadding="0" cellspacing="0"><tr>' +
-    '<td><img src="https://teamop.fr/icons/teamop-512.png" width="34" height="34" alt="TEAM OP" style="border-radius:8px;display:block"></td>' +
+    '<td><img src="' + (LOGO_OK ? 'cid:logoteamop' : 'https://teamop.fr/icons/teamop-512.png') + '" width="34" height="34" alt="TEAM OP" style="border-radius:8px;display:block"></td>' +
     '<td style="padding-left:10px;font-family:\'Courier New\',monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:#17233B">TEAM OP</td>' +
     '</tr></table></td>' +
     (o.chip ? '<td align="right"><span style="background:#E7F8F1;color:#1E7A57;font-size:12px;font-weight:700;padding:6px 12px;border-radius:100px">● ' + esc(o.chip) + '</span></td>' : '') +
@@ -1380,7 +1385,8 @@ app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
       boutonTxt: 'Mon espace client', boutonUrl: 'https://teamop.fr/espace.html',
       bouton2Txt: 'Répondre à TEAM OP', bouton2Url: 'mailto:' + supportBox.email
     });
-    await tr.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps, html });
+    await tr.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps, html,
+      attachments: (LOGO_OK && html.indexOf('cid:logoteamop') >= 0) ? [LOGO_PIECE] : [] });
   } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
   try { mailsLog.unshift({ ts: Date.now(), a: dest, sujet: obj, txt: corps.slice(0, 2000) }); if (mailsLog.length > 300) mailsLog.length = 300; mailsSave(); } catch (e) {}
   supportEnvoyes.unshift({ id: 'e' + crypto.randomBytes(5).toString('hex'), to: dest, subject: obj, text: corps.slice(0, 2000), ts: Date.now(), par: req.tourUser.nom });
