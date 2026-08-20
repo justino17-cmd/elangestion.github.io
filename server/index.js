@@ -793,18 +793,21 @@ const formuleDeLabel = (s) => {
   if (s.includes('gratuit')) return 'gratuit';
   return '';
 };
-function espaceAutoPour(email, entreprise, formuleLabel, users) {
+function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu) {
   email = String(email || '').toLowerCase();
   let slug = Object.keys(espacesReg).find(s => (espacesReg[s].email || '').toLowerCase() === email);
   let e, neuf = false;
   if (slug) { e = espacesReg[slug]; }
   else {
-    slug = espSlug(entreprise) || espSlug(email.split('@')[0]) || ('ent' + crypto.randomBytes(3).toString('hex'));
+    // le client a choisi le nom de son lien de connexion (vérifié disponible côté site) —
+    // sinon on part du nom d'entreprise
+    const voulu = String(lienVoulu || '').trim().slice(0, 60);
+    slug = espSlug(voulu) || espSlug(entreprise) || espSlug(email.split('@')[0]) || ('ent' + crypto.randomBytes(3).toString('hex'));
     const base = slug; let n = 2;
     while (espacesReg[slug]) slug = base + n++;   // nom déjà pris par une autre entreprise → variante
     const t = 'ent-' + crypto.randomBytes(8).toString('hex');
     const k = crypto.randomBytes(24).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || crypto.randomBytes(12).toString('hex');
-    const nom = String(entreprise || '').trim().slice(0, 80) || email;
+    const nom = (espSlug(voulu) && slug === espSlug(voulu) ? voulu : String(entreprise || '').trim().slice(0, 80)) || email;
     const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: email }), 'utf8').toString('base64').replace(/=+$/, '');
     e = espacesReg[slug] = { nom, code, t, ts: Date.now(), par: 'auto (demande)', email };
     neuf = true;
@@ -815,7 +818,9 @@ function espaceAutoPour(email, entreprise, formuleLabel, users) {
     e.formulePar = 'auto (demande)'; e.formuleTs = Date.now();
   }
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
-  return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf };
+  let t = e.t;
+  try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf, t };
 }
 app.post('/api/espaces/trouver', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
@@ -834,6 +839,66 @@ try { entFermes = JSON.parse(fs.readFileSync(FERMES_PATH, 'utf8')); } catch (e) 
 function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFermes)); } catch (e) {} }
 const retraitCodes = new Map();   // email -> { code, exp, tries }
 // retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
+/* ── Clé d'administration Firebase (facultative) : /opt/teamop/firebase-admin.json ──
+   Clé de compte de service (console Firebase → ⚙️ Paramètres du projet → Comptes de
+   service → « Générer une nouvelle clé privée »). Quand elle est posée sur le serveur,
+   la fermeture d'une entreprise supprime AUSSI son compte du site (espace client),
+   sa fiche et sa messagerie — plus rien n'est enregistré nulle part. */
+const FB_ADMIN_PATH = process.env.TEAMOP_FB_ADMIN || '/opt/teamop/firebase-admin.json';
+let fbAdminCle = null;
+try { fbAdminCle = JSON.parse(fs.readFileSync(FB_ADMIN_PATH, 'utf8')); } catch (e) {}
+const fbAdminTok = { jeton: '', exp: 0 };
+async function fbAdminJeton() {
+  if (!fbAdminCle || !fbAdminCle.client_email || !fbAdminCle.private_key) return '';
+  if (fbAdminTok.jeton && Date.now() < fbAdminTok.exp) return fbAdminTok.jeton;
+  try {
+    const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const now = Math.floor(Date.now() / 1000);
+    const jwtSans = b64u({ alg: 'RS256', typ: 'JWT' }) + '.' + b64u({
+      iss: fbAdminCle.client_email, aud: 'https://oauth2.googleapis.com/token',
+      scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit',
+      iat: now, exp: now + 3600 });
+    const sig = crypto.createSign('RSA-SHA256').update(jwtSans).sign(fbAdminCle.private_key).toString('base64url');
+    const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + jwtSans + '.' + sig });
+    const j = await r.json().catch(() => ({}));
+    if (!j.access_token) { console.error('clé admin firebase : jeton refusé', j.error || r.status); return ''; }
+    fbAdminTok.jeton = j.access_token; fbAdminTok.exp = Date.now() + 50 * 60000;
+    return j.access_token;
+  } catch (e) { console.error('clé admin firebase :', e.message); return ''; }
+}
+const fsBase = () => 'https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents';
+async function fbAdminFetch(url, opts, tok) {
+  const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 10000);
+  try { return await fetch(url, Object.assign({}, opts, { headers: Object.assign({ 'Authorization': 'Bearer ' + tok }, (opts || {}).headers || {}), signal: ctrl.signal })); }
+  finally { clearTimeout(tm); }
+}
+// supprime le compte du site (connexion) + fiche + messagerie d'un client — via la clé admin
+async function fbSupprimerCompteSite(email) {
+  const tok = await fbAdminJeton();
+  if (!tok) return { fait: false, motif: 'clé admin absente sur le serveur' };
+  try {
+    const rl = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:lookup',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: [email] }) }, tok);
+    const jl = await rl.json().catch(() => ({}));
+    const uid = jl.users && jl.users[0] && jl.users[0].localId;
+    if (!uid) return { fait: false, motif: 'aucun compte du site avec cet e-mail' };
+    let pageTok = '', n = 0;   // messagerie : les messages un par un, puis le fil, puis la fiche
+    for (let tour = 0; tour < 20; tour++) {
+      const rm = await fbAdminFetch(fsBase() + '/teamop_threads/' + uid + '/msgs?pageSize=300' + (pageTok ? '&pageToken=' + encodeURIComponent(pageTok) : ''), { method: 'GET' }, tok);
+      const jm = await rm.json().catch(() => ({}));
+      for (const d of (jm.documents || [])) { await fbAdminFetch('https://firestore.googleapis.com/v1/' + d.name, { method: 'DELETE' }, tok); n++; }
+      pageTok = jm.nextPageToken || ''; if (!pageTok) break;
+    }
+    await fbAdminFetch(fsBase() + '/teamop_threads/' + uid, { method: 'DELETE' }, tok);
+    await fbAdminFetch(fsBase() + '/teamop_requests/' + uid, { method: 'DELETE' }, tok);
+    const rd = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:delete',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localId: uid }) }, tok);
+    if (!rd.ok) return { fait: false, motif: 'suppression du compte refusée (HTTP ' + rd.status + ')' };
+    return { fait: true, motif: 'compte du site + fiche + messagerie supprimés (' + n + ' message(s))' };
+  } catch (e) { return { fait: false, motif: String(e.message).slice(0, 120) }; }
+}
 app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   const email = monStr((req.body || {}).email, 120).toLowerCase();
   if (!clientsData[email]) return res.status(404).json({ error: 'entreprise introuvable' });
@@ -877,9 +942,10 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   let effaces = 0;
   // Les règles Firestore exigent un utilisateur connecté : jeton anonyme jetable,
   // supprimé sitôt l'effacement terminé.
-  let jeton = '';
+  let jeton = '', jetonAdmin = false;
   if (espacesAEffacer.length) {
-    try {
+    jeton = await fbAdminJeton(); jetonAdmin = !!jeton;   // la clé admin passe au-dessus des règles
+    if (!jeton) try {
       const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + FB_CLE,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
       const j = await r.json().catch(() => ({}));
@@ -896,10 +962,12 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
       if (r.ok) effaces++; else console.error('effacement firestore', t, ': HTTP', r.status);
     } catch (e) { console.error('effacement firestore', t, ':', e.message); }
   }
-  if (jeton) { try { await fetch('https://identitytoolkit.googleapis.com/v1/accounts:delete?key=' + FB_CLE,
+  if (jeton && !jetonAdmin) { try { await fetch('https://identitytoolkit.googleapis.com/v1/accounts:delete?key=' + FB_CLE,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: jeton }) }); } catch (e) {} }
-  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', email, '— données effacées :', effaces + '/' + espacesAEffacer.length);
-  res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces });
+  // et le compte créé sur le site (connexion espace client) : supprimé aussi, si la clé admin est là
+  const compteSite = await fbSupprimerCompteSite(email);
+  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', email, '— données effacées :', effaces + '/' + espacesAEffacer.length, '· compte du site :', compteSite.motif);
+  res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces, compteSite });
 });
 
 // liste des problèmes + compteurs (admin)
@@ -1205,7 +1273,8 @@ app.post('/api/clients/sync', async (req, res) => {
   if (Object.keys(clientsData).length >= 2000 && !clientsData[email]) return res.json({ ok: true });   // cap silencieux
   const prev = clientsData[email] || {};
   const demandes = (Array.isArray(b.demandes) ? b.demandes.slice(0, 20) : []).map(d => ({
-    app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200), users: monStr(d && d.users, 10) }));
+    app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200), users: monStr(d && d.users, 10),
+    code: monStr(d && d.code, 40), lien: monStr(d && d.lien, 60) }));
   clientsData[email] = {
     email, nom: monStr(b.nom, 80), tel: monStr(b.tel, 30) || prev.tel || '', entreprise: monStr(b.entreprise, 80),
     inscrit: parseInt(b.inscrit, 10) || prev.inscrit || Date.now(),
@@ -1228,8 +1297,34 @@ app.post('/api/clients/sync', async (req, res) => {
       // ── Circuit automatique : l'espace est créé (ou retrouvé) tout de suite,
       //    le lien part au client, et le patron reçoit le récapitulatif complet.
       const dFormule = [...nv].reverse().find(d => formuleDeLabel(d.formule)) || {};
-      const auto = espaceAutoPour(email, clientsData[email].entreprise || clientsData[email].nom || '', dFormule.formule, dFormule.users);
+      const dCode = [...nv].reverse().find(d => d.code) || {};
+      const dLien = [...nv].reverse().find(d => d.lien) || {};
+      const dUsers = [...nv].reverse().find(d => d.users) || {};
+      // code teste : c'est LUI qui dit la formule à laquelle le client a droit
+      let promoDef = null;
+      if (dCode.code) {
+        const c = String(dCode.code).trim().toUpperCase();
+        const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+        if (p) promoDef = { code: c, formule: ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium', mois: Math.max(1, Number(p.mois) || 1), max: p.maxUtilisations };
+      }
+      const auto = espaceAutoPour(email, clientsData[email].entreprise || clientsData[email].nom || '',
+        promoDef ? promoDef.formule : dFormule.formule, dUsers.users, dLien.lien);
       const lien = 'https://teamop.fr/app.html#e=' + auto.slug;
+      // activation du code pour cet espace : la formule est offerte, sans carte bancaire
+      let promoActif = null;
+      if (promoDef && auto.t) {
+        const u = promoUsages[promoDef.code] || { n: 0, equipes: {} };
+        const deja = u.equipes[auto.t];
+        if (deja) promoActif = Object.assign({}, promoDef, { finLe: deja.finLe });
+        else if (!(promoDef.max && u.n >= promoDef.max)) {
+          const dF = new Date(); dF.setMonth(dF.getMonth() + promoDef.mois);
+          const finLe = dF.toISOString().slice(0, 10);
+          u.n++; u.equipes[auto.t] = { date: new Date().toISOString().slice(0, 10), finLe };
+          promoUsages[promoDef.code] = u; savePromoUsages();
+          promoActif = Object.assign({}, promoDef, { finLe });
+        }
+      }
+      const promoLib = promoActif ? ({ pro: 'Pro', business: 'Business', premium: 'Business Premium' }[promoActif.formule] || promoActif.formule) : '';
       // les demandes qui viennent d'arriver sont marquées traitées (le lien est parti)
       for (let i = avant; i < demandes.length; i++) clientsData[email].demandesTraitees[i] = { par: 'auto — lien envoyé', ts: Date.now() };
       cliSave();
@@ -1242,9 +1337,12 @@ app.post('/api/clients/sync', async (req, res) => {
         '\n\n── Traité automatiquement ──\n' +
         (auto.neuf ? 'Espace créé : « ' + auto.nom + ' »\n' : 'Espace EXISTANT retrouvé : « ' + auto.nom + ' » (ses données sont conservées)\n') +
         'Lien envoyé au client : ' + lien + '\n' +
+        'Nom à taper sur la page de connexion : « ' + auto.nom + ' »\n' +
         'Première connexion : ' + email + ' + son mot de passe TeamOP (celui du site).\n' +
-        (auto.formule ? 'Formule enregistrée : ' + auto.formule + ' × ' + auto.quantite + ' — se débloque au paiement (ou code promo).'
-                      : 'Formule non précisée par le client → à attribuer dans ta Tour (Abonnements).') +
+        (promoActif ? '🎁 Code teste « ' + promoActif.code + ' » activé : ' + promoLib + ' offert jusqu\'au ' + promoActif.finLe + ' — espace débloqué SANS paiement.'
+          : (dCode.code && !promoDef ? '⚠️ Code « ' + dCode.code + ' » INCONNU — ignoré.\n' : '') +
+            (auto.formule ? 'Formule enregistrée : ' + auto.formule + ' × ' + auto.quantite + ' — se débloque au paiement (ou code promo).'
+                          : 'Formule non précisée par le client → à attribuer dans ta Tour (Abonnements).')) +
         '\n\nTout est visible dans ta Tour de contrôle : https://teamop.fr/tour.html';
       mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
         subject: '📥 Demande traitée automatiquement — ' + (clientsData[email].entreprise || email), text: texte })
@@ -1256,20 +1354,25 @@ app.post('/api/clients/sync', async (req, res) => {
         : 'Connectez-vous avec vos identifiants habituels.\n';
       const accuse = 'Bonjour,\n\n' +
         'Bonne nouvelle : votre espace « ' + auto.nom + ' » est prêt.\n\n' +
-        'Votre lien de connexion :\n' + lien + '\n\n' + premiereCo +
+        'Votre lien de connexion :\n' + lien + '\n' +
+        '(ou tapez « ' + auto.nom + ' » sur teamop.fr/connexion.html)\n\n' + premiereCo +
+        (promoActif ? '\n🎁 Votre code « ' + promoActif.code + ' » est activé : formule ' + promoLib + ' offerte jusqu\'au ' + promoActif.finLe + ' — aucune carte bancaire requise.\n' : '') +
         '\nEnsuite, créez les comptes de vos collègues dans Administration → Utilisateurs.\n\n' +
         '— L\'équipe TEAM OP · teamop.fr';
       const premiereCoHtml = auto.neuf
         ? '<b>Première connexion :</b><br>• Identifiant : <b>' + email + '</b><br>• Mot de passe : celui de votre <b>compte TeamOP</b> (le même que sur le site)<br><br>'
         : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br><br>';
-      const payer = (auto.formule && auto.formule !== 'gratuit')
+      const payer = promoActif
+        ? '🎁 Votre code « ' + promoActif.code + ' » est activé : formule <b>' + promoLib + '</b> offerte jusqu\'au <b>' + promoActif.finLe + '</b> — aucune carte bancaire requise.<br>'
+        : (auto.formule && auto.formule !== 'gratuit')
         ? '💳 Votre formule « ' + (dFormule.formule || auto.formule) + ' » s\'activera dès le paiement de votre abonnement (Mon espace client → Mon abonnement). En attendant, l\'application fonctionne en mode Découverte.<br>'
         : '';
       const accuseHtml = mailTeamOP({
         chip: 'Accès prêt',
         titre: 'Votre application est prête 🎉',
         corpsHtml: 'Bonjour,<br>bonne nouvelle : votre espace « <b>' + auto.nom + '</b> » est prêt.<br><br>' +
-          '<b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><br>' +
+          '<b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br>' +
+          '<span style="color:#8fa3c8;font-size:13px">(ou tapez « <b>' + auto.nom + '</b> » sur teamop.fr → Se connecter)</span><br><br>' +
           premiereCoHtml +
           'Ensuite, créez les comptes de vos collègues dans <b>Administration → Utilisateurs</b>.<br>' + payer,
         frise: [
