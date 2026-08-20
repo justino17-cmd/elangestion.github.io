@@ -781,6 +781,39 @@ app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
   const p = await espacePaye(e);
   res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif });
 });
+// ── Activité par onglet (anonyme : noms d'écrans + compteurs, par espace) ──
+const USAGE_PATH = path.join(DATA_DIR, 'usage.json');
+let usageData = {}; try { usageData = JSON.parse(fs.readFileSync(USAGE_PATH, 'utf8')); } catch (e) {}
+let usageTimer = null;
+function usageSave() { clearTimeout(usageTimer); usageTimer = setTimeout(() => { try { fs.writeFileSync(USAGE_PATH, JSON.stringify(usageData)); } catch (e) {} }, 800); }
+app.post('/api/usage', (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80); if (!t) return res.status(400).json({ error: 't requis' });
+  const vues = (b.vues && typeof b.vues === 'object' && !Array.isArray(b.vues)) ? b.vues : {};
+  if (Object.keys(usageData).length >= 3000 && !usageData[t]) return res.json({ ok: true });
+  const u = usageData[t] = usageData[t] || { vues: {}, total: 0, dernier: 0, version: '' };
+  let n = 0;
+  for (const [k, v] of Object.entries(vues)) {
+    if (n++ > 80) break;
+    const key = monStr(k, 30).replace(/[^a-zA-Z0-9]/g, ''); const q = Math.min(500, parseInt(v, 10) || 0);
+    if (!key || q <= 0) continue;
+    if (Object.keys(u.vues).length >= 80 && !u.vues[key]) continue;
+    u.vues[key] = (u.vues[key] || 0) + q; u.total += q;
+  }
+  u.dernier = Date.now(); u.version = monStr(b.version, 12) || u.version;
+  usageSave(); res.json({ ok: true });
+});
+// la Tour lit l'activité par onglet d'une entreprise, et ses problèmes ouverts
+app.post('/api/monitor/espaces/activite', monAdmin, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  const u = usageData[t] || { vues: {}, total: 0, dernier: 0, version: '' };
+  const vues = Object.entries(u.vues).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => ({ vue: k, n: v }));
+  const bugs = (monIssues || []).filter(i => i.statut !== 'corrige' && i.statut !== 'ignore' && (i.entreprises || []).some(x => x.nom === e.nom)).length;
+  res.json({ ok: true, vues, total: u.total, dernier: u.dernier, version: u.version, bugs });
+});
 // repartir à neuf : libère le nom et EFFACE l'ancien espace (données Firestore comprises),
 // SANS bloquer l'entreprise — elle repart aussitôt sur un espace propre et vide
 app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {

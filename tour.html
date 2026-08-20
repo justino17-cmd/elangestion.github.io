@@ -165,7 +165,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.42</div>
+    <div class="lg-pied">console interne · v2.50</div>
   </div>
 </div>
 
@@ -192,7 +192,7 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.42</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.50</div>
 </div>
 
 <div id="toast"></div>
@@ -447,6 +447,20 @@ function tourPromoEntreprise(nomEnt,btn){
       tourPackPrefill(nomEnt); setTimeout(chargerEspaces,300); }
     else { toast((r&&r.d&&r.d.error)||'Activation impossible'); if(btn){ btn.disabled=false; btn.textContent='🎁 Activer le code'; } }
   }).catch(function(){ toast('Serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='🎁 Activer le code'; } });
+}
+function tourActiviteCharge(nm){
+  apiPost('/api/monitor/espaces/activite',{nom:nm}).then(function(r){
+    var el=document.getElementById('fiche-activite'); if(!el) return;
+    if(!(r&&r.ok&&r.d&&r.d.ok)){ el.textContent=(r&&r.d&&r.d.error)||'Indisponible — le serveur a-t-il été mis à jour ?'; return; }
+    var d=r.d;
+    var L={dashboard:'Tableau de bord',planning:'Planning',planningGeneral:'Planning général',interventions:'Interventions',clients:'Clients',boxes:'Boxes',stock:'Stock',produits:'Produits',mouvements:'Mouvements stock',devis:'Devis',factures:'Factures',rapports:'Rapports',validations:'Validations DR',messagerie:'Messagerie',parametres:'Paramètres',utilisateurs:'Utilisateurs',taches:'Tâches',vehicules:'Véhicules',commandes:'Commandes en cours',bons:'Bons de commande',statistiques:'Statistiques',historique:'Historique',conso:'Dashboard conso',saisieConso:'Saisie conso',fournisseurs:'Fournisseurs',demandes:'Mes demandes',contrats:'Contrats',pointage:'Pointage',carteInt:'Carte interventions',carteBox:'Carte des box',boiteMail:'Boîte mail'};
+    var bugs='<div style="margin-bottom:8px">'+(d.bugs?('🐛 <b style="color:var(--rouge,#f87171)">'+d.bugs+' problème(s) ouvert(s)</b> signalé(s) par leur application — <a style="color:#7cc6ff;cursor:pointer" onclick="setTab(\'surveillance\')">voir dans Surveillance</a>'):'✅ Aucun problème ouvert signalé par leur application')+'</div>';
+    if(!d.total){ el.innerHTML=bugs+'<span style="color:var(--muted)">Pas encore d\'activité remontée — elle apparaît dès qu\'ils utilisent l\'application (à partir de la v545).</span>'; return; }
+    var max=(d.vues[0]&&d.vues[0].n)||1;
+    el.innerHTML=bugs+'<div style="margin-bottom:8px;color:var(--text2)">'+d.total+' écrans ouverts au total · dernière activité : '+(d.dernier?fmtDate(d.dernier):'—')+(d.version?' · application v'+esc(d.version):'')+'</div>'+
+      d.vues.map(function(v){ var pc=Math.max(4,Math.round(v.n/max*100));
+        return '<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="min-width:150px;font-size:12.5px;color:var(--text2)">'+esc(L[v.vue]||v.vue)+'</span><div style="flex:1;background:var(--line);border-radius:99px;height:8px;overflow:hidden"><div style="width:'+pc+'%;height:100%;background:#4f7cff;border-radius:99px"></div></div><span style="font-size:12px;color:var(--muted);min-width:44px;text-align:right">'+v.n+'</span></div>'; }).join('');
+  }).catch(function(){ var el=document.getElementById('fiche-activite'); if(el) el.textContent='Serveur injoignable.'; });
 }
 function tourMailAcces(nomEnt,btn){
   if(btn){ btn.disabled=true; btn.textContent='📧 Envoi…'; }
@@ -1187,6 +1201,7 @@ function vueEntreprises(){
 }
 function ficheClient(){
   var c=CLI.list.filter(function(x){ return x.email===CLI.sel; })[0];
+  if(c){ var nmAct=c.entreprise||c.nom||c.email; clearTimeout(window._ficheActT); window._ficheActT=setTimeout(function(){ tourActiviteCharge(nmAct); },150); }
   if(!c) return '<div class="vide"><span style="color:var(--dim)">'+svg('entreprises',22)+'</span><div style="margin-top:10px">Sélectionnez une entreprise pour afficher sa fiche.</div></div>';
   var s=cliStatut(c), nm=c.entreprise||c.nom||c.email, prenom=String(c.nom||nm).split(' ')[0];
   var apps=(c.apps||[]).map(function(a){ return '<span class="chip acc">'+esc(a)+'</span>'; }).join(' ')||'<span style="color:var(--muted)">—</span>';
@@ -1236,6 +1251,7 @@ function ficheClient(){
       '<div style="font-size:12px;color:var(--muted);margin-top:6px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
     sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
     sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
+    '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ PAR ONGLET & PROBLÈMES</div><div id="fiche-activite" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>'],['Téléphone',c.tel?('<a href="tel:'+esc(String(c.tel).replace(/[^0-9+]/g,''))+'">'+esc(c.tel)+'</a>'):'—']])+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ RÉCENTE</div>'+
       '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">'+dem+'</div></div>'+
