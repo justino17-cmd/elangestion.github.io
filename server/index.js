@@ -732,7 +732,7 @@ async function espacePaye(e) {
   try {   // code promo : compté par espace (teamId = identifiant de l'espace)
     for (const [code, u] of Object.entries(promoUsages || {})) {
       const eq = u && u.equipes && u.equipes[e.t];
-      if (eq && eq.finLe && eq.finLe >= new Date().toISOString().slice(0, 10)) return { paye: true, motif: 'code promo ' + code + ' (jusqu\'au ' + eq.finLe + ')' };
+      if (eq && eq.finLe && eq.finLe >= new Date().toISOString().slice(0, 10)) return { paye: true, motif: 'code promo ' + code + ' (jusqu\'au ' + eq.finLe + ')', promoCode: code, finLe: eq.finLe };
     }
   } catch (err) {}
   const sk = config.stripe && config.stripe.secretKey;
@@ -741,7 +741,7 @@ async function espacePaye(e) {
       if (Date.now() - espStripeCache.ts > 5 * 60000 || !espStripeCache.data) { espStripeCache.data = await stripeAbosBruts(sk); espStripeCache.ts = Date.now(); }
       const abo = (espStripeCache.data || []).find(sb => ['active', 'trialing', 'past_due'].includes(sb.status) &&
         sb.customer && typeof sb.customer === 'object' && String(sb.customer.email || '').toLowerCase() === e.email);
-      if (abo) return { paye: true, motif: 'abonnement Stripe (' + abo.status + ')' };
+      if (abo) return { paye: true, motif: 'abonnement Stripe (' + abo.status + ')', echeance: abo.current_period_end ? new Date(abo.current_period_end * 1000).toISOString().slice(0, 10) : '' };
     } catch (err) { console.error('espacePaye stripe:', err.message); }
   }
   return { paye: false, motif: 'aucun paiement ni code promo' };
@@ -753,7 +753,7 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
     let p = { paye: false, motif: '' };
     try { p = await espacePaye(e); } catch (err) {}
     sortie.push({ slug, nom: e.nom || slug, email: e.email || '', formule: e.formule || '', quantite: e.quantite || 1,
-      paye: p.paye, motif: p.motif, attribueLe: e.formuleTs || 0, par: e.formulePar || '' });
+      paye: p.paye, motif: p.motif, promoCode: p.promoCode || '', finLe: p.finLe || '', echeance: p.echeance || '', attribueLe: e.formuleTs || 0, par: e.formulePar || '' });
   }
   sortie.sort((a, b) => (b.attribueLe || 0) - (a.attribueLe || 0));
   res.json({ ok: true, espaces: sortie });
@@ -765,6 +765,42 @@ app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
   const p = await espacePaye(e);
   res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif });
+});
+// le patron envoie au client son lien + identifiants de départ (bel e-mail TeamOP)
+app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) => {
+  if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  if (!e.email) return res.status(400).json({ error: 'aucun e-mail enregistré pour cette entreprise' });
+  let a = '', m = '';
+  try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); a = String(o.a || ''); m = String(o.m || ''); } catch (err) {}
+  const lien = 'https://teamop.fr/app.html#e=' + slug;
+  const co = (a && m)
+    ? '• Identifiant : ' + a + ' (votre prénom)\n• Mot de passe provisoire : ' + m + ' (votre nom + « !! »)\nÀ votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.\n'
+    : 'Connectez-vous avec vos identifiants habituels.\n';
+  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\nVotre lien de connexion :\n' + lien + '\n(ou tapez « ' + e.nom + ' » sur teamop.fr → Se connecter)\n\n' + co + '\n— L\'équipe TEAM OP · teamop.fr';
+  const coHtml = (a && m)
+    ? '<b>Vos identifiants de départ :</b><br>• Identifiant : <b>' + a + '</b> (votre prénom)<br>• Mot de passe provisoire : <b>' + m + '</b> (votre nom + «&nbsp;!!&nbsp;»)<br><span style="color:#8fa3c8;font-size:13px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</span><br>'
+    : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br>';
+  const html = mailTeamOP({
+    chip: 'Accès prêt',
+    titre: 'Votre lien de connexion 🔗',
+    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><span style="color:#8fa3c8;font-size:13px">(ou tapez « <b>' + e.nom + '</b> » sur teamop.fr → Se connecter)</span><br><br>' + coHtml,
+    frise: [
+      { titre: 'Lien généré', sous: 'par TEAM OP', fait: true },
+      { titre: 'Connectez-vous', sous: 'avec le lien', fait: false },
+      { titre: 'Votre mot de passe', sous: 'choisi à la 1re connexion', fait: false }
+    ],
+    boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+    bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
+  });
+  try {
+    await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: e.email,
+      subject: '🔗 Votre lien de connexion — TEAM OP', text: texte, html });
+    console.log('Tour :', req.tourUser.nom, 'a envoyé le lien de', slug, '→', e.email);
+    res.json({ ok: true, envoye: e.email });
+  } catch (err) { res.status(500).json({ error: 'envoi impossible : ' + String(err.message).slice(0, 120) }); }
 });
 // l'app d'un espace demande sa formule attribuée (public — ne révèle que la formule)
 app.post('/api/espaces/etat', (req, res) => {
