@@ -793,10 +793,10 @@ const formuleDeLabel = (s) => {
   if (s.includes('gratuit')) return 'gratuit';
   return '';
 };
-function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu) {
+function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu, prenomC, nomFamC) {
   email = String(email || '').toLowerCase();
   let slug = Object.keys(espacesReg).find(s => (espacesReg[s].email || '').toLowerCase() === email);
-  let e, neuf = false;
+  let e, neuf = false, ident = '', mdpProv = '';
   if (slug) { e = espacesReg[slug]; }
   else {
     // le client a choisi le nom de son lien de connexion (vérifié disponible côté site) —
@@ -808,7 +808,12 @@ function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu) {
     const t = 'ent-' + crypto.randomBytes(8).toString('hex');
     const k = crypto.randomBytes(24).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || crypto.randomBytes(12).toString('hex');
     const nom = (espSlug(voulu) && slug === espSlug(voulu) ? voulu : String(entreprise || '').trim().slice(0, 80)) || email;
-    const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: email }), 'utf8').toString('base64').replace(/=+$/, '');
+    // identifiants de départ : identifiant = prénom, mot de passe provisoire = Nom + « !! »
+    // (l'application fait choisir le vrai mot de passe à la première connexion)
+    const cap = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : '';
+    ident = (espSlug(prenomC) || 'admin').slice(0, 20);
+    mdpProv = (cap(espSlug(nomFamC)) || 'Teamop') + '!!';
+    const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: ident, m: mdpProv, e: email }), 'utf8').toString('base64').replace(/=+$/, '');
     e = espacesReg[slug] = { nom, code, t, ts: Date.now(), par: 'auto (demande)', email };
     neuf = true;
   }
@@ -820,7 +825,7 @@ function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu) {
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
   let t = e.t;
   try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
-  return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf, t };
+  return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf, t, ident, mdp: mdpProv };
 }
 app.post('/api/espaces/trouver', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
@@ -1276,7 +1281,8 @@ app.post('/api/clients/sync', async (req, res) => {
     app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200), users: monStr(d && d.users, 10),
     code: monStr(d && d.code, 40), lien: monStr(d && d.lien, 60) }));
   clientsData[email] = {
-    email, nom: monStr(b.nom, 80), tel: monStr(b.tel, 30) || prev.tel || '', entreprise: monStr(b.entreprise, 80),
+    email, nom: monStr(b.nom, 80), prenom: monStr(b.prenom, 40) || prev.prenom || '', nomFam: monStr(b.nomFam, 40) || prev.nomFam || '',
+    tel: monStr(b.tel, 30) || prev.tel || '', entreprise: monStr(b.entreprise, 80),
     inscrit: parseInt(b.inscrit, 10) || prev.inscrit || Date.now(),
     apps: (Array.isArray(b.apps) ? b.apps.slice(0, 6) : []).map(a => monStr(a, 20)),
     demandes, plan: monStr(b.plan, 40), planStatus: monStr(b.planStatus, 20), promo: monStr(b.promo, 60),
@@ -1307,8 +1313,11 @@ app.post('/api/clients/sync', async (req, res) => {
         const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
         if (p) promoDef = { code: c, formule: ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium', mois: Math.max(1, Number(p.mois) || 1), max: p.maxUtilisations };
       }
-      const auto = espaceAutoPour(email, clientsData[email].entreprise || clientsData[email].nom || '',
-        promoDef ? promoDef.formule : dFormule.formule, dUsers.users, dLien.lien);
+      const cli = clientsData[email];
+      const prenomC = cli.prenom || String(cli.nom || '').trim().split(/\s+/)[0] || '';
+      const nomFamC = cli.nomFam || String(cli.nom || '').trim().split(/\s+/).slice(1).join(' ') || '';
+      const auto = espaceAutoPour(email, cli.entreprise || cli.nom || '',
+        promoDef ? promoDef.formule : dFormule.formule, dUsers.users, dLien.lien, prenomC, nomFamC);
       const lien = 'https://teamop.fr/app.html#e=' + auto.slug;
       // activation du code pour cet espace : la formule est offerte, sans carte bancaire
       let promoActif = null;
@@ -1338,7 +1347,8 @@ app.post('/api/clients/sync', async (req, res) => {
         (auto.neuf ? 'Espace créé : « ' + auto.nom + ' »\n' : 'Espace EXISTANT retrouvé : « ' + auto.nom + ' » (ses données sont conservées)\n') +
         'Lien envoyé au client : ' + lien + '\n' +
         'Nom à taper sur la page de connexion : « ' + auto.nom + ' »\n' +
-        'Première connexion : ' + email + ' + son mot de passe TeamOP (celui du site).\n' +
+        (auto.neuf ? 'Première connexion : identifiant « ' + auto.ident + ' » · mot de passe provisoire « ' + auto.mdp + ' » (son nom + !!) — l\'app lui fait choisir son vrai mot de passe.\n'
+                   : 'Connexion : ses identifiants habituels.\n') +
         (promoActif ? '🎁 Code teste « ' + promoActif.code + ' » activé : ' + promoLib + ' offert jusqu\'au ' + promoActif.finLe + ' — espace débloqué SANS paiement.'
           : (dCode.code && !promoDef ? '⚠️ Code « ' + dCode.code + ' » INCONNU — ignoré.\n' : '') +
             (auto.formule ? 'Formule enregistrée : ' + auto.formule + ' × ' + auto.quantite + ' — se débloque au paiement (ou code promo).'
@@ -1350,7 +1360,8 @@ app.post('/api/clients/sync', async (req, res) => {
         .catch(e => console.error('mail demande:', e.message));
       // e-mail au client : son lien de connexion, généré automatiquement
       const premiereCo = auto.neuf
-        ? 'Première connexion :\n• Identifiant : ' + email + '\n• Mot de passe : celui de votre compte TeamOP (le même que sur le site)\n'
+        ? 'Première connexion :\n• Identifiant : ' + auto.ident + ' (votre prénom)\n• Mot de passe provisoire : ' + auto.mdp + ' (votre nom + « !! »)\n' +
+          'À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite, ce sont vos identifiants pour toujours.\n'
         : 'Connectez-vous avec vos identifiants habituels.\n';
       const accuse = 'Bonjour,\n\n' +
         'Bonne nouvelle : votre espace « ' + auto.nom + ' » est prêt.\n\n' +
@@ -1360,7 +1371,8 @@ app.post('/api/clients/sync', async (req, res) => {
         '\nEnsuite, créez les comptes de vos collègues dans Administration → Utilisateurs.\n\n' +
         '— L\'équipe TEAM OP · teamop.fr';
       const premiereCoHtml = auto.neuf
-        ? '<b>Première connexion :</b><br>• Identifiant : <b>' + email + '</b><br>• Mot de passe : celui de votre <b>compte TeamOP</b> (le même que sur le site)<br><br>'
+        ? '<b>Première connexion :</b><br>• Identifiant : <b>' + auto.ident + '</b> (votre prénom)<br>• Mot de passe provisoire : <b>' + auto.mdp + '</b> (votre nom + «&nbsp;!!&nbsp;»)<br>' +
+          '<span style="color:#8fa3c8;font-size:13px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite, ce sont vos identifiants pour toujours.</span><br><br>'
         : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br><br>';
       const payer = promoActif
         ? '🎁 Votre code « ' + promoActif.code + ' » est activé : formule <b>' + promoLib + '</b> offerte jusqu\'au <b>' + promoActif.finLe + '</b> — aucune carte bancaire requise.<br>'
