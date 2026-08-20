@@ -781,6 +781,38 @@ app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
   const p = await espacePaye(e);
   res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif });
 });
+// le patron active un code promo pour une entreprise, directement depuis la Tour
+app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  if (!t) return res.status(400).json({ error: 'espace illisible' });
+  const c = monStr((req.body || {}).code, 40).trim().toUpperCase();
+  if (!c) return res.status(400).json({ error: 'Entre le code promo' });
+  const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+  if (!p) return res.status(404).json({ error: 'Code promo inconnu' });
+  for (const [c2, u2] of Object.entries(promoUsages || {})) {   // un seul code à la fois
+    const eq2 = u2 && u2.equipes && u2.equipes[t];
+    if (c2 !== c && eq2 && eq2.finLe && eq2.finLe >= new Date().toISOString().slice(0, 10))
+      return res.status(409).json({ error: 'Un code (« ' + c2 + ' ») est déjà actif pour cette entreprise jusqu\'au ' + eq2.finLe });
+  }
+  const u = promoUsages[c] || { n: 0, equipes: {} };
+  let finLe;
+  if (u.equipes[t]) finLe = u.equipes[t].finLe;
+  else {
+    if (p.maxUtilisations && u.n >= p.maxUtilisations) return res.status(410).json({ error: 'Ce code a atteint son maximum d\'utilisations' });
+    const d = new Date(); d.setMonth(d.getMonth() + Math.max(1, Number(p.mois) || 1));
+    finLe = d.toISOString().slice(0, 10);
+    u.n++; u.equipes[t] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages();
+  }
+  e.codePromo = c;
+  const f = ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium';
+  if (!e.formule || e.formule === 'gratuit') { e.formule = f; e.quantite = e.quantite || 1; e.formulePar = req.tourUser.nom + ' (code)'; e.formuleTs = Date.now(); }
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  console.log('Tour :', req.tourUser.nom, 'active le code', c, 'pour', slug, '→ fin', finLe);
+  res.json({ ok: true, code: c, formule: e.formule, finLe });
+});
 // le patron envoie au client son lien + identifiants de départ (bel e-mail TeamOP)
 app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) => {
   if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
