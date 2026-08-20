@@ -18,7 +18,7 @@ Ce que contient cette version (les deux liens la portent) :
   d'entreprise (données + compte du site)
 
 ## Revenir à ce point en cas de pépin
-git checkout main && git log --oneline | grep "v545"   # retrouver le commit
+git checkout main && git log --oneline | grep "v546"   # retrouver le commit
 git revert <commits fautifs>  puis  git push origin main
 
 ## La règle de travail (depuis le 20 août au soir)
