@@ -858,17 +858,48 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   retraitCodes.delete(email);
   // fermeture effective : liste, annuaire (nom + lien + formule), et blocage des espaces reliés
   if (!entFermes.emails.includes(email)) entFermes.emails.push(email);
+  const espacesAEffacer = [];
   for (const [slug, e] of Object.entries(espacesReg)) {
     if ((e.email || '').toLowerCase() === email) {
-      if (e.t && !entFermes.espaces.includes(e.t)) entFermes.espaces.push(e.t);
+      let t = e.t;
+      try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+      if (t) { if (!entFermes.espaces.includes(t)) entFermes.espaces.push(t); espacesAEffacer.push(t); }
       delete espacesReg[slug];
     }
   }
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
   fermesSave();
   delete clientsData[email]; cliSave();
-  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', email);
-  res.json({ ok: true, supprime: true });
+  // Effacement DÉFINITIF des données chiffrées de l'entreprise sur Firestore :
+  // plus rien n'est enregistré, la place est libérée. (Les appareils reliés se
+  // vident de toute façon au prochain lancement via le blocage entFermes.)
+  const FB_CLE = (config.firebase && config.firebase.apiKey) || 'AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8';
+  let effaces = 0;
+  // Les règles Firestore exigent un utilisateur connecté : jeton anonyme jetable,
+  // supprimé sitôt l'effacement terminé.
+  let jeton = '';
+  if (espacesAEffacer.length) {
+    try {
+      const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + FB_CLE,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
+      const j = await r.json().catch(() => ({}));
+      jeton = j.idToken || '';
+      if (!jeton) console.error('effacement firestore : jeton anonyme refusé (active la connexion Anonyme dans Firebase)');
+    } catch (e) { console.error('effacement firestore jeton :', e.message); }
+  }
+  for (const t of espacesAEffacer) {
+    try {
+      const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch('https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents/elan_teams/' + encodeURIComponent(t) + '?key=' + FB_CLE,
+        { method: 'DELETE', headers: jeton ? { 'Authorization': 'Bearer ' + jeton } : {}, signal: ctrl.signal });
+      clearTimeout(tm);
+      if (r.ok) effaces++; else console.error('effacement firestore', t, ': HTTP', r.status);
+    } catch (e) { console.error('effacement firestore', t, ':', e.message); }
+  }
+  if (jeton) { try { await fetch('https://identitytoolkit.googleapis.com/v1/accounts:delete?key=' + FB_CLE,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: jeton }) }); } catch (e) {} }
+  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', email, '— données effacées :', effaces + '/' + espacesAEffacer.length);
+  res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces });
 });
 
 // liste des problèmes + compteurs (admin)
