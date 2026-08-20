@@ -779,6 +779,44 @@ app.post('/api/espaces/etat', (req, res) => {
   espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif }))
     .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible' }));
 });
+/* ── Création AUTOMATIQUE d'un espace à la demande d'application ──
+   Dès qu'un client fait une demande sur teamop.fr, son espace est créé, inscrit à
+   l'annuaire, et le lien lui est envoyé par e-mail. Sa première connexion se fait
+   avec l'e-mail + le mot de passe de son compte TeamOP (le code embarque a = e-mail).
+   Si son e-mail a déjà un espace, on le RÉUTILISE : le lien pointe sur ses vraies
+   données, jamais sur un espace vide. */
+const formuleDeLabel = (s) => {
+  s = String(s || '').toLowerCase();
+  if (s.includes('premium')) return 'premium';
+  if (s.includes('business')) return 'business';
+  if (s.includes('pro')) return 'pro';
+  if (s.includes('gratuit')) return 'gratuit';
+  return '';
+};
+function espaceAutoPour(email, entreprise, formuleLabel, users) {
+  email = String(email || '').toLowerCase();
+  let slug = Object.keys(espacesReg).find(s => (espacesReg[s].email || '').toLowerCase() === email);
+  let e, neuf = false;
+  if (slug) { e = espacesReg[slug]; }
+  else {
+    slug = espSlug(entreprise) || espSlug(email.split('@')[0]) || ('ent' + crypto.randomBytes(3).toString('hex'));
+    const base = slug; let n = 2;
+    while (espacesReg[slug]) slug = base + n++;   // nom déjà pris par une autre entreprise → variante
+    const t = 'ent-' + crypto.randomBytes(8).toString('hex');
+    const k = crypto.randomBytes(24).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || crypto.randomBytes(12).toString('hex');
+    const nom = String(entreprise || '').trim().slice(0, 80) || email;
+    const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: email }), 'utf8').toString('base64').replace(/=+$/, '');
+    e = espacesReg[slug] = { nom, code, t, ts: Date.now(), par: 'auto (demande)', email };
+    neuf = true;
+  }
+  const f = formuleDeLabel(formuleLabel);
+  if (f) {
+    e.formule = f; e.quantite = Math.max(1, Math.min(50, parseInt(users, 10) || 1));
+    e.formulePar = 'auto (demande)'; e.formuleTs = Date.now();
+  }
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf };
+}
 app.post('/api/espaces/trouver', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
   if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
@@ -1156,36 +1194,63 @@ app.post('/api/clients/sync', async (req, res) => {
     if (mailer && demandes.length > avant) {
       const dest = (config.notifDemandes || config.smtp.from || config.smtp.user);
       const nv = demandes.slice(avant);
+      // ── Circuit automatique : l'espace est créé (ou retrouvé) tout de suite,
+      //    le lien part au client, et le patron reçoit le récapitulatif complet.
+      const dFormule = [...nv].reverse().find(d => formuleDeLabel(d.formule)) || {};
+      const auto = espaceAutoPour(email, clientsData[email].entreprise || clientsData[email].nom || '', dFormule.formule, dFormule.users);
+      const lien = 'https://teamop.fr/app.html#e=' + auto.slug;
+      // les demandes qui viennent d'arriver sont marquées traitées (le lien est parti)
+      for (let i = avant; i < demandes.length; i++) clientsData[email].demandesTraitees[i] = { par: 'auto — lien envoyé', ts: Date.now() };
+      cliSave();
       const texte = 'Nouvelle demande d\'application sur teamop.fr\n\n' +
         'Entreprise : ' + (clientsData[email].entreprise || clientsData[email].nom || email) + '\n' +
         'E-mail : ' + email + '\n\n' +
         nv.map(d => '• ' + (d.app || 'Application') + (d.formule ? ' — formule « ' + d.formule + ' »' : ' — formule non précisée') + (d.users ? '\n  Utilisateurs souhaités : ' + d.users : '') + (d.besoin && d.besoin !== 'x' ? '\n  Besoin : ' + d.besoin : '')).join('\n') +
-        '\n\nÀ traiter dans ta Tour de contrôle : https://teamop.fr/tour.html (Entreprises → sa fiche → « 🔗 Lien de connexion »).';
+        '\n\n── Traité automatiquement ──\n' +
+        (auto.neuf ? 'Espace créé : « ' + auto.nom + ' »\n' : 'Espace EXISTANT retrouvé : « ' + auto.nom + ' » (ses données sont conservées)\n') +
+        'Lien envoyé au client : ' + lien + '\n' +
+        'Première connexion : ' + email + ' + son mot de passe TeamOP (celui du site).\n' +
+        (auto.formule ? 'Formule enregistrée : ' + auto.formule + ' × ' + auto.quantite + ' — se débloque au paiement (ou code promo).'
+                      : 'Formule non précisée par le client → à attribuer dans ta Tour (Abonnements).') +
+        '\n\nTout est visible dans ta Tour de contrôle : https://teamop.fr/tour.html';
       mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: dest,
-        subject: '📥 Demande d\'application — ' + (clientsData[email].entreprise || email), text: texte })
+        subject: '📥 Demande traitée automatiquement — ' + (clientsData[email].entreprise || email), text: texte })
         .then(() => console.log('mail demande envoyé →', dest, '(' + nv.map(d => d.app).join(', ') + ')'))
         .catch(e => console.error('mail demande:', e.message));
-      // accusé de réception au client : sobre, une promesse claire
+      // e-mail au client : son lien de connexion, généré automatiquement
+      const premiereCo = auto.neuf
+        ? 'Première connexion :\n• Identifiant : ' + email + '\n• Mot de passe : celui de votre compte TeamOP (le même que sur le site)\n'
+        : 'Connectez-vous avec vos identifiants habituels.\n';
       const accuse = 'Bonjour,\n\n' +
-        'Votre demande d\'application (' + nv.map(d => d.app || 'application').join(', ') + ') a bien été prise en compte par TEAM OP.\n' +
-        'Vous aurez une réponse sous 24 heures.\n\n' +
+        'Bonne nouvelle : votre espace « ' + auto.nom + ' » est prêt.\n\n' +
+        'Votre lien de connexion :\n' + lien + '\n\n' + premiereCo +
+        '\nEnsuite, créez les comptes de vos collègues dans Administration → Utilisateurs.\n\n' +
         '— L\'équipe TEAM OP · teamop.fr';
+      const premiereCoHtml = auto.neuf
+        ? '<b>Première connexion :</b><br>• Identifiant : <b>' + email + '</b><br>• Mot de passe : celui de votre <b>compte TeamOP</b> (le même que sur le site)<br><br>'
+        : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br><br>';
+      const payer = (auto.formule && auto.formule !== 'gratuit')
+        ? '💳 Votre formule « ' + (dFormule.formule || auto.formule) + ' » s\'activera dès le paiement de votre abonnement (Mon espace client → Mon abonnement). En attendant, l\'application fonctionne en mode Découverte.<br>'
+        : '';
       const accuseHtml = mailTeamOP({
-        chip: 'Reçue',
-        titre: 'Demande d\'application ' + (nv.map(d => d.app || 'application').join(', ')),
-        corpsHtml: 'Bonjour,<br>votre demande a bien été prise en compte par TEAM OP.',
+        chip: 'Accès prêt',
+        titre: 'Votre application est prête 🎉',
+        corpsHtml: 'Bonjour,<br>bonne nouvelle : votre espace « <b>' + auto.nom + '</b> » est prêt.<br><br>' +
+          '<b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><br>' +
+          premiereCoHtml +
+          'Ensuite, créez les comptes de vos collègues dans <b>Administration → Utilisateurs</b>.<br>' + payer,
         frise: [
           { titre: 'Reçue', sous: 'aujourd\'hui', fait: true },
-          { titre: 'À l\'étude', sous: 'notre équipe la lit', fait: true },
-          { titre: 'Réponse', sous: 'sous 24 heures', fait: false }
+          { titre: 'Acceptée', sous: 'espace créé', fait: true },
+          { titre: 'Connectez-vous', sous: 'avec votre lien', fait: false }
         ],
-        boutonTxt: 'Suivre ma demande', boutonUrl: 'https://teamop.fr/espace.html',
-        bouton2Txt: 'Écrire à l\'équipe', bouton2Url: 'mailto:contact@teamop.fr'
+        boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+        bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
       });
       mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: email,
-        subject: '✅ Votre demande a bien été reçue — TEAM OP', text: accuse, html: accuseHtml })
-        .then(() => console.log('accusé de réception envoyé →', email))
-        .catch(e => console.error('mail accusé:', e.message));
+        subject: '🔗 Votre lien de connexion est prêt — TEAM OP', text: accuse, html: accuseHtml })
+        .then(() => console.log('lien de connexion envoyé →', email, '(' + lien + ')'))
+        .catch(e => console.error('mail lien:', e.message));
     }
   } catch (e) { console.error('notif demande:', e && e.message); }
   res.json({ ok: true });
