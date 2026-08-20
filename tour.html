@@ -391,15 +391,16 @@ function vueDevisIA(){
    Le lien met l'appareil de l'entreprise sur SON espace isolé (app.html#entreprise=CODE) ;
    sa 1re connexion : admin / 1234 → l'app fait créer mot de passe + e-mail. Un lien
    généré est mémorisé sur cet appareil (tour_liens) : re-cliquer redonne le même. */
-function tourEspaceDe(email,nom,ident,mdp){
+function tourEspaceDe(email,nom,ident,mdp,neuf){
   var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
   var sp=reg[email];
+  if(neuf){ try{ delete reg[email]; localStorage.setItem('tour_liens',JSON.stringify(reg)); }catch(e){} sp=null; }
   if(sp){ var maj=false;
     if(ident&&sp.a!==ident){ sp.a=ident; maj=true; }
     if(mdp&&sp.m!==mdp){ sp.m=mdp; maj=true; }
     if(email&&sp.e!==email){ sp.e=email; maj=true; }
     if(maj){ reg[email]=sp; localStorage.setItem('tour_liens',JSON.stringify(reg)); } }
-  if(!sp){
+  if(!sp&&!neuf){
     // l'entreprise a peut-être DÉJÀ un espace (créé avant) : son lien doit pointer dessus, pas sur un espace vide
     var colle=prompt('Cette entreprise a-t-elle DÉJÀ un Code espace (créé avant) ?\n\n• OUI → colle son Code espace ici (l\'app → Paramètres → Espaces entreprise → « Voir le code »)\n• NON → laisse vide, un espace tout neuf sera créé.');
     if(colle&&colle.trim()){
@@ -454,13 +455,23 @@ function tourMailAcces(nomEnt,btn){
     else { toast((r&&r.d&&r.d.error)||'Envoi impossible'); if(btn){ btn.disabled=false; btn.textContent='📧 Envoyer par e-mail au client'; } }
   }).catch(function(){ toast('Serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='📧 Envoyer par e-mail au client'; } });
 }
-function tourLienEntreprise(email,nom){
+function tourRepartirNeuf(email,nom){
+  if(!confirm('🔄 REPARTIR À NEUF pour « '+nom+' » ?\n\n⚠️ DÉFINITIF :\n• leur espace actuel et TOUTES leurs données sont effacés des serveurs\n• tous leurs utilisateurs disparaissent\n• un espace tout neuf et VIDE est créé, avec de nouveaux identifiants\n\nÀ utiliser seulement pour les faire repartir de zéro sur une version propre.')) return;
+  apiPost('/api/monitor/espaces/renaitre',{nom:nom}).then(function(r){
+    if(!(r&&r.ok&&r.d&&r.d.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
+    toast('🧹 Ancien espace effacé — création du nouveau…');
+    var p=document.getElementById('tour-panneau'); if(p) p.remove();
+    setTimeout(function(){ tourLienEntreprise(email,nom,true); },250);
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+function tourLienEntreprise(email,nom,neuf){
   var ident=prompt('Identifiant de départ (son prénom — il pourra le changer à sa première connexion) :',tourIdentDefaut(email));
   if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
   var mdp=tourMdpDefaut(email);
-  var e=tourEspaceDe(email,nom,ident,mdp);
+  var e=tourEspaceDe(email,nom,ident,mdp,neuf);
   var mdpAff=e.mdp||mdp;
-  var txt='Bienvenue sur OP GESTION !\n\nClique ton lien de connexion (garde-le précieusement) :\n'+e.lien+'\n\nL\'écran affichera « ✅ Ton lien de connexion est bon » — puis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nÀ ta première connexion, l\'app te fait choisir TON vrai mot de passe — ensuite ce sont tes identifiants pour toujours.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte avec le même lien + son identifiant + son mot de passe.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+  var debut=neuf?'Bonjour,\n\nPour des questions de sécurité et une mise à jour exceptionnelle, ton espace OP GESTION a été RÉINITIALISÉ : tu repars sur une version toute propre, stable et finie. Tout est à recréer (utilisateurs, clients…), mais sur une base saine — et clique le nouveau lien sur CHAQUE appareil de l\'équipe.\n\n':'Bienvenue sur OP GESTION !\n\n';
+  var txt=debut+'Clique ton lien de connexion (garde-le précieusement) :\n'+e.lien+'\n\nL\'écran affichera « ✅ Ton lien de connexion est bon » — puis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nÀ ta première connexion, l\'app te fait choisir TON vrai mot de passe — ensuite ce sont tes identifiants pour toujours.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte avec le même lien + son identifiant + son mot de passe.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
   tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🔗 Lien de connexion — '+esc(e.nom)+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Tout est prêt. Vérifie, puis envoie-lui l\'e-mail en un clic.</div>'+
     '<div class="sec">CE QUI RENTRE DANS LE LIEN</div>'+
@@ -470,6 +481,7 @@ function tourLienEntreprise(email,nom){
     '<div class="sec">SES IDENTIFIANTS DE DÉPART</div>'+
     '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(e.ident)+'</b> <span style="color:var(--muted);font-size:12px">(son prénom)</span><br>Mot de passe provisoire : <b>'+esc(mdpAff)+'</b> <span style="color:var(--muted);font-size:12px">(son nom + « !! » — l\'app lui fait choisir son vrai mot de passe à la 1re connexion)</span></div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px"><button class="btn-plein" onclick="tourMailAcces(\''+jsq(e.nom)+'\',this)">📧 Envoyer par e-mail au client</button>'+
+    (neuf?'':'<button class="btn-fant" style="color:var(--rouge,#f87171)" onclick="tourRepartirNeuf(\''+jsq(email)+'\',\''+jsq(e.nom)+'\')">🔄 Repartir à neuf</button>')+
     '<a class="btn-fant" style="text-decoration:none" href="mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent('Votre lien de connexion — TEAM OP')+'&body='+encodeURIComponent(txt)+'">✉️ Ou ouvrir dans Mail</a></div>'+
     '<div class="sec">LE MESSAGE (si tu préfères le coller toi-même)</div>'+
     '<textarea id="lg-msg" rows="8" style="width:100%;margin-top:6px;background:#0d1526;border:1px solid var(--line);border-radius:10px;color:inherit;font-size:12.5px;line-height:1.55;padding:10px"></textarea>'+

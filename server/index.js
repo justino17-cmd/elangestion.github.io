@@ -781,6 +781,31 @@ app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
   const p = await espacePaye(e);
   res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif });
 });
+// repartir à neuf : libère le nom et EFFACE l'ancien espace (données Firestore comprises),
+// SANS bloquer l'entreprise — elle repart aussitôt sur un espace propre et vide
+app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.json({ ok: true, rien: true });
+  let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  delete espacesReg[slug];
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  let efface = false;
+  if (t) {
+    let tok = await fbAdminJeton(), viaAdmin = !!tok;
+    if (!tok) { try {
+      const r0 = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + ((config.firebase && config.firebase.apiKey) || 'AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8'),
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
+      tok = ((await r0.json().catch(() => ({}))).idToken) || '';
+    } catch (err) {} }
+    if (tok) { try {
+      const r = await fbAdminFetch('https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents/elan_teams/' + encodeURIComponent(t), { method: 'DELETE' }, tok);
+      efface = r.ok;
+    } catch (err) { console.error('renaitre effacement :', err.message); } }
+  }
+  console.log('Tour :', req.tourUser.nom, 'fait repartir « ' + slug + ' » à neuf — ancien espace', t, efface ? 'effacé' : 'NON effacé');
+  res.json({ ok: true, ancien: t, efface });
+});
 // le patron active un code promo pour une entreprise, directement depuis la Tour
 app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
   const slug = espSlug((req.body || {}).nom);
