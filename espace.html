@@ -395,7 +395,7 @@
       statut:String((x&&x.statut)||'nouveau'), date:parseInt(x&&x.date,10)||0,
       besoin:String((x&&x.besoin)||'').slice(0,200), users:String((x&&x.users)||'').slice(0,10) }));
     let promo=''; try{ const pi=promoInfo(d); if(pi) promo=(pi.code+' — '+pi.label+' (reste '+pi.jours+' j)').slice(0,60); }catch(e){ promo=''; }
-    return { email:String((user&&user.email)||''), nom, entreprise:String(d.company||''), inscrit, apps, demandes,
+    return { email:String((user&&user.email)||''), nom, tel:String(d.tel||'').slice(0,30), entreprise:String(d.company||''), inscrit, apps, demandes,
       plan:String(d.plan||'Découverte'),
       planStatus:String(d.planStatus||'actif'),
       promo };
@@ -516,6 +516,7 @@
           <div class="muted" style="margin-top:6px;line-height:1.65;font-size:13px">
             🕐 Envoyée le <b>${fmtDH(dm.date)}</b>${dm.modifie?(' · ✏️ modifiée le <b>'+fmtDH(dm.modifie)+'</b>'):''}<br>
             ${dm.company?('🏢 Entreprise : <b>'+esc(dm.company)+'</b><br>'):''}
+            ${dm.tel?('📞 Téléphone : <b>'+esc(dm.tel)+'</b><br>'):''}
             ${dm.users?('👥 Utilisateurs souhaités : <b>'+esc(String(dm.users))+'</b><br>'):''}
             ${dm.formule?('💼 Formule envisagée : <b>'+esc(dm.formule)+'</b><br>'):''}
             ${dm.besoin?('📝 Besoin : '+esc(dm.besoin)):''}
@@ -532,13 +533,18 @@
       body = `${confirmBloc}${histo}
         <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
         <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">${ed?'✏️ Modifier ma demande':'➕ Nouvelle demande d\'accès'}</h4>
-        <p class="muted" style="margin-bottom:14px">Nous validons et l'application s'active dans « Mes applications ». Vous pouvez aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
+        <p class="muted" style="margin-bottom:6px">Nous validons et l'application s'active dans « Mes applications ». Vous pouvez aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
+        <p class="muted" style="margin-bottom:14px;font-size:12.5px">⚠️ Tous les champs sont <b>obligatoires</b> — ils nous permettent de préparer votre espace correctement.</p>
         <div id="req-msg"></div>
-        <div class="field"><label>Application</label><select id="r-app">${['OP GESTION','OP MESSAGES','Les deux (OP GESTION + OP MESSAGES)'].map(o=>`<option ${ed&&ed.app===o?'selected':''}>${o}</option>`).join('')}</select></div>
-        <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc((ed&&ed.company)||d.company||'')}" placeholder="Nom de l'entreprise"></div>
-        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nombre d'utilisateurs</label><input id="r-users" type="number" min="1" max="250" placeholder="ex. 5" value="${ed&&ed.users?esc(String(ed.users)):''}"></div>
-        <div class="field" style="flex:1.4"><label>Formule envisagée</label><select id="r-formule">${['Je ne sais pas encore','Gratuit','Pro','Business','Business Premium'].map(o=>`<option ${ed&&ed.formule===o?'selected':''}>${o}</option>`).join('')}</select></div></div>
-        <div class="field"><label>Votre besoin / exigences</label><textarea id="r-besoin" placeholder="Votre activité, ce que vous voulez faire, vos exigences…">${esc((ed&&ed.besoin)||(ed?'':d.besoin)||'')}</textarea></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom *</label><input id="r-prenom" value="${esc(d.prenom||'')}" placeholder="Jean"></div>
+        <div class="field" style="flex:1"><label>Nom *</label><input id="r-nom" value="${esc(d.nom||'')}" placeholder="Dupont"></div></div>
+        <div class="field"><label>Votre entreprise *</label><input id="r-company" value="${esc((ed&&ed.company)||d.company||'')}" placeholder="Nom de l'entreprise"></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Téléphone *</label><input id="r-tel" type="tel" value="${esc((ed&&ed.tel)||d.tel||'')}" placeholder="06 12 34 56 78"></div>
+        <div class="field" style="flex:1"><label>E-mail</label><input value="${esc((user&&user.email)||'')}" disabled style="opacity:.65"></div></div>
+        <div class="field"><label>Application *</label><select id="r-app">${['OP GESTION','OP MESSAGES','Les deux (OP GESTION + OP MESSAGES)'].map(o=>`<option ${ed&&ed.app===o?'selected':''}>${o}</option>`).join('')}</select></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nombre d'utilisateurs *</label><input id="r-users" type="number" min="1" max="250" placeholder="ex. 5" value="${ed&&ed.users?esc(String(ed.users)):''}"></div>
+        <div class="field" style="flex:1.4"><label>Formule / abonnement *</label><select id="r-formule"><option value="" disabled ${ed&&ed.formule&&ed.formule!=='Je ne sais pas encore'?'':'selected'}>— Choisissez votre formule —</option>${['Gratuit','Pro','Business','Business Premium'].map(o=>`<option ${ed&&ed.formule===o?'selected':''}>${o}</option>`).join('')}</select></div></div>
+        <div class="field"><label>Votre besoin / exigences *</label><textarea id="r-besoin" placeholder="Votre activité, ce que vous voulez faire, vos exigences…">${esc((ed&&ed.besoin)||(ed?'':d.besoin)||'')}</textarea></div>
         ${ed?`<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="sendRequest('${user.uid}')">💾 Enregistrer les modifications</button><button class="btn sm ghost" onclick="window._demEdit=null;openView('demandes')">Annuler</button></div>`
             :`<button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`}`;
     }
@@ -709,25 +715,32 @@
     const app=$('r-app').value, company=($('r-company').value||'').trim(), besoin=($('r-besoin').value||'').trim();
     const users=($('r-users')&&$('r-users').value)?parseInt($('r-users').value,10):0;
     const formule=($('r-formule')&&$('r-formule').value)||'';
-    if(!besoin){ $('req-msg').innerHTML='<div class="err">Décrivez votre besoin.</div>'; return; }
+    const prenom=($('r-prenom')&&$('r-prenom').value||'').trim(), nomF=($('r-nom')&&$('r-nom').value||'').trim(), tel=($('r-tel')&&$('r-tel').value||'').trim();
+    // Tous les champs sont obligatoires : on liste précisément ce qui manque.
+    const manque=[];
+    if(!prenom) manque.push('prénom'); if(!nomF) manque.push('nom'); if(!company) manque.push('entreprise');
+    if(!tel) manque.push('téléphone'); if(!(users>=1)) manque.push('nombre d\'utilisateurs');
+    if(!formule||formule==='Je ne sais pas encore') manque.push('formule'); if(!besoin) manque.push('besoin');
+    if(manque.length){ $('req-msg').innerHTML='<div class="err">⚠️ Tous les champs sont obligatoires — il manque : <b>'+esc(manque.join(', '))+'</b>.</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
+    if(!/^[0-9+][0-9 .()\/-]{8,19}$/.test(tel)){ $('req-msg').innerHTML='<div class="err">⚠️ Numéro de téléphone invalide (ex. 06 12 34 56 78).</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
     try{
       const d=_meDoc||{}; const liste=Array.isArray(d.demandes)?d.demandes.slice():[];
       let dem;
       if(window._demEdit){
         const i=liste.findIndex(x=>x.date===window._demEdit);
-        dem=Object.assign({},(i>=0?liste[i]:{}),{app,company,besoin,users:users||null,formule,modifie:Date.now()});
+        dem=Object.assign({},(i>=0?liste[i]:{}),{app,company,besoin,users:users||null,formule,tel,modifie:Date.now()});
         if(!dem.date) dem.date=Date.now();
         if(i>=0) liste[i]=dem; else liste.push(dem);
-        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,prenom,nom:nomF,name:(prenom+' '+nomF).trim(),tel,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
         await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'✏️ Demande modifiée : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
       } else {
-        dem={app,company,besoin,users:users||null,formule,date:Date.now(),statut:'nouveau'};
+        dem={app,company,besoin,users:users||null,formule,tel,date:Date.now(),statut:'nouveau'};
         liste.push(dem);
-        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,status:'nouveau',email:auth.currentUser.email,uid,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,prenom,nom:nomF,name:(prenom+' '+nomF).trim(),tel,status:'nouveau',email:auth.currentUser.email,uid,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
         await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'📩 Demande : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
         try{ await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:'✅ Votre demande a bien été prise en compte ! Notre équipe l\'étudie et revient vers vous au plus vite. Si nous avons besoin de renseignements supplémentaires, nous vous contacterons ici même. Vous pouvez modifier votre demande à tout moment dans « Mes demandes d\'accès ».',ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
       }
-      _meDoc=Object.assign({},_meDoc,{status:(window._demEdit?(_meDoc&&_meDoc.status)||'nouveau':'nouveau'),app,company,besoin,demandes:liste});
+      _meDoc=Object.assign({},_meDoc,{status:(window._demEdit?(_meDoc&&_meDoc.status)||'nouveau':'nouveau'),app,company,besoin,prenom,nom:nomF,name:(prenom+' '+nomF).trim(),tel,demandes:liste});
       window._demConfirm=!window._demEdit; window._demEdit=null;
       openView('demandes');
       setTimeout(()=>{ window._demConfirm=false; },100);

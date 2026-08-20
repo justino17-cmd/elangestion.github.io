@@ -1176,7 +1176,7 @@ app.post('/api/clients/sync', async (req, res) => {
   const demandes = (Array.isArray(b.demandes) ? b.demandes.slice(0, 20) : []).map(d => ({
     app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200), users: monStr(d && d.users, 10) }));
   clientsData[email] = {
-    email, nom: monStr(b.nom, 80), entreprise: monStr(b.entreprise, 80),
+    email, nom: monStr(b.nom, 80), tel: monStr(b.tel, 30) || prev.tel || '', entreprise: monStr(b.entreprise, 80),
     inscrit: parseInt(b.inscrit, 10) || prev.inscrit || Date.now(),
     apps: (Array.isArray(b.apps) ? b.apps.slice(0, 6) : []).map(a => monStr(a, 20)),
     demandes, plan: monStr(b.plan, 40), planStatus: monStr(b.planStatus, 20), promo: monStr(b.promo, 60),
@@ -1204,7 +1204,9 @@ app.post('/api/clients/sync', async (req, res) => {
       cliSave();
       const texte = 'Nouvelle demande d\'application sur teamop.fr\n\n' +
         'Entreprise : ' + (clientsData[email].entreprise || clientsData[email].nom || email) + '\n' +
-        'E-mail : ' + email + '\n\n' +
+        'Contact : ' + (clientsData[email].nom || '—') + '\n' +
+        'E-mail : ' + email + '\n' +
+        'Téléphone : ' + (clientsData[email].tel || 'non renseigné') + '\n\n' +
         nv.map(d => '• ' + (d.app || 'Application') + (d.formule ? ' — formule « ' + d.formule + ' »' : ' — formule non précisée') + (d.users ? '\n  Utilisateurs souhaités : ' + d.users : '') + (d.besoin && d.besoin !== 'x' ? '\n  Besoin : ' + d.besoin : '')).join('\n') +
         '\n\n── Traité automatiquement ──\n' +
         (auto.neuf ? 'Espace créé : « ' + auto.nom + ' »\n' : 'Espace EXISTANT retrouvé : « ' + auto.nom + ' » (ses données sont conservées)\n') +
