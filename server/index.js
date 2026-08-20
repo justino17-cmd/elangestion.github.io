@@ -116,6 +116,27 @@ app.post('/api/sendcode', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// le compte n'a pas d'e-mail : le code part à l'adresse de l'ENTREPRISE (l'annuaire),
+// et le responsable le transmet — jamais à une adresse tapée librement.
+app.post('/api/sendcode-entreprise', async (req, res) => {
+  const { teamId, purpose, login } = req.body || {};
+  if (!teamId) return res.status(400).json({ error: 'teamId requis' });
+  if (!mailer) return res.status(503).json({ error: 'email_off' });
+  const e = Object.values(espacesReg).find(x => {
+    if (x.t) return x.t === teamId;
+    try { return String(JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')).t || '') === teamId; } catch (err) { return false; }
+  });
+  if (!e || !e.email) return res.status(404).json({ error: 'entreprise_inconnue' });
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  codes.set(teamId + '|' + (purpose || 'reset'), { code, email: e.email, exp: Date.now() + 10 * 60000, tries: 0 });
+  try {
+    await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
+      subject: 'TeamOP — code de confirmation : ' + code,
+      text: 'Un membre de votre équipe (identifiant « ' + monStr(login, 40) + ' ») a oublié son mot de passe OP GESTION, et son compte n\'a pas d\'adresse e-mail enregistrée.\n\nCode de confirmation à lui transmettre : ' + code + '\n\nIl expire dans 10 minutes. Si personne dans votre équipe n\'est à l\'origine de cette demande, ignorez ce message.' });
+    const masque = String(e.email).replace(/^(.{2})[^@]*(@.*)$/, '$1•••$2');
+    res.json({ ok: true, envoye: masque });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 app.post('/api/checkcode', (req, res) => {
   const { teamId, code, purpose } = req.body || {};
   const k = (teamId || '') + '|' + (purpose || 'reset');
