@@ -1,12 +1,26 @@
-# Version stable des entreprises
+# Point stable TeamOP
 
-- **Application : v538** (cache elan-gestion-v734)
-- **Commit de référence : 16d1e1f** (branche main)
-- **Scellée le : 19 août 2026** après la passe complète de vérification
-  (12 suites de tests, parcours critiques, 46 vues, 0 erreur JS, 0 débordement).
+**Version stable : v545** — gravée le 20 août 2026.
 
-## Règle de travail
-Le développement passe par **beta.html** (et messages-beta.html), testé avec
-l'entreprise « teamop teste ». Rien ne part en production sans le « publie »
-de Justin. Retour arrière d'urgence : `git checkout <commit ci-dessus> -- app.html sw.js`
-puis commit sur main.
+Ce que contient cette version (les deux liens la portent) :
+- Circuit client 100 % automatique : demande (tous champs obligatoires, nom du lien
+  vérifié disponible, code teste qui dicte la formule) → e-mails automatiques (logo
+  embarqué) → première connexion par le lien uniquement (identifiant = prénom,
+  mot de passe provisoire = Nom!!, vrai mot de passe choisi à la 1re connexion)
+- Paiement/code : formule verrouillée tant que non payée (menu grisé 🔒), code promo
+  du site relayé à l'application, un seul code à la fois, échéances visibles
+- Box : validation DR en permission par utilisateur, unités seules, commande liée à
+  l'arrivage (Envoyée → Arrivée → Livrée), bon de remise PDF
+- Tour v2.54 : panneau lien complet + envoi e-mail, repartir à neuf, code promo sur
+  fiche, activité par onglet + problèmes, boîte mail des envois, surveillance de
+  toutes les entreprises, journal des e-mails
+- Synchronisation Firestore réparée (connexion anonyme), suppression totale
+  d'entreprise (données + compte du site)
+
+## Revenir à ce point en cas de pépin
+git checkout main && git log --oneline | grep "v545"   # retrouver le commit
+git revert <commits fautifs>  puis  git push origin main
+
+## La règle de travail (depuis le 20 août au soir)
+Toute nouveauté passe D'ABORD par la bêta (teamop.fr/dev.html → OP GESTION BÊTA).
+Justin teste avec « teamop teste ». La production ne bouge que sur son « publie ».
