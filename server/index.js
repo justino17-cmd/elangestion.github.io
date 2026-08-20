@@ -722,6 +722,8 @@ app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
   try { if (!e.t) { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); e.t = String(o.t || ''); } } catch (err) {}
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
   console.log('Tour :', req.tourUser.nom, 'attribue', f, '×' + q, 'à', slug);
+  // le « Mon espace » du client reflète l'attribution : accès activé + abonnement affiché
+  if (e.email) fbMajFicheClient(e.email, { status: 'fourni', apps: ['elan'], plan: FORMULE_LBL[f] || f, planStatus: 'actif' }).catch(() => {});
   res.json({ ok: true, slug, formule: f, quantite: q });
 });
 // payé ? — trois portes : formule gratuite, code promo actif pour l'espace, abonnement Stripe actif pour l'e-mail
@@ -729,6 +731,19 @@ const espStripeCache = { ts: 0, data: null };
 async function espacePaye(e) {
   if (!e || !e.formule) return { paye: false, motif: 'aucune formule' };
   if (e.formule === 'gratuit') return { paye: true, motif: 'gratuit' };
+  try {   // rattrapage : un code demandé à la demande d'accès mais jamais compté (espace recréé…) s'active ici
+    if (e.codePromo && e.t) {
+      const c = String(e.codePromo).toUpperCase();
+      const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+      const u0 = promoUsages[c] || { n: 0, equipes: {} };
+      if (p && !u0.equipes[e.t] && !(p.maxUtilisations && u0.n >= p.maxUtilisations)) {
+        const dF = new Date(); dF.setMonth(dF.getMonth() + Math.max(1, Number(p.mois) || 1));
+        u0.n++; u0.equipes[e.t] = { date: new Date().toISOString().slice(0, 10), finLe: dF.toISOString().slice(0, 10) };
+        promoUsages[c] = u0; savePromoUsages();
+        console.log('code promo', c, 'activé en rattrapage pour', e.t);
+      }
+    }
+  } catch (err) {}
   try {   // code promo : compté par espace (teamId = identifiant de l'espace)
     for (const [code, u] of Object.entries(promoUsages || {})) {
       const eq = u && u.equipes && u.equipes[e.t];
@@ -799,6 +814,9 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
     await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: e.email,
       subject: '🔗 Votre lien de connexion — TEAM OP', text: texte, html });
     console.log('Tour :', req.tourUser.nom, 'a envoyé le lien de', slug, '→', e.email);
+    // son « Mon espace » passe à Accès activé · OP GESTION active (+ abonnement si formule posée)
+    fbMajFicheClient(e.email, Object.assign({ status: 'fourni', apps: ['elan'] },
+      e.formule ? { plan: FORMULE_LBL[e.formule] || e.formule, planStatus: 'actif' } : {})).catch(() => {});
     res.json({ ok: true, envoye: e.email });
   } catch (err) { res.status(500).json({ error: 'envoi impossible : ' + String(err.message).slice(0, 120) }); }
 });
@@ -940,6 +958,31 @@ async function fbSupprimerCompteSite(email) {
     return { fait: true, motif: 'compte du site + fiche + messagerie supprimés (' + n + ' message(s))' };
   } catch (e) { return { fait: false, motif: String(e.message).slice(0, 120) }; }
 }
+/* Met à jour la fiche « Mon espace » du client (Firestore, via la clé admin) :
+   demande acceptée → badge « Accès activé », application OP GESTION active,
+   abonnement affiché. Sans la clé admin, on passe silencieusement. */
+async function fbMajFicheClient(email, champs) {
+  const tok = await fbAdminJeton();
+  if (!tok) return false;
+  try {
+    const rl = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:lookup',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: [email] }) }, tok);
+    const jl = await rl.json().catch(() => ({}));
+    const uid = jl.users && jl.users[0] && jl.users[0].localId;
+    if (!uid) return false;
+    const fields = {};
+    for (const [k, v] of Object.entries(champs)) {
+      fields[k] = Array.isArray(v) ? { arrayValue: { values: v.map(x => ({ stringValue: String(x) })) } } : { stringValue: String(v) };
+    }
+    const mask = Object.keys(champs).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+    const r = await fbAdminFetch(fsBase() + '/teamop_requests/' + uid + '?' + mask,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) }, tok);
+    if (r.ok) console.log('fiche espace client mise à jour →', email, Object.keys(champs).join(','));
+    else console.error('fiche espace client HTTP', r.status, '→', email);
+    return r.ok;
+  } catch (e) { console.error('fiche espace client :', e.message); return false; }
+}
+const FORMULE_LBL = { gratuit: 'Gratuit', pro: 'Pro', business: 'Business', premium: 'Business Premium' };
 app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   const email = monStr((req.body || {}).email, 120).toLowerCase();
   if (!clientsData[email]) return res.status(404).json({ error: 'entreprise introuvable' });
@@ -1357,6 +1400,9 @@ app.post('/api/clients/sync', async (req, res) => {
       const lien = 'https://teamop.fr/app.html#e=' + auto.slug;
       // activation du code pour cet espace : la formule est offerte, sans carte bancaire
       let promoActif = null;
+      if (promoDef) { const eEsp = espacesReg[auto.slug];
+        if (eEsp && eEsp.codePromo !== promoDef.code) { eEsp.codePromo = promoDef.code;
+          try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} } }
       if (promoDef && auto.t) {
         const u = promoUsages[promoDef.code] || { n: 0, equipes: {} };
         const deja = u.equipes[auto.t];
@@ -1435,6 +1481,10 @@ app.post('/api/clients/sync', async (req, res) => {
         subject: '🔗 Votre lien de connexion est prêt — TEAM OP', text: accuse, html: accuseHtml })
         .then(() => console.log('lien de connexion envoyé →', email, '(' + lien + ')'))
         .catch(e => console.error('mail lien:', e.message));
+      // et son « Mon espace » sur le site passe à : Accès activé · OP GESTION active · abonnement affiché
+      const planLbl = promoActif ? promoLib : (dFormule.formule || FORMULE_LBL[auto.formule] || '');
+      fbMajFicheClient(email, Object.assign({ status: 'fourni', apps: ['elan'] },
+        planLbl ? { plan: planLbl, planStatus: 'actif' } : {})).catch(() => {});
     }
   } catch (e) { console.error('notif demande:', e && e.message); }
   res.json({ ok: true });
