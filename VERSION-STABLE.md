@@ -1,6 +1,6 @@
 # Point stable TeamOP
 
-**Version stable : v545** — gravée le 20 août 2026.
+**Version stable : v546** — gravée le 20 août 2026.
 
 Ce que contient cette version (les deux liens la portent) :
 - Circuit client 100 % automatique : demande (tous champs obligatoires, nom du lien
