@@ -1371,6 +1371,7 @@ app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
     const t = nodemailer.createTransport({ host: supportBox.smtpHost, port: supportBox.smtpPort, secure: supportBox.smtpPort === 465, auth: { user: supportBox.email, pass: supportBox.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
     await t.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps });
   } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
+  try { mailsLog.unshift({ ts: Date.now(), a: dest, sujet: obj }); if (mailsLog.length > 300) mailsLog.length = 300; mailsSave(); } catch (e) {}
   supportEnvoyes.unshift({ id: 'e' + crypto.randomBytes(5).toString('hex'), to: dest, subject: obj, text: corps.slice(0, 2000), ts: Date.now(), par: req.tourUser.nom });
   if (supportEnvoyes.length > 100) supportEnvoyes.length = 100;
   supSave();
