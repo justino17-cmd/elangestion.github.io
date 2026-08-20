@@ -18568,7 +18568,14 @@ async function pwdForgotSend(){
   if(!login||!mail){ show('Remplis les deux champs.'); return; }
   const u=db.users.find(x=>x.login && x.login.toLowerCase()===login && x.actif);
   if(!u){ show('Identifiant inconnu sur cet espace.'); return; }
-  if(!(u.email||'').trim()){ show('Aucune adresse e-mail n\'est enregistrée pour ce compte. Demande à un administrateur de te poser un mot de passe provisoire (Utilisateurs → 🔑), puis d\'ajouter ton e-mail sur ta fiche (✎).'); return; }
+  if(!(u.email||'').trim()){
+    const entNom=localStorage.getItem('elan_entreprise_nom')||'';
+    if(!entNom||!localStorage.getItem('elan_sync_team')){ show('Aucune adresse e-mail n\'est enregistrée pour ce compte. Demande à un administrateur de te poser un mot de passe provisoire (Utilisateurs → 🔑), puis d\'ajouter ton e-mail sur ta fiche (✎).'); return; }
+    openModal(`<div class="modal-head"><h3>🏢 Pas d'e-mail sur ce compte</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p style="color:var(--t2);font-size:13px;line-height:1.7;margin-bottom:14px">Ton compte <b>${esc(u.login)}</b> n'a pas d'adresse e-mail enregistrée.<br><br>Pas de souci : le code peut être envoyé à l'adresse de ton entreprise <b>${esc(entNom)}</b> — ton responsable te le transmettra, puis tu choisiras ton nouveau mot de passe.</p>
+      <div id="pf-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
+      <button id="pf-go" class="btn" style="width:100%;justify-content:center;padding:13px" onclick="pwdForgotEntreprise('${u.id}')">📧 Envoyer le code à l'entreprise</button>`,'carte');
+    return; }
   if((u.email||'').trim().toLowerCase()!==mail){ show('Cette adresse ne correspond pas à celle enregistrée pour ce compte.'); return; }
   const btn=$('pf-go'); if(btn){ btn.disabled=true; btn.textContent='⏳ Envoi du code…'; }
   try{
@@ -18583,6 +18590,24 @@ async function pwdForgotSend(){
       <button id="pf-go" class="btn" style="width:100%;justify-content:center;padding:13px" onclick="pwdForgotCheck()">Vérifier le code</button>`,'carte');
     setTimeout(()=>{ const el=$('pf-code'); if(el) el.focus(); },60);
   }catch(e){ show('Le serveur ne répond pas — vérifie ta connexion internet.'); if(btn){btn.disabled=false;btn.textContent='Recevoir le code';} }
+}
+async function pwdForgotEntreprise(uid){
+  const u=db.users.find(x=>x.id===uid); if(!u){ closeModal(); return; }
+  const err=$('pf-err'); const show=m=>{ if(err){ err.textContent='⚠ '+m; err.style.display='block'; } };
+  const btn=$('pf-go'); if(btn){ btn.disabled=true; btn.textContent='⏳ Envoi du code…'; }
+  try{
+    const r=await fetch(PUSH_API+'/api/sendcode-entreprise',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({teamId:syncTeam(),purpose:'mdp-'+u.id,login:u.login})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ show(j.error==='entreprise_inconnue'?'L\'entreprise n\'a pas d\'adresse enregistrée chez TeamOP — demande à un administrateur de te poser un mot de passe provisoire (Utilisateurs → 🔑).':(j.error==='email_off'?'L\'envoi d\'e-mails n\'est pas configuré sur le serveur TeamOP.':(j.error||('Erreur '+r.status)))); if(btn){btn.disabled=false;btn.textContent='📧 Envoyer le code à l\'entreprise';} return; }
+    pwdForgot={uid:u.id};
+    openModal(`<div class="modal-head"><h3>🔑 Code envoyé à l'entreprise</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:14px">Un code à 6 chiffres vient d'être envoyé à l'adresse de ton entreprise <b>${esc(j.envoye||'')}</b> — demande-le à ton responsable. Il expire dans <b>10 minutes</b>.</p>
+      <div class="field"><label>Code reçu</label><input id="pf-code" inputmode="numeric" maxlength="6" placeholder="123456" style="letter-spacing:6px;text-align:center;font-size:20px"></div>
+      <div id="pf-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
+      <button id="pf-go" class="btn" style="width:100%;justify-content:center;padding:13px" onclick="pwdForgotCheck()">Vérifier le code</button>`,'carte');
+    setTimeout(()=>{ const el=$('pf-code'); if(el) el.focus(); },60);
+  }catch(e){ show('Le serveur ne répond pas — vérifie ta connexion internet.'); if(btn){btn.disabled=false;btn.textContent='📧 Envoyer le code à l\'entreprise';} }
 }
 async function pwdForgotCheck(){
   const code=(($('pf-code')||{}).value||'').trim();
