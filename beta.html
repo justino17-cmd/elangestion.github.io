@@ -12034,6 +12034,7 @@ views.mouvements=function(){
     entree:svg('<circle cx="12" cy="12" r="8.6"/><path d="M12 8.4v7.2M8.4 12h7.2"/>'),
     sortie:svg('<circle cx="12" cy="12" r="8.6"/><path d="M8.4 12h7.2"/>'),
     dr:svg('<path d="M12 3l7 2.6v5.2c0 4.4-2.9 7.7-7 10.2-4.1-2.5-7-5.8-7-10.2V5.6z"/><path d="m9 12 2 2 4-4.5"/>'),
+    donne:svg('<circle cx="12" cy="8" r="3.4"/><path d="M5.5 20.5c0-3.4 2.9-5.6 6.5-5.6s6.5 2.2 6.5 5.6"/>'),
     loupe:svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',13),
     box:svg('<path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z"/><path d="M3 8.2l9 5.2 9-5.2"/><path d="M12 13.4V21"/>'),
     chev:svg('<path d="m6 9 6 6 6-6"/>',11)
@@ -12067,6 +12068,7 @@ views.mouvements=function(){
   let list=base;
   if(mvtFType==='entree'||mvtFType==='sortie') list=list.filter(m=>m.type===mvtFType);
   if(mvtFType==='valide') list=list.filter(m=>m.validePar);
+  if(mvtFType==='donne') list=list.filter(m=>m.type==='sortie'&&m.donneA);   // remis à quelqu'un
   // ── LA BARRE : boutons séparés comme avant, mais avec de vraies icônes dessinées ──
   const chip=(k,ico,l)=>{ const on=mvtFType===k;
     return `<button type="button" onclick="mvtChoisirType('${on?'':k}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:37px;padding:0 17px;border-radius:100px;font-size:12.5px;font-weight:700;white-space:nowrap;transition:.15s;border:1px solid ${on?'transparent':'var(--brd)'};background:${on?'var(--acc)':'var(--card)'};color:${on?'var(--on-acc)':'var(--t2)'};box-shadow:${on?'0 3px 12px color-mix(in srgb,var(--acc) 42%,transparent)':'0 1px 3px rgba(0,0,0,.07)'}">${ico}${l}</button>`; };
@@ -12088,7 +12090,7 @@ views.mouvements=function(){
   const bSel=mvtFBox?(db.boxes||[]).find(x=>x.id===mvtFBox):null;
   const btnBox=`<button type="button" onclick="mvtMenu('box')" style="cursor:pointer;flex:none;display:inline-flex;align-items:center;gap:8px;height:37px;padding:0 15px ${bSel?'0 8px':'0 15px'};border-radius:100px;border:1px solid ${mvtFBox?'transparent':'var(--brd)'};background:${mvtFBox?'var(--acc)':'var(--card)'};color:${mvtFBox?'var(--on-acc)':'var(--t2)'};font-size:12.5px;font-weight:700;max-width:250px;box-shadow:${mvtFBox?'0 3px 12px color-mix(in srgb,var(--acc) 42%,transparent)':'0 1px 3px rgba(0,0,0,.07)'}">${bSel?tuileBox(bSel):ICO.box}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bSel?esc(bSel.nom||bSel.numero||'Box'):'Toutes les box'}</span>${ICO.chev}</button>`;
   const barre=`${voile}<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
-    ${chip('entree',ICO.entree,'Ajouts')}${chip('sortie',ICO.sortie,'Retirés')}${chip('valide',ICO.dr,'Validés DR')}${chercheur}<span style="flex:1"></span>
+    ${chip('entree',ICO.entree,'Ajouts')}${chip('sortie',ICO.sortie,'Retirés')}${chip('donne',ICO.donne,'Produits donnés')}${chip('valide',ICO.dr,'Validés DR')}${chercheur}<span style="flex:1"></span>
     <div style="position:relative;flex:none;z-index:${mvtMenuOuvert==='box'?61:1}">${btnBox}${menuBox}</div></div>`;
   // ── bons de remise : construits plus bas, sur le même modèle que le journal ──
   // ── le journal, groupé par jour, avec les personnes bien visibles ──
@@ -12136,6 +12138,8 @@ views.mouvements=function(){
   const brParCle={};
   brs.forEach(r=>{
     if(mvtFType==='entree') return;                                   // un bon = une sortie
+    if(mvtFType==='valide'&&!r.valideDr) return;
+    if(mvtFType==='donne'&&!r.pourQui) return;
     if(mvtFBox&&r.boxId!==mvtFBox) return;
     if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
       const ok=[r.num,r.par,r.pourQui,r.valideDr,boxNom(r.boxId)||r.boxNomTxt].concat((r.lignes||[]).map(l=>produit(l.produitId).nom)).some(x=>String(x||'').toLowerCase().includes(q));
