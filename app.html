@@ -11986,16 +11986,22 @@ views.mouvements=function(){
   if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
     base=base.filter(m=>{ const p=produit(m.produitId);
       return [p.nom,p.ref,m.motif,m.technicien,m.validePar,boxNom(m.boxId),m.vehiculeId?vehName(m.vehiculeId):''].some(x=>String(x||'').toLowerCase().includes(q)); }); }
-  const nEnt=base.filter(m=>m.type==='entree').length, nSor=base.filter(m=>m.type==='sortie').length, nValF=base.filter(m=>m.validePar).length;
   let list=base;
   if(mvtFType==='entree'||mvtFType==='sortie') list=list.filter(m=>m.type===mvtFType);
   if(mvtFType==='valide') list=list.filter(m=>m.validePar);
-  // ── LA BARRE D'OUTILS : une seule carte — onglets à compteurs, recherche, menu des box ──
-  const seg=(k,l,n)=>{ const on=mvtFType===k;
-    return `<button type="button" onclick="mvtChoisirType('${k}')" style="cursor:pointer;border:none;display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border-radius:9px;font-size:12.5px;font-weight:700;white-space:nowrap;transition:.15s;background:${on?'var(--acc)':'transparent'};color:${on?'var(--on-acc)':'var(--t2)'};${on?'box-shadow:0 2px 8px color-mix(in srgb,var(--acc) 45%,transparent)':''}">${l}<span style="font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:20px;background:${on?'rgba(255,255,255,.28)':'color-mix(in srgb,var(--t3) 16%,transparent)'};color:${on?'var(--on-acc)':'var(--t3)'}">${n}</span></button>`; };
-  const segments=`<div style="display:inline-flex;gap:2px;background:var(--bg1);border-radius:12px;padding:3px;flex:none">
-    ${seg('','Tous',base.length)}${seg('entree','📥 Entrées',nEnt)}${seg('sortie','📤 Sorties',nSor)}${seg('valide','🔒 Validés DR',nValF)}</div>`;
-  const chercheur=`<div style="flex:1;min-width:170px;display:flex;align-items:center;gap:9px;padding:0 4px"><span style="opacity:.55;font-size:13px;flex:none">🔍</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Rechercher tout : produit, personne, motif, box…" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:13px;outline:none">${mvtFQ?`<button type="button" onclick="mvtSetQ('')" style="border:none;cursor:pointer;background:color-mix(in srgb,var(--t3) 16%,transparent);color:var(--t2);border-radius:50%;width:19px;height:19px;font-size:10px;line-height:1;flex:none">✕</button>`:''}</div>`;
+  // ── LA BARRE : boutons séparés comme avant, mais avec de vraies icônes dessinées ──
+  const svg=(d,t)=>`<svg width="${t||14}" height="${t||14}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="flex:none">${d}</svg>`;
+  const ICO={
+    entree:svg('<path d="M12 3v10m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>'),
+    sortie:svg('<path d="M12 13V3m0 0 4 4m-4-4-4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>'),
+    dr:svg('<path d="M12 3l7 2.6v5.2c0 4.4-2.9 7.7-7 10.2-4.1-2.5-7-5.8-7-10.2V5.6z"/><path d="m9 12 2 2 4-4.5"/>'),
+    loupe:svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',13),
+    box:svg('<path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z"/><path d="M3 8.2l9 5.2 9-5.2"/><path d="M12 13.4V21"/>'),
+    chev:svg('<path d="m6 9 6 6 6-6"/>',11)
+  };
+  const chip=(k,ico,l)=>{ const on=mvtFType===k;
+    return `<button type="button" onclick="mvtChoisirType('${on?'':k}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:37px;padding:0 17px;border-radius:100px;font-size:12.5px;font-weight:700;white-space:nowrap;transition:.15s;border:1px solid ${on?'transparent':'var(--brd)'};background:${on?'var(--acc)':'var(--card)'};color:${on?'var(--on-acc)':'var(--t2)'};box-shadow:${on?'0 3px 12px color-mix(in srgb,var(--acc) 42%,transparent)':'0 1px 3px rgba(0,0,0,.07)'}">${ico}${l}</button>`; };
+  const chercheur=`<div style="flex:1;min-width:200px;max-width:380px;height:37px;display:flex;align-items:center;gap:9px;padding:0 15px;border-radius:100px;border:1px solid ${mvtFQ?'var(--acc)':'var(--brd)'};background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.07)"><span style="color:var(--t3);display:inline-flex">${ICO.loupe}</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Rechercher tout : produit, personne, motif, box…" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:12.8px;outline:none">${mvtFQ?`<button type="button" onclick="mvtSetQ('')" style="border:none;cursor:pointer;background:color-mix(in srgb,var(--t3) 16%,transparent);color:var(--t2);border-radius:50%;width:19px;height:19px;font-size:10px;line-height:1;flex:none">✕</button>`:''}</div>`;
   const voile=mvtMenuOuvert?`<div onclick="mvtMenu('')" style="position:fixed;inset:0;z-index:50"></div>`:'';
   const PALETTE=['#2EB872','#2563EB','#E79A3C','#A78BFA','#E0524D','#0EA5A4','#D96BB0','#8B5A2B'];
   const boxTeinte=b=>PALETTE[Math.abs(String(b.nom||b.numero||'').split('').reduce((s,c)=>s+c.charCodeAt(0),0))%PALETTE.length];
@@ -12007,14 +12013,14 @@ views.mouvements=function(){
     <div style="padding:12px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.8px;color:var(--t3);text-transform:uppercase">Filtrer par box</div>
     <div style="padding:8px 12px 10px;border-bottom:1px solid color-mix(in srgb,var(--brd) 70%,transparent)"><div style="display:flex;align-items:center;gap:8px;background:var(--bg1);border-radius:10px;padding:8px 11px"><span style="opacity:.55;font-size:12px">🔍</span><input id="mvt-box-q" value="${esc(mvtFBoxQ)}" oninput="mvtBoxQ(this.value)" placeholder="Chercher une box…" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:12.5px;outline:none"></div></div>
     <div style="max-height:275px;overflow:auto;padding:5px 0">
-      ${rangBox(null,!mvtFBox,`<span style="width:26px;height:26px;flex:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;background:color-mix(in srgb,var(--t3) 14%,transparent)">📦</span><div><div style="font-size:13px;font-weight:700;color:var(--t1)">Toutes les box</div><div style="font-size:11px;color:var(--t3)">${tout.length} mouvement${tout.length>1?'s':''} au total</div></div>`)}
+      ${rangBox(null,!mvtFBox,`<span style="width:26px;height:26px;flex:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;color:var(--t2);background:color-mix(in srgb,var(--t3) 14%,transparent)">${ICO.box}</span><div><div style="font-size:13px;font-weight:700;color:var(--t1)">Toutes les box</div><div style="font-size:11px;color:var(--t3)">${tout.length} mouvement${tout.length>1?'s':''} au total</div></div>`)}
       ${boxesFiltrees.map(b=>rangBox(b,mvtFBox===b.id,`${tuileBox(b)}<div style="min-width:0"><div style="font-size:13px;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">${esc(b.nom||b.numero||'Box')}</div><div style="font-size:11px;color:var(--t3)">${nbMvtBox(b.id)} mouvement${nbMvtBox(b.id)>1?'s':''}</div></div>`)).join('')||'<div style="padding:14px;font-size:12.5px;color:var(--t3);text-align:center">Aucune box ne correspond.</div>'}
     </div></div>`:'';
   const bSel=mvtFBox?(db.boxes||[]).find(x=>x.id===mvtFBox):null;
-  const btnBox=`<button type="button" onclick="mvtMenu('box')" style="cursor:pointer;flex:none;display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 7px;border-radius:11px;border:1px solid ${mvtFBox?'var(--acc)':'transparent'};background:var(--bg1);color:var(--t1);font-size:12.5px;font-weight:700;max-width:230px">${bSel?tuileBox(bSel):'<span style="font-size:13px">📦</span>'}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bSel?esc(bSel.nom||bSel.numero||'Box'):'Toutes les box'}</span><span style="opacity:.5;font-size:9px;flex:none">▼</span></button>`;
-  const barre=`${voile}<div style="position:relative;z-index:${mvtMenuOuvert?61:1};background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:7px 9px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 16px;box-shadow:0 2px 12px rgba(0,0,0,.07)">
-    ${segments}<span style="width:1px;height:26px;background:var(--brd);flex:none"></span>${chercheur}
-    <div style="position:relative;flex:none">${btnBox}${menuBox}</div></div>`;
+  const btnBox=`<button type="button" onclick="mvtMenu('box')" style="cursor:pointer;flex:none;display:inline-flex;align-items:center;gap:8px;height:37px;padding:0 15px ${bSel?'0 8px':'0 15px'};border-radius:100px;border:1px solid ${mvtFBox?'transparent':'var(--brd)'};background:${mvtFBox?'var(--acc)':'var(--card)'};color:${mvtFBox?'var(--on-acc)':'var(--t2)'};font-size:12.5px;font-weight:700;max-width:250px;box-shadow:${mvtFBox?'0 3px 12px color-mix(in srgb,var(--acc) 42%,transparent)':'0 1px 3px rgba(0,0,0,.07)'}">${bSel?tuileBox(bSel):ICO.box}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bSel?esc(bSel.nom||bSel.numero||'Box'):'Toutes les box'}</span>${ICO.chev}</button>`;
+  const barre=`${voile}<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
+    ${chip('entree',ICO.entree,'Entrées')}${chip('sortie',ICO.sortie,'Sorties')}${chip('valide',ICO.dr,'Validés DR')}${chercheur}<span style="flex:1"></span>
+    <div style="position:relative;flex:none;z-index:${mvtMenuOuvert==='box'?61:1}">${btnBox}${menuBox}</div></div>`;
   // ── bons de remise (inchangé) ──
   const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
   const brHtml=brs.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📄 Bons de remise (${brs.length})</h3></div>
