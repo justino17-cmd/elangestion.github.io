@@ -11958,6 +11958,42 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
 /* ═══════════════ MOUVEMENTS STOCK ═══════════════ */
 /* Journal 100 % automatique : il se remplit tout seul (box, clôtures
    d'interventions, arrivages, conso…) — on ne crée plus de mouvement à la main. */
+/* ── 🧪 SIMULATION D'ESSAI (bêta seulement) : remplit le journal avec des exemples
+   de tout — bon de commande, ajouts, consommations, validations DR, remises —
+   marqués _demo, et se retire d'un clic sans toucher aux vraies données. ── */
+function mvtDemoPoser(){
+  const moi=fullName(currentUser);
+  const prods=[['demo_adv','ADVION GEL BLATTES 30G (démo)','ADV30'],['demo_alt','ALTA 7000 (démo)','ALT70'],['demo_deb','AÉROSOL DEBUSK 300 ML (démo)','DEB300'],['demo_rat','RATIMOR PÂTE (démo)','RAT10']];
+  prods.forEach(([id,n,r])=>{ if(!db.produits.find(p=>p.id===id)) db.produits.push({id,nom:n,ref:r,qte:0,qteCarton:10,_demo:true}); });
+  if(!db.boxes.find(b=>b.id==='demo_bx1')) db.boxes.push({id:'demo_bx1',nom:'Box Démo Nord',_demo:true,stock:{demo_adv:{ctn:0,u:6},demo_alt:{ctn:0,u:2}}});
+  if(!db.boxes.find(b=>b.id==='demo_bx2')) db.boxes.push({id:'demo_bx2',nom:'Box Démo Sud',_demo:true,stock:{demo_deb:{ctn:0,u:9}}});
+  const t=(j,h)=>Date.now()-j*86400000-h*3600000;
+  const L=[
+    {ts:t(0,1), produitId:'demo_alt', type:'entree', qte:30, motif:'Arrivage SODIF — Box Démo Nord (validé DR) · bon BC-2026-011', boxId:'demo_bx1', technicien:'Léo Martin (démo)', validePar:moi},
+    {ts:t(0,3), produitId:'demo_adv', type:'sortie', qte:2, motif:'Ajustement (validé DR) — Box Démo Nord', boxId:'demo_bx1', unite:'u', technicien:'Karim Benali (démo)', validePar:moi, donneA:'Karim Benali (démo)'},
+    {ts:t(0,5), produitId:'demo_deb', type:'sortie', qte:5, motif:'Ajustement (validé DR) — Box Démo Sud', boxId:'demo_bx2', unite:'u', technicien:'Léo Martin (démo)', validePar:moi, donneA:'Justin Roux (démo)'},
+    {ts:t(1,2), produitId:'demo_adv', type:'sortie', qte:4, motif:'Intervention Tilleuls', boxId:'demo_bx1', unite:'u', technicien:'Sofia Perez (démo)'},
+    {ts:t(1,6), produitId:'demo_rat', type:'entree', qte:10, motif:'Entrée box — Box Démo Sud', boxId:'demo_bx2', technicien:moi},
+    {ts:t(2,4), produitId:'demo_alt', type:'sortie', qte:3, motif:'Chantier Boulogne', boxId:'demo_bx1', unite:'u', technicien:'Karim Benali (démo)'},
+    {ts:t(6,2), produitId:'demo_deb', type:'entree', qte:20, motif:'Réception commande BC-2026-008 — Box Démo Sud', boxId:'demo_bx2', technicien:'Léo Martin (démo)', validePar:moi},
+    {ts:t(35,3), produitId:'demo_adv', type:'entree', qte:30, motif:'Arrivage MABI — Box Démo Nord (validé DR)', boxId:'demo_bx1', technicien:'Léo Martin (démo)', validePar:moi},
+    {ts:t(36,5), produitId:'demo_alt', type:'sortie', qte:6, motif:'Intervention Marceau', boxId:'demo_bx1', unite:'u', technicien:'Sofia Perez (démo)'},
+    {ts:t(66,2), produitId:'demo_rat', type:'sortie', qte:4, motif:'Ajustement (validé DR) — Box Démo Sud', boxId:'demo_bx2', unite:'u', technicien:'Karim Benali (démo)', validePar:moi, donneA:'Nadia Lopez (démo)'},
+    {ts:t(67,4), produitId:'demo_deb', type:'entree', qte:12, motif:'Réception commande BC-2026-002 — Box Démo Sud', boxId:'demo_bx2', technicien:moi}
+  ];
+  L.forEach(m=>db.mouvements.unshift(Object.assign({id:uid(),vehiculeId:'',_demo:true},m)));
+  db.bonsRemise=db.bonsRemise||[];
+  db.bonsRemise.unshift({id:uid(),num:'BR-DÉMO-1',ts:t(0,5),date:todayISO(),par:'Léo Martin (démo)',parRole:'Chef d\'équipe',pourQui:'Justin Roux (démo)',boxId:'demo_bx2',valideDr:moi,lignes:[{produitId:'demo_deb',qte:5}],_demo:true});
+  db.bonsRemise.unshift({id:uid(),num:'BR-DÉMO-2',ts:t(0,3),date:todayISO(),par:'Karim Benali (démo)',parRole:'Technicien',pourQui:'Karim Benali (démo)',boxId:'demo_bx1',valideDr:moi,lignes:[{produitId:'demo_adv',qte:2}],_demo:true});
+  save(); toast('🧪 Simulation posée — tout est marqué (démo)'); views.mouvements();
+}
+function mvtDemoRetirer(){
+  db.mouvements=db.mouvements.filter(m=>!m._demo);
+  db.bonsRemise=(db.bonsRemise||[]).filter(r=>!r._demo);
+  db.boxes=db.boxes.filter(b=>!b._demo);
+  db.produits=db.produits.filter(p=>!p._demo);
+  save(); toast('Simulation retirée — tes vraies données sont intactes'); views.mouvements();
+}
 let mvtFType='', mvtFBox='', mvtFQ='', mvtFBoxQ='', mvtMenuOuvert='', mvtMoisOuverts={};
 function mvtMenu(k){ mvtMenuOuvert=(mvtMenuOuvert===k?'':k); if(mvtMenuOuvert!=='box') mvtFBoxQ=''; views.mouvements(); if(mvtMenuOuvert==='box'){ const i=$('mvt-box-q'); if(i) i.focus(); } }
 function mvtChoisirType(t){ mvtFType=t; mvtMenuOuvert=''; views.mouvements(); }
@@ -12075,7 +12111,9 @@ views.mouvements=function(){
         <span style="flex:1"></span><span style="color:${ouvert?'var(--acc)':'var(--t3)'};font-size:12px;font-weight:700">${ouvert?'▾ Replier':'▸ Ouvrir'}</span></div>
       ${ouvert?`<div style="padding:2px 12px 4px;background:color-mix(in srgb,var(--brd) 30%,transparent)">${jourCartes(arr)}</div>`:''}</div>`;
   }).join('');
-  $('content').innerHTML=tuiles+barre+brHtml
+  const demoOn=db.mouvements.some(m=>m._demo);
+  const bandeauDemo=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin')?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Remplit le journal avec des exemples de tout : bon de commande, ajouts, consommations, validations DR, remises, mois passés. Tout est marqué (démo) et se retire d'un clic.</div></div>${demoOn?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>`:`<button type="button" class="btn sm" onclick="mvtDemoPoser()">Lancer la simulation</button>`}</div>`:'';
+  $('content').innerHTML=tuiles+barre+bandeauDemo+brHtml
     +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage y laisse une trace — avec le nom de la personne qui l'a fait et de celle qui a validé.</div>`
     +(list.length?cartes:`<div class="card">${emptyState('🔁',(mvtFType||mvtFBox)?'Aucun mouvement ne correspond à ce filtre.':'Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
 };
