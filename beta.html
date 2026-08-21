@@ -12016,7 +12016,8 @@ function mvtDemoRetirer(){
   db.produits=db.produits.filter(p=>!p._demo);
   save(); toast('Simulation retirée — tes vraies données sont intactes'); views.mouvements();
 }
-let mvtFType='', mvtFBox='', mvtFQ='', mvtFBoxQ='', mvtMenuOuvert='', mvtMoisOuverts={};
+let mvtFType='', mvtFBox='', mvtFQ='', mvtFBoxQ='', mvtMenuOuvert='', mvtMoisOuverts={}, mvtBoxOuverts={};
+function mvtToggleBox(cle){ mvtBoxOuverts[cle]=!mvtBoxOuverts[cle]; views.mouvements(); }
 function mvtMenu(k){ mvtMenuOuvert=(mvtMenuOuvert===k?'':k); if(mvtMenuOuvert!=='box') mvtFBoxQ=''; views.mouvements(); if(mvtMenuOuvert==='box'){ const i=$('mvt-box-q'); if(i) i.focus(); } }
 function mvtChoisirType(t){ mvtFType=t; mvtMenuOuvert=''; views.mouvements(); }
 function mvtChoisirBox(id){ mvtFBox=id; mvtMenuOuvert=''; mvtFBoxQ=''; views.mouvements(); }
@@ -12145,15 +12146,17 @@ views.mouvements=function(){
       const blocs=Object.keys(grps).sort((a,b)=>grpLbl(a,grps[a]).localeCompare(grpLbl(b,grps[b]),'fr')).map(k=>{ const g=grps[k];
         const ent=g.filter(m=>m.type==='entree').reduce((s,m)=>s+(m.qte||0),0), sor=g.filter(m=>m.type==='sortie').reduce((s,m)=>s+(m.qte||0),0);
         const bonsIci=brParCle[d+'|'+k]||[];
-        return `<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 16px;background:color-mix(in srgb,var(--blue) 8%,transparent);border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
+        const cle=d+'|'+k, ouvert=!!mvtBoxOuverts[cle];
+        return `<div onclick="mvtToggleBox('${cle}')" title="${ouvert?'Replier':'Déplier'} cette box" style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 16px;background:color-mix(in srgb,var(--blue) 8%,transparent);border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent);cursor:pointer">
           <span style="font-weight:800;font-size:12.5px">${grpLbl(k,g)}</span>
           <span style="color:var(--t3);font-weight:600;font-size:11.5px">· ${g.length} mouvement${g.length>1?'s':''}</span>
           ${ent?`<span class="st st-green" style="font-size:10.5px;padding:2px 8px">＋${ent} u</span>`:''}${sor?`<span class="st st-org" style="font-size:10.5px;padding:2px 8px">−${sor} u</span>`:''}
-          ${bonsIci.length?`<span class="st" style="font-size:10.5px;padding:2px 8px;background:rgba(167,139,250,.16);color:var(--purple)">📄 ${bonsIci.length} bon${bonsIci.length>1?'s':''} de remise</span>`:''}</div>`
-          +bonsIci.map(brLigne).join('')+g.map(ligne).join(''); }).join('');
+          ${bonsIci.length?`<span class="st" style="font-size:10.5px;padding:2px 8px;background:rgba(167,139,250,.16);color:var(--purple)">📄 ${bonsIci.length} bon${bonsIci.length>1?'s':''} de remise</span>`:''}
+          <span style="flex:1"></span><span style="color:${ouvert?'var(--acc)':'var(--t3)'};font-size:12px;font-weight:700">${ouvert?'▾ Replier':'▸ Déplier'}</span></div>`
+          +(ouvert?enTete2+bonsIci.map(brLigne).join('')+g.map(ligne).join(''):''); }).join('');
       return `<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
-        <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px;text-transform:capitalize">${jLbl(d)}</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${jours[d].length} mouvement${jours[d].length>1?'s':''}</span></div>
-        ${enTete2}${blocs}</div>`; }).join(''); };
+        <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 8px"><span style="font-weight:800;font-size:13.5px;text-transform:capitalize">${jLbl(d)}</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${jours[d].length} mouvement${jours[d].length>1?'s':''}</span></div>
+        ${blocs}</div>`; }).join(''); };
   // ── le mois en cours reste détaillé jour par jour ; chaque mois passé se range
   //    dans un bloc replié (« Mois de juin 2026 ») qu'un clic ouvre ou referme ──
   const parMois={};
