@@ -2903,7 +2903,6 @@ const NAV = [
     {k:'statistiques',ic:'📈',l:'Statistiques',admin:true},
     {k:'historique',ic:'🕘',l:'Historique'},
     {k:'audit',ic:'🛡️',l:'Audit',admin:true},
-    {k:'conso',ic:'📉',l:'Analyse consommation',admin:true,aside:true},
     {k:'archives',ic:'🗄️',l:'Archives mensuelles',admin:true,aside:true},
   ]},
   {g:'Planification', items:[
@@ -12004,6 +12003,19 @@ function mvtDemoPoser(){
   // et 20 produits DONNÉS d'un coup à la même personne : Sofia remet tout à Nadia
   gros.forEach(([n,r,q],i)=>{ const id='demo_g'+i;
     db.mouvements.unshift({id:uid(),ts:t(0,0)-i*600,produitId:id,type:'sortie',qte:Math.max(1,Math.round(q/4)),unite:'u',motif:'Ajustement (validé DR) — Box Démo Nord',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',vehiculeId:'',technicien:'Sofia Perez (démo)',validePar:moi,donneA:'Nadia Lopez (démo)',_demo:true}); });
+  // en attente du Valider du DR : arrivage, ajustements, retrait, et une demande de commande
+  db.boxMvtAttente=db.boxMvtAttente||[];
+  db.boxMvtAttente.unshift({id:uid(),ts:t(0,1),statut:'enAttente',type:'arrivage',boxId:'demo_bx1',fournisseur:'MABI',
+    lignes:[{produitId:'demo_g0',qte:24},{produitId:'demo_g1',qte:12},{produitId:'demo_g4',qte:30}],par:'Léo Martin (démo)',parId:'demo_leo',_demo:true});
+  db.boxMvtAttente.unshift({id:uid(),ts:t(0,2),statut:'enAttente',type:'ajustement',boxId:'demo_bx2',produitId:'demo_deb',du:-4,dc:0,
+    note:'Sortie pour chantier',pourQui:'Justin Roux (démo)',par:'Karim Benali (démo)',parId:'demo_karim',_demo:true});
+  db.boxMvtAttente.unshift({id:uid(),ts:t(0,3),statut:'enAttente',type:'ajustement',boxId:'demo_bx1',produitId:'demo_adv',du:-2,dc:0,
+    note:'Réappro camion',pourQui:'Sofia Perez (démo)',par:'Sofia Perez (démo)',parId:'demo_sofia',_demo:true});
+  db.boxMvtAttente.unshift({id:uid(),ts:t(0,4),statut:'enAttente',type:'retrait',boxId:'demo_bx2',produitId:'demo_rat',
+    pourQui:'Nadia Lopez (démo)',par:'Léo Martin (démo)',parId:'demo_leo',_demo:true});
+  db.demandes=db.demandes||[];
+  db.demandes.unshift({id:uid(),num:'DEM-DÉMO-1',date:todayISO(),statut:'enAttente',boxId:'demo_bx1',boxNom:'Box Démo Nord',
+    chefNom:'Léo Martin (démo)',lignes:[{produitId:'demo_g0',qte:2},{produitId:'demo_g6',qte:1},{produitId:'demo_alt',qte:3}],_demo:true});
   db.bonsRemise=db.bonsRemise||[];
   db.bonsRemise.unshift({id:uid(),num:'BR-DÉMO-5',ts:t(0,0),date:todayISO(),par:'Sofia Perez (démo)',parRole:'Technicienne',pourQui:'Nadia Lopez (démo)',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',valideDr:moi,lignes:gros.map(([n,r,q],i)=>({produitId:'demo_g'+i,qte:Math.max(1,Math.round(q/4))})),_demo:true});
   db.bonsRemise.unshift({id:uid(),num:'BR-DÉMO-3',ts:t(0,1),date:todayISO(),par:'Karim Benali (démo)',parRole:'Technicien',pourQui:'Karim Benali (démo)',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',valideDr:moi,lignes:gros.filter((x,i)=>i%2===0).map(([n,r,q],i)=>({produitId:'demo_g'+(i*2),qte:Math.max(1,Math.round(q/3))})),_demo:true});
@@ -12016,6 +12028,8 @@ function mvtDemoPoser(){
 function mvtDemoRetirer(){
   db.mouvements=db.mouvements.filter(m=>!m._demo);
   db.bonsRemise=(db.bonsRemise||[]).filter(r=>!r._demo);
+  db.boxMvtAttente=(db.boxMvtAttente||[]).filter(m=>!m._demo);
+  db.demandes=(db.demandes||[]).filter(d=>!d._demo);
   db.boxes=db.boxes.filter(b=>!b._demo);
   db.produits=db.produits.filter(p=>!p._demo);
   save(); toast('Simulation retirée — tes vraies données sont intactes'); views.mouvements();
@@ -13107,6 +13121,8 @@ function saveDemande(e){ e.preventDefault(); const f=Object.fromEntries(new Form
 /* ═══════════════ VALIDATIONS DR ═══════════════ */
 views.validations=function(){
   setHeader('Validations DR','Demandes de commande et mouvements de box');
+  const demoV=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin');
+  const demoOnV=(db.boxMvtAttente||[]).some(m=>m._demo)||db.mouvements.some(m=>m._demo);
   const att=db.demandes.filter(d=>d.statut==='enAttente');
   const autres=db.demandes.filter(d=>d.statut!=='enAttente').sort((a,b)=>(b.dateValidation||b.date||'').localeCompare(a.dateValidation||a.date||''));
   const row=d=>`<div class="pl-row" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))} <span class="tag">${(d.lignes||[]).length} produit(s)</span></div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${demTotal(d)} unité(s)</div></div>`;
@@ -13119,7 +13135,8 @@ views.validations=function(){
   const blocMv=`<div class="card"><div class="card-head"><h3>Mouvements de box (${mv.length})</h3></div>
     ${mv.length? mv.map(m=>mvRow(m)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button> <button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
   </div>`;
-  $('content').innerHTML=blocMv+`<div class="card"><div class="card-head"><h3>Demandes de commande (${att.length})</h3></div>
+  const bandeauV=demoV?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Pose des mouvements et une demande en attente de ton Valider, pour tester le circuit DR en vrai. Tout est marqué (démo).</div></div>${demoOnV?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer();views.validations()">Retirer la simulation</button>`:`<button type="button" class="btn sm" onclick="mvtDemoPoser();views.validations()">Lancer la simulation</button>`}</div>`:'';
+  $('content').innerHTML=bandeauV+blocMv+`<div class="card"><div class="card-head"><h3>Demandes de commande (${att.length})</h3></div>
     ${att.length? att.map(d=>row(d)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="validerDemande('${d.id}','refuse')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
   </div>${(autres.length||mvHisto.length)?`<div class="card"><div class="card-head"><h3>Historique</h3></div>
     ${mvHisto.map(m=>mvRow(m)+`<span class="st ${m.statut==='valide'?'st-green':'st-red'}">${m.statut==='valide'?'Validé':'Refusé'}${m.drNom?' · '+esc(m.drNom):''}</span></div>`).join('')}
@@ -14594,7 +14611,9 @@ window.addEventListener('resize',()=>{ if((current==='carteBox'||current==='cart
    journal des mouvements : chaque sortie de box compte pour la personne qui a
    réellement pris ou reçu le produit. */
 let consoJours=90;
-function consoSetPeriode(j){ consoJours=j; views.conso(); }
+let consoOnglet='analyse';
+function consoSetPeriode(j){ consoJours=j; views.saisieConso(); }
+function consoSetOnglet(o){ consoOnglet=o; views.saisieConso(); }
 function consoTip(ev,txt){ let t=$('conso-tip');
   if(!t){ t=document.createElement('div'); t.id='conso-tip';
     t.style.cssText='position:fixed;z-index:400;pointer-events:none;background:var(--bg2);color:var(--t1);border:1px solid var(--brd);border-radius:10px;padding:8px 11px;font-size:12.5px;line-height:1.6;box-shadow:0 10px 28px rgba(0,0,0,.35);white-space:nowrap';
@@ -14603,8 +14622,19 @@ function consoTip(ev,txt){ let t=$('conso-tip');
   t.style.left=Math.max(8,Math.min(window.innerWidth-t.offsetWidth-12,ev.clientX+14))+'px';
   t.style.top=Math.max(8,ev.clientY-12)+'px'; }
 function consoTipOff(){ const t=$('conso-tip'); if(t) t.style.display='none'; }
-views.conso=function(){
-  setHeader('Consommation produits','Qui consomme quoi, combien, et depuis quand');
+let consoPts=[];
+/* survol du graphique : curseur vertical, point mis en avant et infobulle détaillée */
+function consoSurvol(ev,i,x,y){
+  const p=consoPts[i]; if(!p) return;
+  const c=document.getElementById('conso-curseur'), pt=document.getElementById('conso-point');
+  if(c){ c.setAttribute('x1',x); c.setAttribute('x2',x); c.setAttribute('opacity','.55'); }
+  if(pt){ pt.setAttribute('cx',x); pt.setAttribute('cy',y); pt.setAttribute('opacity','1'); }
+  const det=(p.top||[]).map(t=>'<div style="color:var(--t2)">• '+esc(t.n)+' — <b style="color:var(--t1)">'+t.q+' u</b></div>').join('');
+  consoTip(ev,'<b>'+esc(p.lbl)+'</b> — '+p.v+' u'+(det?'<div style="margin-top:4px">'+det+'</div>':''));
+}
+function consoSurvolFin(){ const c=document.getElementById('conso-curseur'), pt=document.getElementById('conso-point');
+  if(c) c.setAttribute('opacity','0'); if(pt) pt.setAttribute('opacity','0'); consoTipOff(); }
+function consoAnalyseHTML(){
   const isMgr=currentUser&&(currentUser.role==='admin'||currentUser.role==='dr');
   const depuis=Date.now()-consoJours*86400000;
   // la personne qui consomme : celle qui a reçu le produit, sinon celle qui l'a sorti
@@ -14619,41 +14649,73 @@ views.conso=function(){
   const topPers=Object.entries(parPers).map(([nom,q])=>({nom,q})).sort((a,b)=>b.q-a.q);
   const moyPers=topPers.length?unites/topPers.length:0;
   const COLS=['var(--viz1)','var(--viz2)','var(--viz3)','var(--viz4)'];
-  // ── barres empilées dans le temps : par mois si période longue, par semaine sinon ──
-  const parSemaine=consoJours<=30;
+  // ── LE GRAPHIQUE : courbe de consommation avec échelle, pics et moyenne ──
+  const pasTemps=consoJours<=30?'jour':(consoJours<=90?'semaine':'mois');
   const cleDe=ts=>{ const d=new Date(ts);
-    if(parSemaine){ const j=new Date(d); j.setDate(j.getDate()-((j.getDay()+6)%7)); return j.toLocaleDateString('sv-SE'); }
+    if(pasTemps==='jour') return d.toLocaleDateString('sv-SE');
+    if(pasTemps==='semaine'){ const j=new Date(d); j.setDate(j.getDate()-((j.getDay()+6)%7)); return j.toLocaleDateString('sv-SE'); }
     return d.toLocaleDateString('sv-SE').slice(0,7); };
-  const lblDe=c=>parSemaine?new Date(c+'T12:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})
-    :new Date(c+'-15T12:00:00').toLocaleDateString('fr-FR',{month:'short'});
-  const top3=topProd.slice(0,3).map(t=>t.pid);
-  const nomSerie=[...topProd.slice(0,3).map(t=>t.nom),'Autres produits'];
-  const cases={};
-  sorties.forEach(m=>{ const c=cleDe(m.ts); const i=top3.indexOf(m.produitId); const k=i<0?3:i;
-    (cases[c]=cases[c]||[0,0,0,0])[k]+=(m.qte||0); });
-  const cles=Object.keys(cases).sort();
-  const maxT=Math.max(1,...cles.map(c=>cases[c].reduce((s,v)=>s+v,0)));
-  // graphique
-  const W=720,H=250,mgG=44,mgD=10,mgH=24,mgB=32, ph=H-mgH-mgB, pw=W-mgG-mgD;
-  const pas=cles.length?pw/cles.length:pw, larg=Math.min(46,pas*0.6);
-  const echelle=Math.pow(10,Math.max(0,String(Math.ceil(maxT)).length-2)), haut=Math.ceil(maxT/echelle)*echelle||1;
-  let grille='',barres='';
-  for(let i=0;i<=4;i++){ const y=mgH+ph-ph*i/4; const v=Math.round(haut*i/4);
-    grille+='<line x1="'+mgG+'" y1="'+y+'" x2="'+(W-mgD)+'" y2="'+y+'" stroke="var(--viz-grid)" stroke-width="1"/>'
-      +'<text x="'+(mgG-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="var(--t3)">'+v+'</text>'; }
-  cles.forEach((c,i)=>{ const parts=cases[c]; const tot=parts.reduce((s,v)=>s+v,0);
-    const x=mgG+pas*i+(pas-larg)/2; let acc=0;
-    parts.forEach((v,k)=>{ if(!v) return; const h=Math.max(2,v/haut*ph-2); const y=mgH+ph-acc-v/haut*ph;
-      const dernier=parts.slice(k+1).every(x2=>!x2);
-      const r=dernier?4:0;
-      barres+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+larg.toFixed(1)+'" height="'+h.toFixed(1)+'" rx="'+r+'" fill="'+COLS[k]+'"'
-        +' onmousemove="consoTip(event,\''+esc(nomSerie[k]).replace(/'/g,"\\'")+' — <b>'+v+' u</b>\')" onmouseleave="consoTipOff()"/>';
-      acc+=v/haut*ph; });
-    barres+='<text x="'+(x+larg/2).toFixed(1)+'" y="'+(mgH+ph-acc-6).toFixed(1)+'" text-anchor="middle" font-size="11" font-weight="700" fill="var(--t2)">'+tot+'</text>';
-    barres+='<text x="'+(x+larg/2).toFixed(1)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="var(--t3)">'+esc(lblDe(c))+'</text>'; });
-  const legende=nomSerie.map((n,k)=>'<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--t2);margin-right:14px"><span style="width:10px;height:10px;border-radius:3px;background:'+COLS[k]+'"></span>'+esc(n)+'</span>').join('');
-  const graph=cles.length
-    ?'<div style="overflow-x:auto"><svg viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:420px;height:auto;display:block">'+grille+barres+'</svg></div><div style="padding-top:10px">'+legende+'</div>'
+  const lblDe=c=>{ if(pasTemps==='mois') return new Date(c+'-15T12:00:00').toLocaleDateString('fr-FR',{month:'short',year:'2-digit'});
+    return new Date(c+'T12:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}); };
+  // toutes les périodes, même celles sans consommation : une courbe ne saute pas de trou
+  const totaux={}; sorties.forEach(m=>{ const c=cleDe(m.ts); totaux[c]=(totaux[c]||0)+(m.qte||0); });
+  const detail={}; sorties.forEach(m=>{ const c=cleDe(m.ts); (detail[c]=detail[c]||{})[m.produitId]=(detail[c][m.produitId]||0)+(m.qte||0); });
+  const cles=[]; const curseur=new Date(depuis);
+  if(pasTemps==='mois'){ curseur.setDate(15); while(curseur<=new Date()){ cles.push(curseur.toLocaleDateString('sv-SE').slice(0,7)); curseur.setMonth(curseur.getMonth()+1); } }
+  else { const pasJ=pasTemps==='semaine'?7:1;
+    curseur.setHours(12,0,0,0);
+    if(pasTemps==='semaine') curseur.setDate(curseur.getDate()-((curseur.getDay()+6)%7));
+    while(curseur<=new Date()){ cles.push(curseur.toLocaleDateString('sv-SE')); curseur.setDate(curseur.getDate()+pasJ); } }
+  const pts=cles.map(c=>({cle:c,lbl:lblDe(c),v:totaux[c]||0,
+    top:Object.entries(detail[c]||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([pid,q])=>({n:produit(pid).nom||'—',q}))}));
+  consoPts=pts;
+  const vals=pts.map(p=>p.v);
+  const maxV=Math.max(1,...vals);
+  const moyV=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+  const iPic=vals.indexOf(maxV);
+  // échelle ronde : 1/2/5 × puissance de dix, 4 graduations
+  const brut=maxV/4, ex=Math.pow(10,Math.floor(Math.log10(Math.max(1,brut))));
+  const norm4=brut/ex, marche=(norm4<=1?1:norm4<=2?2:norm4<=5?5:10)*ex;
+  const haut=Math.max(marche*4,marche*Math.ceil(maxV/marche));
+  const W=760,H=290,mgG=48,mgD=34,mgH=30,mgB=40, ph=H-mgH-mgB, pw=W-mgG-mgD;
+  const X=i=>pts.length<2?mgG+pw/2:mgG+pw*i/(pts.length-1);
+  const Y=v=>mgH+ph-(v/haut)*ph;
+  let axes='';
+  for(let i=0;i<=4;i++){ const v=haut*i/4, y=Y(v);
+    axes+='<line x1="'+mgG+'" y1="'+y.toFixed(1)+'" x2="'+(W-mgD)+'" y2="'+y.toFixed(1)+'" stroke="var(--viz-grid)" stroke-width="1"/>'
+      +'<text x="'+(mgG-9)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end" font-size="11" fill="var(--t3)">'+Math.round(v)+'</text>'; }
+  axes+='<line x1="'+mgG+'" y1="'+Y(0).toFixed(1)+'" x2="'+(W-mgD)+'" y2="'+Y(0).toFixed(1)+'" stroke="var(--t3)" stroke-width="1.2" opacity=".5"/>';
+  axes+='<text x="'+(mgG-9)+'" y="'+(mgH-8)+'" text-anchor="end" font-size="10" fill="var(--t3)">unités</text>';
+  // étiquettes de l'axe du temps, espacées pour ne jamais se chevaucher
+  const saut=Math.max(1,Math.ceil(pts.length/9));
+  pts.forEach((p,i)=>{ if(i%saut&&i!==pts.length-1) return;
+    axes+='<text x="'+X(i).toFixed(1)+'" y="'+(H-16)+'" text-anchor="middle" font-size="11" fill="var(--t3)">'+esc(p.lbl)+'</text>'; });
+  // moyenne : trait de repère
+  const yMoy=Y(moyV);
+  const repere=moyV>0?'<line x1="'+mgG+'" y1="'+yMoy.toFixed(1)+'" x2="'+(W-mgD)+'" y2="'+yMoy.toFixed(1)+'" stroke="var(--viz2)" stroke-width="1.6" stroke-dasharray="5 4" opacity=".85"/>'
+    +'<text x="'+(mgG+6)+'" y="'+(yMoy-7).toFixed(1)+'" text-anchor="start" font-size="10.5" font-weight="700" fill="var(--viz2)">moyenne '+Math.round(moyV)+' u</text>':'';
+  // aire + courbe
+  const ligne=pts.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+','+Y(p.v).toFixed(1)).join(' ');
+  const aire=pts.length?ligne+' L'+X(pts.length-1).toFixed(1)+','+Y(0).toFixed(1)+' L'+X(0).toFixed(1)+','+Y(0).toFixed(1)+' Z':'';
+  const marqueurs=pts.map((p,i)=>{ const gros=i===iPic&&maxV>0;
+    if(!gros&&pts.length>26&&!p.v) return '';
+    return '<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+'" r="'+(gros?5.5:4)+'" fill="'+(gros?'var(--viz2)':'var(--viz1)')+'" stroke="var(--card)" stroke-width="2"/>'; }).join('');
+  const xPic=X(iPic), ancrePic=xPic>W-mgD-46?'end':(xPic<mgG+46?'start':'middle');
+  const pic=maxV>0?'<text x="'+Math.max(mgG,Math.min(W-mgD,xPic)).toFixed(1)+'" y="'+Math.max(mgH-8,Y(maxV)-13).toFixed(1)+'" text-anchor="'+ancrePic+'" font-size="11.5" font-weight="800" fill="var(--viz2)">pic '+maxV+' u</text>':'';
+  // zones de survol : curseur vertical + infobulle
+  const zones=pts.map((p,i)=>{ const l=pts.length<2?pw:pw/(pts.length-1);
+    return '<rect x="'+(X(i)-l/2).toFixed(1)+'" y="'+mgH+'" width="'+l.toFixed(1)+'" height="'+ph+'" fill="transparent" onmousemove="consoSurvol(event,'+i+','+X(i).toFixed(1)+','+Y(p.v).toFixed(1)+')" onmouseleave="consoSurvolFin()"/>'; }).join('');
+  const graph=pts.length?'<div style="overflow-x:auto"><svg viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:480px;height:auto;display:block">'
+    +'<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--viz1)" stop-opacity=".30"/><stop offset="100%" stop-color="var(--viz1)" stop-opacity="0"/></linearGradient></defs>'
+    +axes+repere
+    +'<path d="'+aire+'" fill="url(#cg)"/>'
+    +'<path d="'+ligne+'" fill="none" stroke="var(--viz1)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>'
+    +'<line id="conso-curseur" x1="0" y1="'+mgH+'" x2="0" y2="'+(mgH+ph)+'" stroke="var(--t3)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>'
+    +'<circle id="conso-point" cx="0" cy="0" r="6.5" fill="var(--viz1)" stroke="var(--card)" stroke-width="2.5" opacity="0"/>'
+    +marqueurs+pic+zones+'</svg></div>'
+    +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding-top:12px;font-size:12px;color:var(--t2)">'
+    +'<span style="display:inline-flex;align-items:center;gap:7px"><span style="width:16px;height:3px;border-radius:2px;background:var(--viz1)"></span>Consommation par '+pasTemps+'</span>'
+    +'<span style="display:inline-flex;align-items:center;gap:7px"><span style="width:16px;height:0;border-top:2px dashed var(--viz2)"></span>Moyenne de la période</span></div>'
     :emptyState('📉','Aucune consommation sur cette période.','','');
   // ── barres horizontales ──
   const maxP=Math.max(1,...topProd.slice(0,8).map(t=>t.q));
@@ -14669,7 +14731,7 @@ views.conso=function(){
   const lignesCroise=topPers.slice(0,10).map(t=>{ const prods=Object.entries(croise[t.nom]||{}).sort((a,b)=>b[1]-a[1]);
     return '<tr><td class="strong">'+esc(t.nom)+'</td><td>'+prods.map(([pid,q])=>'<span class="st" style="font-size:11px;padding:2px 8px;margin:2px 4px 2px 0;background:color-mix(in srgb,var(--t3) 14%,transparent);color:var(--t2)">'+esc(produit(pid).nom||'—')+' <b style="color:var(--t1)">'+q+'</b></span>').join('')+'</td><td class="strong" style="text-align:right">'+t.q+' u</td></tr>'; }).join('');
   const bt=(j,l)=>'<button type="button" onclick="consoSetPeriode('+j+')" style="cursor:pointer;font-size:12.5px;font-weight:700;padding:8px 15px;border-radius:100px;border:1px solid '+(consoJours===j?'transparent':'var(--brd)')+';background:'+(consoJours===j?'var(--acc)':'var(--card)')+';color:'+(consoJours===j?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>';
-  $('content').innerHTML=`<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${bt(30,'30 jours')}${bt(90,'3 mois')}${bt(365,'12 mois')}</div>
+  return `<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${bt(30,'30 jours')}${bt(90,'3 mois')}${bt(365,'12 mois')}</div>
     <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
       <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">${unites}</div><div class="kpi-lbl">Unités consommées</div></div>
       ${isMgr?`<div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">💶</div><div class="kpi-val">${eur(valeur)}</div><div class="kpi-lbl">Valeur consommée</div></div>`:''}
@@ -14682,7 +14744,7 @@ views.conso=function(){
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Consommation par personne</h3></div>
       ${topPers.length?barresPers+`<div style="font-size:12px;color:var(--t3);padding-top:8px">Moyenne de l'équipe : <b style="color:var(--t2)">${Math.round(moyPers)} u</b> sur la période. Une barre orange signale une consommation nettement au-dessus.</div>`:emptyState('👤',"Personne n'a consommé sur cette période.",'','')}</div>
     ${topPers.length?`<div style="font-weight:800;font-size:13.5px;margin:0 2px 8px">Qui consomme quoi</div>`+tableCard(['Personne','Produits consommés','Total'],lignesCroise):''}`;
-};
+}
 
 /* ═══════════════ HISTORIQUE & AUDIT ═══════════════ */
 const TYPE_ICO={auth:'🔑',stock:'📦',crud:'✏️',demande:'✈️',commande:'✉️',finance:'💶',support:'🆘',general:'•'};
@@ -18046,9 +18108,13 @@ views.statistiques=function(){
 /* ═══════════════ SAISIE CONSOMMATION (par box) ═══════════════ */
 let consoBox='', consoSearch='';
 views.saisieConso=function(){
-  setHeader('Saisie conso','Enregistrer les produits consommés par box');
+  setHeader('Consommation produits','Qui consomme quoi, combien, et depuis quand');
+  const ong=(o,l)=>{ const on=consoOnglet===o;
+    return '<button type="button" onclick="consoSetOnglet(\''+o+'\')" style="cursor:pointer;border:none;padding:8px 16px;border-radius:9px;font-size:12.5px;font-weight:700;white-space:nowrap;background:'+(on?'var(--acc)':'transparent')+';color:'+(on?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>'; };
+  const onglets='<div style="display:inline-flex;gap:2px;background:var(--bg1);border-radius:12px;padding:3px;margin:0 0 16px">'+ong('analyse','📈 Analyse')+ong('saisie','📋 Saisie')+'</div>';
+  if(consoOnglet==='analyse'){ $('content').innerHTML=onglets+consoAnalyseHTML(); return; }
   if(consoBox && !db.boxes.find(b=>b.id===consoBox)) consoBox='';
-  $('content').innerHTML=`<div class="card"><div class="field" style="margin:0"><label>Box / dispositif</label><select onchange="consoBox=this.value;renderConso()"><option value="">— Choisir une box —</option>${db.boxes.map(b=>`<option value="${b.id}" ${consoBox===b.id?'selected':''}>${esc(b.numero||'')} — ${esc(b.nom)}</option>`).join('')}</select></div></div><div id="conso-wrap"></div>`;
+  $('content').innerHTML=onglets+`<div class="card"><div class="field" style="margin:0"><label>Box / dispositif</label><select onchange="consoBox=this.value;renderConso()"><option value="">— Choisir une box —</option>${db.boxes.map(b=>`<option value="${b.id}" ${consoBox===b.id?'selected':''}>${esc(b.numero||'')} — ${esc(b.nom)}</option>`).join('')}</select></div></div><div id="conso-wrap"></div>`;
   renderConso();
 };
 function renderConso(){ const el=$('conso-wrap'); if(!el) return;
