@@ -11958,10 +11958,11 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
 /* ═══════════════ MOUVEMENTS STOCK ═══════════════ */
 /* Journal 100 % automatique : il se remplit tout seul (box, clôtures
    d'interventions, arrivages, conso…) — on ne crée plus de mouvement à la main. */
-let mvtFType='', mvtFBox='', mvtMoisOuverts={};
+let mvtFType='', mvtFBox='', mvtFQ='', mvtMoisOuverts={};
 function mvtSetType(t){ mvtFType=(mvtFType===t?'':t); views.mouvements(); }
 function mvtSetBox(v){ mvtFBox=v; views.mouvements(); }
 function mvtToggleMois(k){ mvtMoisOuverts[k]=!mvtMoisOuverts[k]; views.mouvements(); }
+function mvtSetQ(v){ mvtFQ=v; views.mouvements(); const i=$('mvt-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
 views.mouvements=function(){
   setHeader('Mouvements stock','Journal automatique — qui a pris quoi, où, quand, validé par qui','');
   const tout=[...db.mouvements].sort((a,b)=>b.ts-a.ts);
@@ -11982,9 +11983,13 @@ views.mouvements=function(){
   if(mvtFType==='entree'||mvtFType==='sortie') list=list.filter(m=>m.type===mvtFType);
   if(mvtFType==='valide') list=list.filter(m=>m.validePar);
   if(mvtFBox) list=list.filter(m=>m.boxId===mvtFBox);
+  if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
+    list=list.filter(m=>{ const p=produit(m.produitId);
+      return [p.nom,p.ref,m.motif,m.technicien,m.validePar,boxNom(m.boxId),m.vehiculeId?vehName(m.vehiculeId):''].some(x=>String(x||'').toLowerCase().includes(q)); }); }
   const segB=(k,l)=>`<button type="button" onclick="mvtSetType('${k}')" style="cursor:pointer;font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;border:1px solid ${mvtFType===k?'var(--acc)':'var(--brd)'};background:${mvtFType===k?'color-mix(in srgb,var(--acc) 16%,transparent)':'var(--card)'};color:${mvtFType===k?'var(--acc)':'var(--t2)'}">${l}</button>`;
   const selBox=(db.boxes||[]).length?`<select onchange="mvtSetBox(this.value)" style="font-size:12.5px;padding:7px 12px;border-radius:100px;border:1px solid ${mvtFBox?'var(--acc)':'var(--brd)'};background:var(--card);color:${mvtFBox?'var(--acc)':'var(--t2)'};font-weight:700;cursor:pointer"><option value="">📦 Toutes les box</option>${(db.boxes||[]).map(b=>`<option value="${b.id}" ${mvtFBox===b.id?'selected':''}>📦 ${esc(b.nom||b.numero||'Box')}</option>`).join('')}</select>`:'';
-  const barre=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${segB('entree','📥 Entrées')}${segB('sortie','📤 Sorties')}${segB('valide','🔒 Validés DR')}<span style="flex:1"></span>${selBox}</div>`;
+  const chercheur=`<div style="position:relative;flex:1;min-width:190px;max-width:340px"><span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.6;font-size:12px">🔍</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Produit, personne, motif, box…" style="width:100%;box-sizing:border-box;padding:8px 12px 8px 32px;border-radius:100px;border:1px solid ${mvtFQ?'var(--acc)':'var(--brd)'};background:var(--card);color:var(--t1);font-size:12.5px;outline:none"></div>`;
+  const barre=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${segB('entree','📥 Entrées')}${segB('sortie','📤 Sorties')}${segB('valide','🔒 Validés DR')}${chercheur}<span style="flex:1"></span>${selBox}</div>`;
   // ── bons de remise (inchangé) ──
   const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
   const brHtml=brs.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📄 Bons de remise (${brs.length})</h3></div>
