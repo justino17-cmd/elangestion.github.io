@@ -11958,9 +11958,10 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
 /* ═══════════════ MOUVEMENTS STOCK ═══════════════ */
 /* Journal 100 % automatique : il se remplit tout seul (box, clôtures
    d'interventions, arrivages, conso…) — on ne crée plus de mouvement à la main. */
-let mvtFType='', mvtFBox='';
+let mvtFType='', mvtFBox='', mvtMoisOuverts={};
 function mvtSetType(t){ mvtFType=(mvtFType===t?'':t); views.mouvements(); }
 function mvtSetBox(v){ mvtFBox=v; views.mouvements(); }
+function mvtToggleMois(k){ mvtMoisOuverts[k]=!mvtMoisOuverts[k]; views.mouvements(); }
 views.mouvements=function(){
   setHeader('Mouvements stock','Journal automatique — qui a pris quoi, où, quand, validé par qui','');
   const tout=[...db.mouvements].sort((a,b)=>b.ts-a.ts);
@@ -12004,13 +12005,31 @@ views.mouvements=function(){
       <div style="min-width:0">${m.validePar?`<span class="st st-green" title="Mouvement validé par le DR">✔ ${esc(m.validePar)}</span>`:'<span style="color:var(--t3)" title="Fait en direct (DR ou administrateur — pas de validation requise)">—</span>'}</div>
       <span style="color:var(--t3);font-size:12px;text-align:right;font-family:'Space Mono',monospace">${new Date(m.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
     </div>`; };
-  const jours={};
-  list.forEach(m=>{ const d=new Date(m.ts).toLocaleDateString('sv-SE'); (jours[d]=jours[d]||[]).push(m); });
   const auj=new Date().toLocaleDateString('sv-SE'), hier=new Date(Date.now()-86400000).toLocaleDateString('sv-SE');
   const jLbl=d=>{ const t=new Date(d+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); return d===auj?'Aujourd\'hui · '+t:(d===hier?'Hier · '+t:t); };
-  const cartes=Object.keys(jours).sort().reverse().map(d=>`<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
-    <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px;text-transform:capitalize">${jLbl(d)}</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${jours[d].length} mouvement${jours[d].length>1?'s':''}</span></div>
-    ${enTete}${jours[d].map(ligne).join('')}</div>`).join('');
+  const jourCartes=arr=>{ const jours={};
+    arr.forEach(m=>{ const d=new Date(m.ts).toLocaleDateString('sv-SE'); (jours[d]=jours[d]||[]).push(m); });
+    return Object.keys(jours).sort().reverse().map(d=>`<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px;text-transform:capitalize">${jLbl(d)}</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${jours[d].length} mouvement${jours[d].length>1?'s':''}</span></div>
+      ${enTete}${jours[d].map(ligne).join('')}</div>`).join(''); };
+  // ── le mois en cours reste détaillé jour par jour ; chaque mois passé se range
+  //    dans un bloc replié (« Mois de juin 2026 ») qu'un clic ouvre ou referme ──
+  const parMois={};
+  list.forEach(m=>{ const k=new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7); (parMois[k]=parMois[k]||[]).push(m); });
+  const cartes=Object.keys(parMois).sort().reverse().map(k=>{
+    if(k===moisISO) return jourCartes(parMois[k]);
+    const arr=parMois[k];
+    const ent=arr.filter(m=>m.type==='entree').reduce((s,m)=>s+(m.qte||0),0), sor=arr.filter(m=>m.type==='sortie').reduce((s,m)=>s+(m.qte||0),0);
+    const lbl='Mois de '+new Date(k+'-15T12:00:00').toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+    const ouvert=!!mvtMoisOuverts[k];
+    return `<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
+      <div onclick="mvtToggleMois('${k}')" style="display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;flex-wrap:wrap">
+        <span style="font-size:16px">🗓️</span><span style="font-weight:800;font-size:13.5px">${lbl}</span>
+        <span style="color:var(--t3);font-weight:600;font-size:12px">· ${arr.length} mouvement${arr.length>1?'s':''}</span>
+        ${ent?`<span class="st st-green">＋${ent} u</span>`:''}${sor?`<span class="st st-org">−${sor} u</span>`:''}
+        <span style="flex:1"></span><span style="color:${ouvert?'var(--acc)':'var(--t3)'};font-size:12px;font-weight:700">${ouvert?'▾ Replier':'▸ Ouvrir'}</span></div>
+      ${ouvert?`<div style="padding:2px 12px 4px;background:color-mix(in srgb,var(--brd) 30%,transparent)">${jourCartes(arr)}</div>`:''}</div>`;
+  }).join('');
   $('content').innerHTML=tuiles+barre+brHtml
     +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage y laisse une trace — avec le nom de la personne qui l'a fait et de celle qui a validé.</div>`
     +(list.length?cartes:`<div class="card">${emptyState('🔁',(mvtFType||mvtFBox)?'Aucun mouvement ne correspond à ce filtre.':'Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
