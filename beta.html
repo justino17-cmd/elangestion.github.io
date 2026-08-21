@@ -12059,11 +12059,7 @@ views.mouvements=function(){
   const barre=`${voile}<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
     ${chip('entree',ICO.entree,'Ajouts')}${chip('sortie',ICO.sortie,'Retirés')}${chip('valide',ICO.dr,'Validés DR')}${chercheur}<span style="flex:1"></span>
     <div style="position:relative;flex:none;z-index:${mvtMenuOuvert==='box'?61:1}">${btnBox}${menuBox}</div></div>`;
-  // ── bons de remise (inchangé) ──
-  const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
-  const brHtml=brs.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📄 Bons de remise (${brs.length})</h3></div>
-    ${brs.slice(0,25).map(r=>{ const tot=(r.lignes||[]).reduce((t,l)=>t+(l.qte||0),0);
-      return `<div class="pl-row" onclick="remisePdf('${r.id}')"><div class="pl-info"><div class="pl-title">${esc(r.num)} — ${esc(r.par)}${r.parRole?' ('+esc(r.parRole)+')':''} → ${esc(r.pourQui)}</div><div class="pl-meta">${(r.lignes||[]).length} produit(s) · ${tot} u · 📦 ${esc(boxNom(r.boxId)||'—')} · validé par ${esc(r.valideDr||'—')} · ${fmtShort(r.date)}</div></div><span class="st st-green">PDF ↧</span></div>`; }).join('')}</div>`:'';
+  // ── bons de remise : construits plus bas, sur le même modèle que le journal ──
   // ── le journal, groupé par jour, avec les personnes bien visibles ──
   const ini=n=>String(n||'').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).join('').toUpperCase()||'?';
   const pers=(n,c)=>n?`<span style="display:inline-flex;align-items:center;gap:7px;white-space:nowrap;max-width:100%"><span style="width:24px;height:24px;flex:none;border-radius:50%;background:color-mix(in srgb,${c} 18%,transparent);color:${c};font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">${esc(ini(n))}</span><span style="font-weight:600;overflow:hidden;text-overflow:ellipsis">${esc(n)}</span></span>`:'<span style="color:var(--t3)">—</span>';
@@ -12089,6 +12085,24 @@ views.mouvements=function(){
       <div style="min-width:0">${donne}</div>
       <span style="color:var(--t3);font-size:12px;text-align:right;font-family:'Space Mono',monospace">${new Date(m.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
     </div>`; };
+  // ── bons de remise : mêmes colonnes que le journal, un clic ouvre le PDF ──
+  const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
+  const brLigne=r=>{ const tot=(r.lignes||[]).reduce((t,l)=>t+(l.qte||0),0);
+    const noms=(r.lignes||[]).map(l=>produit(l.produitId).nom||'—');
+    const prodTxt=esc(noms[0]||'—')+(noms.length>1?' <span style="color:var(--t3);font-weight:600">+ '+(noms.length-1)+' autre'+(noms.length>2?'s':'')+'</span>':'');
+    const donne=r.pourQui?(r.pourQui===r.par?'<span class="st st-green" title="Pris pour lui-même">Oui</span>':`<span class="st" style="background:rgba(167,139,250,.16);color:var(--purple)" title="Produits remis à cette personne">👤 ${esc(r.pourQui)}</span>`):'<span style="color:var(--t3)">—</span>';
+    return `<div onclick="remisePdf('${r.id}')" title="Ouvrir le bon de remise en PDF" style="${GRILLE};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent);cursor:pointer">
+      <span style="font-family:'Space Mono',monospace;font-weight:700;font-size:14.5px;color:var(--org)">−${tot} u</span>
+      <div style="min-width:0"><div class="strong" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${prodTxt}</div><div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.num)} · ${fmtShort(r.date)}${r.parRole?' · '+esc(r.parRole):''}</div></div>
+      <div style="min-width:0">${r.boxId?`<span class="st st-blue">📦 ${esc(boxNom(r.boxId)||'Box')}</span>`:'<span style="color:var(--t3)">—</span>'}</div>
+      <div style="min-width:0">${pers(r.par,'var(--org)')}</div>
+      <div style="min-width:0">${r.valideDr?`<span class="st st-green" title="Bon validé par le DR">✔ ${esc(r.valideDr)}</span>`:'<span style="color:var(--t3)">—</span>'}</div>
+      <div style="min-width:0">${donne}</div>
+      <span class="st st-green" style="justify-self:end;font-size:10.5px;padding:3px 8px">PDF</span>
+    </div>`; };
+  const brHtml=brs.length?`<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px">📄 Bons de remise</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${brs.length}</span></div>
+    ${enTete.replace('>Produit · motif<','>Produits · bon<').replace('>Heure<','>PDF<')}${brs.slice(0,25).map(brLigne).join('')}</div>`:'';
   const jLbl=d=>{ const dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('fr-FR',{weekday:'long'})+' '+dt.toLocaleDateString('fr-FR'); };
   const jourCartes=arr=>{ const jours={};
     arr.forEach(m=>{ const d=new Date(m.ts).toLocaleDateString('sv-SE'); (jours[d]=jours[d]||[]).push(m); });
