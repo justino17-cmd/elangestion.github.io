@@ -12115,8 +12115,7 @@ views.mouvements=function(){
     const noms=(r.lignes||[]).map(l=>produit(l.produitId).nom||'—');
     const prodTxt=esc(noms[0]||'—')+(noms.length>1?' <span style="color:var(--t3);font-weight:600">+ '+(noms.length-1)+' autre'+(noms.length>2?'s':'')+'</span>':'');
     const donne=r.pourQui?`<span class="st" style="background:rgba(167,139,250,.16);color:var(--purple)" title="${r.pourQui===r.par?'Pris pour lui-même':'Produits remis à cette personne'}">👤 ${esc(r.pourQui)}</span>`:'<span style="color:var(--t3)">—</span>';
-    return `<div style="${GRILLE};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
-      <div style="min-width:0">${(boxNom(r.boxId)||r.boxNomTxt)?`<span class="st st-blue">📦 ${esc(boxNom(r.boxId)||r.boxNomTxt)}</span>`:'<span style="color:var(--t3)">—</span>'}</div>
+    return `<div style="${GRILLE2};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
       <div style="min-width:0"><div class="strong" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${prodTxt}</div><div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.num)} · ${fmtShort(r.date)}${r.parRole?' · '+esc(r.parRole):''}</div></div>
       <span style="font-family:'Space Mono',monospace;font-weight:700;font-size:14.5px;color:var(--org)">−${tot} u</span>
       <div style="min-width:0">${pers(r.par,'var(--org)')}</div>
@@ -12124,9 +12123,18 @@ views.mouvements=function(){
       <div style="min-width:0">${donne}</div>
       <button type="button" onclick="remisePdf('${r.id}')" title="Télécharger le bon de remise en PDF" class="st st-green" style="justify-self:end;font-size:10.5px;font-weight:800;padding:4px 9px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px">${svg('<path d="M12 3v9m0 0 3.5-3.5M12 12 8.5 8.5l0 0"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',12)}PDF</button>
     </div>`; };
+  // rangés PAR BOX, comme le journal
+  const brGrps={};
+  brs.slice(0,25).forEach(r=>{ const nm=boxNom(r.boxId)||r.boxNomTxt||'Autres'; (brGrps[nm]=brGrps[nm]||[]).push(r); });
+  const brBlocs=Object.keys(brGrps).sort((a,b)=>a.localeCompare(b,'fr')).map(nm=>{ const g=brGrps[nm];
+    const totg=g.reduce((s,r)=>s+(r.lignes||[]).reduce((t2,l)=>t2+(l.qte||0),0),0);
+    return `<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 16px;background:color-mix(in srgb,var(--blue) 8%,transparent);border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
+      <span style="font-weight:800;font-size:12.5px">📦 ${esc(nm)}</span>
+      <span style="color:var(--t3);font-weight:600;font-size:11.5px">· ${g.length} bon${g.length>1?'s':''}</span>
+      <span class="st st-org" style="font-size:10.5px;padding:2px 8px">−${totg} u</span></div>`+g.map(brLigne).join(''); }).join('');
   const brHtml=brs.length?`<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
     <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px">📄 Bons de remise</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${brs.length}</span></div>
-    ${enTete.replace('>Produit · motif<','>Produits · bon<').replace('>Heure<','>PDF<')}${brs.slice(0,25).map(brLigne).join('')}</div>`:'';
+    ${enTete2.replace('>Produit · motif<','>Produits · bon<').replace('>Heure<','>PDF<')}${brBlocs}</div>`:'';
   const jLbl=d=>{ const dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('fr-FR',{weekday:'long'})+' '+dt.toLocaleDateString('fr-FR'); };
   const grpLbl=(k,g)=>k.charAt(0)==='b'?('📦 '+esc(boxNom(k.slice(2))||(g&&g[0]&&g[0].boxNomTxt)||'Box')):(k.charAt(0)==='v'?('🚐 '+esc(vehName(k.slice(2)))):'📋 Hors box');
   const jourCartes=arr=>{ const jours={};
