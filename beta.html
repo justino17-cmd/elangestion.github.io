@@ -14611,7 +14611,15 @@ window.addEventListener('resize',()=>{ if((current==='carteBox'||current==='cart
    journal des mouvements : chaque sortie de box compte pour la personne qui a
    réellement pris ou reçu le produit. */
 let consoJours=90;
-let consoOnglet='analyse';
+let consoOnglet='analyse', consoFProd='', consoFPers='', consoPas='auto', consoDu='', consoAu='', consoMenuOuv='', consoQ='';
+function consoMenu(k){ consoMenuOuv=(consoMenuOuv===k?'':k); consoQ=''; views.saisieConso();
+  if(consoMenuOuv){ const i=$('conso-menu-q'); if(i) i.focus(); } }
+function consoChercher(v){ consoQ=v; views.saisieConso(); const i=$('conso-menu-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
+function consoChoisirProd(pid){ consoFProd=pid; consoMenuOuv=''; consoQ=''; views.saisieConso(); }
+function consoChoisirPers(nom){ consoFPers=nom; consoMenuOuv=''; consoQ=''; views.saisieConso(); }
+function consoSetPas(p){ consoPas=p; views.saisieConso(); }
+function consoSetDate(quoi,v){ if(quoi==='du') consoDu=v; else consoAu=v; views.saisieConso(); }
+function consoRaz(){ consoFProd=''; consoFPers=''; consoPas='auto'; consoDu=''; consoAu=''; consoMenuOuv=''; views.saisieConso(); }
 function consoSetPeriode(j){ consoJours=j; views.saisieConso(); }
 function consoSetOnglet(o){ consoOnglet=o; views.saisieConso(); }
 function consoTip(ev,txt){ let t=$('conso-tip');
@@ -14636,10 +14644,18 @@ function consoSurvolFin(){ const c=document.getElementById('conso-curseur'), pt=
   if(c) c.setAttribute('opacity','0'); if(pt) pt.setAttribute('opacity','0'); consoTipOff(); }
 function consoAnalyseHTML(){
   const isMgr=currentUser&&(currentUser.role==='admin'||currentUser.role==='dr');
-  const depuis=Date.now()-consoJours*86400000;
   // la personne qui consomme : celle qui a reçu le produit, sinon celle qui l'a sorti
   const quiConso=m=>m.donneA||m.technicien||(m.vehiculeId?vehName(m.vehiculeId):'')||'Non précisé';
-  const sorties=db.mouvements.filter(m=>m.type==='sortie'&&m.ts>=depuis);
+  const datesLibres=!!(consoDu||consoAu);
+  const depuis=consoDu?new Date(consoDu+'T00:00:00').getTime():(consoAu?0:Date.now()-consoJours*86400000);
+  const jusqua=consoAu?new Date(consoAu+'T23:59:59').getTime():Date.now();
+  let sorties=db.mouvements.filter(m=>m.type==='sortie'&&m.ts>=depuis&&m.ts<=jusqua);
+  if(consoFProd) sorties=sorties.filter(m=>m.produitId===consoFProd);
+  if(consoFPers) sorties=sorties.filter(m=>quiConso(m)===consoFPers);
+  // listes proposées dans les menus (calculées sur la période, avant filtrage)
+  const surPeriode=db.mouvements.filter(m=>m.type==='sortie'&&m.ts>=depuis&&m.ts<=jusqua);
+  const listeProd=[...new Set(surPeriode.map(m=>m.produitId))].map(pid=>({id:pid,nom:produit(pid).nom||'—'})).sort((a,b)=>a.nom.localeCompare(b.nom,'fr'));
+  const listePers=[...new Set(surPeriode.map(quiConso))].sort((a,b)=>a.localeCompare(b,'fr'));
   const unites=sorties.reduce((s,m)=>s+(m.qte||0),0);
   const valeur=sorties.reduce((s,m)=>s+(m.qte||0)*(produit(m.produitId).prix||0),0);
   // ── classements ──
@@ -14650,7 +14666,8 @@ function consoAnalyseHTML(){
   const moyPers=topPers.length?unites/topPers.length:0;
   const COLS=['var(--viz1)','var(--viz2)','var(--viz3)','var(--viz4)'];
   // ── LE GRAPHIQUE : courbe de consommation avec échelle, pics et moyenne ──
-  const pasTemps=consoJours<=30?'jour':(consoJours<=90?'semaine':'mois');
+  const etendue=Math.max(1,Math.round((jusqua-depuis)/86400000));
+  const pasTemps=consoPas!=='auto'?consoPas:(etendue<=31?'jour':(etendue<=95?'semaine':'mois'));
   const cleDe=ts=>{ const d=new Date(ts);
     if(pasTemps==='jour') return d.toLocaleDateString('sv-SE');
     if(pasTemps==='semaine'){ const j=new Date(d); j.setDate(j.getDate()-((j.getDay()+6)%7)); return j.toLocaleDateString('sv-SE'); }
@@ -14730,8 +14747,31 @@ function consoAnalyseHTML(){
   const croise={}; sorties.forEach(m=>{ const q=quiConso(m); (croise[q]=croise[q]||{})[m.produitId]=(croise[q][m.produitId]||0)+(m.qte||0); });
   const lignesCroise=topPers.slice(0,10).map(t=>{ const prods=Object.entries(croise[t.nom]||{}).sort((a,b)=>b[1]-a[1]);
     return '<tr><td class="strong">'+esc(t.nom)+'</td><td>'+prods.map(([pid,q])=>'<span class="st" style="font-size:11px;padding:2px 8px;margin:2px 4px 2px 0;background:color-mix(in srgb,var(--t3) 14%,transparent);color:var(--t2)">'+esc(produit(pid).nom||'—')+' <b style="color:var(--t1)">'+q+'</b></span>').join('')+'</td><td class="strong" style="text-align:right">'+t.q+' u</td></tr>'; }).join('');
-  const bt=(j,l)=>'<button type="button" onclick="consoSetPeriode('+j+')" style="cursor:pointer;font-size:12.5px;font-weight:700;padding:8px 15px;border-radius:100px;border:1px solid '+(consoJours===j?'transparent':'var(--brd)')+';background:'+(consoJours===j?'var(--acc)':'var(--card)')+';color:'+(consoJours===j?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>';
-  return `<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${bt(30,'30 jours')}${bt(90,'3 mois')}${bt(365,'12 mois')}</div>
+  const actif=(on,txt)=>'cursor:pointer;font-size:12.5px;font-weight:700;padding:8px 15px;border-radius:100px;border:1px solid '+(on?'transparent':'var(--brd)')+';background:'+(on?'var(--acc)':'var(--card)')+';color:'+(on?'var(--on-acc)':'var(--t2)')+'';
+  const bt=(j,l)=>'<button type="button" onclick="consoSetPeriode('+j+')" style="'+actif(!datesLibres&&consoJours===j)+'">'+l+'</button>';
+  const btPas=(p,l)=>'<button type="button" onclick="consoSetPas(\''+p+'\')" style="cursor:pointer;border:none;padding:7px 13px;border-radius:9px;font-size:12px;font-weight:700;background:'+(consoPas===p?'var(--acc)':'transparent')+';color:'+(consoPas===p?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>';
+  // menus déroulants Produit / Personne, avec recherche intégrée
+  const voileC=consoMenuOuv?'<div onclick="consoMenu(\'\')" style="position:fixed;inset:0;z-index:50"></div>':'';
+  const menuHtml=(items,choisi,action,vide)=>{ const q=consoQ.trim().toLowerCase();
+    const vus=items.filter(x=>!q||x.lbl.toLowerCase().includes(q));
+    const rang=(val,lbl,on)=>'<div onclick="'+action+'(\''+String(val).replace(/'/g,"\\'")+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;font-size:13px;font-weight:600;color:'+(on?'var(--acc)':'var(--t1)')+';background:'+(on?'color-mix(in srgb,var(--acc) 9%,transparent)':'transparent')+'"><span style="width:14px;flex:none">'+(on?'✓':'')+'</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:210px">'+esc(lbl)+'</span></div>';
+    return '<div style="position:absolute;top:calc(100% + 8px);left:0;z-index:60;width:290px;background:var(--card);border:1px solid var(--brd);border-radius:16px;box-shadow:0 18px 44px rgba(0,0,0,.30);overflow:hidden">'
+      +'<div style="padding:10px 12px;border-bottom:1px solid color-mix(in srgb,var(--brd) 70%,transparent)"><div style="display:flex;align-items:center;gap:8px;background:var(--bg1);border-radius:10px;padding:8px 11px"><span style="opacity:.55;font-size:12px">🔍</span><input id="conso-menu-q" value="'+esc(consoQ)+'" oninput="consoChercher(this.value)" placeholder="Rechercher…" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:12.5px;outline:none"></div></div>'
+      +'<div style="max-height:265px;overflow:auto;padding:5px 0">'+rang('',vide,!choisi)
+      +(vus.map(x=>rang(x.val,x.lbl,String(choisi)===String(x.val))).join('')||'<div style="padding:14px;font-size:12.5px;color:var(--t3);text-align:center">Aucun résultat.</div>')+'</div></div>'; };
+  const btnProd='<button type="button" onclick="consoMenu(\'prod\')" style="'+actif(!!consoFProd)+';display:inline-flex;align-items:center;gap:8px;max-width:250px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📦 '+(consoFProd?esc(produit(consoFProd).nom||'Produit'):'Tous les produits')+'</span><span style="opacity:.5;font-size:9px">▼</span></button>';
+  const btnPers='<button type="button" onclick="consoMenu(\'pers\')" style="'+actif(!!consoFPers)+';display:inline-flex;align-items:center;gap:8px;max-width:250px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👤 '+(consoFPers?esc(consoFPers):'Tout le monde')+'</span><span style="opacity:.5;font-size:9px">▼</span></button>';
+  const dateInp=(q,v,l)=>'<label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--t3);font-weight:600">'+l+'<input type="date" value="'+esc(v)+'" onchange="consoSetDate(\''+q+'\',this.value)" style="border:1px solid '+(v?'var(--acc)':'var(--brd)')+';background:var(--card);color:var(--t1);border-radius:9px;padding:6px 9px;font-size:12.5px;font-family:inherit"></label>';
+  const filtresPosés=consoFProd||consoFPers||datesLibres||consoPas!=='auto';
+  const barreF=voileC+`<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 12px">${bt(30,'30 jours')}${bt(90,'3 mois')}${bt(365,'12 mois')}
+      <span style="width:1px;height:24px;background:var(--brd)"></span>${dateInp('du',consoDu,'Du')}${dateInp('au',consoAu,'Au')}</div>
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
+      <div style="position:relative;z-index:${consoMenuOuv==='prod'?61:1}">${btnProd}${consoMenuOuv==='prod'?menuHtml(listeProd.map(p=>({val:p.id,lbl:p.nom})),consoFProd,'consoChoisirProd','📦 Tous les produits'):''}</div>
+      <div style="position:relative;z-index:${consoMenuOuv==='pers'?61:1}">${btnPers}${consoMenuOuv==='pers'?menuHtml(listePers.map(n=>({val:n,lbl:n})),consoFPers,'consoChoisirPers','👤 Tout le monde'):''}</div>
+      <span style="flex:1"></span>
+      <div style="display:inline-flex;gap:2px;background:var(--bg1);border-radius:12px;padding:3px">${btPas('auto','Auto')}${btPas('jour','Jour')}${btPas('semaine','Semaine')}${btPas('mois','Mois')}</div>
+      ${filtresPosés?`<button type="button" onclick="consoRaz()" style="cursor:pointer;border:none;background:transparent;color:var(--t3);font-size:12px;font-weight:700;text-decoration:underline;padding:6px">Tout effacer</button>`:''}</div>`;
+  return barreF+`
     <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
       <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">${unites}</div><div class="kpi-lbl">Unités consommées</div></div>
       ${isMgr?`<div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">💶</div><div class="kpi-val">${eur(valeur)}</div><div class="kpi-lbl">Valeur consommée</div></div>`:''}
