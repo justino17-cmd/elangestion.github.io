@@ -11958,9 +11958,11 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
 /* ═══════════════ MOUVEMENTS STOCK ═══════════════ */
 /* Journal 100 % automatique : il se remplit tout seul (box, clôtures
    d'interventions, arrivages, conso…) — on ne crée plus de mouvement à la main. */
-let mvtFType='', mvtFBox='', mvtFQ='', mvtMoisOuverts={};
-function mvtSetType(t){ mvtFType=(mvtFType===t?'':t); views.mouvements(); }
-function mvtSetBox(v){ mvtFBox=v; views.mouvements(); }
+let mvtFType='', mvtFBox='', mvtFQ='', mvtFBoxQ='', mvtMenuOuvert='', mvtMoisOuverts={};
+function mvtMenu(k){ mvtMenuOuvert=(mvtMenuOuvert===k?'':k); if(mvtMenuOuvert!=='box') mvtFBoxQ=''; views.mouvements(); if(mvtMenuOuvert==='box'){ const i=$('mvt-box-q'); if(i) i.focus(); } }
+function mvtChoisirType(t){ mvtFType=t; mvtMenuOuvert=''; views.mouvements(); }
+function mvtChoisirBox(id){ mvtFBox=id; mvtMenuOuvert=''; mvtFBoxQ=''; views.mouvements(); }
+function mvtBoxQ(v){ mvtFBoxQ=v; views.mouvements(); const i=$('mvt-box-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
 function mvtToggleMois(k){ mvtMoisOuverts[k]=!mvtMoisOuverts[k]; views.mouvements(); }
 function mvtSetQ(v){ mvtFQ=v; views.mouvements(); const i=$('mvt-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
 views.mouvements=function(){
@@ -11974,22 +11976,51 @@ views.mouvements=function(){
   const sorMois=tout.filter(m=>m.type==='sortie'&&duMois(m)).reduce((s,m)=>s+(m.qte||0),0);
   const nbVal=tout.filter(m=>m.validePar).length;
   const tuiles=`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-    <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">📥</div><div class="kpi-val">+${entMois}</div><div class="kpi-lbl">Unités entrées ce mois-ci</div></div>
-    <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">−${sorMois}</div><div class="kpi-lbl">Unités sorties ce mois-ci</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">📥</div><div class="kpi-val">+${entMois}</div><div class="kpi-lbl">Unités ajoutées ce mois-ci</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">−${sorMois}</div><div class="kpi-lbl">Unités retirées ce mois-ci</div></div>
     <div class="kpi"><div class="kpi-ico" style="background:rgba(59,130,246,.14)">🔁</div><div class="kpi-val">${tout.length}</div><div class="kpi-lbl">Mouvements au journal</div></div>
     <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">🔒</div><div class="kpi-val">${nbVal}</div><div class="kpi-lbl">Validés par le DR</div></div></div>`;
-  // ── filtres : type de mouvement + box ──
-  let list=tout;
+  // ── filtres : box + recherche d'abord (les compteurs des onglets en tiennent compte) ──
+  let base=tout;
+  if(mvtFBox) base=base.filter(m=>m.boxId===mvtFBox);
+  if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
+    base=base.filter(m=>{ const p=produit(m.produitId);
+      return [p.nom,p.ref,m.motif,m.technicien,m.validePar,boxNom(m.boxId),m.vehiculeId?vehName(m.vehiculeId):''].some(x=>String(x||'').toLowerCase().includes(q)); }); }
+  let list=base;
   if(mvtFType==='entree'||mvtFType==='sortie') list=list.filter(m=>m.type===mvtFType);
   if(mvtFType==='valide') list=list.filter(m=>m.validePar);
-  if(mvtFBox) list=list.filter(m=>m.boxId===mvtFBox);
-  if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
-    list=list.filter(m=>{ const p=produit(m.produitId);
-      return [p.nom,p.ref,m.motif,m.technicien,m.validePar,boxNom(m.boxId),m.vehiculeId?vehName(m.vehiculeId):''].some(x=>String(x||'').toLowerCase().includes(q)); }); }
-  const segB=(k,l)=>`<button type="button" onclick="mvtSetType('${k}')" style="cursor:pointer;font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;border:1px solid ${mvtFType===k?'var(--acc)':'var(--brd)'};background:${mvtFType===k?'color-mix(in srgb,var(--acc) 16%,transparent)':'var(--card)'};color:${mvtFType===k?'var(--acc)':'var(--t2)'}">${l}</button>`;
-  const selBox=(db.boxes||[]).length?`<select onchange="mvtSetBox(this.value)" style="font-size:12.5px;padding:7px 12px;border-radius:100px;border:1px solid ${mvtFBox?'var(--acc)':'var(--brd)'};background:var(--card);color:${mvtFBox?'var(--acc)':'var(--t2)'};font-weight:700;cursor:pointer"><option value="">📦 Toutes les box</option>${(db.boxes||[]).map(b=>`<option value="${b.id}" ${mvtFBox===b.id?'selected':''}>📦 ${esc(b.nom||b.numero||'Box')}</option>`).join('')}</select>`:'';
-  const chercheur=`<div style="position:relative;flex:1;min-width:190px;max-width:340px"><span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.6;font-size:12px">🔍</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Produit, personne, motif, box…" style="width:100%;box-sizing:border-box;padding:8px 12px 8px 32px;border-radius:100px;border:1px solid ${mvtFQ?'var(--acc)':'var(--brd)'};background:var(--card);color:var(--t1);font-size:12.5px;outline:none"></div>`;
-  const barre=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${segB('entree','📥 Entrées')}${segB('sortie','📤 Sorties')}${segB('valide','🔒 Validés DR')}${chercheur}<span style="flex:1"></span>${selBox}</div>`;
+  // ── LA BARRE : boutons séparés comme avant, mais avec de vraies icônes dessinées ──
+  const svg=(d,t)=>`<svg width="${t||14}" height="${t||14}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="flex:none">${d}</svg>`;
+  const ICO={
+    entree:svg('<circle cx="12" cy="12" r="8.6"/><path d="M12 8.4v7.2M8.4 12h7.2"/>'),
+    sortie:svg('<circle cx="12" cy="12" r="8.6"/><path d="M8.4 12h7.2"/>'),
+    dr:svg('<path d="M12 3l7 2.6v5.2c0 4.4-2.9 7.7-7 10.2-4.1-2.5-7-5.8-7-10.2V5.6z"/><path d="m9 12 2 2 4-4.5"/>'),
+    loupe:svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',13),
+    box:svg('<path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z"/><path d="M3 8.2l9 5.2 9-5.2"/><path d="M12 13.4V21"/>'),
+    chev:svg('<path d="m6 9 6 6 6-6"/>',11)
+  };
+  const chip=(k,ico,l)=>{ const on=mvtFType===k;
+    return `<button type="button" onclick="mvtChoisirType('${on?'':k}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:37px;padding:0 17px;border-radius:100px;font-size:12.5px;font-weight:700;white-space:nowrap;transition:.15s;border:1px solid ${on?'transparent':'var(--brd)'};background:${on?'var(--acc)':'var(--card)'};color:${on?'var(--on-acc)':'var(--t2)'};box-shadow:${on?'0 3px 12px color-mix(in srgb,var(--acc) 42%,transparent)':'0 1px 3px rgba(0,0,0,.07)'}">${ico}${l}</button>`; };
+  const chercheur=`<div style="flex:1;min-width:200px;max-width:390px;height:37px;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:11px;background:color-mix(in srgb,var(--t3) 11%,transparent);border:1.5px solid ${mvtFQ?'var(--acc)':'transparent'};transition:.15s"><span style="color:var(--t3);display:inline-flex">${ICO.loupe}</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Rechercher" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:13.2px;outline:none">${mvtFQ?`<button type="button" onclick="mvtSetQ('')" style="border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--t3) 30%,transparent);color:var(--card);border-radius:50%;width:17px;height:17px;font-size:10px;font-weight:800;line-height:1;flex:none;padding:0">✕</button>`:''}</div>`;
+  const voile=mvtMenuOuvert?`<div onclick="mvtMenu('')" style="position:fixed;inset:0;z-index:50"></div>`:'';
+  const PALETTE=['#2EB872','#2563EB','#E79A3C','#A78BFA','#E0524D','#0EA5A4','#D96BB0','#8B5A2B'];
+  const boxTeinte=b=>PALETTE[Math.abs(String(b.nom||b.numero||'').split('').reduce((s,c)=>s+c.charCodeAt(0),0))%PALETTE.length];
+  const tuileBox=b=>`<span style="width:26px;height:26px;flex:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:color-mix(in srgb,${boxTeinte(b)} 16%,transparent);color:${boxTeinte(b)}">${esc(String(b.nom||b.numero||'B').trim()[0].toUpperCase())}</span>`;
+  const boxesFiltrees=(db.boxes||[]).filter(b=>!mvtFBoxQ.trim()||String((b.nom||'')+' '+(b.numero||'')).toLowerCase().includes(mvtFBoxQ.trim().toLowerCase()));
+  const nbMvtBox=id=>tout.filter(m=>m.boxId===id).length;
+  const rangBox=(b,on,html)=>`<div onclick="mvtChoisirBox('${b?b.id:''}')" style="display:flex;align-items:center;gap:11px;padding:9px 14px;cursor:pointer;background:${on?'color-mix(in srgb,var(--acc) 9%,transparent)':'transparent'}" onmouseover="this.style.background='color-mix(in srgb,var(--acc) 6%,transparent)'" onmouseout="this.style.background='${on?'color-mix(in srgb,var(--acc) 9%,transparent)':'transparent'}'">${html}<span style="flex:1"></span>${on?'<span style="color:var(--acc);font-weight:800">✓</span>':''}</div>`;
+  const menuBox=mvtMenuOuvert==='box'?`<div style="position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:305px;background:var(--card);border:1px solid var(--brd);border-radius:16px;box-shadow:0 18px 44px rgba(0,0,0,.30);overflow:hidden">
+    <div style="padding:12px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.8px;color:var(--t3);text-transform:uppercase">Filtrer par box</div>
+    <div style="padding:8px 12px 10px;border-bottom:1px solid color-mix(in srgb,var(--brd) 70%,transparent)"><div style="display:flex;align-items:center;gap:8px;background:var(--bg1);border-radius:10px;padding:8px 11px"><span style="opacity:.55;font-size:12px">🔍</span><input id="mvt-box-q" value="${esc(mvtFBoxQ)}" oninput="mvtBoxQ(this.value)" placeholder="Chercher une box…" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:12.5px;outline:none"></div></div>
+    <div style="max-height:275px;overflow:auto;padding:5px 0">
+      ${rangBox(null,!mvtFBox,`<span style="width:26px;height:26px;flex:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;color:var(--t2);background:color-mix(in srgb,var(--t3) 14%,transparent)">${ICO.box}</span><div><div style="font-size:13px;font-weight:700;color:var(--t1)">Toutes les box</div><div style="font-size:11px;color:var(--t3)">${tout.length} mouvement${tout.length>1?'s':''} au total</div></div>`)}
+      ${boxesFiltrees.map(b=>rangBox(b,mvtFBox===b.id,`${tuileBox(b)}<div style="min-width:0"><div style="font-size:13px;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">${esc(b.nom||b.numero||'Box')}</div><div style="font-size:11px;color:var(--t3)">${nbMvtBox(b.id)} mouvement${nbMvtBox(b.id)>1?'s':''}</div></div>`)).join('')||'<div style="padding:14px;font-size:12.5px;color:var(--t3);text-align:center">Aucune box ne correspond.</div>'}
+    </div></div>`:'';
+  const bSel=mvtFBox?(db.boxes||[]).find(x=>x.id===mvtFBox):null;
+  const btnBox=`<button type="button" onclick="mvtMenu('box')" style="cursor:pointer;flex:none;display:inline-flex;align-items:center;gap:8px;height:37px;padding:0 15px ${bSel?'0 8px':'0 15px'};border-radius:100px;border:1px solid ${mvtFBox?'transparent':'var(--brd)'};background:${mvtFBox?'var(--acc)':'var(--card)'};color:${mvtFBox?'var(--on-acc)':'var(--t2)'};font-size:12.5px;font-weight:700;max-width:250px;box-shadow:${mvtFBox?'0 3px 12px color-mix(in srgb,var(--acc) 42%,transparent)':'0 1px 3px rgba(0,0,0,.07)'}">${bSel?tuileBox(bSel):ICO.box}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bSel?esc(bSel.nom||bSel.numero||'Box'):'Toutes les box'}</span>${ICO.chev}</button>`;
+  const barre=`${voile}<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
+    ${chip('entree',ICO.entree,'Ajouts')}${chip('sortie',ICO.sortie,'Retirés')}${chip('valide',ICO.dr,'Validés DR')}${chercheur}<span style="flex:1"></span>
+    <div style="position:relative;flex:none;z-index:${mvtMenuOuvert==='box'?61:1}">${btnBox}${menuBox}</div></div>`;
   // ── bons de remise (inchangé) ──
   const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
   const brHtml=brs.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📄 Bons de remise (${brs.length})</h3></div>
