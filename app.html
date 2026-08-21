@@ -11958,22 +11958,62 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
 /* ═══════════════ MOUVEMENTS STOCK ═══════════════ */
 /* Journal 100 % automatique : il se remplit tout seul (box, clôtures
    d'interventions, arrivages, conso…) — on ne crée plus de mouvement à la main. */
+let mvtFType='', mvtFBox='';
+function mvtSetType(t){ mvtFType=(mvtFType===t?'':t); views.mouvements(); }
+function mvtSetBox(v){ mvtFBox=v; views.mouvements(); }
 views.mouvements=function(){
-  setHeader('Mouvements stock','Journal automatique — qui a pris quoi, où, quand','');
-  const list=[...db.mouvements].sort((a,b)=>b.ts-a.ts);
+  setHeader('Mouvements stock','Journal automatique — qui a pris quoi, où, quand, validé par qui','');
+  const tout=[...db.mouvements].sort((a,b)=>b.ts-a.ts);
   const boxNom=id=>{ const b=(db.boxes||[]).find(x=>x.id===id); return b?(b.nom||b.numero||'Box'):''; };
+  // ── compteurs du mois ──
+  const moisISO=new Date().toLocaleDateString('sv-SE').slice(0,7);
+  const duMois=m=>new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7)===moisISO;
+  const entMois=tout.filter(m=>m.type==='entree'&&duMois(m)).reduce((s,m)=>s+(m.qte||0),0);
+  const sorMois=tout.filter(m=>m.type==='sortie'&&duMois(m)).reduce((s,m)=>s+(m.qte||0),0);
+  const nbVal=tout.filter(m=>m.validePar).length;
+  const tuiles=`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">📥</div><div class="kpi-val">+${entMois}</div><div class="kpi-lbl">Unités entrées ce mois-ci</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">−${sorMois}</div><div class="kpi-lbl">Unités sorties ce mois-ci</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(59,130,246,.14)">🔁</div><div class="kpi-val">${tout.length}</div><div class="kpi-lbl">Mouvements au journal</div></div>
+    <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">🔒</div><div class="kpi-val">${nbVal}</div><div class="kpi-lbl">Validés par le DR</div></div></div>`;
+  // ── filtres : type de mouvement + box ──
+  let list=tout;
+  if(mvtFType==='entree'||mvtFType==='sortie') list=list.filter(m=>m.type===mvtFType);
+  if(mvtFType==='valide') list=list.filter(m=>m.validePar);
+  if(mvtFBox) list=list.filter(m=>m.boxId===mvtFBox);
+  const segB=(k,l)=>`<button type="button" onclick="mvtSetType('${k}')" style="cursor:pointer;font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;border:1px solid ${mvtFType===k?'var(--acc)':'var(--brd)'};background:${mvtFType===k?'color-mix(in srgb,var(--acc) 16%,transparent)':'var(--card)'};color:${mvtFType===k?'var(--acc)':'var(--t2)'}">${l}</button>`;
+  const selBox=(db.boxes||[]).length?`<select onchange="mvtSetBox(this.value)" style="font-size:12.5px;padding:7px 12px;border-radius:100px;border:1px solid ${mvtFBox?'var(--acc)':'var(--brd)'};background:var(--card);color:${mvtFBox?'var(--acc)':'var(--t2)'};font-weight:700;cursor:pointer"><option value="">📦 Toutes les box</option>${(db.boxes||[]).map(b=>`<option value="${b.id}" ${mvtFBox===b.id?'selected':''}>📦 ${esc(b.nom||b.numero||'Box')}</option>`).join('')}</select>`:'';
+  const barre=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${segB('entree','📥 Entrées')}${segB('sortie','📤 Sorties')}${segB('valide','🔒 Validés DR')}<span style="flex:1"></span>${selBox}</div>`;
+  // ── bons de remise (inchangé) ──
   const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
   const brHtml=brs.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📄 Bons de remise (${brs.length})</h3></div>
     ${brs.slice(0,25).map(r=>{ const tot=(r.lignes||[]).reduce((t,l)=>t+(l.qte||0),0);
       return `<div class="pl-row" onclick="remisePdf('${r.id}')"><div class="pl-info"><div class="pl-title">${esc(r.num)} — ${esc(r.par)}${r.parRole?' ('+esc(r.parRole)+')':''} → ${esc(r.pourQui)}</div><div class="pl-meta">${(r.lignes||[]).length} produit(s) · ${tot} u · 📦 ${esc(boxNom(r.boxId)||'—')} · validé par ${esc(r.valideDr||'—')} · ${fmtShort(r.date)}</div></div><span class="st st-green">PDF ↧</span></div>`; }).join('')}</div>`:'';
-  const rows=list.map(m=>{ const p=produit(m.produitId);
-    const ou=m.boxId?('📦 '+boxNom(m.boxId)):(m.vehiculeId?('🚐 '+vehName(m.vehiculeId)):'—');
-    return `<tr><td>${fmtTs(m.ts)}</td><td class="strong">${esc(p.nom||'—')} <span class="mono" style="color:var(--t3)">${esc(p.ref||'')}</span></td>
-    <td>${m.type==='entree'?'<span class="st st-green">Entrée</span>':'<span class="st st-org">Sortie</span>'}</td>
-    <td class="strong">${m.type==='entree'?'+':'−'}${m.qte}${m.unite&&m.unite!=='u'?' '+esc(m.unite):''}</td>
-    <td>${esc(ou)}</td><td>${esc(m.technicien||'')||'—'}</td><td>${m.validePar?'<span class="st st-green" title="Validé par le DR">✔ '+esc(m.validePar)+'</span>':'—'}</td><td style="color:var(--t3)">${esc(m.motif)||'—'}</td></tr>`;}).join('');
-  $('content').innerHTML=brHtml+`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage y laisse une trace — avec le nom de la personne.</div>`
-    +(list.length? tableCard(['Date','Produit','Type','Qté','Où','Par','Validé par','Motif'],rows):`<div class="card">${emptyState('🔁','Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
+  // ── le journal, groupé par jour, avec les personnes bien visibles ──
+  const ini=n=>String(n||'').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).join('').toUpperCase()||'?';
+  const pers=(n,c)=>n?`<span style="display:inline-flex;align-items:center;gap:7px;white-space:nowrap;max-width:100%"><span style="width:24px;height:24px;flex:none;border-radius:50%;background:color-mix(in srgb,${c} 18%,transparent);color:${c};font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">${esc(ini(n))}</span><span style="font-weight:600;overflow:hidden;text-overflow:ellipsis">${esc(n)}</span></span>`:'<span style="color:var(--t3)">—</span>';
+  const GRILLE='display:grid;grid-template-columns:80px minmax(170px,1.5fr) minmax(110px,.9fr) minmax(140px,1fr) minmax(150px,1.05fr) 52px;gap:12px;align-items:center';
+  const enTete=`<div style="${GRILLE};padding:10px 16px 7px;font-size:10.5px;font-weight:800;letter-spacing:.8px;color:var(--t3);text-transform:uppercase"><span>Qté</span><span>Produit · motif</span><span>Où</span><span>Par</span><span>Validé par</span><span style="text-align:right">Heure</span></div>`;
+  const ligne=m=>{ const p=produit(m.produitId); const e=m.type==='entree';
+    const ou=m.boxId?`<span class="st st-blue">📦 ${esc(boxNom(m.boxId)||'Box')}</span>`:(m.vehiculeId?`<span class="st" style="background:rgba(148,163,184,.14);color:var(--t2)">🚐 ${esc(vehName(m.vehiculeId))}</span>`:'<span style="color:var(--t3)">—</span>');
+    return `<div style="${GRILLE};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
+      <span style="font-family:'Space Mono',monospace;font-weight:700;font-size:14.5px;color:${e?'var(--acc)':'var(--org)'}">${e?'＋':'−'}${m.qte}${m.unite&&m.unite!=='u'?' '+esc(m.unite):''}</span>
+      <div style="min-width:0"><div class="strong" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.nom||'—')} <span class="mono" style="color:var(--t3);font-size:11px">${esc(p.ref||'')}</span></div><div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.motif||'')||'—'}</div></div>
+      <div style="min-width:0">${ou}</div>
+      <div style="min-width:0">${pers(m.technicien,e?'var(--acc)':'var(--org)')}</div>
+      <div style="min-width:0">${m.validePar?`<span class="st st-green" title="Mouvement validé par le DR">✔ ${esc(m.validePar)}</span>`:'<span style="color:var(--t3)" title="Fait en direct (DR ou administrateur — pas de validation requise)">—</span>'}</div>
+      <span style="color:var(--t3);font-size:12px;text-align:right;font-family:'Space Mono',monospace">${new Date(m.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
+    </div>`; };
+  const jours={};
+  list.forEach(m=>{ const d=new Date(m.ts).toLocaleDateString('sv-SE'); (jours[d]=jours[d]||[]).push(m); });
+  const auj=new Date().toLocaleDateString('sv-SE'), hier=new Date(Date.now()-86400000).toLocaleDateString('sv-SE');
+  const jLbl=d=>d===auj?'Aujourd\'hui':(d===hier?'Hier':new Date(d+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}));
+  const cartes=Object.keys(jours).sort().reverse().map(d=>`<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px;text-transform:capitalize">${jLbl(d)}</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${jours[d].length} mouvement${jours[d].length>1?'s':''}</span></div>
+    ${enTete}${jours[d].map(ligne).join('')}</div>`).join('');
+  $('content').innerHTML=tuiles+barre+brHtml
+    +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage y laisse une trace — avec le nom de la personne qui l'a fait et de celle qui a validé.</div>`
+    +(list.length?cartes:`<div class="card">${emptyState('🔁',(mvtFType||mvtFBox)?'Aucun mouvement ne correspond à ce filtre.':'Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
 };
 
 /* ═══════════════ BOXES ═══════════════ */
