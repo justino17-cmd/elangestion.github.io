@@ -12028,6 +12028,15 @@ views.mouvements=function(){
   setHeader('Mouvements stock','Journal automatique — qui a pris quoi, où, quand, validé par qui','');
   const tout=[...db.mouvements].sort((a,b)=>b.ts-a.ts);
   const boxNom=id=>{ const b=(db.boxes||[]).find(x=>x.id===id); return b?(b.nom||b.numero||'Box'):''; };
+  const svg=(d,t)=>`<svg width="${t||14}" height="${t||14}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="flex:none">${d}</svg>`;
+  const ICO={
+    entree:svg('<circle cx="12" cy="12" r="8.6"/><path d="M12 8.4v7.2M8.4 12h7.2"/>'),
+    sortie:svg('<circle cx="12" cy="12" r="8.6"/><path d="M8.4 12h7.2"/>'),
+    dr:svg('<path d="M12 3l7 2.6v5.2c0 4.4-2.9 7.7-7 10.2-4.1-2.5-7-5.8-7-10.2V5.6z"/><path d="m9 12 2 2 4-4.5"/>'),
+    loupe:svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',13),
+    box:svg('<path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z"/><path d="M3 8.2l9 5.2 9-5.2"/><path d="M12 13.4V21"/>'),
+    chev:svg('<path d="m6 9 6 6 6-6"/>',11)
+  };
   // ── compteurs DU JOUR ──
   const moisISO=new Date().toLocaleDateString('sv-SE').slice(0,7);
   const aujISO=new Date().toLocaleDateString('sv-SE');
@@ -12035,13 +12044,19 @@ views.mouvements=function(){
   const entMois=tout.filter(m=>m.type==='entree'&&duJour(m)).reduce((s,m)=>s+(m.qte||0),0);
   const sorMois=tout.filter(m=>m.type==='sortie'&&duJour(m)).reduce((s,m)=>s+(m.qte||0),0);
   const nbVal=tout.filter(m=>m.validePar).length;
-  const tuile=(cible,ico,fond,val,lbl)=>{ const on=mvtFType===cible&&cible!=='';
-    return `<div class="kpi" onclick="mvtChoisirType('${mvtFType===cible&&cible!==''?'':cible}')" title="Filtrer le journal" style="cursor:pointer;${on?'border-color:var(--acc);box-shadow:0 0 0 1.5px var(--acc) inset':''}"><div class="kpi-ico" style="background:${fond}">${ico}</div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl} ›</div></div>`; };
+  const icoT={
+    entree:svg('<circle cx="12" cy="12" r="8.6"/><path d="M12 8.4v7.2M8.4 12h7.2"/>',20),
+    sortie:svg('<circle cx="12" cy="12" r="8.6"/><path d="M8.4 12h7.2"/>',20),
+    flux:svg('<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',20),
+    dr:svg('<path d="M12 3l7 2.6v5.2c0 4.4-2.9 7.7-7 10.2-4.1-2.5-7-5.8-7-10.2V5.6z"/><path d="m9 12 2 2 4-4.5"/>',20)
+  };
+  const tuile=(cible,ico,col,fond,val,lbl)=>{ const on=mvtFType===cible&&cible!=='';
+    return `<div class="kpi" onclick="mvtChoisirType('${mvtFType===cible&&cible!==''?'':cible}')" title="Filtrer le journal" style="cursor:pointer;${on?'border-color:var(--acc);box-shadow:0 0 0 1.5px var(--acc) inset':''}"><div class="kpi-ico" style="background:${fond};color:${col}">${ico}</div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl} ›</div></div>`; };
   const tuiles=`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-    ${tuile('entree','📥','rgba(74,222,128,.16)','+'+entMois,'Unités ajoutées aujourd\\'hui')}
-    ${tuile('sortie','📤','rgba(245,158,11,.14)','−'+sorMois,'Unités retirées aujourd\\'hui')}
-    ${tuile('','🔁','rgba(59,130,246,.14)',tout.length,'Mouvements au journal')}
-    ${tuile('valide','🔒','rgba(74,222,128,.16)',nbVal,'Validés par le DR')}</div>`;
+    ${tuile('entree',icoT.entree,'var(--acc)','rgba(74,222,128,.16)','+'+entMois,'Unités ajoutées aujourd\'hui')}
+    ${tuile('sortie',icoT.sortie,'var(--org)','rgba(245,158,11,.14)','−'+sorMois,'Unités retirées aujourd\'hui')}
+    ${tuile('',icoT.flux,'var(--blue)','rgba(59,130,246,.14)',tout.length,'Mouvements au journal')}
+    ${tuile('valide',icoT.dr,'var(--acc)','rgba(74,222,128,.16)',nbVal,'Validés par le DR')}</div>`;
   // ── filtres : box + recherche d'abord (les compteurs des onglets en tiennent compte) ──
   let base=tout;
   if(mvtFBox) base=base.filter(m=>m.boxId===mvtFBox);
@@ -12052,15 +12067,6 @@ views.mouvements=function(){
   if(mvtFType==='entree'||mvtFType==='sortie') list=list.filter(m=>m.type===mvtFType);
   if(mvtFType==='valide') list=list.filter(m=>m.validePar);
   // ── LA BARRE : boutons séparés comme avant, mais avec de vraies icônes dessinées ──
-  const svg=(d,t)=>`<svg width="${t||14}" height="${t||14}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="flex:none">${d}</svg>`;
-  const ICO={
-    entree:svg('<circle cx="12" cy="12" r="8.6"/><path d="M12 8.4v7.2M8.4 12h7.2"/>'),
-    sortie:svg('<circle cx="12" cy="12" r="8.6"/><path d="M8.4 12h7.2"/>'),
-    dr:svg('<path d="M12 3l7 2.6v5.2c0 4.4-2.9 7.7-7 10.2-4.1-2.5-7-5.8-7-10.2V5.6z"/><path d="m9 12 2 2 4-4.5"/>'),
-    loupe:svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',13),
-    box:svg('<path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z"/><path d="M3 8.2l9 5.2 9-5.2"/><path d="M12 13.4V21"/>'),
-    chev:svg('<path d="m6 9 6 6 6-6"/>',11)
-  };
   const chip=(k,ico,l)=>{ const on=mvtFType===k;
     return `<button type="button" onclick="mvtChoisirType('${on?'':k}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:37px;padding:0 17px;border-radius:100px;font-size:12.5px;font-weight:700;white-space:nowrap;transition:.15s;border:1px solid ${on?'transparent':'var(--brd)'};background:${on?'var(--acc)':'var(--card)'};color:${on?'var(--on-acc)':'var(--t2)'};box-shadow:${on?'0 3px 12px color-mix(in srgb,var(--acc) 42%,transparent)':'0 1px 3px rgba(0,0,0,.07)'}">${ico}${l}</button>`; };
   const chercheur=`<div style="flex:1;min-width:200px;max-width:390px;height:37px;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:11px;background:color-mix(in srgb,var(--t3) 11%,transparent);border:1.5px solid ${mvtFQ?'var(--acc)':'transparent'};transition:.15s"><span style="color:var(--t3);display:inline-flex">${ICO.loupe}</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Rechercher" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:13.2px;outline:none">${mvtFQ?`<button type="button" onclick="mvtSetQ('')" style="border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--t3) 30%,transparent);color:var(--card);border-radius:50%;width:17px;height:17px;font-size:10px;font-weight:800;line-height:1;flex:none;padding:0">✕</button>`:''}</div>`;
