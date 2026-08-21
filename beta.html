@@ -11966,6 +11966,8 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
    marqués _demo, et se retire d'un clic sans toucher aux vraies données. ── */
 function mvtDemoPoser(){
   const moi='Marc Dubois (démo)';   // le DR de la simulation — un autre nom que le tien
+  const ROLE_DEMO={'Léo Martin (démo)':'chefEquipe','Karim Benali (démo)':'technicien','Sofia Perez (démo)':'technicien',
+    'Justin Roux (démo)':'technicien','Nadia Lopez (démo)':'chefEquipe','Marc Dubois (démo)':'dr'};
   const prods=[['demo_adv','ADVION GEL BLATTES 30G (démo)','ADV30'],['demo_alt','ALTA 7000 (démo)','ALT70'],['demo_deb','AÉROSOL DEBUSK 300 ML (démo)','DEB300'],['demo_rat','RATIMOR PÂTE (démo)','RAT10']];
   prods.forEach(([id,n,r])=>{ if(!db.produits.find(p=>p.id===id)) db.produits.push({id,nom:n,ref:r,qte:0,qteCarton:10,_demo:true}); });
   if(!db.boxes.find(b=>b.id==='demo_bx1')) db.boxes.push({id:'demo_bx1',nom:'Box Démo Nord',_demo:true,stock:{demo_adv:{ctn:0,u:6},demo_alt:{ctn:0,u:2}}});
@@ -11984,7 +11986,8 @@ function mvtDemoPoser(){
     {ts:t(66,2), produitId:'demo_rat', type:'sortie', qte:4, motif:'Ajustement (validé DR) — Box Démo Sud', boxId:'demo_bx2', unite:'u', technicien:'Karim Benali (démo)', validePar:moi, donneA:'Nadia Lopez (démo)'},
     {ts:t(67,4), produitId:'demo_deb', type:'entree', qte:12, motif:'Réception commande BC-2026-002 — Box Démo Sud', boxId:'demo_bx2', technicien:moi}
   ];
-  L.forEach(m=>db.mouvements.unshift(Object.assign({id:uid(),vehiculeId:'',_demo:true},m)));
+  L.forEach(m=>db.mouvements.unshift(Object.assign({id:uid(),vehiculeId:'',_demo:true,
+    roleConso:ROLE_DEMO[m.donneA||m.technicien]||''},m)));
   // un GROS arrivage : la même personne ajoute 20 produits différents d'un coup dans la même box
   const gros=[['MUSKIL PÂTE FRAÎCHE','MUS01',24],['SOURICIDE BLOCS','SOU02',12],['GEL ANTI-FOURMIS','FOU03',8],['LAQUE INSECTICIDE 500ML','LAQ04',6],
     ['PIÈGE COLLANT RAMPANTS','PIE05',30],['POSTE D\'APPÂTAGE SÉCURISÉ','POS06',10],['GANTS NITRILE (boîte)','GAN07',5],['MASQUE FFP3','MAS08',20],
@@ -11994,15 +11997,15 @@ function mvtDemoPoser(){
   gros.forEach(([n,r,q],i)=>{ const id='demo_g'+i;
     if(!db.produits.find(p=>p.id===id)) db.produits.push({id,nom:n+' (démo)',ref:r,qte:0,qteCarton:10,_demo:true});
     const bx=db.boxes.find(b=>b.id==='demo_bx1'); if(bx){ bx.stock[id]={ctn:0,u:q}; }
-    db.mouvements.unshift({id:uid(),ts:t(0,2)-i*1200,produitId:id,type:'entree',qte:q,motif:'Arrivage SODIF — Box Démo Nord (validé DR) · bon BC-2026-014',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',vehiculeId:'',technicien:'Léo Martin (démo)',validePar:moi,_demo:true}); });
+    db.mouvements.unshift({id:uid(),ts:t(0,2)-i*1200,produitId:id,type:'entree',qte:q,motif:'Arrivage SODIF — Box Démo Nord (validé DR) · bon BC-2026-014',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',vehiculeId:'',technicien:'Léo Martin (démo)',validePar:moi,roleConso:'chefEquipe',_demo:true}); });
   // et un GROS retrait : les 20 produits ressortent — moitié pris par Karim pour lui, moitié remis à Justin
   gros.forEach(([n,r,q],i)=>{ const id='demo_g'+i;
     const aKarim=i%2===0, qui=aKarim?'Karim Benali (démo)':'Léo Martin (démo)', pour=aKarim?'Karim Benali (démo)':'Justin Roux (démo)';
     const qs=Math.max(1,Math.round(q/3));
-    db.mouvements.unshift({id:uid(),ts:t(0,1)-i*900,produitId:id,type:'sortie',qte:qs,unite:'u',motif:'Ajustement (validé DR) — Box Démo Nord',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',vehiculeId:'',technicien:qui,validePar:moi,donneA:pour,_demo:true}); });
+    db.mouvements.unshift({id:uid(),ts:t(0,1)-i*900,produitId:id,type:'sortie',qte:qs,unite:'u',motif:'Ajustement (validé DR) — Box Démo Nord',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',vehiculeId:'',technicien:qui,validePar:moi,donneA:pour,roleConso:ROLE_DEMO[pour]||'',_demo:true}); });
   // et 20 produits DONNÉS d'un coup à la même personne : Sofia remet tout à Nadia
   gros.forEach(([n,r,q],i)=>{ const id='demo_g'+i;
-    db.mouvements.unshift({id:uid(),ts:t(0,0)-i*600,produitId:id,type:'sortie',qte:Math.max(1,Math.round(q/4)),unite:'u',motif:'Ajustement (validé DR) — Box Démo Nord',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',vehiculeId:'',technicien:'Sofia Perez (démo)',validePar:moi,donneA:'Nadia Lopez (démo)',_demo:true}); });
+    db.mouvements.unshift({id:uid(),ts:t(0,0)-i*600,produitId:id,type:'sortie',qte:Math.max(1,Math.round(q/4)),unite:'u',motif:'Ajustement (validé DR) — Box Démo Nord',boxId:'demo_bx1',boxNomTxt:'Box Démo Nord',vehiculeId:'',technicien:'Sofia Perez (démo)',validePar:moi,donneA:'Nadia Lopez (démo)',roleConso:'chefEquipe',_demo:true}); });
   // en attente du Valider du DR : arrivage, ajustements, retrait, et une demande de commande
   db.boxMvtAttente=db.boxMvtAttente||[];
   db.boxMvtAttente.unshift({id:uid(),ts:t(0,1),statut:'enAttente',type:'arrivage',boxId:'demo_bx1',fournisseur:'MABI',
@@ -12591,8 +12594,15 @@ function editBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return
 function stepQte(id,d){ const i=$(id); if(i) i.value=Math.max(0,(parseInt(i.value)||0)+d); }
 /* ── TRAÇABILITÉ ── chaque changement de stock d'une box écrit un mouvement
    (qui, quoi, où, quand) dans le journal, automatiquement. */
+/* Rôle d'une personne d'après son nom : utilisateurs de l'entreprise, puis
+   fiches techniciens. Sert aux filtres et aux analyses de consommation. */
+function roleDeNom(nom){ const n=norm(nom||''); if(!n) return '';
+  const u=(db.users||[]).find(x=>norm(fullName(x))===n); if(u&&u.role) return u.role;
+  const t=(db.techniciens||[]).find(x=>norm(x.nom||'')===n); if(t) return 'technicien';
+  return ''; }
 function traceBox(b,pid,delta,unit,motif,par,validePar,donneA){ if(!b||!pid||!delta) return;
-  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:delta<0?'sortie':'entree',qte:Math.abs(delta),motif:(motif||(delta<0?'Sortie box':'Entrée box'))+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,boxNomTxt:(b.nom||b.numero||''),unite:unit||'u',technicien:par||(currentUser&&fullName(currentUser))||'',validePar:validePar||'',donneA:donneA||''}); }
+  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:delta<0?'sortie':'entree',qte:Math.abs(delta),motif:(motif||(delta<0?'Sortie box':'Entrée box'))+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,boxNomTxt:(b.nom||b.numero||''),unite:unit||'u',technicien:par||(currentUser&&fullName(currentUser))||'',validePar:validePar||'',donneA:donneA||'',
+    roleConso:roleDeNom(donneA||par||(currentUser&&fullName(currentUser))||'')}); }
 /* ── VALIDATION DR DES MOUVEMENTS DE BOX ──
    Quand le réglage est actif (c'est le cas par défaut), TOUT mouvement de box fait
    par quelqu'un d'autre que le DR ou l'administrateur — arrivage, ajustement de
@@ -12625,7 +12635,7 @@ function boxMvtValider(id,statut){ if(!currentUser||!['admin','dr'].includes(cur
   b.stock=b.stock||{};
   if(m.type==='arrivage'){
     (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
-      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR)',vehiculeId:'',boxId:b.id,technicien:m.par||'',validePar:fullName(currentUser)}); });
+      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR)',vehiculeId:'',boxId:b.id,boxNomTxt:(b.nom||b.numero||''),technicien:m.par||'',validePar:fullName(currentUser),roleConso:roleDeNom(m.par||'')}); });
     b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).map(l=>({produitId:l.produitId,qte:l.qte})),photo:m.photo||'',par:m.par||''});
     if(b.arrivages.length>40) b.arrivages.length=40;
     if(m.bcId){ const bonV=(db.bons||[]).find(x=>x.id===m.bcId);
@@ -14611,15 +14621,16 @@ window.addEventListener('resize',()=>{ if((current==='carteBox'||current==='cart
    journal des mouvements : chaque sortie de box compte pour la personne qui a
    réellement pris ou reçu le produit. */
 let consoJours=90;
-let consoOnglet='analyse', consoFProd='', consoFPers='', consoPas='auto', consoDu='', consoAu='', consoMenuOuv='', consoQ='';
+let consoOnglet='analyse', consoFProd='', consoFPers='', consoFRole='', consoPas='auto', consoDu='', consoAu='', consoMenuOuv='', consoQ='';
 function consoMenu(k){ consoMenuOuv=(consoMenuOuv===k?'':k); consoQ=''; views.saisieConso();
   if(consoMenuOuv){ const i=$('conso-menu-q'); if(i) i.focus(); } }
 function consoChercher(v){ consoQ=v; views.saisieConso(); const i=$('conso-menu-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
 function consoChoisirProd(pid){ consoFProd=pid; consoMenuOuv=''; consoQ=''; views.saisieConso(); }
 function consoChoisirPers(nom){ consoFPers=nom; consoMenuOuv=''; consoQ=''; views.saisieConso(); }
+function consoChoisirRole(r){ consoFRole=r; consoMenuOuv=''; consoQ=''; views.saisieConso(); }
 function consoSetPas(p){ consoPas=p; views.saisieConso(); }
 function consoSetDate(quoi,v){ if(quoi==='du') consoDu=v; else consoAu=v; views.saisieConso(); }
-function consoRaz(){ consoFProd=''; consoFPers=''; consoPas='auto'; consoDu=''; consoAu=''; consoMenuOuv=''; views.saisieConso(); }
+function consoRaz(){ consoFProd=''; consoFPers=''; consoFRole=''; consoPas='auto'; consoDu=''; consoAu=''; consoMenuOuv=''; views.saisieConso(); }
 function consoSetPeriode(j){ consoJours=j; views.saisieConso(); }
 function consoSetOnglet(o){ consoOnglet=o; views.saisieConso(); }
 function consoTip(ev,txt){ let t=$('conso-tip');
@@ -14646,16 +14657,21 @@ function consoAnalyseHTML(){
   const isMgr=currentUser&&(currentUser.role==='admin'||currentUser.role==='dr');
   // la personne qui consomme : celle qui a reçu le produit, sinon celle qui l'a sorti
   const quiConso=m=>m.donneA||m.technicien||(m.vehiculeId?vehName(m.vehiculeId):'')||'Non précisé';
+  const roleConso=m=>m.roleConso||roleDeNom(quiConso(m))||'';
+  const roleLbl=r=>ROLE[r]||'Rôle non renseigné';
   const datesLibres=!!(consoDu||consoAu);
   const depuis=consoDu?new Date(consoDu+'T00:00:00').getTime():(consoAu?0:Date.now()-consoJours*86400000);
   const jusqua=consoAu?new Date(consoAu+'T23:59:59').getTime():Date.now();
   let sorties=db.mouvements.filter(m=>m.type==='sortie'&&m.ts>=depuis&&m.ts<=jusqua);
   if(consoFProd) sorties=sorties.filter(m=>m.produitId===consoFProd);
   if(consoFPers) sorties=sorties.filter(m=>quiConso(m)===consoFPers);
+  if(consoFRole) sorties=sorties.filter(m=>roleConso(m)===consoFRole);
   // listes proposées dans les menus (calculées sur la période, avant filtrage)
   const surPeriode=db.mouvements.filter(m=>m.type==='sortie'&&m.ts>=depuis&&m.ts<=jusqua);
   const listeProd=[...new Set(surPeriode.map(m=>m.produitId))].map(pid=>({id:pid,nom:produit(pid).nom||'—'})).sort((a,b)=>a.nom.localeCompare(b.nom,'fr'));
   const listePers=[...new Set(surPeriode.map(quiConso))].sort((a,b)=>a.localeCompare(b,'fr'));
+  const ordreRole=['dr','chefEquipe','technicien','commercial','compta','admin'];
+  const listeRole=[...new Set(surPeriode.map(roleConso).filter(Boolean))].sort((a,b)=>ordreRole.indexOf(a)-ordreRole.indexOf(b));
   const unites=sorties.reduce((s,m)=>s+(m.qte||0),0);
   const valeur=sorties.reduce((s,m)=>s+(m.qte||0)*(produit(m.produitId).prix||0),0);
   // ── classements ──
@@ -14738,15 +14754,17 @@ function consoAnalyseHTML(){
   const maxP=Math.max(1,...topProd.slice(0,8).map(t=>t.q));
   const barresProd=topProd.slice(0,8).map(t=>'<div class="bar-row"><div class="bar-lbl">'+esc(t.nom)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+(t.q/maxP*100)+'%"></div></div><div class="bar-val">'+t.q+' u</div></div>').join('');
   const maxH=Math.max(1,...topPers.slice(0,10).map(t=>t.q));
+  const roleDe={}; sorties.forEach(m=>{ const q=quiConso(m); if(!roleDe[q]&&roleConso(m)) roleDe[q]=roleConso(m); });
+  const pastilleRole=n=>roleDe[n]?'<span style="font-size:10px;font-weight:700;color:var(--t3);margin-left:6px">'+esc(roleLbl(roleDe[n]))+'</span>':'';
   const barresPers=topPers.slice(0,10).map(t=>{ const fort=moyPers>0&&t.q>moyPers*1.6&&t.q>=5;
-    return '<div class="bar-row"><div class="bar-lbl">'+esc(t.nom)+(fort?' <span class="st st-org" style="font-size:10px;padding:1px 7px">à vérifier</span>':'')+'</div>'
+    return '<div class="bar-row"><div class="bar-lbl" title="'+esc(t.nom)+(roleDe[t.nom]?' — '+esc(roleLbl(roleDe[t.nom])):'')+'">'+esc(t.nom)+pastilleRole(t.nom)+(fort?' <span class="st st-org" style="font-size:10px;padding:1px 7px">à vérifier</span>':'')+'</div>'
       +'<div class="bar-track"><div class="bar-fill" style="width:'+(t.q/maxH*100)+'%;background:'+(fort?'var(--org)':'var(--acc)')+'"></div></div>'
       +'<div class="bar-val">'+t.q+' u</div></div>'; }).join('');
   const alertes=topPers.filter(t=>moyPers>0&&t.q>moyPers*1.6&&t.q>=5);
   // ── tableau croisé qui consomme quoi ──
   const croise={}; sorties.forEach(m=>{ const q=quiConso(m); (croise[q]=croise[q]||{})[m.produitId]=(croise[q][m.produitId]||0)+(m.qte||0); });
   const lignesCroise=topPers.slice(0,10).map(t=>{ const prods=Object.entries(croise[t.nom]||{}).sort((a,b)=>b[1]-a[1]);
-    return '<tr><td class="strong">'+esc(t.nom)+'</td><td>'+prods.map(([pid,q])=>'<span class="st" style="font-size:11px;padding:2px 8px;margin:2px 4px 2px 0;background:color-mix(in srgb,var(--t3) 14%,transparent);color:var(--t2)">'+esc(produit(pid).nom||'—')+' <b style="color:var(--t1)">'+q+'</b></span>').join('')+'</td><td class="strong" style="text-align:right">'+t.q+' u</td></tr>'; }).join('');
+    return '<tr><td class="strong">'+esc(t.nom)+(roleDe[t.nom]?'<div style="font-size:11px;font-weight:600;color:var(--t3)">'+esc(roleLbl(roleDe[t.nom]))+'</div>':'')+'</td><td>'+prods.map(([pid,q])=>'<span class="st" style="font-size:11px;padding:2px 8px;margin:2px 4px 2px 0;background:color-mix(in srgb,var(--t3) 14%,transparent);color:var(--t2)">'+esc(produit(pid).nom||'—')+' <b style="color:var(--t1)">'+q+'</b></span>').join('')+'</td><td class="strong" style="text-align:right">'+t.q+' u</td></tr>'; }).join('');
   const actif=(on,txt)=>'cursor:pointer;font-size:12.5px;font-weight:700;padding:8px 15px;border-radius:100px;border:1px solid '+(on?'transparent':'var(--brd)')+';background:'+(on?'var(--acc)':'var(--card)')+';color:'+(on?'var(--on-acc)':'var(--t2)')+'';
   const bt=(j,l)=>'<button type="button" onclick="consoSetPeriode('+j+')" style="'+actif(!datesLibres&&consoJours===j)+'">'+l+'</button>';
   const btPas=(p,l)=>'<button type="button" onclick="consoSetPas(\''+p+'\')" style="cursor:pointer;border:none;padding:7px 13px;border-radius:9px;font-size:12px;font-weight:700;background:'+(consoPas===p?'var(--acc)':'transparent')+';color:'+(consoPas===p?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>';
@@ -14761,13 +14779,15 @@ function consoAnalyseHTML(){
       +(vus.map(x=>rang(x.val,x.lbl,String(choisi)===String(x.val))).join('')||'<div style="padding:14px;font-size:12.5px;color:var(--t3);text-align:center">Aucun résultat.</div>')+'</div></div>'; };
   const btnProd='<button type="button" onclick="consoMenu(\'prod\')" style="'+actif(!!consoFProd)+';display:inline-flex;align-items:center;gap:8px;max-width:250px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📦 '+(consoFProd?esc(produit(consoFProd).nom||'Produit'):'Tous les produits')+'</span><span style="opacity:.5;font-size:9px">▼</span></button>';
   const btnPers='<button type="button" onclick="consoMenu(\'pers\')" style="'+actif(!!consoFPers)+';display:inline-flex;align-items:center;gap:8px;max-width:250px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👤 '+(consoFPers?esc(consoFPers):'Tout le monde')+'</span><span style="opacity:.5;font-size:9px">▼</span></button>';
+  const btnRole='<button type="button" onclick="consoMenu(\'role\')" style="'+actif(!!consoFRole)+';display:inline-flex;align-items:center;gap:8px;max-width:230px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎖️ '+(consoFRole?esc(roleLbl(consoFRole)):'Tous les rôles')+'</span><span style="opacity:.5;font-size:9px">▼</span></button>';
   const dateInp=(q,v,l)=>'<label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--t3);font-weight:600">'+l+'<input type="date" value="'+esc(v)+'" onchange="consoSetDate(\''+q+'\',this.value)" style="border:1px solid '+(v?'var(--acc)':'var(--brd)')+';background:var(--card);color:var(--t1);border-radius:9px;padding:6px 9px;font-size:12.5px;font-family:inherit"></label>';
-  const filtresPosés=consoFProd||consoFPers||datesLibres||consoPas!=='auto';
+  const filtresPosés=consoFProd||consoFPers||consoFRole||datesLibres||consoPas!=='auto';
   const barreF=voileC+`<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 12px">${bt(30,'30 jours')}${bt(90,'3 mois')}${bt(365,'12 mois')}
       <span style="width:1px;height:24px;background:var(--brd)"></span>${dateInp('du',consoDu,'Du')}${dateInp('au',consoAu,'Au')}</div>
     <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
       <div style="position:relative;z-index:${consoMenuOuv==='prod'?61:1}">${btnProd}${consoMenuOuv==='prod'?menuHtml(listeProd.map(p=>({val:p.id,lbl:p.nom})),consoFProd,'consoChoisirProd','📦 Tous les produits'):''}</div>
       <div style="position:relative;z-index:${consoMenuOuv==='pers'?61:1}">${btnPers}${consoMenuOuv==='pers'?menuHtml(listePers.map(n=>({val:n,lbl:n})),consoFPers,'consoChoisirPers','👤 Tout le monde'):''}</div>
+      <div style="position:relative;z-index:${consoMenuOuv==='role'?61:1}">${btnRole}${consoMenuOuv==='role'?menuHtml(listeRole.map(r=>({val:r,lbl:roleLbl(r)})),consoFRole,'consoChoisirRole','🎖️ Tous les rôles'):''}</div>
       <span style="flex:1"></span>
       <div style="display:inline-flex;gap:2px;background:var(--bg1);border-radius:12px;padding:3px">${btPas('auto','Auto')}${btPas('jour','Jour')}${btPas('semaine','Semaine')}${btPas('mois','Mois')}</div>
       ${filtresPosés?`<button type="button" onclick="consoRaz()" style="cursor:pointer;border:none;background:transparent;color:var(--t3);font-size:12px;font-weight:700;text-decoration:underline;padding:6px">Tout effacer</button>`:''}</div>`;
