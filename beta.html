@@ -12115,26 +12115,25 @@ views.mouvements=function(){
     const noms=(r.lignes||[]).map(l=>produit(l.produitId).nom||'—');
     const prodTxt=esc(noms[0]||'—')+(noms.length>1?' <span style="color:var(--t3);font-weight:600">+ '+(noms.length-1)+' autre'+(noms.length>2?'s':'')+'</span>':'');
     const donne=r.pourQui?`<span class="st" style="background:rgba(167,139,250,.16);color:var(--purple)" title="${r.pourQui===r.par?'Pris pour lui-même':'Produits remis à cette personne'}">👤 ${esc(r.pourQui)}</span>`:'<span style="color:var(--t3)">—</span>';
-    return `<div style="${GRILLE2};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
-      <div style="min-width:0"><div class="strong" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${prodTxt}</div><div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.num)} · ${fmtShort(r.date)}${r.parRole?' · '+esc(r.parRole):''}</div></div>
+    return `<div style="${GRILLE2};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent);background:color-mix(in srgb,var(--purple) 5%,transparent)">
+      <div style="min-width:0"><div class="strong" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${prodTxt}</div><div style="display:flex;align-items:center;gap:7px;margin-top:3px;min-width:0"><span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:rgba(167,139,250,.16);color:var(--purple);white-space:nowrap">📄 BON DE REMISE</span><span style="font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.num)}${r.parRole?' · '+esc(r.parRole):''}</span></div></div>
       <span style="font-family:'Space Mono',monospace;font-weight:700;font-size:14.5px;color:var(--org)">−${tot} u</span>
       <div style="min-width:0">${pers(r.par,'var(--org)')}</div>
       <div style="min-width:0">${r.valideDr?`<span class="st st-green" title="Bon validé par le DR">✔ ${esc(r.valideDr)}</span>`:'<span style="color:var(--t3)">—</span>'}</div>
       <div style="min-width:0">${donne}</div>
       <button type="button" onclick="remisePdf('${r.id}')" title="Télécharger le bon de remise en PDF" class="st st-green" style="justify-self:end;font-size:10.5px;font-weight:800;padding:4px 9px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px">${svg('<path d="M12 3v9m0 0 3.5-3.5M12 12 8.5 8.5l0 0"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',12)}PDF</button>
     </div>`; };
-  // rangés PAR BOX, comme le journal
-  const brGrps={};
-  brs.slice(0,25).forEach(r=>{ const nm=boxNom(r.boxId)||r.boxNomTxt||'Autres'; (brGrps[nm]=brGrps[nm]||[]).push(r); });
-  const brBlocs=Object.keys(brGrps).sort((a,b)=>a.localeCompare(b,'fr')).map(nm=>{ const g=brGrps[nm];
-    const totg=g.reduce((s,r)=>s+(r.lignes||[]).reduce((t2,l)=>t2+(l.qte||0),0),0);
-    return `<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 16px;background:color-mix(in srgb,var(--blue) 8%,transparent);border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
-      <span style="font-weight:800;font-size:12.5px">📦 ${esc(nm)}</span>
-      <span style="color:var(--t3);font-weight:600;font-size:11.5px">· ${g.length} bon${g.length>1?'s':''}</span>
-      <span class="st st-org" style="font-size:10.5px;padding:2px 8px">−${totg} u</span></div>`+g.map(brLigne).join(''); }).join('');
-  const brHtml=brs.length?`<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
-    <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px">📄 Bons de remise</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${brs.length}</span></div>
-    ${enTete2.replace('>Produit · motif<','>Produits · bon<').replace('>Heure<','>PDF<')}${brBlocs}</div>`:'';
+  // les bons s'intègrent AU JOURNAL : à leur date, dans la bande de leur box
+  const brParCle={};
+  brs.forEach(r=>{
+    if(mvtFType==='entree') return;                                   // un bon = une sortie
+    if(mvtFBox&&r.boxId!==mvtFBox) return;
+    if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
+      const ok=[r.num,r.par,r.pourQui,r.valideDr,boxNom(r.boxId)||r.boxNomTxt].concat((r.lignes||[]).map(l=>produit(l.produitId).nom)).some(x=>String(x||'').toLowerCase().includes(q));
+      if(!ok) return; }
+    const d=r.date||new Date(r.ts||Date.now()).toLocaleDateString('sv-SE');
+    const cle=d+'|b:'+r.boxId;
+    (brParCle[cle]=brParCle[cle]||[]).push(r); });
   const jLbl=d=>{ const dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('fr-FR',{weekday:'long'})+' '+dt.toLocaleDateString('fr-FR'); };
   const grpLbl=(k,g)=>k.charAt(0)==='b'?('📦 '+esc(boxNom(k.slice(2))||(g&&g[0]&&g[0].boxNomTxt)||'Box')):(k.charAt(0)==='v'?('🚐 '+esc(vehName(k.slice(2)))):'📋 Hors box');
   const jourCartes=arr=>{ const jours={};
@@ -12145,11 +12144,13 @@ views.mouvements=function(){
       jours[d].forEach(m=>{ const k=m.boxId?('b:'+m.boxId):(m.vehiculeId?('v:'+m.vehiculeId):'x:'); (grps[k]=grps[k]||[]).push(m); });
       const blocs=Object.keys(grps).sort((a,b)=>grpLbl(a,grps[a]).localeCompare(grpLbl(b,grps[b]),'fr')).map(k=>{ const g=grps[k];
         const ent=g.filter(m=>m.type==='entree').reduce((s,m)=>s+(m.qte||0),0), sor=g.filter(m=>m.type==='sortie').reduce((s,m)=>s+(m.qte||0),0);
+        const bonsIci=brParCle[d+'|'+k]||[];
         return `<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 16px;background:color-mix(in srgb,var(--blue) 8%,transparent);border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
           <span style="font-weight:800;font-size:12.5px">${grpLbl(k,g)}</span>
           <span style="color:var(--t3);font-weight:600;font-size:11.5px">· ${g.length} mouvement${g.length>1?'s':''}</span>
-          ${ent?`<span class="st st-green" style="font-size:10.5px;padding:2px 8px">＋${ent} u</span>`:''}${sor?`<span class="st st-org" style="font-size:10.5px;padding:2px 8px">−${sor} u</span>`:''}</div>`
-          +g.map(ligne).join(''); }).join('');
+          ${ent?`<span class="st st-green" style="font-size:10.5px;padding:2px 8px">＋${ent} u</span>`:''}${sor?`<span class="st st-org" style="font-size:10.5px;padding:2px 8px">−${sor} u</span>`:''}
+          ${bonsIci.length?`<span class="st" style="font-size:10.5px;padding:2px 8px;background:rgba(167,139,250,.16);color:var(--purple)">📄 ${bonsIci.length} bon${bonsIci.length>1?'s':''} de remise</span>`:''}</div>`
+          +bonsIci.map(brLigne).join('')+g.map(ligne).join(''); }).join('');
       return `<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
         <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px;text-transform:capitalize">${jLbl(d)}</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${jours[d].length} mouvement${jours[d].length>1?'s':''}</span></div>
         ${enTete2}${blocs}</div>`; }).join(''); };
@@ -12173,8 +12174,8 @@ views.mouvements=function(){
   }).join('');
   const demoOn=db.mouvements.some(m=>m._demo);
   const bandeauDemo=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin')?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Remplit le journal avec des exemples de tout : bon de commande, ajouts, consommations, validations DR, remises, mois passés. Tout est marqué (démo) et se retire d'un clic.</div></div>${demoOn?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>`:`<button type="button" class="btn sm" onclick="mvtDemoPoser()">Lancer la simulation</button>`}</div>`:'';
-  $('content').innerHTML=tuiles+barre+bandeauDemo+brHtml
-    +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage y laisse une trace — avec le nom de la personne qui l'a fait et de celle qui a validé.</div>`
+  $('content').innerHTML=tuiles+barre+bandeauDemo
+    +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage et chaque bon de remise y laisse une trace — rangé par jour puis par box, avec le nom de la personne qui l'a fait et de celle qui a validé.</div>`
     +(list.length?cartes:`<div class="card">${emptyState('🔁',(mvtFType||mvtFBox)?'Aucun mouvement ne correspond à ce filtre.':'Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
 };
 
