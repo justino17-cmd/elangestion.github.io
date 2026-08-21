@@ -12104,7 +12104,7 @@ views.mouvements=function(){
     const prodTxt=esc(noms[0]||'—')+(noms.length>1?' <span style="color:var(--t3);font-weight:600">+ '+(noms.length-1)+' autre'+(noms.length>2?'s':'')+'</span>':'');
     const donne=r.pourQui?`<span class="st" style="background:rgba(167,139,250,.16);color:var(--purple)" title="${r.pourQui===r.par?'Pris pour lui-même':'Produits remis à cette personne'}">👤 ${esc(r.pourQui)}</span>`:'<span style="color:var(--t3)">—</span>';
     return `<div style="${GRILLE};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
-      <div style="min-width:0">${r.boxId?`<span class="st st-blue">📦 ${esc(boxNom(r.boxId)||'Box')}</span>`:'<span style="color:var(--t3)">—</span>'}</div>
+      <div style="min-width:0">${(boxNom(r.boxId)||r.boxNomTxt)?`<span class="st st-blue">📦 ${esc(boxNom(r.boxId)||r.boxNomTxt)}</span>`:'<span style="color:var(--t3)">—</span>'}</div>
       <div style="min-width:0"><div class="strong" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${prodTxt}</div><div style="font-size:12px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.num)} · ${fmtShort(r.date)}${r.parRole?' · '+esc(r.parRole):''}</div></div>
       <span style="font-family:'Space Mono',monospace;font-weight:700;font-size:14.5px;color:var(--org)">−${tot} u</span>
       <div style="min-width:0">${pers(r.par,'var(--org)')}</div>
@@ -12116,17 +12116,17 @@ views.mouvements=function(){
     <div style="display:flex;align-items:center;gap:8px;padding:13px 16px 2px"><span style="font-weight:800;font-size:13.5px">📄 Bons de remise</span><span style="color:var(--t3);font-weight:600;font-size:12px">· ${brs.length}</span></div>
     ${enTete.replace('>Produit · motif<','>Produits · bon<').replace('>Heure<','>PDF<')}${brs.slice(0,25).map(brLigne).join('')}</div>`:'';
   const jLbl=d=>{ const dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('fr-FR',{weekday:'long'})+' '+dt.toLocaleDateString('fr-FR'); };
-  const grpLbl=k=>k.charAt(0)==='b'?('📦 '+esc(boxNom(k.slice(2))||'Box')):(k.charAt(0)==='v'?('🚐 '+esc(vehName(k.slice(2)))):'📋 Hors box');
+  const grpLbl=(k,g)=>k.charAt(0)==='b'?('📦 '+esc(boxNom(k.slice(2))||(g&&g[0]&&g[0].boxNomTxt)||'Box')):(k.charAt(0)==='v'?('🚐 '+esc(vehName(k.slice(2)))):'📋 Hors box');
   const jourCartes=arr=>{ const jours={};
     arr.forEach(m=>{ const d=new Date(m.ts).toLocaleDateString('sv-SE'); (jours[d]=jours[d]||[]).push(m); });
     return Object.keys(jours).sort().reverse().map(d=>{
       // rangé PAR BOX : chaque box a sa bande avec ses totaux, ses mouvements dessous
       const grps={};
       jours[d].forEach(m=>{ const k=m.boxId?('b:'+m.boxId):(m.vehiculeId?('v:'+m.vehiculeId):'x:'); (grps[k]=grps[k]||[]).push(m); });
-      const blocs=Object.keys(grps).sort((a,b)=>grpLbl(a).localeCompare(grpLbl(b),'fr')).map(k=>{ const g=grps[k];
+      const blocs=Object.keys(grps).sort((a,b)=>grpLbl(a,grps[a]).localeCompare(grpLbl(b,grps[b]),'fr')).map(k=>{ const g=grps[k];
         const ent=g.filter(m=>m.type==='entree').reduce((s,m)=>s+(m.qte||0),0), sor=g.filter(m=>m.type==='sortie').reduce((s,m)=>s+(m.qte||0),0);
         return `<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 16px;background:color-mix(in srgb,var(--blue) 8%,transparent);border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">
-          <span style="font-weight:800;font-size:12.5px">${grpLbl(k)}</span>
+          <span style="font-weight:800;font-size:12.5px">${grpLbl(k,g)}</span>
           <span style="color:var(--t3);font-weight:600;font-size:11.5px">· ${g.length} mouvement${g.length>1?'s':''}</span>
           ${ent?`<span class="st st-green" style="font-size:10.5px;padding:2px 8px">＋${ent} u</span>`:''}${sor?`<span class="st st-org" style="font-size:10.5px;padding:2px 8px">−${sor} u</span>`:''}</div>`
           +g.map(ligne).join(''); }).join('');
@@ -12535,7 +12535,7 @@ function stepQte(id,d){ const i=$(id); if(i) i.value=Math.max(0,(parseInt(i.valu
 /* ── TRAÇABILITÉ ── chaque changement de stock d'une box écrit un mouvement
    (qui, quoi, où, quand) dans le journal, automatiquement. */
 function traceBox(b,pid,delta,unit,motif,par,validePar,donneA){ if(!b||!pid||!delta) return;
-  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:delta<0?'sortie':'entree',qte:Math.abs(delta),motif:(motif||(delta<0?'Sortie box':'Entrée box'))+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,unite:unit||'u',technicien:par||(currentUser&&fullName(currentUser))||'',validePar:validePar||'',donneA:donneA||''}); }
+  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:delta<0?'sortie':'entree',qte:Math.abs(delta),motif:(motif||(delta<0?'Sortie box':'Entrée box'))+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,boxNomTxt:(b.nom||b.numero||''),unite:unit||'u',technicien:par||(currentUser&&fullName(currentUser))||'',validePar:validePar||'',donneA:donneA||''}); }
 /* ── VALIDATION DR DES MOUVEMENTS DE BOX ──
    Quand le réglage est actif (c'est le cas par défaut), TOUT mouvement de box fait
    par quelqu'un d'autre que le DR ou l'administrateur — arrivage, ajustement de
@@ -12621,7 +12621,8 @@ function remiseAjoute(m,qte){
     const jour=todayISO();
     let br=db.bonsRemise.find(x=>x.boxId===m.boxId&&x.par===m.par&&x.pourQui===m.pourQui&&x.date===jour);
     if(!br){ const uPar=db.users.find(u2=>u2.id===m.parId)||{};
-      br={id:uid(),num:nextNum('bonsRemise','BR','num'),date:jour,ts:Date.now(),boxId:m.boxId,
+      const bxR=db.boxes.find(b2=>b2.id===m.boxId)||{};
+      br={id:uid(),num:nextNum('bonsRemise','BR','num'),date:jour,ts:Date.now(),boxId:m.boxId,boxNomTxt:(bxR.nom||bxR.numero||''),
         par:m.par||'',parRole:(typeof ROLE!=='undefined'&&ROLE[uPar.role])||'',pourQui:m.pourQui||'',valideDr:fullName(currentUser),lignes:[]};
       db.bonsRemise.push(br); }
     const l=br.lignes.find(x=>x.produitId===m.produitId);
