@@ -2867,7 +2867,7 @@ const clientName = id => (db.clients.find(c=>c.id===id)||{}).nom || '—';
 const produit = id => db.produits.find(p=>p.id===id) || {};
 const fullName = u => u ? ((u.prenom?u.prenom+' ':'')+(u.nom||'')).trim() || (u.login||'—') : '—';
 const userName = id => { const u=db.users.find(x=>x.id===id); if(u) return fullName(u); const t=db.techniciens.find(x=>x.id===id); return t?t.nom:'—'; };
-const vehName = id => { const v=db.vehicules.find(x=>x.id===id); return v? v.immat : '—'; };
+const vehName = id => { const v=db.vehicules.find(x=>x.id===id); return v? (v.immat||v.nom||'Véhicule') : '—'; };
 
 /* ── Journal ── */
 function logEvent(action, detail, type='general'){
@@ -11971,9 +11971,9 @@ views.mouvements=function(){
     return `<tr><td>${fmtTs(m.ts)}</td><td class="strong">${esc(p.nom||'—')} <span class="mono" style="color:var(--t3)">${esc(p.ref||'')}</span></td>
     <td>${m.type==='entree'?'<span class="st st-green">Entrée</span>':'<span class="st st-org">Sortie</span>'}</td>
     <td class="strong">${m.type==='entree'?'+':'−'}${m.qte}${m.unite&&m.unite!=='u'?' '+esc(m.unite):''}</td>
-    <td>${esc(ou)}</td><td>${esc(m.technicien||'')||'—'}</td><td style="color:var(--t3)">${esc(m.motif)||'—'}</td></tr>`;}).join('');
+    <td>${esc(ou)}</td><td>${esc(m.technicien||'')||'—'}</td><td>${m.validePar?'<span class="st st-green" title="Validé par le DR">✔ '+esc(m.validePar)+'</span>':'—'}</td><td style="color:var(--t3)">${esc(m.motif)||'—'}</td></tr>`;}).join('');
   $('content').innerHTML=brHtml+`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage y laisse une trace — avec le nom de la personne.</div>`
-    +(list.length? tableCard(['Date','Produit','Type','Qté','Où','Par','Motif'],rows):`<div class="card">${emptyState('🔁','Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
+    +(list.length? tableCard(['Date','Produit','Type','Qté','Où','Par','Validé par','Motif'],rows):`<div class="card">${emptyState('🔁','Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
 };
 
 /* ═══════════════ BOXES ═══════════════ */
@@ -12352,8 +12352,8 @@ function editBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return
 function stepQte(id,d){ const i=$(id); if(i) i.value=Math.max(0,(parseInt(i.value)||0)+d); }
 /* ── TRAÇABILITÉ ── chaque changement de stock d'une box écrit un mouvement
    (qui, quoi, où, quand) dans le journal, automatiquement. */
-function traceBox(b,pid,delta,unit,motif){ if(!b||!pid||!delta) return;
-  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:delta<0?'sortie':'entree',qte:Math.abs(delta),motif:(motif||(delta<0?'Sortie box':'Entrée box'))+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,unite:unit||'u',technicien:(currentUser&&fullName(currentUser))||''}); }
+function traceBox(b,pid,delta,unit,motif,par,validePar){ if(!b||!pid||!delta) return;
+  db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:pid,type:delta<0?'sortie':'entree',qte:Math.abs(delta),motif:(motif||(delta<0?'Sortie box':'Entrée box'))+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,unite:unit||'u',technicien:par||(currentUser&&fullName(currentUser))||'',validePar:validePar||''}); }
 /* ── VALIDATION DR DES MOUVEMENTS DE BOX ──
    Quand le réglage est actif (c'est le cas par défaut), TOUT mouvement de box fait
    par quelqu'un d'autre que le DR ou l'administrateur — arrivage, ajustement de
@@ -12386,7 +12386,7 @@ function boxMvtValider(id,statut){ if(!currentUser||!['admin','dr'].includes(cur
   b.stock=b.stock||{};
   if(m.type==='arrivage'){
     (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
-      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR)',vehiculeId:'',boxId:b.id,technicien:m.par||''}); });
+      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR)',vehiculeId:'',boxId:b.id,technicien:m.par||'',validePar:fullName(currentUser)}); });
     b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).map(l=>({produitId:l.produitId,qte:l.qte})),photo:m.photo||'',par:m.par||''});
     if(b.arrivages.length>40) b.arrivages.length=40;
     if(m.bcId){ const bonV=(db.bons||[]).find(x=>x.id===m.bcId);
@@ -12395,15 +12395,15 @@ function boxMvtValider(id,statut){ if(!currentUser||!['admin','dr'].includes(cur
   } else if(m.type==='retrait'){
     const s=(b.stock||{})[m.produitId]||{ctn:0,u:0};
     const totR=(s.u||0)+(s.ctn||0);
-    if(s.u) traceBox(b,m.produitId,-s.u,'u','Retiré de la box (validé DR)');
-    if(s.ctn) traceBox(b,m.produitId,-s.ctn,'ctn','Retiré de la box (validé DR)');
+    if(s.u) traceBox(b,m.produitId,-s.u,'u','Retiré de la box (validé DR)',m.par,fullName(currentUser));
+    if(s.ctn) traceBox(b,m.produitId,-s.ctn,'ctn','Retiré de la box (validé DR)',m.par,fullName(currentUser));
     delete b.stock[m.produitId];
     if(m.pourQui&&totR) remiseAjoute(m,totR);
   } else {
     const cur=b.stock[m.produitId]||{ctn:0,u:0};
     const mot=(m.note||'Ajustement')+' (validé DR)';
-    if(m.du){ cur.u=Math.max(0,(cur.u||0)+m.du); traceBox(b,m.produitId,m.du,'u',mot); }
-    if(m.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+m.dc); traceBox(b,m.produitId,m.dc,'ctn',mot); }
+    if(m.du){ cur.u=Math.max(0,(cur.u||0)+m.du); traceBox(b,m.produitId,m.du,'u',mot,m.par,fullName(currentUser)); }
+    if(m.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+m.dc); traceBox(b,m.produitId,m.dc,'ctn',mot,m.par,fullName(currentUser)); }
     b.stock[m.produitId]=cur;
     if(m.pourQui&&((m.du||0)+(m.dc||0))<0) remiseAjoute(m,Math.abs((m.du||0)+(m.dc||0)));
   }
