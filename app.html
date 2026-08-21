@@ -11980,33 +11980,41 @@ views.mouvements=function(){
     <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">−${sorMois}</div><div class="kpi-lbl">Unités sorties ce mois-ci</div></div>
     <div class="kpi"><div class="kpi-ico" style="background:rgba(59,130,246,.14)">🔁</div><div class="kpi-val">${tout.length}</div><div class="kpi-lbl">Mouvements au journal</div></div>
     <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">🔒</div><div class="kpi-val">${nbVal}</div><div class="kpi-lbl">Validés par le DR</div></div></div>`;
-  // ── filtres : type de mouvement + box ──
-  let list=tout;
+  // ── filtres : box + recherche d'abord (les compteurs des onglets en tiennent compte) ──
+  let base=tout;
+  if(mvtFBox) base=base.filter(m=>m.boxId===mvtFBox);
+  if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
+    base=base.filter(m=>{ const p=produit(m.produitId);
+      return [p.nom,p.ref,m.motif,m.technicien,m.validePar,boxNom(m.boxId),m.vehiculeId?vehName(m.vehiculeId):''].some(x=>String(x||'').toLowerCase().includes(q)); }); }
+  const nEnt=base.filter(m=>m.type==='entree').length, nSor=base.filter(m=>m.type==='sortie').length, nValF=base.filter(m=>m.validePar).length;
+  let list=base;
   if(mvtFType==='entree'||mvtFType==='sortie') list=list.filter(m=>m.type===mvtFType);
   if(mvtFType==='valide') list=list.filter(m=>m.validePar);
-  if(mvtFBox) list=list.filter(m=>m.boxId===mvtFBox);
-  if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
-    list=list.filter(m=>{ const p=produit(m.produitId);
-      return [p.nom,p.ref,m.motif,m.technicien,m.validePar,boxNom(m.boxId),m.vehiculeId?vehName(m.vehiculeId):''].some(x=>String(x||'').toLowerCase().includes(q)); }); }
-  const TYPES=[['','🔁 Tous les mouvements'],['entree','📥 Entrées'],['sortie','📤 Sorties'],['valide','🔒 Validés par le DR']];
-  const typeLbl=(TYPES.find(x=>x[0]===mvtFType)||TYPES[0])[1];
-  const MENU_CSS='position:absolute;top:calc(100% + 6px);z-index:60;background:var(--card);border:1px solid var(--brd);border-radius:14px;box-shadow:0 14px 38px rgba(0,0,0,.28);overflow:hidden';
-  const itemCss=on=>`display:flex;align-items:center;gap:9px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;color:${on?'var(--acc)':'var(--t1)'};background:${on?'color-mix(in srgb,var(--acc) 10%,transparent)':'transparent'}`;
-  const btnCss=on=>`cursor:pointer;font-size:12px;font-weight:700;padding:8px 14px;border-radius:100px;border:1px solid ${on?'var(--acc)':'var(--brd)'};background:${on?'color-mix(in srgb,var(--acc) 14%,transparent)':'var(--card)'};color:${on?'var(--acc)':'var(--t2)'};display:inline-flex;align-items:center;gap:7px`;
+  // ── LA BARRE D'OUTILS : une seule carte — onglets à compteurs, recherche, menu des box ──
+  const seg=(k,l,n)=>{ const on=mvtFType===k;
+    return `<button type="button" onclick="mvtChoisirType('${k}')" style="cursor:pointer;border:none;display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border-radius:9px;font-size:12.5px;font-weight:700;white-space:nowrap;transition:.15s;background:${on?'var(--acc)':'transparent'};color:${on?'var(--on-acc)':'var(--t2)'};${on?'box-shadow:0 2px 8px color-mix(in srgb,var(--acc) 45%,transparent)':''}">${l}<span style="font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:20px;background:${on?'rgba(255,255,255,.28)':'color-mix(in srgb,var(--t3) 16%,transparent)'};color:${on?'var(--on-acc)':'var(--t3)'}">${n}</span></button>`; };
+  const segments=`<div style="display:inline-flex;gap:2px;background:var(--bg1);border-radius:12px;padding:3px;flex:none">
+    ${seg('','Tous',base.length)}${seg('entree','📥 Entrées',nEnt)}${seg('sortie','📤 Sorties',nSor)}${seg('valide','🔒 Validés DR',nValF)}</div>`;
+  const chercheur=`<div style="flex:1;min-width:170px;display:flex;align-items:center;gap:9px;padding:0 4px"><span style="opacity:.55;font-size:13px;flex:none">🔍</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Rechercher tout : produit, personne, motif, box…" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:13px;outline:none">${mvtFQ?`<button type="button" onclick="mvtSetQ('')" style="border:none;cursor:pointer;background:color-mix(in srgb,var(--t3) 16%,transparent);color:var(--t2);border-radius:50%;width:19px;height:19px;font-size:10px;line-height:1;flex:none">✕</button>`:''}</div>`;
   const voile=mvtMenuOuvert?`<div onclick="mvtMenu('')" style="position:fixed;inset:0;z-index:50"></div>`:'';
-  const menuType=mvtMenuOuvert==='type'?`<div style="${MENU_CSS};left:0;min-width:225px">${TYPES.map(([k,l])=>`<div onclick="mvtChoisirType('${k}')" style="${itemCss(mvtFType===k)}"><span style="width:15px;flex:none">${mvtFType===k?'✓':''}</span>${l}</div>`).join('')}</div>`:'';
+  const PALETTE=['#2EB872','#2563EB','#E79A3C','#A78BFA','#E0524D','#0EA5A4','#D96BB0','#8B5A2B'];
+  const boxTeinte=b=>PALETTE[Math.abs(String(b.nom||b.numero||'').split('').reduce((s,c)=>s+c.charCodeAt(0),0))%PALETTE.length];
+  const tuileBox=b=>`<span style="width:26px;height:26px;flex:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:color-mix(in srgb,${boxTeinte(b)} 16%,transparent);color:${boxTeinte(b)}">${esc(String(b.nom||b.numero||'B').trim()[0].toUpperCase())}</span>`;
   const boxesFiltrees=(db.boxes||[]).filter(b=>!mvtFBoxQ.trim()||String((b.nom||'')+' '+(b.numero||'')).toLowerCase().includes(mvtFBoxQ.trim().toLowerCase()));
-  const menuBox=mvtMenuOuvert==='box'?`<div style="${MENU_CSS};right:0;min-width:280px">
-    <div style="padding:10px 12px;border-bottom:1px solid var(--brd)"><div style="position:relative"><span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.55;font-size:12px">🔍</span><input id="mvt-box-q" value="${esc(mvtFBoxQ)}" oninput="mvtBoxQ(this.value)" placeholder="Chercher une box…" style="width:100%;box-sizing:border-box;padding:8px 10px 8px 30px;border-radius:10px;border:1px solid var(--brd);background:var(--bg1);color:var(--t1);font-size:12.5px;outline:none"></div></div>
-    <div style="max-height:262px;overflow:auto">
-      <div onclick="mvtChoisirBox('')" style="${itemCss(!mvtFBox)}"><span style="width:15px;flex:none">${!mvtFBox?'✓':''}</span>📦 Toutes les box</div>
-      ${boxesFiltrees.map(b=>`<div onclick="mvtChoisirBox('${b.id}')" style="${itemCss(mvtFBox===b.id)}"><span style="width:15px;flex:none">${mvtFBox===b.id?'✓':''}</span>📦 ${esc(b.nom||b.numero||'Box')}</div>`).join('')||'<div style="padding:12px 14px;font-size:12.5px;color:var(--t3)">Aucune box ne correspond.</div>'}
+  const nbMvtBox=id=>tout.filter(m=>m.boxId===id).length;
+  const rangBox=(b,on,html)=>`<div onclick="mvtChoisirBox('${b?b.id:''}')" style="display:flex;align-items:center;gap:11px;padding:9px 14px;cursor:pointer;background:${on?'color-mix(in srgb,var(--acc) 9%,transparent)':'transparent'}" onmouseover="this.style.background='color-mix(in srgb,var(--acc) 6%,transparent)'" onmouseout="this.style.background='${on?'color-mix(in srgb,var(--acc) 9%,transparent)':'transparent'}'">${html}<span style="flex:1"></span>${on?'<span style="color:var(--acc);font-weight:800">✓</span>':''}</div>`;
+  const menuBox=mvtMenuOuvert==='box'?`<div style="position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:305px;background:var(--card);border:1px solid var(--brd);border-radius:16px;box-shadow:0 18px 44px rgba(0,0,0,.30);overflow:hidden">
+    <div style="padding:12px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.8px;color:var(--t3);text-transform:uppercase">Filtrer par box</div>
+    <div style="padding:8px 12px 10px;border-bottom:1px solid color-mix(in srgb,var(--brd) 70%,transparent)"><div style="display:flex;align-items:center;gap:8px;background:var(--bg1);border-radius:10px;padding:8px 11px"><span style="opacity:.55;font-size:12px">🔍</span><input id="mvt-box-q" value="${esc(mvtFBoxQ)}" oninput="mvtBoxQ(this.value)" placeholder="Chercher une box…" style="flex:1;min-width:0;border:none;background:transparent;color:var(--t1);font-size:12.5px;outline:none"></div></div>
+    <div style="max-height:275px;overflow:auto;padding:5px 0">
+      ${rangBox(null,!mvtFBox,`<span style="width:26px;height:26px;flex:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;background:color-mix(in srgb,var(--t3) 14%,transparent)">📦</span><div><div style="font-size:13px;font-weight:700;color:var(--t1)">Toutes les box</div><div style="font-size:11px;color:var(--t3)">${tout.length} mouvement${tout.length>1?'s':''} au total</div></div>`)}
+      ${boxesFiltrees.map(b=>rangBox(b,mvtFBox===b.id,`${tuileBox(b)}<div style="min-width:0"><div style="font-size:13px;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">${esc(b.nom||b.numero||'Box')}</div><div style="font-size:11px;color:var(--t3)">${nbMvtBox(b.id)} mouvement${nbMvtBox(b.id)>1?'s':''}</div></div>`)).join('')||'<div style="padding:14px;font-size:12.5px;color:var(--t3);text-align:center">Aucune box ne correspond.</div>'}
     </div></div>`:'';
-  const chercheur=`<div style="position:relative;flex:1;min-width:190px;max-width:340px"><span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.6;font-size:12px">🔍</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Rechercher tout : produit, personne, motif…" style="width:100%;box-sizing:border-box;padding:8px 12px 8px 32px;border-radius:100px;border:1px solid ${mvtFQ?'var(--acc)':'var(--brd)'};background:var(--card);color:var(--t1);font-size:12.5px;outline:none"></div>`;
-  const barre=`${voile}<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
-    <div style="position:relative;z-index:${mvtMenuOuvert==='type'?61:1}"><button type="button" onclick="mvtMenu('type')" style="${btnCss(!!mvtFType)}">${typeLbl}<span style="opacity:.55;font-size:9px">▼</span></button>${menuType}</div>
-    ${chercheur}<span style="flex:1"></span>
-    <div style="position:relative;z-index:${mvtMenuOuvert==='box'?61:1}"><button type="button" onclick="mvtMenu('box')" style="${btnCss(!!mvtFBox)}">${mvtFBox?('📦 '+esc(boxNom(mvtFBox)||'Box')):'📦 Toutes les box'}<span style="opacity:.55;font-size:9px">▼</span></button>${menuBox}</div></div>`;
+  const bSel=mvtFBox?(db.boxes||[]).find(x=>x.id===mvtFBox):null;
+  const btnBox=`<button type="button" onclick="mvtMenu('box')" style="cursor:pointer;flex:none;display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 7px;border-radius:11px;border:1px solid ${mvtFBox?'var(--acc)':'transparent'};background:var(--bg1);color:var(--t1);font-size:12.5px;font-weight:700;max-width:230px">${bSel?tuileBox(bSel):'<span style="font-size:13px">📦</span>'}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bSel?esc(bSel.nom||bSel.numero||'Box'):'Toutes les box'}</span><span style="opacity:.5;font-size:9px;flex:none">▼</span></button>`;
+  const barre=`${voile}<div style="position:relative;z-index:${mvtMenuOuvert?61:1};background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:7px 9px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 16px;box-shadow:0 2px 12px rgba(0,0,0,.07)">
+    ${segments}<span style="width:1px;height:26px;background:var(--brd);flex:none"></span>${chercheur}
+    <div style="position:relative;flex:none">${btnBox}${menuBox}</div></div>`;
   // ── bons de remise (inchangé) ──
   const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
   const brHtml=brs.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📄 Bons de remise (${brs.length})</h3></div>
