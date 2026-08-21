@@ -11908,18 +11908,36 @@ views.stock=function(){
   const nbACmd=all.filter(l=>boxEtat(l.eff).k!=='enStock').length;
   setHeader('Stock','Tout le stock de toutes les box',`<button class="btn ghost" onclick="openScanner()">Scanner</button>`);
   $('content').innerHTML=`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-    <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📦</div><div class="kpi-val">${all.length}</div><div class="kpi-lbl">Produits</div></div>
-    <div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">🔢</div><div class="kpi-val">${totalU}</div><div class="kpi-lbl">Unités (cartons compris)</div></div>
-    <div class="kpi"><div class="kpi-ico" style="background:rgba(59,130,246,.14)">🧱</div><div class="kpi-val">${nbBoxesPleines}</div><div class="kpi-lbl">Box</div></div>
-    <div class="kpi"><div class="kpi-ico" style="background:rgba(239,68,68,.13)">🛒</div><div class="kpi-val" style="color:${nbACmd?'var(--org)':'var(--acc)'}">${nbACmd}</div><div class="kpi-lbl">À commander</div></div></div>
+    <div class="kpi" style="cursor:pointer" onclick="go('produits')" title="Voir le catalogue produits"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📦</div><div class="kpi-val">${all.length}</div><div class="kpi-lbl">Produits ›</div></div>
+    <div class="kpi" style="cursor:pointer" onclick="go('mouvements')" title="Voir les mouvements de stock"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">🔢</div><div class="kpi-val">${totalU}</div><div class="kpi-lbl">Unités (cartons compris) ›</div></div>
+    <div class="kpi" style="cursor:pointer" onclick="go('boxes')" title="Voir les box"><div class="kpi-ico" style="background:rgba(59,130,246,.14)">🧱</div><div class="kpi-val">${nbBoxesPleines}</div><div class="kpi-lbl">Box ›</div></div>
+    <div class="kpi" style="cursor:pointer${stockFiltreManque?';outline:2px solid var(--org)':''}" onclick="stockFiltreManque=!stockFiltreManque;renderStockList();" title="Ne montrer que ce qui est à commander"><div class="kpi-ico" style="background:rgba(239,68,68,.13)">🛒</div><div class="kpi-val" style="color:${nbACmd?'var(--org)':'var(--acc)'}">${nbACmd}</div><div class="kpi-lbl">À commander ›</div></div></div>
     <input class="search-inp" id="stock-search" placeholder="Nom, référence…" value="${esc(stockSearch)}" oninput="stockSearch=this.value;renderStockList()">
     <div id="stock-list"></div>`;
   renderStockList();
 };
+function stockExportBon(){
+  let lines=stockLines().filter(l=>boxEtat(l.eff).k!=='enStock');
+  const q=norm(stockSearch); if(q) lines=lines.filter(l=>norm((l.p.nom||'')+' '+(l.p.ref||'')+' '+(l.p.categorie||'')).includes(q));
+  if(!lines.length){ toast('Rien à commander — tout est en stock 👍'); return; }
+  const num=nextNum('bons','BC','numero');
+  db.bons.push({id:uid(),numero:num,date:todayISO(),fournisseurId:'',boxId:'',statut:'brouillon',faitPar:fullName(currentUser),
+    notes:'Créé depuis le Stock — produits à commander ('+lines.length+')',
+    lignes:lines.map(l=>{const p=l.p;return {produitId:p.id,reference:p.ref||'',designation:p.nom||'',categorie:p.categorie||'',cartons:0,upc:p.qteCarton||0,quantite:Math.max(1,p.qteCarton||10),prixUnitaireHT:p.prix||0,tvaRate:20,commentaire:'Reste '+l.eff+' u en box'};})});
+  logEvent('Bon créé depuis le stock',num+' — '+lines.length+' produit(s) à commander','commande');
+  save(); toast('🛒 '+num+' créé en préparation — complète le fournisseur et envoie-le');
+  go('bons');
+}
+let stockFiltreManque=false;
 function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=stockLines();
   const q=norm(stockSearch); if(q) lines=lines.filter(l=>norm((l.p.nom||'')+' '+(l.p.ref||'')+' '+(l.p.categorie||'')).includes(q));
+  if(stockFiltreManque) lines=lines.filter(l=>boxEtat(l.eff).k!=='enStock');
   lines.sort((a,b)=>(a.p.nom||'').localeCompare(b.p.nom||''));
   if(!lines.length){ el.innerHTML=`<div class="card">${emptyState('🗃️',stockSearch?'Aucun résultat.':'Aucun produit en stock dans les box. Ouvre une box et ajoute des produits.','','')}</div>`; return; }
+  const barreExport=stockFiltreManque?`<div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 16px;margin-bottom:10px;border-left:3px solid var(--org)">
+    <span style="flex:1;min-width:180px;font-size:13.5px"><b>${lines.length} produit(s) à commander</b> — exporte-les en bon de commande, prêt à compléter.</span>
+    <button class="btn sm" onclick="stockExportBon()">🛒 Créer le bon de commande</button>
+    <button class="btn ghost sm" onclick="stockFiltreManque=false;views.stock()">Voir tout</button></div>`:'';
   // Rangé par état : d'abord ce qui manque, puis ce qu'il faut commander, puis le reste
   const grp={epuise:[],aCommander:[],enStock:[]};
   lines.forEach(l=>grp[boxEtat(l.eff).k].push(l));
@@ -11931,7 +11949,7 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
       <div style="text-align:right;white-space:nowrap"><div class="mono" style="font-weight:800;font-size:18px;color:${e.c}">${l.eff}</div><div style="font-size:10px;color:var(--t3)">unités</div></div>
     </div>`; };
   const sec=(titre,c,arr)=>arr.length?`<div style="font-size:11.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:${c};margin:14px 2px 7px">${titre} (${arr.length})</div>`+arr.map(ligne).join(''):'';
-  el.innerHTML=sec('🔴 Épuisé','var(--red)',grp.epuise)+sec('🟠 À commander','var(--org)',grp.aCommander)+sec('🟢 En stock','var(--acc)',grp.enStock);
+  el.innerHTML=barreExport+sec('🔴 Épuisé','var(--red)',grp.epuise)+sec('🟠 À commander','var(--org)',grp.aCommander)+sec('🟢 En stock','var(--acc)',grp.enStock);
 }
 
 /* ═══════════════ MOUVEMENTS STOCK ═══════════════ */
