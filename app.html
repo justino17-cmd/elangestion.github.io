@@ -12028,17 +12028,18 @@ views.mouvements=function(){
   setHeader('Mouvements stock','Journal automatique — qui a pris quoi, où, quand, validé par qui','');
   const tout=[...db.mouvements].sort((a,b)=>b.ts-a.ts);
   const boxNom=id=>{ const b=(db.boxes||[]).find(x=>x.id===id); return b?(b.nom||b.numero||'Box'):''; };
-  // ── compteurs du mois ──
+  // ── compteurs DU JOUR ──
   const moisISO=new Date().toLocaleDateString('sv-SE').slice(0,7);
-  const duMois=m=>new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7)===moisISO;
-  const entMois=tout.filter(m=>m.type==='entree'&&duMois(m)).reduce((s,m)=>s+(m.qte||0),0);
-  const sorMois=tout.filter(m=>m.type==='sortie'&&duMois(m)).reduce((s,m)=>s+(m.qte||0),0);
+  const aujISO=new Date().toLocaleDateString('sv-SE');
+  const duJour=m=>new Date(m.ts).toLocaleDateString('sv-SE')===aujISO;
+  const entMois=tout.filter(m=>m.type==='entree'&&duJour(m)).reduce((s,m)=>s+(m.qte||0),0);
+  const sorMois=tout.filter(m=>m.type==='sortie'&&duJour(m)).reduce((s,m)=>s+(m.qte||0),0);
   const nbVal=tout.filter(m=>m.validePar).length;
   const tuile=(cible,ico,fond,val,lbl)=>{ const on=mvtFType===cible&&cible!=='';
     return `<div class="kpi" onclick="mvtChoisirType('${mvtFType===cible&&cible!==''?'':cible}')" title="Filtrer le journal" style="cursor:pointer;${on?'border-color:var(--acc);box-shadow:0 0 0 1.5px var(--acc) inset':''}"><div class="kpi-ico" style="background:${fond}">${ico}</div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl} ›</div></div>`; };
   const tuiles=`<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-    ${tuile('entree','📥','rgba(74,222,128,.16)','+'+entMois,'Unités ajoutées ce mois-ci')}
-    ${tuile('sortie','📤','rgba(245,158,11,.14)','−'+sorMois,'Unités retirées ce mois-ci')}
+    ${tuile('entree','📥','rgba(74,222,128,.16)','+'+entMois,'Unités ajoutées aujourd\\'hui')}
+    ${tuile('sortie','📤','rgba(245,158,11,.14)','−'+sorMois,'Unités retirées aujourd\\'hui')}
     ${tuile('','🔁','rgba(59,130,246,.14)',tout.length,'Mouvements au journal')}
     ${tuile('valide','🔒','rgba(74,222,128,.16)',nbVal,'Validés par le DR')}</div>`;
   // ── filtres : box + recherche d'abord (les compteurs des onglets en tiennent compte) ──
