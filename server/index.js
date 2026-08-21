@@ -111,7 +111,10 @@ app.post('/api/sendcode', async (req, res) => {
     await mailerEnvoi({
       from: config.smtp.from || config.smtp.user, to: email,
       subject: 'TeamOP — code de confirmation : ' + code,
-      text: 'Votre code de confirmation TeamOP : ' + code + '\n\nIl expire dans 10 minutes.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.'
+      text: 'Votre code de confirmation TeamOP : ' + code + '\n\nIl expire dans 10 minutes.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.',
+      html: mailTeamOP({ chip: 'Sécurité', chipBg: '#FFF3E0', chipColor: '#B26E12', titre: 'Votre code de confirmation 🔐',
+        corpsHtml: 'Bonjour,<br>voici le code demandé dans votre application. Il ne sert qu\'une fois.',
+        blocHtml: MAIL_BLOCS.code(code) + '<div style="font-size:12.5px;color:#93A2BF;padding-top:14px">Si vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.</div>' })
     });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -130,9 +133,13 @@ app.post('/api/sendcode-entreprise', async (req, res) => {
   const code = String(Math.floor(100000 + Math.random() * 900000));
   codes.set(teamId + '|' + (purpose || 'reset'), { code, email: e.email, exp: Date.now() + 10 * 60000, tries: 0 });
   try {
+    const loginSafe = monStr(login, 40).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
       subject: 'TeamOP — code de confirmation : ' + code,
-      text: 'Un membre de votre équipe (identifiant « ' + monStr(login, 40) + ' ») a oublié son mot de passe OP GESTION, et son compte n\'a pas d\'adresse e-mail enregistrée.\n\nCode de confirmation à lui transmettre : ' + code + '\n\nIl expire dans 10 minutes. Si personne dans votre équipe n\'est à l\'origine de cette demande, ignorez ce message.' });
+      text: 'Un membre de votre équipe (identifiant « ' + monStr(login, 40) + ' ») a oublié son mot de passe OP GESTION, et son compte n\'a pas d\'adresse e-mail enregistrée.\n\nCode de confirmation à lui transmettre : ' + code + '\n\nIl expire dans 10 minutes. Si personne dans votre équipe n\'est à l\'origine de cette demande, ignorez ce message.',
+      html: mailTeamOP({ chip: 'Sécurité', chipBg: '#FFF3E0', chipColor: '#B26E12', titre: 'Un code pour votre équipe 🔐',
+        corpsHtml: 'Bonjour,<br>ce code arrive à l\'adresse de l\'entreprise, car le compte concerné n\'a pas d\'adresse e-mail enregistrée.',
+        blocHtml: MAIL_BLOCS.transmettre(loginSafe) + '<div style="height:14px"></div>' + MAIL_BLOCS.code(code) + '<div style="font-size:12.5px;color:#93A2BF;padding-top:14px">Si personne dans votre équipe n\'est à l\'origine de cette demande, ignorez ce message.</div>' }) });
     const masque = String(e.email).replace(/^(.{2})[^@]*(@.*)$/, '$1•••$2');
     res.json({ ok: true, envoye: masque });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -222,7 +229,11 @@ app.post('/api/bug', (req, res) => {
     mailerEnvoi({
       from: config.smtp.from || config.smtp.user, to,
       subject: '🐛 Bug ' + appLisible(entry.app) + (entry.version !== '?' ? ' v' + entry.version : '') + ' — espace « ' + team + ' »',
-      text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + appLisible(entry.app) + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».'
+      text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + appLisible(entry.app) + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».',
+      html: mailTeamOP({ chip: 'Vigie', chipBg: '#FDECEC', chipColor: '#C22B2B', titre: '🐛 Bug signalé — ' + appLisible(entry.app),
+        corpsHtml: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise. Le détail complet est dans l\'encart ci-dessous.',
+        blocHtml: MAIL_BLOCS.vigie(Object.assign({}, entry, { app: appLisible(entry.app) })) + '<div style="font-size:12.5px;color:#93A2BF;padding-top:14px">Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».</div>',
+        boutonTxt: 'Ouvrir la Tour de contrôle', boutonUrl: 'https://teamop.fr/tour.html' })
     }).catch(e => console.error('bug mail:', e.message));
   }
   res.json({ ok: true });
@@ -511,10 +522,11 @@ function mailTeamOP(o) {
     '<td><img src="' + (LOGO_OK ? 'cid:logoteamop' : 'https://teamop.fr/icons/teamop-512.png') + '" width="34" height="34" alt="TEAM OP" style="border-radius:8px;display:block"></td>' +
     '<td style="padding-left:10px;font-family:\'Courier New\',monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:#17233B">TEAM OP</td>' +
     '</tr></table></td>' +
-    (o.chip ? '<td align="right"><span style="background:#E7F8F1;color:#1E7A57;font-size:12px;font-weight:700;padding:6px 12px;border-radius:100px">● ' + esc(o.chip) + '</span></td>' : '') +
+    (o.chip ? '<td align="right"><span style="background:' + (o.chipBg || '#E7F8F1') + ';color:' + (o.chipColor || '#1E7A57') + ';font-size:12px;font-weight:700;padding:6px 12px;border-radius:100px">● ' + esc(o.chip) + '</span></td>' : '') +
     '</tr></table></td></tr>' +
     '<tr><td style="padding:22px 34px 0;font-size:19px;font-weight:800;color:#17233B">' + esc(o.titre) + '</td></tr>' +
     '<tr><td style="padding:10px 34px 0;font-size:14.5px;line-height:1.7;color:#4A5A7A">' + o.corpsHtml + '</td></tr>' +
+    (o.blocHtml ? '<tr><td style="padding:20px 34px 0">' + o.blocHtml + '</td></tr>' : '') +
     (etapes ? '<tr><td style="padding:24px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' + etapes + '</tr></table></td></tr>' : '') +
     '<tr><td style="padding:26px 34px 30px">' +
     (o.boutonTxt ? '<a href="' + esc(o.boutonUrl) + '" style="display:inline-block;background:#34D399;color:#08251A;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:10px">' + esc(o.boutonTxt) + '</a>' : '') +
@@ -523,6 +535,37 @@ function mailTeamOP(o) {
     '</table></td></tr></table></body></html>';
 }
 
+/* ── Encarts réutilisables des e-mails TeamOP (galerie validée par Justin) ── */
+const MAIL_BLOCS = {
+  code: (c) => '<div align="center"><div style="display:inline-block;background:#F3F7FB;border:1.5px dashed #C6D3E4;border-radius:14px;padding:18px 34px;font-family:\'Courier New\',monospace;font-size:32px;font-weight:800;letter-spacing:10px;color:#17233B">' + String(c).split('').join(' ') + '</div><div style="font-size:12px;color:#93A2BF;padding-top:10px">Ce code expire dans <b>10 minutes</b> · 5 essais maximum</div></div>',
+  transmettre: (login) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF8EC;border:1px solid #F2DFB6;border-radius:12px"><tr><td style="padding:14px 18px;font-size:13.5px;line-height:1.7;color:#7A5A17">👤 À transmettre à <b>' + login + '</b> — ce membre de votre équipe a oublié son mot de passe et son compte n\'a pas d\'adresse e-mail.</td></tr></table>',
+  ident: (a, m) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3FBF7;border:1px solid #C9EBDC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;line-height:2;color:#17233B"><b>Vos identifiants de départ</b><br>Identifiant : <b style="font-family:\'Courier New\',monospace">' + a + '</b> <span style="color:#93A2BF">(votre prénom)</span><br>Mot de passe provisoire : <b style="font-family:\'Courier New\',monospace">' + m + '</b> <span style="color:#93A2BF">(votre nom + « !! »)</span></td></tr></table><div style="font-size:12px;color:#93A2BF;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
+  promo: (c, f, fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F6F1FE;border:1px solid #E0D3F7;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#3F2B66;line-height:1.9"><b>🎁 Code ' + c + ' activé</b><br>Formule <b>' + f + '</b> offerte jusqu\'au <b>' + fin + '</b><br><span style="color:#8A76AC;font-size:12.5px">Aucune carte bancaire requise · un rappel avant la fin</span></td></tr></table>',
+  echeance: (fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF6EE;border:1px solid #F5D9BC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#7A4A17;line-height:1.9"><b>⏳ Votre période offerte se termine le ' + fin + '</b><br><span style="font-size:13px">Vos données ne bougent pas, quoi qu\'il arrive — mais sans abonnement, l\'application repassera en formule Gratuit.</span></td></tr></table>',
+  vigie: (e2) => { const x = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'); return '<table width="100%" cellpadding="0" cellspacing="0" style="background:#1B2233;border-radius:12px"><tr><td style="padding:16px 20px;font-family:\'Courier New\',monospace;font-size:12px;line-height:1.8;color:#D7E2F2">App : ' + x(e2.app) + ' (v' + x(e2.version) + ')<br>Espace : ' + x(e2.team) + '<br>Erreur : ' + x(e2.msg) + '<br>Fichier : ' + x(e2.src || '—') + (e2.line ? ' · ligne ' + e2.line : '') + '<br>Appareil : ' + x(String(e2.ua).slice(0, 90)) + (e2.stack ? '<br><br><span style="color:#93A2BF">' + x(e2.stack).replace(/\n/g, '<br>') + '</span>' : '') + '</td></tr></table>'; }
+};
+const FORMULE_LBL2 = { gratuit: 'Gratuit', pro: 'Pro', business: 'Business', premium: 'Business Premium' };
+// avis « ton code est activé » — envoyé UNE fois, à l'adresse de l'entreprise
+function mailPromoActive(teamT, code, finLe, formule) {
+  try {
+    if (!mailer || !teamT) return;
+    const e = Object.values(espacesReg).find(x => {
+      if (x.t) return x.t === teamT;
+      try { return String(JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')).t || '') === teamT; } catch (err) { return false; }
+    });
+    if (!e || !e.email) return;
+    const lbl = FORMULE_LBL2[formule] || formule || 'Business Premium';
+    const finFr = /^\d{4}-\d{2}-\d{2}$/.test(String(finLe)) ? String(finLe).split('-').reverse().join('/') : String(finLe || '');
+    mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
+      subject: '🎁 Votre code est activé — TEAM OP',
+      text: 'Bonjour,\n\nvotre code promo ' + code + ' vient d\'être activé : formule ' + lbl + ' offerte jusqu\'au ' + finFr + ', sans carte bancaire.\n\n— TEAM OP · teamop.fr',
+      html: mailTeamOP({ chip: 'Cadeau', chipBg: '#F1EBFC', chipColor: '#6D3FC4', titre: 'Votre code est activé 🎁',
+        corpsHtml: 'Bonjour,<br>bonne nouvelle : votre code promo vient d\'être activé sur votre espace.',
+        blocHtml: MAIL_BLOCS.promo(code, lbl, finFr),
+        boutonTxt: 'Ouvrir mon application', boutonUrl: 'https://teamop.fr/app.html' })
+    }).catch(() => {});
+  } catch (err) {}
+}
 // envoi d'e-mail (rapports, avis de passage) — nécessite la config smtp
 app.post('/api/email', async (req, res) => {
   if (!mailer) return res.status(503).json({ error: "e-mail non configuré sur le serveur (config.json → smtp)" });
@@ -790,6 +833,7 @@ async function espacePaye(e) {
         u0.n++; u0.equipes[e.t] = { date: new Date().toISOString().slice(0, 10), finLe: dF.toISOString().slice(0, 10) };
         promoUsages[c] = u0; savePromoUsages();
         console.log('code promo', c, 'activé en rattrapage pour', e.t);
+        mailPromoActive(e.t, c, dF.toISOString().slice(0, 10), ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium');
       }
     }
   } catch (err) {}
@@ -912,6 +956,7 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
     const d = new Date(); d.setMonth(d.getMonth() + Math.max(1, Number(p.mois) || 1));
     finLe = d.toISOString().slice(0, 10);
     u.n++; u.equipes[t] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages();
+    mailPromoActive(t, c, finLe, ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium');
   }
   e.codePromo = c;
   const f = ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium';
@@ -935,7 +980,7 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
     : 'Connectez-vous avec vos identifiants habituels.\n';
   const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\nVotre lien de connexion :\n' + lien + '\n(ou tapez « ' + e.nom + ' » sur teamop.fr → Se connecter)\n\n' + co + '\n— L\'équipe TEAM OP · teamop.fr';
   const coHtml = (a && m)
-    ? '<b>Vos identifiants de départ :</b><br>• Identifiant : <b>' + a + '</b> (votre prénom)<br>• Mot de passe provisoire : <b>' + m + '</b> (votre nom + «&nbsp;!!&nbsp;»)<br><span style="color:#8fa3c8;font-size:13px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</span><br>'
+    ? MAIL_BLOCS.ident(a, m) + '<br>'
     : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br>';
   const html = mailTeamOP({
     chip: 'Accès prêt',
@@ -1400,7 +1445,7 @@ app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
     // le beau modèle TeamOP (logo, mise en page) — le texte brut reste en secours
     const echap = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const html = mailTeamOP({
-      chip: 'Message',
+      chip: 'Message', chipBg: '#F1EBFC', chipColor: '#6D3FC4',
       titre: obj,
       corpsHtml: echap(corps).replace(/\n/g, '<br>'),
       boutonTxt: 'Mon espace client', boutonUrl: 'https://teamop.fr/espace.html',
@@ -1532,7 +1577,9 @@ app.post('/api/clients/sync', async (req, res) => {
       if (esp && !tEsp) { try { tEsp = String(JSON.parse(Buffer.from(esp.code, 'base64').toString('utf8')).t || ''); } catch (e2) {} }
       if (tEsp) {
         const u = promoUsages[pc] || { n: 0, equipes: {} };
-        if (!u.equipes[tEsp]) { u.n++; u.equipes[tEsp] = { date: new Date().toISOString().slice(0, 10), finLe: pf }; promoUsages[pc] = u; savePromoUsages(); console.log('code promo du site relayé →', pc, tEsp, 'fin', pf); }
+        if (!u.equipes[tEsp]) { u.n++; u.equipes[tEsp] = { date: new Date().toISOString().slice(0, 10), finLe: pf }; promoUsages[pc] = u; savePromoUsages(); console.log('code promo du site relayé →', pc, tEsp, 'fin', pf);
+          const pDef = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === pc);
+          mailPromoActive(tEsp, pc, pf, (pDef && ['pro', 'business', 'premium'].includes(pDef.formule)) ? pDef.formule : 'premium'); }
         else if (pf > (u.equipes[tEsp].finLe || '')) { u.equipes[tEsp].finLe = pf; savePromoUsages(); }
       }
     }
@@ -1618,8 +1665,7 @@ app.post('/api/clients/sync', async (req, res) => {
         '\nEnsuite, créez les comptes de vos collègues dans Administration → Utilisateurs.\n\n' +
         '— L\'équipe TEAM OP · teamop.fr';
       const premiereCoHtml = auto.neuf
-        ? '<b>Première connexion :</b><br>• Identifiant : <b>' + auto.ident + '</b> (votre prénom)<br>• Mot de passe provisoire : <b>' + auto.mdp + '</b> (votre nom + «&nbsp;!!&nbsp;»)<br>' +
-          '<span style="color:#8fa3c8;font-size:13px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite, ce sont vos identifiants pour toujours.</span><br><br>'
+        ? MAIL_BLOCS.ident(auto.ident, auto.mdp) + '<br><br>'
         : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br><br>';
       const payer = promoActif
         ? '🎁 Votre code « ' + promoActif.code + ' » est activé : formule <b>' + promoLib + '</b> offerte jusqu\'au <b>' + promoActif.finLe + '</b> — aucune carte bancaire requise.<br>'
@@ -2080,10 +2126,48 @@ app.post('/api/promo/valider', (req, res) => {
   } else {
     const d = new Date(); d.setMonth(d.getMonth() + mois);
     finLe = d.toISOString().slice(0, 10);
-    if (!apercu) { u.n++; if (team) u.equipes[team] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages(); }
+    if (!apercu) { u.n++; if (team) u.equipes[team] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages();
+      if (team) mailPromoActive(team, c, finLe, ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium'); }
   }
   res.json({ ok: true, formule: ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium', mois, finLe, dejaUtilise: !!deja });
 });
+
+// ── ⏳ Rappel d'échéance : 7 jours avant la fin d'une période offerte, l'entreprise
+//    reçoit UN e-mail (modèle orange de la galerie) — jamais deux pour la même
+//    échéance (drapeau rappelFin posé sur l'espace).
+function rappelsEcheances() {
+  try {
+    if (!mailer) return;
+    const auj = new Date().toISOString().slice(0, 10);
+    const lim = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    let touche = false;
+    for (const [code, u] of Object.entries(promoUsages || {})) {
+      for (const [t, eq] of Object.entries((u && u.equipes) || {})) {
+        if (!eq || !eq.finLe || eq.finLe < auj || eq.finLe > lim) continue;   // ni déjà passée, ni encore loin
+        const e = Object.values(espacesReg).find(x => {
+          if (x.t) return x.t === t;
+          try { return String(JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')).t || '') === t; } catch (err) { return false; }
+        });
+        if (!e || !e.email || e.rappelFin === eq.finLe) continue;   // pas d'adresse, ou déjà prévenu
+        e.rappelFin = eq.finLe; touche = true;
+        const finFr = eq.finLe.split('-').reverse().join('/');
+        mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
+          subject: '⏳ Votre période offerte se termine bientôt — TEAM OP',
+          text: 'Bonjour,\n\nla période offerte par votre code « ' + code + ' » se termine le ' + finFr + '.\nVos données ne bougent pas, quoi qu\'il arrive — mais sans abonnement, l\'application repassera en formule Gratuit.\n\nPour continuer sans coupure : teamop.fr/espace.html → Mon abonnement.\n\n— TEAM OP · teamop.fr',
+          html: mailTeamOP({ chip: 'Échéance', chipBg: '#FFF6EE', chipColor: '#B26E12', titre: 'Plus que quelques jours ⏳',
+            corpsHtml: 'Bonjour,<br>un petit mot pour vous prévenir à l\'avance : la période offerte par votre code « <b>' + code + '</b> » touche à sa fin.',
+            blocHtml: MAIL_BLOCS.echeance(finFr),
+            boutonTxt: 'Choisir mon abonnement', boutonUrl: 'https://teamop.fr/espace.html',
+            bouton2Txt: 'Ouvrir mon application', bouton2Url: 'https://teamop.fr/app.html' })
+        }).then(() => console.log('rappel échéance envoyé →', e.email, '(fin ' + eq.finLe + ')'))
+          .catch(err => console.error('rappel échéance:', err.message));
+      }
+    }
+    if (touche) { try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
+  } catch (e) { console.error('rappelsEcheances:', e.message); }
+}
+setTimeout(rappelsEcheances, 90 * 1000);      // un premier passage peu après le démarrage
+setInterval(rappelsEcheances, 6 * 3600000);   // puis toutes les 6 heures
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '127.0.0.1', () => console.log('TeamOP API sur 127.0.0.1:' + PORT));
