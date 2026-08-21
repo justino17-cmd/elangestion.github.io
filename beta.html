@@ -14621,6 +14621,8 @@ window.addEventListener('resize',()=>{ if((current==='carteBox'||current==='cart
    journal des mouvements : chaque sortie de box compte pour la personne qui a
    réellement pris ou reçu le produit. */
 let consoJours=90;
+let consoProdOuv={};
+function consoToggleProd(pid){ consoProdOuv[pid]=!consoProdOuv[pid]; views.saisieConso(); }
 let consoOnglet='analyse', consoFProd='', consoFPers='', consoFRole='', consoPas='auto', consoDu='', consoAu='', consoMenuOuv='', consoQ='';
 function consoMenu(k){ consoMenuOuv=(consoMenuOuv===k?'':k); consoQ=''; views.saisieConso();
   if(consoMenuOuv){ const i=$('conso-menu-q'); if(i) i.focus(); } }
@@ -14673,6 +14675,17 @@ function consoAnalyseHTML(){
   const ordreRole=['dr','chefEquipe','technicien','commercial','compta','admin'];
   const listeRole=[...new Set(surPeriode.map(roleConso).filter(Boolean))].sort((a,b)=>ordreRole.indexOf(a)-ordreRole.indexOf(b));
   const unites=sorties.reduce((s,m)=>s+(m.qte||0),0);
+  // même durée, juste avant : sert à mesurer l'évolution
+  const duree=Math.max(86400000,jusqua-depuis);
+  let avant=db.mouvements.filter(m=>m.type==='sortie'&&m.ts>=depuis-duree&&m.ts<depuis);
+  if(consoFProd) avant=avant.filter(m=>m.produitId===consoFProd);
+  if(consoFPers) avant=avant.filter(m=>quiConso(m)===consoFPers);
+  if(consoFRole) avant=avant.filter(m=>roleConso(m)===consoFRole);
+  const unitesAvant=avant.reduce((s,m)=>s+(m.qte||0),0);
+  const parPersAvant={}; avant.forEach(m=>{ const q=quiConso(m); parPersAvant[q]=(parPersAvant[q]||0)+(m.qte||0); });
+  const evol=(v,ref)=>{ if(!ref) return v?'<span style="font-size:11px;font-weight:700;color:var(--t3)">nouveau</span>':'';
+    const p=Math.round((v-ref)/ref*100); if(!p) return '<span style="font-size:11px;font-weight:700;color:var(--t3)">stable</span>';
+    const h=p>0; return '<span style="font-size:11px;font-weight:700;color:'+(h?'var(--org)':'var(--acc)')+'" title="Par rapport à la période précédente ('+ref+' u)">'+(h?'▲ +':'▼ ')+p+' %</span>'; };
   const valeur=sorties.reduce((s,m)=>s+(m.qte||0)*(produit(m.produitId).prix||0),0);
   // ── classements ──
   const parProd={}; sorties.forEach(m=>{ parProd[m.produitId]=(parProd[m.produitId]||0)+(m.qte||0); });
@@ -14723,41 +14736,61 @@ function consoAnalyseHTML(){
   const saut=Math.max(1,Math.ceil(pts.length/9));
   pts.forEach((p,i)=>{ if(i%saut&&i!==pts.length-1) return;
     axes+='<text x="'+X(i).toFixed(1)+'" y="'+(H-16)+'" text-anchor="middle" font-size="11" fill="var(--t3)">'+esc(p.lbl)+'</text>'; });
-  // moyenne : trait de repère
-  const yMoy=Y(moyV);
-  const repere=moyV>0?'<line x1="'+mgG+'" y1="'+yMoy.toFixed(1)+'" x2="'+(W-mgD)+'" y2="'+yMoy.toFixed(1)+'" stroke="var(--viz2)" stroke-width="1.6" stroke-dasharray="5 4" opacity=".85"/>'
-    +'<text x="'+(mgG+6)+'" y="'+(yMoy-7).toFixed(1)+'" text-anchor="start" font-size="10.5" font-weight="700" fill="var(--viz2)">moyenne '+Math.round(moyV)+' u</text>':'';
-  // aire + courbe
-  const ligne=pts.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+','+Y(p.v).toFixed(1)).join(' ');
-  const aire=pts.length?ligne+' L'+X(pts.length-1).toFixed(1)+','+Y(0).toFixed(1)+' L'+X(0).toFixed(1)+','+Y(0).toFixed(1)+' Z':'';
-  const marqueurs=pts.map((p,i)=>{ const gros=i===iPic&&maxV>0;
-    if(!gros&&pts.length>26&&!p.v) return '';
-    return '<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+'" r="'+(gros?5.5:4)+'" fill="'+(gros?'var(--viz2)':'var(--viz1)')+'" stroke="var(--card)" stroke-width="2"/>'; }).join('');
-  const xPic=X(iPic), ancrePic=xPic>W-mgD-46?'end':(xPic<mgG+46?'start':'middle');
-  const pic=maxV>0?'<text x="'+Math.max(mgG,Math.min(W-mgD,xPic)).toFixed(1)+'" y="'+Math.max(mgH-8,Y(maxV)-13).toFixed(1)+'" text-anchor="'+ancrePic+'" font-size="11.5" font-weight="800" fill="var(--viz2)">pic '+maxV+' u</text>':'';
-  // zones de survol : curseur vertical + infobulle
+  // répartition de chaque période entre les 3 produits phares et le reste
+  const top3=topProd.slice(0,3).map(t=>t.pid);
+  const nomSerie=[...topProd.slice(0,3).map(t=>t.nom),'Autres produits'];
+  const COULS=['var(--viz1)','var(--viz3)','var(--viz4)','var(--viz2)'];
+  const partsDe={}; sorties.forEach(m=>{ const c=cleDe(m.ts); const i=top3.indexOf(m.produitId);
+    (partsDe[c]=partsDe[c]||[0,0,0,0])[i<0?3:i]+=(m.qte||0); });
+  // aires empilées : chaque couche part du sommet de la précédente
+  let bas=pts.map(()=>0), couches='';
+  for(let k=0;k<4;k++){
+    const hauts=pts.map((p,i)=>bas[i]+((partsDe[p.cle]||[0,0,0,0])[k]||0));
+    if(hauts.some((v,i)=>v>bas[i])){
+      let dd=hauts.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ');
+      for(let i=pts.length-1;i>=0;i--) dd+=' L'+X(i).toFixed(1)+','+Y(bas[i]).toFixed(1);
+      couches+='<path d="'+dd+' Z" fill="'+COULS[k]+'" fill-opacity=".88"/>';
+      couches+='<path d="'+hauts.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ')+'" fill="none" stroke="var(--card)" stroke-width="1.6" stroke-linejoin="round"/>';
+    }
+    bas=hauts;
+  }
+  // le total de chaque période, écrit au sommet de la pile
+  const sautT=Math.max(1,Math.ceil(pts.length/8));
+  const totauxTxt=pts.map((p,i)=>((i%sautT&&i!==pts.length-1)||!p.v||i===iPic)?'':
+    '<text x="'+X(i).toFixed(1)+'" y="'+(Y(p.v)-10).toFixed(1)+'" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--t2)">'+p.v+'</text>').join('');
+  const pic=maxV>0?'<text x="'+Math.max(mgG+30,Math.min(W-mgD-30,X(iPic))).toFixed(1)+'" y="'+Math.max(mgH-10,Y(maxV)-26).toFixed(1)+'" text-anchor="middle" font-size="11.5" font-weight="800" fill="var(--viz2)">pic '+maxV+' u</text>':'';
   const zones=pts.map((p,i)=>{ const l=pts.length<2?pw:pw/(pts.length-1);
     return '<rect x="'+(X(i)-l/2).toFixed(1)+'" y="'+mgH+'" width="'+l.toFixed(1)+'" height="'+ph+'" fill="transparent" onmousemove="consoSurvol(event,'+i+','+X(i).toFixed(1)+','+Y(p.v).toFixed(1)+')" onmouseleave="consoSurvolFin()"/>'; }).join('');
+  const legendeC=nomSerie.map((n,k)=>'<span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--t2)"><span style="width:11px;height:11px;border-radius:3px;background:'+COULS[k]+'"></span>'+esc(n)+'</span>').join('');
   const graph=pts.length?'<div style="overflow-x:auto"><svg viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:480px;height:auto;display:block">'
-    +'<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--viz1)" stop-opacity=".30"/><stop offset="100%" stop-color="var(--viz1)" stop-opacity="0"/></linearGradient></defs>'
-    +axes+repere
-    +'<path d="'+aire+'" fill="url(#cg)"/>'
-    +'<path d="'+ligne+'" fill="none" stroke="var(--viz1)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>'
+    +axes+couches+totauxTxt
     +'<line id="conso-curseur" x1="0" y1="'+mgH+'" x2="0" y2="'+(mgH+ph)+'" stroke="var(--t3)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>'
-    +'<circle id="conso-point" cx="0" cy="0" r="6.5" fill="var(--viz1)" stroke="var(--card)" stroke-width="2.5" opacity="0"/>'
-    +marqueurs+pic+zones+'</svg></div>'
-    +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding-top:12px;font-size:12px;color:var(--t2)">'
-    +'<span style="display:inline-flex;align-items:center;gap:7px"><span style="width:16px;height:3px;border-radius:2px;background:var(--viz1)"></span>Consommation par '+pasTemps+'</span>'
-    +'<span style="display:inline-flex;align-items:center;gap:7px"><span style="width:16px;height:0;border-top:2px dashed var(--viz2)"></span>Moyenne de la période</span></div>'
+    +'<circle id="conso-point" cx="0" cy="0" r="6" fill="var(--viz1)" stroke="var(--card)" stroke-width="2.5" opacity="0"/>'
+    +pic+zones+'</svg></div>'
+    +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding-top:12px">'+legendeC+'</div>'
     :emptyState('📉','Aucune consommation sur cette période.','','');
   // ── barres horizontales ──
-  const maxP=Math.max(1,...topProd.slice(0,8).map(t=>t.q));
-  const barresProd=topProd.slice(0,8).map(t=>'<div class="bar-row"><div class="bar-lbl">'+esc(t.nom)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+(t.q/maxP*100)+'%"></div></div><div class="bar-val">'+t.q+' u</div></div>').join('');
-  const maxH=Math.max(1,...topPers.slice(0,10).map(t=>t.q));
   const roleDe={}; sorties.forEach(m=>{ const q=quiConso(m); if(!roleDe[q]&&roleConso(m)) roleDe[q]=roleConso(m); });
+  const maxP=Math.max(1,...topProd.slice(0,10).map(t=>t.q));
+  const totalProd=Math.max(1,topProd.reduce((s,t)=>s+t.q,0));
+  const barresProd=topProd.slice(0,10).map((t,i)=>{ const ouv=!!consoProdOuv[t.pid];
+    // qui consomme CE produit
+    const parQui={}; sorties.filter(m=>m.produitId===t.pid).forEach(m=>{ const q=quiConso(m); parQui[q]=(parQui[q]||0)+(m.qte||0); });
+    const gens=Object.entries(parQui).map(([n,q])=>({n,q})).sort((a,b)=>b.q-a.q);
+    const maxG=Math.max(1,...gens.map(g=>g.q));
+    const detail=ouv?'<div style="padding:10px 4px 14px 30px;background:color-mix(in srgb,var(--t3) 7%,transparent);border-radius:10px;margin:0 0 10px">'
+      +'<div style="font-size:10.5px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Qui consomme ce produit</div>'
+      +(gens.length?gens.map(g=>'<div class="bar-row" style="margin-bottom:9px"><div class="bar-lbl" style="width:250px" title="'+esc(g.n)+'">'+esc(g.n)+(roleDe[g.n]?'<span style="font-size:10px;font-weight:700;color:var(--t3);margin-left:6px">'+esc(roleLbl(roleDe[g.n]))+'</span>':'')+'</div>'
+        +'<div class="bar-track"><div class="bar-fill" style="width:'+(g.q/maxG*100)+'%"></div></div><div class="bar-val">'+g.q+' u</div></div>').join('')
+        :'<div style="font-size:12.5px;color:var(--t3)">Personne pour l\'instant.</div>')+'</div>':'';
+    return '<div onclick="consoToggleProd(\''+t.pid+'\')" title="'+(ouv?'Replier':'Voir qui consomme ce produit')+'" style="cursor:pointer">'
+      +'<div class="bar-row"><div class="bar-lbl" style="width:250px" title="'+esc(t.nom)+'"><span style="display:inline-block;width:13px;color:'+(ouv?'var(--acc)':'var(--t3)')+';font-size:11px;transition:transform .15s;transform:rotate('+(ouv?90:0)+'deg)">▸</span>'+esc(t.nom)+'</div>'
+      +'<div class="bar-track"><div class="bar-fill" style="width:'+(t.q/maxP*100)+'%"></div></div>'
+      +'<div class="bar-val">'+t.q+' u</div></div></div>'+detail; }).join('');
+  const maxH=Math.max(1,...topPers.slice(0,10).map(t=>t.q));
   const pastilleRole=n=>roleDe[n]?'<span style="font-size:10px;font-weight:700;color:var(--t3);margin-left:6px">'+esc(roleLbl(roleDe[n]))+'</span>':'';
   const barresPers=topPers.slice(0,10).map(t=>{ const fort=moyPers>0&&t.q>moyPers*1.6&&t.q>=5;
-    return '<div class="bar-row"><div class="bar-lbl" title="'+esc(t.nom)+(roleDe[t.nom]?' — '+esc(roleLbl(roleDe[t.nom])):'')+'">'+esc(t.nom)+pastilleRole(t.nom)+(fort?' <span class="st st-org" style="font-size:10px;padding:1px 7px">à vérifier</span>':'')+'</div>'
+    return '<div class="bar-row"><div class="bar-lbl" style="width:250px" title="'+esc(t.nom)+(roleDe[t.nom]?' — '+esc(roleLbl(roleDe[t.nom])):'')+'">'+esc(t.nom)+pastilleRole(t.nom)+' '+evol(t.q,parPersAvant[t.nom]||0)+(fort?' <span class="st st-org" style="font-size:10px;padding:1px 7px">à vérifier</span>':'')+'</div>'
       +'<div class="bar-track"><div class="bar-fill" style="width:'+(t.q/maxH*100)+'%;background:'+(fort?'var(--org)':'var(--acc)')+'"></div></div>'
       +'<div class="bar-val">'+t.q+' u</div></div>'; }).join('');
   const alertes=topPers.filter(t=>moyPers>0&&t.q>moyPers*1.6&&t.q>=5);
@@ -14793,13 +14826,13 @@ function consoAnalyseHTML(){
       ${filtresPosés?`<button type="button" onclick="consoRaz()" style="cursor:pointer;border:none;background:transparent;color:var(--t3);font-size:12px;font-weight:700;text-decoration:underline;padding:6px">Tout effacer</button>`:''}</div>`;
   return barreF+`
     <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-      <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">${unites}</div><div class="kpi-lbl">Unités consommées</div></div>
+      <div class="kpi"><div class="kpi-ico" style="background:rgba(245,158,11,.14)">📤</div><div class="kpi-val">${unites}</div><div class="kpi-lbl">Unités consommées ${evol(unites,unitesAvant)}</div></div>
       ${isMgr?`<div class="kpi"><div class="kpi-ico" style="background:rgba(74,222,128,.16)">💶</div><div class="kpi-val">${eur(valeur)}</div><div class="kpi-lbl">Valeur consommée</div></div>`:''}
       <div class="kpi"><div class="kpi-ico" style="background:rgba(59,130,246,.14)">👤</div><div class="kpi-val">${topPers.length}</div><div class="kpi-lbl">Personnes concernées</div></div>
       <div class="kpi"><div class="kpi-ico" style="background:rgba(167,139,250,.16)">⚖️</div><div class="kpi-val">${Math.round(moyPers)}</div><div class="kpi-lbl">Moyenne par personne</div></div></div>
     ${alertes.length?`<div class="card" style="margin-bottom:14px;border-color:color-mix(in srgb,var(--org) 55%,transparent)"><div style="display:flex;gap:11px;align-items:flex-start;padding:4px 2px"><span style="font-size:18px">⚠️</span><div><b>Consommation à vérifier</b><div style="font-size:13px;color:var(--t2);margin-top:3px">${alertes.map(a=>esc(a.nom)+' — <b>'+a.q+' u</b>').join(' · ')} — nettement au-dessus de la moyenne de l'équipe (${Math.round(moyPers)} u sur la période).</div></div></div></div>`:''}
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📈 Consommation dans le temps</h3></div>${graph}</div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Produits les plus consommés</h3></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Produits les plus consommés</h3><span style="font-size:11.5px;color:var(--t3);font-weight:600">clique une ligne pour voir qui</span></div>
       ${topProd.length?barresProd:emptyState('📦','Aucun produit consommé sur cette période.','','')}</div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Consommation par personne</h3></div>
       ${topPers.length?barresPers+`<div style="font-size:12px;color:var(--t3);padding-top:8px">Moyenne de l'équipe : <b style="color:var(--t2)">${Math.round(moyPers)} u</b> sur la période. Une barre orange signale une consommation nettement au-dessus.</div>`:emptyState('👤',"Personne n'a consommé sur cette période.",'','')}</div>
