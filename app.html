@@ -11958,9 +11958,11 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
 /* ═══════════════ MOUVEMENTS STOCK ═══════════════ */
 /* Journal 100 % automatique : il se remplit tout seul (box, clôtures
    d'interventions, arrivages, conso…) — on ne crée plus de mouvement à la main. */
-let mvtFType='', mvtFBox='', mvtFQ='', mvtMoisOuverts={};
-function mvtSetType(t){ mvtFType=(mvtFType===t?'':t); views.mouvements(); }
-function mvtSetBox(v){ mvtFBox=v; views.mouvements(); }
+let mvtFType='', mvtFBox='', mvtFQ='', mvtFBoxQ='', mvtMenuOuvert='', mvtMoisOuverts={};
+function mvtMenu(k){ mvtMenuOuvert=(mvtMenuOuvert===k?'':k); if(mvtMenuOuvert!=='box') mvtFBoxQ=''; views.mouvements(); if(mvtMenuOuvert==='box'){ const i=$('mvt-box-q'); if(i) i.focus(); } }
+function mvtChoisirType(t){ mvtFType=t; mvtMenuOuvert=''; views.mouvements(); }
+function mvtChoisirBox(id){ mvtFBox=id; mvtMenuOuvert=''; mvtFBoxQ=''; views.mouvements(); }
+function mvtBoxQ(v){ mvtFBoxQ=v; views.mouvements(); const i=$('mvt-box-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
 function mvtToggleMois(k){ mvtMoisOuverts[k]=!mvtMoisOuverts[k]; views.mouvements(); }
 function mvtSetQ(v){ mvtFQ=v; views.mouvements(); const i=$('mvt-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
 views.mouvements=function(){
@@ -11986,10 +11988,25 @@ views.mouvements=function(){
   if(mvtFQ.trim()){ const q=mvtFQ.trim().toLowerCase();
     list=list.filter(m=>{ const p=produit(m.produitId);
       return [p.nom,p.ref,m.motif,m.technicien,m.validePar,boxNom(m.boxId),m.vehiculeId?vehName(m.vehiculeId):''].some(x=>String(x||'').toLowerCase().includes(q)); }); }
-  const segB=(k,l)=>`<button type="button" onclick="mvtSetType('${k}')" style="cursor:pointer;font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;border:1px solid ${mvtFType===k?'var(--acc)':'var(--brd)'};background:${mvtFType===k?'color-mix(in srgb,var(--acc) 16%,transparent)':'var(--card)'};color:${mvtFType===k?'var(--acc)':'var(--t2)'}">${l}</button>`;
-  const selBox=(db.boxes||[]).length?`<select onchange="mvtSetBox(this.value)" style="font-size:12.5px;padding:7px 12px;border-radius:100px;border:1px solid ${mvtFBox?'var(--acc)':'var(--brd)'};background:var(--card);color:${mvtFBox?'var(--acc)':'var(--t2)'};font-weight:700;cursor:pointer"><option value="">📦 Toutes les box</option>${(db.boxes||[]).map(b=>`<option value="${b.id}" ${mvtFBox===b.id?'selected':''}>📦 ${esc(b.nom||b.numero||'Box')}</option>`).join('')}</select>`:'';
-  const chercheur=`<div style="position:relative;flex:1;min-width:190px;max-width:340px"><span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.6;font-size:12px">🔍</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Produit, personne, motif, box…" style="width:100%;box-sizing:border-box;padding:8px 12px 8px 32px;border-radius:100px;border:1px solid ${mvtFQ?'var(--acc)':'var(--brd)'};background:var(--card);color:var(--t1);font-size:12.5px;outline:none"></div>`;
-  const barre=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px">${segB('entree','📥 Entrées')}${segB('sortie','📤 Sorties')}${segB('valide','🔒 Validés DR')}${chercheur}<span style="flex:1"></span>${selBox}</div>`;
+  const TYPES=[['','🔁 Tous les mouvements'],['entree','📥 Entrées'],['sortie','📤 Sorties'],['valide','🔒 Validés par le DR']];
+  const typeLbl=(TYPES.find(x=>x[0]===mvtFType)||TYPES[0])[1];
+  const MENU_CSS='position:absolute;top:calc(100% + 6px);z-index:60;background:var(--card);border:1px solid var(--brd);border-radius:14px;box-shadow:0 14px 38px rgba(0,0,0,.28);overflow:hidden';
+  const itemCss=on=>`display:flex;align-items:center;gap:9px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;color:${on?'var(--acc)':'var(--t1)'};background:${on?'color-mix(in srgb,var(--acc) 10%,transparent)':'transparent'}`;
+  const btnCss=on=>`cursor:pointer;font-size:12px;font-weight:700;padding:8px 14px;border-radius:100px;border:1px solid ${on?'var(--acc)':'var(--brd)'};background:${on?'color-mix(in srgb,var(--acc) 14%,transparent)':'var(--card)'};color:${on?'var(--acc)':'var(--t2)'};display:inline-flex;align-items:center;gap:7px`;
+  const voile=mvtMenuOuvert?`<div onclick="mvtMenu('')" style="position:fixed;inset:0;z-index:50"></div>`:'';
+  const menuType=mvtMenuOuvert==='type'?`<div style="${MENU_CSS};left:0;min-width:225px">${TYPES.map(([k,l])=>`<div onclick="mvtChoisirType('${k}')" style="${itemCss(mvtFType===k)}"><span style="width:15px;flex:none">${mvtFType===k?'✓':''}</span>${l}</div>`).join('')}</div>`:'';
+  const boxesFiltrees=(db.boxes||[]).filter(b=>!mvtFBoxQ.trim()||String((b.nom||'')+' '+(b.numero||'')).toLowerCase().includes(mvtFBoxQ.trim().toLowerCase()));
+  const menuBox=mvtMenuOuvert==='box'?`<div style="${MENU_CSS};right:0;min-width:280px">
+    <div style="padding:10px 12px;border-bottom:1px solid var(--brd)"><div style="position:relative"><span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.55;font-size:12px">🔍</span><input id="mvt-box-q" value="${esc(mvtFBoxQ)}" oninput="mvtBoxQ(this.value)" placeholder="Chercher une box…" style="width:100%;box-sizing:border-box;padding:8px 10px 8px 30px;border-radius:10px;border:1px solid var(--brd);background:var(--bg1);color:var(--t1);font-size:12.5px;outline:none"></div></div>
+    <div style="max-height:262px;overflow:auto">
+      <div onclick="mvtChoisirBox('')" style="${itemCss(!mvtFBox)}"><span style="width:15px;flex:none">${!mvtFBox?'✓':''}</span>📦 Toutes les box</div>
+      ${boxesFiltrees.map(b=>`<div onclick="mvtChoisirBox('${b.id}')" style="${itemCss(mvtFBox===b.id)}"><span style="width:15px;flex:none">${mvtFBox===b.id?'✓':''}</span>📦 ${esc(b.nom||b.numero||'Box')}</div>`).join('')||'<div style="padding:12px 14px;font-size:12.5px;color:var(--t3)">Aucune box ne correspond.</div>'}
+    </div></div>`:'';
+  const chercheur=`<div style="position:relative;flex:1;min-width:190px;max-width:340px"><span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.6;font-size:12px">🔍</span><input id="mvt-q" value="${esc(mvtFQ)}" oninput="mvtSetQ(this.value)" placeholder="Rechercher tout : produit, personne, motif…" style="width:100%;box-sizing:border-box;padding:8px 12px 8px 32px;border-radius:100px;border:1px solid ${mvtFQ?'var(--acc)':'var(--brd)'};background:var(--card);color:var(--t1);font-size:12.5px;outline:none"></div>`;
+  const barre=`${voile}<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
+    <div style="position:relative;z-index:${mvtMenuOuvert==='type'?61:1}"><button type="button" onclick="mvtMenu('type')" style="${btnCss(!!mvtFType)}">${typeLbl}<span style="opacity:.55;font-size:9px">▼</span></button>${menuType}</div>
+    ${chercheur}<span style="flex:1"></span>
+    <div style="position:relative;z-index:${mvtMenuOuvert==='box'?61:1}"><button type="button" onclick="mvtMenu('box')" style="${btnCss(!!mvtFBox)}">${mvtFBox?('📦 '+esc(boxNom(mvtFBox)||'Box')):'📦 Toutes les box'}<span style="opacity:.55;font-size:9px">▼</span></button>${menuBox}</div></div>`;
   // ── bons de remise (inchangé) ──
   const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
   const brHtml=brs.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📄 Bons de remise (${brs.length})</h3></div>
