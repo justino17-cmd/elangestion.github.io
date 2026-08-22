@@ -14657,22 +14657,55 @@ function consoSurvol(ev,i,x,y){
 }
 function consoSurvolFin(){ const c=document.getElementById('conso-curseur'), pt=document.getElementById('conso-point');
   if(c) c.setAttribute('opacity','0'); if(pt) pt.setAttribute('opacity','0'); consoTipOff(); }
+/* ── REPÈRES MÉTIER ──
+   Ordres de grandeur d'usage professionnel en lutte anti-nuisibles, exprimés en
+   unités par mois ET PAR PERSONNE qui consomme. Ils servent de point de départ
+   tant que l'entreprise n'a pas trois mois d'historique sur le produit ; ils
+   sont indicatifs et se corrigent produit par produit (champ « Maxi consommé /
+   mois » de la fiche produit), qui l'emporte toujours. */
+const REPERES_METIER=[
+  [/detection|détection|debusk|traceur|revelateur|révélateur/i,                4, 'produit de détection'],
+  [/gel\s*(anti-?)?(blatte|cafard|fourmi)|maxforce|advion|goliath|vendetta/i, 8,  'gel en seringue'],
+  [/aerosol|aérosol|spray|laque|fumigene|fumigène|bombe/i,                     6, 'aérosol ou fumigène'],
+  [/appat.*grain|grain.*(rat|souri)|raticide.*grain|ratimor.*grain/i,        100, 'appât en grains'],
+  [/(raticide|rodonticide|souricide|muskil|ratimor|romax|racumin|difenacoum|brodifacoum|bromadiolone|difethialone).*(bloc|pate|pâte|sachet|cube|frais|fraiche|fraîche)|bloc.*(rat|souri)|pate.*(rat|souri)|pâte.*(rat|souri)/i, 100, 'bloc ou pâte rongeurs'],
+  [/poste.*app|station.*app|boite.*app|boîte.*app|appat.*securis|appât.*sécuris/i, 10, "poste d'appâtage"],
+  [/piege.*collant|piège.*collant|plaquette.*glu|plaque.*glu|glue.*board/i,   40, 'piège collant'],
+  [/pheromone|phéromone|trappit|delta.*trap/i,                                15, 'piège à phéromones'],
+
+  [/concentr|emulsion|émulsion|\bec\b|\bsc\b|\bwp\b|cypermethrine|deltamethrine|k-?othrine|ficam|alta\s*7000/i, 5, 'concentré à diluer'],
+  [/gant/i,                                                                    2, 'boîte de gants'],
+  [/masque|ffp[123]|cartouche.*filtre|filtre.*masque/i,                       10, 'protection respiratoire'],
+  [/combinaison|charlotte|surchaussure|lunette|visiere|visière/i,             10, 'équipement jetable'],
+  [/xylophene|xylophène|xylo|termite|charpente|bois/i,                        20, 'traitement du bois'],
+  [/desinfect|désinfect|virucide|bactericide|bactéricide|javel|alcool/i,      10, 'désinfection'],
+  [/grillage|proofing|obturation|mousse|silicone|joint|brosse.*bas.*porte/i,  20, 'matériel de proofing'],
+  [/pulverisateur|pulvérisateur|nebuliseur|nébuliseur|atomiseur|lampe|torche|pistolet|appareil|aspirateur/i, 1, 'matériel durable']
+];
+function repereMetier(pid){ const p=produit(pid)||{};
+  const txt=(p.nom||'')+' '+(p.categorie||'');
+  for(const [re,val,lbl] of REPERES_METIER) if(re.test(txt)) return {val,lbl};
+  return null; }
 /* Repère de consommation d'un produit, en unités par mois.
    Ordre : le maxi saisi sur la fiche produit, sinon un repère calculé sur les
    six derniers mois de la propre consommation de l'entreprise (moyenne des mois
    actifs + une marge de 60 %). Renvoie null quand l'historique est trop court. */
-function consoRepereMois(pid){
+function consoRepereMois(pid,nbPers){
   const p=produit(pid)||{};
-  if(p.maxConso>0) return {ref:p.maxConso, source:'fiche produit'};
+  if(p.maxConso>0) return {ref:p.maxConso, source:'maxi saisi sur la fiche produit'};
   const debut=Date.now()-183*86400000;
   const parMois={};
   db.mouvements.forEach(m=>{ if(m.type!=='sortie'||m.produitId!==pid||m.ts<debut) return;
     const c=new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7);
     parMois[c]=(parMois[c]||0)+(m.qte||0); });
   const mois=Object.values(parMois);
-  if(mois.length<3) return null;                       // pas assez de recul pour un repère honnête
-  const moy=mois.reduce((s,v)=>s+v,0)/mois.length;
-  return {ref:Math.max(1,Math.round(moy*1.6)), source:'calculé sur '+mois.length+' mois'};
+  if(mois.length>=3){                                  // assez de recul : on se base sur l'entreprise
+    const moy=mois.reduce((s,v)=>s+v,0)/mois.length;
+    return {ref:Math.max(1,Math.round(moy*1.6)), source:'calculé sur '+mois.length+' mois de ta consommation'};
+  }
+  const met=repereMetier(pid);                         // sinon : repère métier, ajusté à la taille de l'équipe
+  if(met) return {ref:Math.max(1,Math.round(met.val*Math.max(1,nbPers||1))), source:'repère métier ('+met.lbl+') — à ajuster sur la fiche produit'};
+  return null;
 }
 function consoAnalyseHTML(){
   const isMgr=currentUser&&(currentUser.role==='admin'||currentUser.role==='dr');
@@ -14775,7 +14808,7 @@ function consoAnalyseHTML(){
   // repère global : la somme des repères des produits, ramenée au pas affiché
   const facteurPas=pasTemps==='mois'?1:(pasTemps==='semaine'?7/30.4:1/30.4);
   let refGlob=0, refConnus=0;
-  topProd.forEach(t=>{ const r=consoRepereMois(t.pid); if(r){ refGlob+=r.ref; refConnus++; } });
+  topProd.forEach(t=>{ const r=consoRepereMois(t.pid,topPers.length); if(r){ refGlob+=r.ref; refConnus++; } });
   refGlob=Math.round(refGlob*facteurPas);
   const repereOk=refConnus>0&&refGlob>0&&refGlob<haut*1.4;
   const traitRef=repereOk?'<line x1="'+mgG+'" y1="'+Y(refGlob).toFixed(1)+'" x2="'+(W-mgD)+'" y2="'+Y(refGlob).toFixed(1)+'" stroke="var(--red)" stroke-width="1.8" stroke-dasharray="6 5" opacity=".9"/>'
@@ -14811,7 +14844,7 @@ function consoAnalyseHTML(){
     const maxG=Math.max(1,...gens.map(g=>g.q));
     const iniG=n=>String(n||'').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).join('').toUpperCase()||'?';
     // au-dessus du repère ? (on ramène la période à un rythme mensuel pour comparer)
-    const rep=consoRepereMois(t.pid), mois=Math.max(0.25,(jusqua-depuis)/(30.4*86400000));
+    const rep=consoRepereMois(t.pid,topPers.length), mois=Math.max(0.25,(jusqua-depuis)/(30.4*86400000));
     const rythme=t.q/mois, dep=rep&&rythme>rep.ref;
     const puce=rep?(dep?' <span class="st" style="font-size:10px;padding:1px 8px;background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)" title="Repère '+rep.ref+' u/mois — '+rep.source+'">⚠ '+Math.round(rythme)+' u/mois pour un repère de '+rep.ref+'</span>':'')
       :' <span style="font-size:10px;color:var(--t3)" title="Il faut au moins trois mois d\'historique pour poser un repère">repère à venir</span>';
