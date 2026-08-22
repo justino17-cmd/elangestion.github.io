@@ -1258,9 +1258,21 @@ function cliStatut(c){
   if(p==='canceled'||p==='annule') return ['Annulé','p-gris'];
   return [c.plan?String(c.plan):'Gratuit','p-gris'];
 }
+/* 📣 L'annonce de mise à jour : un e-mail (beau gabarit TeamOP) à TOUTES les
+   entreprises qui ont une adresse. Le texte vit sur le serveur. */
+function annonceEnvoyer(btn){
+  if(!confirm('Envoyer l\'e-mail des nouveautés à TOUTES les entreprises ?\n\nUne seule fois — chaque entreprise avec une adresse e-mail le recevra.')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Envoi en cours…'; }
+  apiPost('/api/monitor/annonce',{}).then(function(r){
+    if(r&&r.ok){ toast('📣 Annonce envoyée à '+r.envoyes+' entreprise'+(r.envoyes>1?'s':'')+(r.refus?' ('+r.refus+' refus)':'')); if(btn) btn.textContent='📣 Annonce envoyée ('+r.envoyes+')'; }
+    else { toast((r&&r.error)||'Envoi impossible'); if(btn){ btn.disabled=false; btn.textContent='📣 Annoncer la mise à jour'; } }
+  }).catch(function(){ toast('Envoi impossible — serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='📣 Annoncer la mise à jour'; } });
+}
 function vueEntreprises(){
-  var tete='<div class="ttl-page">Entreprises</div>'+
-    '<div class="desc">Les comptes clients vivent dans l’espace client — chaque entreprise apparaît ici dès sa prochaine visite sur teamop.fr.</div><div style="height:16px"></div>';
+  var tete='<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
+    '<div><div class="ttl-page">Entreprises</div>'+
+    '<div class="desc">Les comptes clients vivent dans l’espace client — chaque entreprise apparaît ici dès sa prochaine visite sur teamop.fr.</div></div>'+
+    '<button class="btn-plein" onclick="annonceEnvoyer(this)" title="Envoie l’e-mail des nouveautés de la dernière mise à jour à toutes les entreprises">📣 Annoncer la mise à jour</button></div><div style="height:16px"></div>';
   if(!CLI.loaded) return tete+'<div class="vide">Chargement des entreprises…</div>';
   if(CLI.err) return tete+'<div class="vide">'+esc(CLI.err)+'</div>';
   var q=(CLI.q||'').toLowerCase().trim();
