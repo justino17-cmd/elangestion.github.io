@@ -14733,6 +14733,36 @@ function consoSurvol(ev,i,x,y){
   const det=(p.top||[]).map(t=>'<div style="color:var(--t2)">• '+esc(t.n)+' — <b style="color:var(--t1)">'+t.q+' u</b></div>').join('');
   consoTip(ev,'<b>'+esc(p.lbl)+'</b> — '+p.v+' u'+(det?'<div style="margin-top:4px">'+det+'</div>':''));
 }
+/* Clic sur le graphique : d'où vient ce pic — qui a pris quoi, où et quand. */
+function consoOuvrirPeriode(i){
+  consoSurvolFin();
+  const p=(consoPts||[])[i]; if(!p) return;
+  const mv=[...(p.mvts||[])].sort((a,b)=>(b.qte||0)-(a.qte||0));
+  const qui=m=>m.donneA||m.technicien||'Non précisé';
+  // le classement des personnes et des produits sur cette période
+  const parQ={}, parP={};
+  mv.forEach(m=>{ parQ[qui(m)]=(parQ[qui(m)]||0)+(m.qte||0); parP[m.produitId]=(parP[m.produitId]||0)+(m.qte||0); });
+  const topQ=Object.entries(parQ).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topP=Object.entries(parP).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const puceQ=(n,q)=>'<span class="st" style="font-size:11.5px;padding:3px 10px;margin:0 6px 6px 0;background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc)">'+esc(n)+' <b>'+q+' u</b></span>';
+  const puceP=(n,q)=>'<span class="st st-blue" style="font-size:11.5px;padding:3px 10px;margin:0 6px 6px 0">'+esc(n)+' <b>'+q+' u</b></span>';
+  const lignes=mv.slice(0,80).map(m=>{ const pr=produit(m.produitId);
+    const ou=m.boxId?('📦 '+((db.boxes.find(b=>b.id===m.boxId)||{}).nom||m.boxNomTxt||'Box')):(m.boxNomTxt?('📦 '+m.boxNomTxt):(m.vehiculeId?('🚐 '+vehName(m.vehiculeId)):'—'));
+    return '<tr><td style="white-space:nowrap">'+fmtTs(m.ts)+'</td>'
+      +'<td class="strong">'+esc(pr.nom||'—')+'</td>'
+      +'<td class="strong" style="text-align:right;color:var(--org);white-space:nowrap">−'+m.qte+' u</td>'
+      +'<td style="white-space:nowrap">'+esc(m.technicien||'—')+'</td>'
+      +'<td style="white-space:nowrap">'+(m.donneA?'<span class="st" style="font-size:11px;padding:2px 8px;background:rgba(167,139,250,.16);color:var(--purple)">👤 '+esc(m.donneA)+'</span>':'—')+'</td>'
+      +'<td style="white-space:nowrap">'+esc(ou)+'</td></tr>'; }).join('');
+  openModal('<div class="modal-head"><h3>📍 '+esc(p.lbl)+' — '+p.v+' u</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+    +'<div style="font-size:13px;color:var(--t2);margin-bottom:14px">D\'où vient cette consommation : qui a pris quoi, où et quand.</div>'
+    +(topQ.length?'<div class="form-sec">Qui a consommé</div><div style="display:flex;flex-wrap:wrap;margin-bottom:12px">'+topQ.map(([n,q])=>puceQ(n,q)).join('')+'</div>':'')
+    +(topP.length?'<div class="form-sec">Quels produits</div><div style="display:flex;flex-wrap:wrap;margin-bottom:14px">'+topP.map(([pid,q])=>puceP(produit(pid).nom||'—',q)).join('')+'</div>':'')
+    +'<div class="form-sec">Le détail, du plus gros au plus petit</div>'
+    +(lignes?tableCard(['Quand','Produit','Qté','Sorti par','Donné à','Où'],lignes)
+      :'<div style="font-size:13px;color:var(--t3)">Aucun mouvement sur cette période.</div>')
+    +(mv.length>80?'<div style="font-size:12px;color:var(--t3);padding-top:8px">'+(mv.length-80)+' autres mouvements non affichés.</div>':''));
+}
 function consoSurvolFin(){ const c=document.getElementById('conso-curseur'), pt=document.getElementById('conso-point');
   if(c) c.setAttribute('opacity','0'); if(pt) pt.setAttribute('opacity','0'); consoTipOff(); }
 /* ── REPÈRES MÉTIER : CE QUE CONSOMME UNE INTERVENTION ──
@@ -14866,6 +14896,17 @@ function consoRepere(pid, nbPers, mois){
   const r=consoRepereMois(pid); if(!r) return null;
   return {ref:Math.max(1,Math.round(r.mois*mois)), parMois:r.mois, source:r.source, moisObs:r.mois_n};
 }
+/* Ce qu'une personne a reçu d'un produit sur un mois donné (clé « 2026-08 »). */
+function consoDuMois(pid, nom, cleMois){
+  let q=0;
+  db.mouvements.forEach(m=>{
+    if(m.type!=='sortie'||m.produitId!==pid||!m.donneA) return;
+    if(nom&&m.donneA!==nom) return;
+    if(new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7)!==cleMois) return;
+    q+=(m.qte||0); });
+  return q;
+}
+function cleMoisDecale(n){ const d=new Date(); d.setDate(15); d.setMonth(d.getMonth()-n); return d.toLocaleDateString('sv-SE').slice(0,7); }
 /* Ce qu'UNE personne reçoit normalement de ce produit en un mois :
    la moyenne mensuelle de ce qui lui est donné, et à défaut la moyenne de
    l'équipe sur ce produit. */
@@ -14938,7 +14979,8 @@ function consoAnalyseHTML(){
     curseur.setHours(12,0,0,0);
     if(pasTemps==='semaine') curseur.setDate(curseur.getDate()-((curseur.getDay()+6)%7));
     while(curseur<=new Date()){ cles.push(curseur.toLocaleDateString('sv-SE')); curseur.setDate(curseur.getDate()+pasJ); } }
-  const pts=cles.map(c=>({cle:c,lbl:lblDe(c),v:totaux[c]||0,
+  const mvtsDe={}; sorties.forEach(m=>{ const c=cleDe(m.ts); (mvtsDe[c]=mvtsDe[c]||[]).push(m); });
+  const pts=cles.map(c=>({cle:c,lbl:lblDe(c),v:totaux[c]||0,mvts:mvtsDe[c]||[],
     top:Object.entries(detail[c]||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([pid,q])=>({n:produit(pid).nom||'—',q}))}));
   consoPts=pts;
   const vals=pts.map(p=>p.v);
@@ -14997,14 +15039,14 @@ function consoAnalyseHTML(){
     '<text x="'+X(i).toFixed(1)+'" y="'+(Y(p.v)-10).toFixed(1)+'" text-anchor="middle" font-size="11.5" font-weight="700" fill="'+(repereOk&&p.v>refGlob?'var(--red)':'var(--t2)')+'">'+p.v+'</text>').join('');
   const pic=maxV>0?'<text x="'+Math.max(mgG+30,Math.min(W-mgD-30,X(iPic))).toFixed(1)+'" y="'+Math.max(mgH-10,Y(maxV)-26).toFixed(1)+'" text-anchor="middle" font-size="11.5" font-weight="800" fill="var(--viz2)">pic '+maxV+' u</text>':'';
   const zones=pts.map((p,i)=>{ const l=pts.length<2?pw:pw/(pts.length-1);
-    return '<rect x="'+(X(i)-l/2).toFixed(1)+'" y="'+mgH+'" width="'+l.toFixed(1)+'" height="'+ph+'" fill="transparent" onmousemove="consoSurvol(event,'+i+','+X(i).toFixed(1)+','+Y(p.v).toFixed(1)+')" onmouseleave="consoSurvolFin()"/>'; }).join('');
+    return '<rect x="'+(X(i)-l/2).toFixed(1)+'" y="'+mgH+'" width="'+l.toFixed(1)+'" height="'+ph+'" fill="transparent" style="cursor:pointer" onmousemove="consoSurvol(event,'+i+','+X(i).toFixed(1)+','+Y(p.v).toFixed(1)+')" onmouseleave="consoSurvolFin()" onclick="consoOuvrirPeriode('+i+')"><title>Cliquer pour voir le d\u00e9tail</title></rect>'; }).join('');
   const legendeC=nomSerie.map((n,k)=>'<span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--t2)"><span style="width:11px;height:11px;border-radius:3px;background:'+COULS[k]+'"></span>'+esc(n)+'</span>').join('');
   const graph=pts.length?'<div style="overflow-x:auto"><svg viewBox="0 0 '+W+' '+H+'" style="width:100%;min-width:480px;height:auto;display:block">'
     +axes+couches+traitRef+alertesGraph+totauxTxt
     +'<line id="conso-curseur" x1="0" y1="'+mgH+'" x2="0" y2="'+(mgH+ph)+'" stroke="var(--t3)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>'
     +'<circle id="conso-point" cx="0" cy="0" r="6" fill="var(--viz1)" stroke="var(--card)" stroke-width="2.5" opacity="0"/>'
     +pic+zones+'</svg></div>'
-    +'<div style="display:flex;gap:16px;flex-wrap:wrap;padding-top:12px">'+legendeC
+    +'<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding-top:12px">'+legendeC+'<span style="font-size:11.5px;color:var(--t3)">— clique sur le graphique pour voir d\'où vient un pic</span>'
     +(repereOk?'<span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--red)"><span style="width:16px;height:0;border-top:2px dashed var(--red)"></span>Repère à ne pas dépasser</span>':'')+'</div>'
     :emptyState('📉','Aucune consommation sur cette période.','','');
   // ── repères : il faut la durée de la période et les interventions réelles ──
@@ -15042,12 +15084,20 @@ function consoAnalyseHTML(){
           const parMoisPers=sien||moyEquipe;
           const refPers=Math.max(1,Math.round(parMoisPers*mois));
           const trop=g.n!==SANS_NOM&&parMoisPers>0&&g.q>refPers*1.05, fois=refPers>0?(g.q/refPers):0;
+          // ce mois-ci comparé au mois d'avant, pour cette personne et ce produit
+          const moisCe=consoDuMois(t.pid,g.n,cleMoisDecale(0)), moisAv=consoDuMois(t.pid,g.n,cleMoisDecale(1));
+          const cmp=moisAv?Math.round((moisCe-moisAv)/moisAv*100):null;
+          const badgeCmp=(moisCe||moisAv)
+            ? '<span style="font-size:10.5px;font-weight:700;color:'+(cmp===null?'var(--t3)':(cmp>0?'var(--red)':(cmp<0?'var(--acc)':'var(--t3)')))+'" title="Ce mois-ci '+moisCe+' u, le mois pr&eacute;c&eacute;dent '+moisAv+' u">'
+              +(cmp===null?'nouveau ce mois-ci':(cmp>0?'▲ +'+cmp+' % vs mois dernier':(cmp<0?'▼ '+cmp+' % vs mois dernier':'stable vs mois dernier')))+'</span>'
+            : '';
           const coul=trop?'var(--red)':'var(--acc)';
           return '<div style="display:flex;align-items:center;gap:13px;margin-bottom:13px">'
           +'<span style="width:34px;height:34px;flex:none;border-radius:50%;background:color-mix(in srgb,'+coul+' 18%,transparent);color:'+coul+';font-size:12.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+esc(iniG(g.n))+'</span>'
           +'<div style="width:230px;flex:none;min-width:0"><div style="font-size:14px;font-weight:700;color:'+(trop?'var(--red)':'var(--t1)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(g.n)+(trop?' &#9888;':'')+'</div>'
           +'<div style="font-size:11.5px;color:'+(trop?'var(--red)':'var(--t3)')+'">'+(roleDe[g.n]?esc(roleLbl(roleDe[g.n]))+' &middot; ':'')
-            +g.q+' u'+(parMoisPers?' &middot; d\'habitude '+parMoisPers+'/mois':'')+(trop?' &middot; '+(Math.round(fois*10)/10)+'&times; son habitude':'')+'</div></div>'
+            +g.q+' u'+(parMoisPers?' &middot; d\'habitude '+parMoisPers+'/mois':'')+(trop?' &middot; '+(Math.round(fois*10)/10)+'&times; son habitude':'')+'</div>'
+          +(badgeCmp?'<div style="margin-top:1px">'+badgeCmp+'</div>':'')+'</div>'
           +'<div style="flex:1;min-width:60px;height:20px;background:var(--bg);border-radius:100px;overflow:hidden"><div style="height:100%;border-radius:100px;width:'+(g.q/maxG*100)+'%;background:'+(trop?'var(--red)':'linear-gradient(90deg,var(--acc2),var(--acc))')+'"></div></div>'
           +'<div style="width:100px;flex:none;text-align:right"><span style="font-family:monospace;font-size:14.5px;font-weight:700;color:'+(trop?'var(--red)':'var(--t1)')+'">'+g.q+' u</span>'
           +'<div style="font-size:11.5px;color:var(--t3)">'+part+' % du produit</div></div></div>'; }).join('')
