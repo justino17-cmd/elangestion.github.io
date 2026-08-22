@@ -12030,6 +12030,65 @@ function mvtDemoPoser(){
   db.bonsRemise.unshift({id:uid(),num:'BR-DÉMO-2',ts:t(0,3),date:todayISO(),par:'Karim Benali (démo)',parRole:'Technicien',pourQui:'Karim Benali (démo)',boxId:'demo_bx1',valideDr:moi,lignes:[{produitId:'demo_adv',qte:2}],_demo:true});
   save(); toast('🧪 Simulation posée — tout est marqué (démo)'); views.mouvements();
 }
+/* Simulation complète : six mois de consommation sur les VRAIS produits du
+   catalogue de l'entreprise, par une équipe type. Sert à voir ce que donnent
+   l'analyse et les repères quand tout est rempli. Tout est marqué (démo). */
+function mvtDemoGrande(){
+  const equipe=[['Léo Martin (démo)','chefEquipe'],['Karim Benali (démo)','technicien'],
+    ['Sofia Perez (démo)','technicien'],['Justin Roux (démo)','technicien'],
+    ['Nadia Lopez (démo)','chefEquipe'],['Tom Alvarez (démo)','technicien']];
+  const dr='Marc Dubois (démo)';
+  // les box : les vraies si elles existent, sinon trois box de démonstration
+  let boxes=db.boxes.filter(b=>!b._demo&&b.actif!==false).slice(0,4);
+  if(!boxes.length){
+    [['demo_bxA','Box Démo Nord'],['demo_bxB','Box Démo Sud'],['demo_bxC','Box Démo Atelier']].forEach(([id,nom])=>{
+      if(!db.boxes.find(b=>b.id===id)) db.boxes.push({id,nom,_demo:true,stock:{}}); });
+    boxes=db.boxes.filter(b=>b._demo);
+  }
+  // jusqu'à 40 produits du catalogue, répartis sur les catégories
+  const parCat={}; db.produits.filter(p=>!p._demo&&p.nom).forEach(p=>{ const c=p.categorie||'—'; (parCat[c]=parCat[c]||[]).push(p); });
+  let choisis=[]; const cats=Object.keys(parCat);
+  for(let tour=0; choisis.length<40 && tour<12; tour++)
+    cats.forEach(c=>{ const p=parCat[c][tour]; if(p&&choisis.length<40) choisis.push(p); });
+  if(!choisis.length){ toast('Ton catalogue est vide — ajoute des produits d\'abord'); return; }
+  let n=0;
+  const jour=86400000;
+  choisis.forEach((p,ip)=>{
+    const met=repereMetier(p.id);
+    const base=met?met.val:6;                       // rythme mensuel par personne
+    const exces=ip%9===0;                           // un produit sur neuf dépasse volontairement
+    for(let moisEnArriere=5; moisEnArriere>=0; moisEnArriere--){
+      const passages=2+((ip+moisEnArriere)%3);      // 2 à 4 sorties dans le mois
+      for(let k=0;k<passages;k++){
+        const [qui,role]=equipe[(ip+k+moisEnArriere)%equipe.length];
+        const box=boxes[(ip+k)%boxes.length];
+        const facteur=exces&&moisEnArriere===0?6:(0.55+((ip*7+k*13+moisEnArriere*5)%50)/100);
+        const qte=Math.max(1,Math.round(base*facteur/passages*(0.8+((k*11)%40)/100)));
+        const ts=Date.now()-moisEnArriere*30*jour-((k*7+ip)%28)*jour-((ip*3)%20)*3600000;
+        const pourAutre=(ip+k)%4===0;
+        const recoit=pourAutre?equipe[(ip+k+2)%equipe.length]:[qui,role];
+        db.mouvements.push({id:uid(),ts,produitId:p.id,type:'sortie',qte,unite:'u',
+          motif:(k%3===0?'Intervention chantier':'Ajustement (validé DR)')+' — '+(box.nom||box.numero||''),
+          boxId:box.id,boxNomTxt:(box.nom||box.numero||''),vehiculeId:'',
+          technicien:qui,donneA:recoit[0],roleConso:recoit[1],validePar:dr,_demo:true});
+        n++;
+      }
+      // un arrivage de temps en temps, pour que le stock ne soit pas que du négatif
+      if(moisEnArriere%2===0&&ip%3===0){
+        const box=boxes[ip%boxes.length];
+        db.mouvements.push({id:uid(),ts:Date.now()-moisEnArriere*30*jour-25*jour,produitId:p.id,type:'entree',
+          qte:Math.round(base*2),motif:'Arrivage fournisseur — '+(box.nom||box.numero||'')+' (validé DR) · bon BC-DÉMO',
+          boxId:box.id,boxNomTxt:(box.nom||box.numero||''),vehiculeId:'',
+          technicien:'Léo Martin (démo)',roleConso:'chefEquipe',validePar:dr,_demo:true});
+        n++;
+      }
+    }
+  });
+  db.mouvements.sort((a,b)=>b.ts-a.ts);
+  save();
+  toast('Simulation complète : '+choisis.length+' produits, '+n+' mouvements sur 6 mois');
+  views.saisieConso?views.saisieConso():views.mouvements();
+}
 function mvtDemoRetirer(){
   db.mouvements=db.mouvements.filter(m=>!m._demo);
   db.bonsRemise=(db.bonsRemise||[]).filter(r=>!r._demo);
@@ -12037,7 +12096,8 @@ function mvtDemoRetirer(){
   db.demandes=(db.demandes||[]).filter(d=>!d._demo);
   db.boxes=db.boxes.filter(b=>!b._demo);
   db.produits=db.produits.filter(p=>!p._demo);
-  save(); toast('Simulation retirée — tes vraies données sont intactes'); views.mouvements();
+  save(); toast('Simulation retirée — tes vraies données sont intactes');
+  (views[current]||views.mouvements)();
 }
 let mvtFType='', mvtFBox='', mvtFQ='', mvtFBoxQ='', mvtMenuOuvert='', mvtMoisOuverts={}, mvtBoxOuverts={};
 function mvtToggleBox(cle){ mvtBoxOuverts[cle]=!mvtBoxOuverts[cle]; views.mouvements(); }
@@ -12214,7 +12274,7 @@ views.mouvements=function(){
       ${ouvert?`<div style="padding:2px 12px 4px;background:color-mix(in srgb,var(--brd) 30%,transparent)">${jourCartes(arr)}</div>`:''}</div>`;
   }).join('');
   const demoOn=db.mouvements.some(m=>m._demo);
-  const bandeauDemo=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin')?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Remplit le journal avec des exemples de tout : bon de commande, ajouts, consommations, validations DR, remises, mois passés. Tout est marqué (démo) et se retire d'un clic.</div></div>${demoOn?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>`:`<button type="button" class="btn sm" onclick="mvtDemoPoser()">Lancer la simulation</button>`}</div>`:'';
+  const bandeauDemo=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin')?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Remplit le journal avec des exemples de tout : bon de commande, ajouts, consommations, validations DR, remises, mois passés. Tout est marqué (démo) et se retire d'un clic.</div></div>${demoOn?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>`:`<button type="button" class="btn ghost sm" onclick="mvtDemoPoser()">Petite simulation</button> <button type="button" class="btn sm" onclick="mvtDemoGrande()">Tout le catalogue · 6 mois</button>`}</div>`:'';
   $('content').innerHTML=tuiles+barre+bandeauDemo
     +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage et chaque bon de remise y laisse une trace — rangé par jour puis par box, avec le nom de la personne qui l'a fait et de celle qui a validé.</div>`
     +(list.length?cartes:`<div class="card">${emptyState('🔁',(mvtFType||mvtFBox)?'Aucun mouvement ne correspond à ce filtre.':'Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
@@ -14846,8 +14906,10 @@ function consoAnalyseHTML(){
     // au-dessus du repère ? (on ramène la période à un rythme mensuel pour comparer)
     const rep=consoRepereMois(t.pid,topPers.length), mois=Math.max(0.25,(jusqua-depuis)/(30.4*86400000));
     const rythme=t.q/mois, dep=rep&&rythme>rep.ref;
-    const puce=rep?(dep?' <span class="st" style="font-size:10px;padding:1px 8px;background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)" title="Repère '+rep.ref+' u/mois — '+rep.source+'">⚠ '+Math.round(rythme)+' u/mois pour un repère de '+rep.ref+'</span>':'')
-      :' <span style="font-size:10px;color:var(--t3)" title="Il faut au moins trois mois d\'historique pour poser un repère">repère à venir</span>';
+    const puce=rep
+      ? (dep?'<span class="st" style="font-size:10px;padding:1px 8px;background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)" title="Repère '+rep.ref+' u/mois — '+rep.source+'">&#9888; '+Math.round(rythme)+' u/mois pour un repère de '+rep.ref+'</span>'
+             :'<span style="font-size:10.5px;color:var(--t3)" title="Repère '+rep.ref+' u/mois — '+rep.source+'">'+Math.round(rythme)+' u/mois &middot; repère '+rep.ref+'</span>')
+      : '<span style="font-size:10.5px;color:var(--t3)" title="Il faut trois mois d\'historique ou un produit reconnu pour poser un repère">repère à venir</span>';
     const detail=ouv?'<div style="margin:2px 0 16px;padding:16px 18px;background:var(--bg1);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent);border-radius:14px">'
       +'<div style="font-size:11px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--acc);margin-bottom:14px">Qui consomme ce produit &middot; '+t.q+' u au total</div>'
       +(gens.length?gens.map(g=>{ const part=Math.round(g.q/Math.max(1,t.q)*100);
@@ -18274,12 +18336,24 @@ views.statistiques=function(){
 
 /* ═══════════════ SAISIE CONSOMMATION (par box) ═══════════════ */
 let consoBox='', consoSearch='';
+/* encadré de simulation — canal bêta, compte administrateur */
+function bandeauSimu(){
+  if(!(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin')) return '';
+  const on=db.mouvements.some(m=>m._demo);
+  return '<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">&#129514;</span>'
+    +'<div style="flex:1;min-width:220px"><b>Simulation d\'essai</b><div style="font-size:12px;color:var(--t3)">'
+    +'<b>Petite</b> : quelques exemples de tout (arrivage, consommations, remises, validations DR). '
+    +'<b>Tout le catalogue</b> : six mois de consommation sur tes vrais produits, par une équipe type — pour voir ce que ça donne rempli. Tout est marqué (démo).</div></div>'
+    +(on?'<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>'
+        :'<button type="button" class="btn ghost sm" onclick="mvtDemoPoser()">Petite simulation</button> <button type="button" class="btn sm" onclick="mvtDemoGrande()">Tout le catalogue &middot; 6 mois</button>')
+    +'</div>';
+}
 views.saisieConso=function(){
   setHeader('Consommation produits','Qui consomme quoi, combien, et depuis quand');
   const ong=(o,l)=>{ const on=consoOnglet===o;
     return '<button type="button" onclick="consoSetOnglet(\''+o+'\')" style="cursor:pointer;border:none;padding:8px 16px;border-radius:9px;font-size:12.5px;font-weight:700;white-space:nowrap;background:'+(on?'var(--acc)':'transparent')+';color:'+(on?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>'; };
   const onglets='<div style="display:inline-flex;gap:2px;background:var(--bg1);border-radius:12px;padding:3px;margin:0 0 16px">'+ong('analyse','📈 Analyse')+ong('saisie','📋 Saisie')+'</div>';
-  if(consoOnglet==='analyse'){ $('content').innerHTML=onglets+consoAnalyseHTML(); return; }
+  if(consoOnglet==='analyse'){ $('content').innerHTML=onglets+bandeauSimu()+consoAnalyseHTML(); return; }
   if(consoBox && !db.boxes.find(b=>b.id===consoBox)) consoBox='';
   $('content').innerHTML=onglets+`<div class="card"><div class="field" style="margin:0"><label>Box / dispositif</label><select onchange="consoBox=this.value;renderConso()"><option value="">— Choisir une box —</option>${db.boxes.map(b=>`<option value="${b.id}" ${consoBox===b.id?'selected':''}>${esc(b.numero||'')} — ${esc(b.nom)}</option>`).join('')}</select></div></div><div id="conso-wrap"></div>`;
   renderConso();
