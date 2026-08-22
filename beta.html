@@ -12053,9 +12053,25 @@ function mvtDemoGrande(){
   if(!choisis.length){ toast('Ton catalogue est vide — ajoute des produits d\'abord'); return; }
   let n=0;
   const jour=86400000;
+  // des techniciens et leurs chantiers : sans interventions, aucun repère métier
+  // ne peut se calculer — c'est le nombre de chantiers qui donne l'échelle
+  db.techniciens=db.techniciens||[]; db.interventions=db.interventions||[];
+  const idsDemo={};
+  equipe.forEach(([nom],i)=>{ const id='demo_tec'+i; idsDemo[nom]=id;
+    if(!db.techniciens.find(t=>t.id===id)) db.techniciens.push({id,nom,_demo:true}); });
+  equipe.forEach(([nom],i)=>{
+    const parMois=8+((i*5)%14);            // de 8 à 21 chantiers par mois selon la personne
+    for(let mo=5;mo>=0;mo--) for(let k=0;k<parMois;k++){
+      const d=new Date(Date.now()-mo*30*jour-((k*3+i)%28)*jour);
+      db.interventions.push({id:uid(),date:d.toLocaleDateString('sv-SE'),heure:'09:00',
+        titre:'Chantier '+(mo+1)+'-'+(k+1)+' (démo)',statut:'terminee',techIds:[idsDemo[nom]],_demo:true});
+      n++; }
+  });
   choisis.forEach((p,ip)=>{
-    const met=repereMetier(p.id);
-    const base=met?met.val:6;                       // rythme mensuel par personne
+    const met=repereParIntervention(p.id);
+    // rythme mensuel plausible : ce que le produit consomme par chantier,
+    // multiplié par une douzaine de chantiers dans le mois
+    const base=(met&&!met.fixe)?Math.max(1,Math.round(met.parInt*12)):6;
     const exces=ip%9===0;                           // un produit sur neuf dépasse volontairement
     for(let moisEnArriere=5; moisEnArriere>=0; moisEnArriere--){
       const passages=2+((ip+moisEnArriere)%3);      // 2 à 4 sorties dans le mois
@@ -12094,6 +12110,8 @@ function mvtDemoRetirer(){
   db.bonsRemise=(db.bonsRemise||[]).filter(r=>!r._demo);
   db.boxMvtAttente=(db.boxMvtAttente||[]).filter(m=>!m._demo);
   db.demandes=(db.demandes||[]).filter(d=>!d._demo);
+  db.interventions=(db.interventions||[]).filter(i=>!i._demo);
+  db.techniciens=(db.techniciens||[]).filter(t=>!t._demo);
   db.boxes=db.boxes.filter(b=>!b._demo);
   db.produits=db.produits.filter(p=>!p._demo);
   save(); toast('Simulation retirée — tes vraies données sont intactes');
