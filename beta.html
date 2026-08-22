@@ -12105,6 +12105,51 @@ function mvtDemoGrande(){
   toast('Simulation complète : '+choisis.length+' produits, '+n+' mouvements sur 6 mois');
   views.saisieConso?views.saisieConso():views.mouvements();
 }
+/* Simulation « deux mois » : le mois dernier vs ce mois-ci, mêmes personnes et
+   mêmes produits, pour voir les comparaisons ▲/▼ et les alertes en action.
+   - Karim explose (×4), Sofia baisse, Léo reste stable, Nadia est nouvelle.
+   Tout est marqué (démo) et se retire d'un clic. */
+function mvtDemoDeuxMois(){
+  const dr='Marc Dubois (démo)';
+  if(!db.boxes.find(b=>b.id==='demo_bx1')) db.boxes.push({id:'demo_bx1',nom:'Box Démo Nord',_demo:true,stock:{}});
+  if(!db.boxes.find(b=>b.id==='demo_bx2')) db.boxes.push({id:'demo_bx2',nom:'Box Démo Sud',_demo:true,stock:{}});
+  const prods=[['demo_2m_a','RATICIDE GRAINS SACHET 30G','RG30'],['demo_2m_b','ADVION GEL BLATTES 30G','ADV30'],
+    ['demo_2m_c','PIÈGE COLLANT RAMPANTS','PIE05'],['demo_2m_d','GANTS NITRILE (boîte)','GAN07']];
+  prods.forEach(([id,n,r])=>{ if(!db.produits.find(p=>p.id===id)) db.produits.push({id,nom:n+' (démo)',ref:r,qte:0,_demo:true}); });
+  // [produit, personne, rôle, box, mois dernier, ce mois-ci]
+  const plan=[
+    ['demo_2m_a','Karim Benali (démo)','technicien','demo_bx1', 300, 1200],   // ▲ +300 % → rouge
+    ['demo_2m_a','Sofia Perez (démo)','technicien','demo_bx2',  280,  180],   // ▼ -36 %
+    ['demo_2m_a','Léo Martin (démo)','chefEquipe','demo_bx1',   250,  260],   // stable
+    ['demo_2m_b','Karim Benali (démo)','technicien','demo_bx1',   8,   26],   // ▲ le gel aussi
+    ['demo_2m_b','Sofia Perez (démo)','technicien','demo_bx2',    9,    8],
+    ['demo_2m_b','Nadia Lopez (démo)','chefEquipe','demo_bx1',    0,   12],   // nouvelle ce mois-ci
+    ['demo_2m_c','Léo Martin (démo)','chefEquipe','demo_bx2',    40,   36],
+    ['demo_2m_c','Justin Roux (démo)','technicien','demo_bx1',   35,   90],   // ▲ +157 %
+    ['demo_2m_d','Sofia Perez (démo)','technicien','demo_bx2',    3,    2],
+    ['demo_2m_d','Justin Roux (démo)','technicien','demo_bx1',    2,    3]
+  ];
+  const tsMoisDernier=k=>{ const d=new Date(); d.setMonth(d.getMonth()-1); d.setDate(5+(k%18)); d.setHours(9+(k%8),15,0,0); return d.getTime(); };
+  const tsCeMois=k=>{ const d=new Date(); const jMax=Math.max(2,Math.min(d.getDate()-1,24)); const j=1+(k*5)%jMax; 
+    const r=new Date(d.getFullYear(),d.getMonth(),j,9+(k%8),40); return Math.min(r.getTime(),Date.now()-3600000); };
+  let n=0;
+  plan.forEach(([pid,qui,role,bx,avant,mnt],k)=>{
+    const bNom=(db.boxes.find(b=>b.id===bx)||{}).nom||'';
+    const pose=(total,ts1,ts2)=>{ if(!total) return;
+      // deux remises dans le mois, pour un journal réaliste
+      const a=Math.round(total*0.6), b2=total-a;
+      [[a,ts1],[b2,ts2]].forEach(([q,ts])=>{ if(!q) return;
+        db.mouvements.push({id:uid(),ts,produitId:pid,type:'sortie',qte:q,unite:'u',
+          motif:'Ajustement (validé DR) — '+bNom,boxId:bx,boxNomTxt:bNom,vehiculeId:'',
+          technicien:qui,donneA:qui,roleConso:role,validePar:dr,_demo:true}); n++; }); };
+    pose(avant,tsMoisDernier(k),tsMoisDernier(k+7));
+    pose(mnt,tsCeMois(k),tsCeMois(k+3));
+  });
+  db.mouvements.sort((a,b)=>b.ts-a.ts);
+  save();
+  toast('🧪 Deux mois posés : mois dernier vs ce mois-ci — '+n+' mouvements');
+  consoJours=90; (views[current]||views.saisieConso)();
+}
 function mvtDemoRetirer(){
   db.mouvements=db.mouvements.filter(m=>!m._demo);
   db.bonsRemise=(db.bonsRemise||[]).filter(r=>!r._demo);
@@ -18552,7 +18597,7 @@ function bandeauSimu(){
     +'<b>Petite</b> : quelques exemples de tout (arrivage, consommations, remises, validations DR). '
     +'<b>Tout le catalogue</b> : six mois de consommation sur tes vrais produits, par une équipe type — pour voir ce que ça donne rempli. Tout est marqué (démo).</div></div>'
     +(on?'<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>'
-        :'<button type="button" class="btn ghost sm" onclick="mvtDemoPoser()">Petite simulation</button> <button type="button" class="btn sm" onclick="mvtDemoGrande()">Tout le catalogue &middot; 6 mois</button>')
+        :'<button type="button" class="btn ghost sm" onclick="mvtDemoPoser()">Petite simulation</button> <button type="button" class="btn ghost sm" onclick="mvtDemoDeuxMois()">Mois dernier vs ce mois-ci</button> <button type="button" class="btn sm" onclick="mvtDemoGrande()">Tout le catalogue &middot; 6 mois</button>')
     +'</div>';
 }
 views.saisieConso=function(){
