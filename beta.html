@@ -14948,6 +14948,27 @@ function consoAnalyseHTML(){
       +'<div class="bar-track" style="height:20px"><div class="bar-fill" style="width:'+(t.q/maxH*100)+'%;background:'+(fort?'var(--org)':'linear-gradient(90deg,var(--acc2),var(--acc))')+'"></div></div>'
       +'<div class="bar-val" style="font-size:14px">'+t.q+' u</div></div>'; }).join('');
   const alertes=topPers.filter(t=>t.nom!==SANS_NOM&&moyPers>0&&t.q>moyPers*1.6&&t.q>=5);
+  // ── récapitulatif mois par mois ──
+  const parMoisTab={};
+  sorties.forEach(m=>{ const c=new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7);
+    const e=(parMoisTab[c]=parMoisTab[c]||{q:0,gens:{},prods:{}});
+    e.q+=(m.qte||0); const g=quiConso(m); e.gens[g]=(e.gens[g]||0)+(m.qte||0);
+    e.prods[m.produitId]=(e.prods[m.produitId]||0)+(m.qte||0); });
+  const moisCles=Object.keys(parMoisTab).sort().reverse();
+  const maxMois=Math.max(1,...moisCles.map(c=>parMoisTab[c].q));
+  const lignesMois=moisCles.map((c,i)=>{ const e=parMoisTab[c];
+    const prec=moisCles[i+1]?parMoisTab[moisCles[i+1]].q:0;
+    const topP=Object.entries(e.prods).sort((a,b)=>b[1]-a[1])[0];
+    const topG=Object.entries(e.gens).sort((a,b)=>b[1]-a[1])[0];
+    const nbG=Object.keys(e.gens).length;
+    const lbl=new Date(c+'-15T12:00:00').toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+    return '<tr><td class="strong" style="text-transform:capitalize;white-space:nowrap">'+esc(lbl)+'</td>'
+      +'<td style="min-width:110px"><div class="bar-track" style="height:14px"><div class="bar-fill" style="width:'+(e.q/maxMois*100)+'%"></div></div></td>'
+      +'<td class="strong" style="text-align:right;white-space:nowrap">'+e.q+' u</td>'
+      +'<td style="text-align:right;white-space:nowrap">'+evol(e.q,prec)+'</td>'
+      +'<td style="white-space:nowrap">'+nbG+' personne'+(nbG>1?'s':'')+(topG?' <span style="color:var(--t3);font-size:12px">· '+esc(topG[0])+' en tête</span>':'')+'</td>'
+      +'<td style="color:var(--t2);overflow:hidden;text-overflow:ellipsis;max-width:240px">'+(topP?esc(produit(topP[0]).nom||'—')+' <b style="color:var(--t1)">'+topP[1]+' u</b>':'—')+'</td></tr>'; }).join('');
+  const moyenneMois=moisCles.length?Math.round(moisCles.reduce((s,c)=>s+parMoisTab[c].q,0)/moisCles.length):0;
   // ── tableau croisé qui consomme quoi ──
   const croise={}; sorties.forEach(m=>{ const q=quiConso(m); (croise[q]=croise[q]||{})[m.produitId]=(croise[q][m.produitId]||0)+(m.qte||0); });
   const lignesCroise=topPers.slice(0,10).map(t=>{ const prods=Object.entries(croise[t.nom]||{}).sort((a,b)=>b[1]-a[1]);
@@ -14989,6 +15010,9 @@ function consoAnalyseHTML(){
       ${topProd.length?barresProd:emptyState('📦','Aucun produit consommé sur cette période.','','')}</div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Consommation par personne</h3></div>
       ${topPers.length?barresPers+`<div style="font-size:12px;color:var(--t3);padding-top:8px">Moyenne de l'équipe : <b style="color:var(--t2)">${Math.round(moyPers)} u</b> sur la période. Une barre orange signale une consommation nettement au-dessus.${topPers.some(t=>t.nom===SANS_NOM)?` « Non précisé » regroupe d'anciens mouvements enregistrés sans nom de personne — les nouveaux en portent toujours un.`:''}</div>`:emptyState('👤',"Personne n'a consommé sur cette période.",'','')}</div>
+    ${moisCles.length?`<div style="font-weight:800;font-size:13.5px;margin:0 2px 8px">📅 Consommation mois par mois</div>`
+      +tableCard(['Mois','','Unités','Évolution','Personnes','Produit le plus consommé'],lignesMois)
+      +`<div style="font-size:12px;color:var(--t3);margin:-6px 2px 16px">Moyenne sur la période : <b style="color:var(--t2)">${moyenneMois} u par mois</b>. L'évolution compare chaque mois au précédent.</div>`:''}
     ${topPers.length?`<div style="font-weight:800;font-size:13.5px;margin:0 2px 8px">Qui consomme quoi</div>`+tableCard(['Personne','Produits consommés','Total'],lignesCroise):''}`;
 }
 
