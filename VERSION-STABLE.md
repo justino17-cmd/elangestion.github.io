@@ -1,6 +1,13 @@
 # Point stable TeamOP
 
-**Version stable : v546** — gravée le 20 août 2026.
+**Version stable : v547** — gravée le 22 août 2026.
+
+v547 — le journal des mouvements refait (cases pliées par jour et par box,
+bons de remise intégrés, Donné à, étiquettes automatiques, recherche), et
+l'analyse de consommation complète (courbe cliquable, repères sur les produits
+donnés, comparaison au mois précédent, sections par personne et par mois).
+
+Ancien point : **v546** — gravée le 20 août 2026.
 
 Ce que contient cette version (les deux liens la portent) :
 - Circuit client 100 % automatique : demande (tous champs obligatoires, nom du lien
