@@ -14839,36 +14839,47 @@ function consoNbInterv(depuis,jusqua,nom){
   });
   return n;
 }
-/* Repère de consommation d'un produit — TOUJOURS EXPRIMÉ PAR MOIS.
-   Trois sources, de la plus fiable à la moins fiable :
-   1. le maxi saisi sur la fiche produit — c'est toi qui décides ;
-   2. la vraie consommation de l'entreprise, dès trois mois d'historique ;
-   3. un repère métier de départ, d'après ce qu'est le produit.
-   Sans aucune des trois, on ne dit rien plutôt que d'inventer. */
-const CHANTIERS_MOIS=20;   // base du repère métier : chantiers par mois et par personne
-function consoRepereMois(pid, nbPers){
+/* Repère de consommation d'un produit — TOUJOURS PAR MOIS, et TOUJOURS
+   calculé sur les produits réellement DONNÉS chaque mois. Aucun chiffre
+   inventé : c'est la moyenne de ce que l'entreprise distribue.
+   Le maxi saisi sur la fiche produit reste prioritaire quand il existe. */
+function consoRepereMois(pid){
   const p=produit(pid)||{};
-  if(p.maxConso>0) return {mois:p.maxConso, source:'maxi que tu as saisi sur la fiche produit'};
-  const debut=Date.now()-183*86400000;
+  if(p.maxConso>0) return {mois:p.maxConso, source:'maxi que tu as saisi sur la fiche produit', mois_n:0};
+  // ce qui est sorti de la box pour quelqu'un, mois par mois, sur un an
+  const debut=Date.now()-370*86400000;
   const parMois={};
-  db.mouvements.forEach(m=>{ if(m.type!=='sortie'||m.produitId!==pid||m.ts<debut) return;
+  db.mouvements.forEach(m=>{
+    if(m.type!=='sortie'||m.produitId!==pid||m.ts<debut) return;
+    if(!m.donneA) return;                       // ← seulement ce qui a été DONNÉ
     const c=new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7);
     parMois[c]=(parMois[c]||0)+(m.qte||0); });
   const listeMois=Object.values(parMois);
-  if(listeMois.length>=3){
-    const moy=listeMois.reduce((s,v)=>s+v,0)/listeMois.length;
-    return {mois:Math.max(1,Math.round(moy*1.6)), source:'calculé sur '+listeMois.length+' mois de ta consommation'};
-  }
-  const met=repereParIntervention(pid);
-  if(met&&met.fixe) return {mois:met.fixe, source:'matériel durable — on n\'en consomme pas'};
-  if(met) return {mois:Math.max(1,Math.min(100000,Math.round(met.parInt*CHANTIERS_MOIS*Math.max(1,nbPers||1)))),
-    source:'repère métier de départ ('+met.lbl+') — à ajuster sur la fiche produit'};
-  return null;
+  if(!listeMois.length) return null;            // rien de donné : rien à dire
+  const moy=listeMois.reduce((s,v)=>s+v,0)/listeMois.length;
+  return {mois:Math.max(1,Math.round(moy)),
+    source:'moyenne de ce qui est donné chaque mois — '+listeMois.length+' mois observé'+(listeMois.length>1?'s':''),
+    mois_n:listeMois.length};
 }
 /* Le même repère, ramené à la durée affichée. */
 function consoRepere(pid, nbPers, mois){
-  const r=consoRepereMois(pid,nbPers); if(!r) return null;
-  return {ref:Math.max(1,Math.round(r.mois*mois)), parMois:r.mois, source:r.source};
+  const r=consoRepereMois(pid); if(!r) return null;
+  return {ref:Math.max(1,Math.round(r.mois*mois)), parMois:r.mois, source:r.source, moisObs:r.mois_n};
+}
+/* Ce qu'UNE personne reçoit normalement de ce produit en un mois :
+   la moyenne mensuelle de ce qui lui est donné, et à défaut la moyenne de
+   l'équipe sur ce produit. */
+function consoRepereMoisPersonne(pid, nom){
+  const debut=Date.now()-370*86400000;
+  const parMois={};
+  db.mouvements.forEach(m=>{
+    if(m.type!=='sortie'||m.produitId!==pid||m.ts<debut||!m.donneA) return;
+    if(m.donneA!==nom) return;
+    const c=new Date(m.ts).toLocaleDateString('sv-SE').slice(0,7);
+    parMois[c]=(parMois[c]||0)+(m.qte||0); });
+  const l=Object.values(parMois);
+  if(!l.length) return null;
+  return Math.max(1,Math.round(l.reduce((s,v)=>s+v,0)/l.length));
 }
 function consoAnalyseHTML(){
   const isMgr=currentUser&&(currentUser.role==='admin'||currentUser.role==='dr');
@@ -15014,8 +15025,8 @@ function consoAnalyseHTML(){
     const dep=rep&&t.q>rep.ref*1.05;   // petite tolérance : pas d'alerte pour un écart insignifiant
     const puce=rep
       ? (dep?'<span class="st" style="font-size:10px;padding:1px 8px;background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)" title="'+rep.source+'">&#9888; '+t.q+' pour un repère de '+rep.ref+' ('+rep.parMois+'/mois)</span>'
-             :'<span style="font-size:10.5px;color:var(--t3)" title="'+rep.source+'">repère '+rep.parMois+' par mois</span>')
-      : '<span style="font-size:10.5px;color:var(--t3)" title="Mets un maxi sur la fiche produit, ou laisse trois mois d\'historique se constituer">repère à venir</span>';
+             :'<span style="font-size:10.5px;color:var(--t3)" title="'+rep.source+'">donné en moyenne '+rep.parMois+' par mois</span>')
+      : '<span style="font-size:10.5px;color:var(--t3)" title="Ce produit n\'a encore jamais été donné à quelqu\'un — le repère se construira tout seul">jamais donné pour l\'instant</span>';
     const detail=ouv?'<div style="margin:2px 0 16px;padding:16px 18px;background:var(--bg1);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent);border-radius:14px">'
       +'<div style="font-size:11px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--acc);margin-bottom:14px">Qui consomme ce produit &middot; '+t.q+' u au total</div>'
       +(gens.length?(function(){
@@ -15024,21 +15035,23 @@ function consoAnalyseHTML(){
         // la part qui revient à une personne : le repère du produit divisé par
         // le nombre de personnes qui l'utilisent
         const repProd=consoRepere(t.pid,gens.length,mois);
-        const moyG=gens.reduce((s,g)=>s+g.q,0)/gens.length;
-        const refPers=repProd?Math.max(1,Math.round(repProd.ref/Math.max(1,gens.length))):Math.max(1,Math.round(moyG*1.6));
-        const parMoisPers=repProd?Math.max(1,Math.round(repProd.parMois/Math.max(1,gens.length))):0;
+        const moyEquipe=repProd?Math.max(1,Math.round(repProd.parMois/Math.max(1,gens.length))):0;
         return gens.map(g=>{ const part=Math.round(g.q/Math.max(1,t.q)*100);
-          const trop=g.n!==SANS_NOM&&g.q>refPers*1.05, fois=refPers>0?(g.q/refPers):0;
+          // ce que CETTE personne reçoit d'habitude par mois, sinon la part moyenne de l'équipe
+          const sien=consoRepereMoisPersonne(t.pid,g.n);
+          const parMoisPers=sien||moyEquipe;
+          const refPers=Math.max(1,Math.round(parMoisPers*mois));
+          const trop=g.n!==SANS_NOM&&parMoisPers>0&&g.q>refPers*1.05, fois=refPers>0?(g.q/refPers):0;
           const coul=trop?'var(--red)':'var(--acc)';
           return '<div style="display:flex;align-items:center;gap:13px;margin-bottom:13px">'
           +'<span style="width:34px;height:34px;flex:none;border-radius:50%;background:color-mix(in srgb,'+coul+' 18%,transparent);color:'+coul+';font-size:12.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+esc(iniG(g.n))+'</span>'
           +'<div style="width:230px;flex:none;min-width:0"><div style="font-size:14px;font-weight:700;color:'+(trop?'var(--red)':'var(--t1)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(g.n)+(trop?' &#9888;':'')+'</div>'
           +'<div style="font-size:11.5px;color:'+(trop?'var(--red)':'var(--t3)')+'">'+(roleDe[g.n]?esc(roleLbl(roleDe[g.n]))+' &middot; ':'')
-            +g.q+' u'+(parMoisPers?' &middot; repère '+parMoisPers+'/mois':'')+(trop?' &middot; '+(Math.round(fois*10)/10)+'&times; le repère':'')+'</div></div>'
+            +g.q+' u'+(parMoisPers?' &middot; d\'habitude '+parMoisPers+'/mois':'')+(trop?' &middot; '+(Math.round(fois*10)/10)+'&times; son habitude':'')+'</div></div>'
           +'<div style="flex:1;min-width:60px;height:20px;background:var(--bg);border-radius:100px;overflow:hidden"><div style="height:100%;border-radius:100px;width:'+(g.q/maxG*100)+'%;background:'+(trop?'var(--red)':'linear-gradient(90deg,var(--acc2),var(--acc))')+'"></div></div>'
           +'<div style="width:100px;flex:none;text-align:right"><span style="font-family:monospace;font-size:14.5px;font-weight:700;color:'+(trop?'var(--red)':'var(--t1)')+'">'+g.q+' u</span>'
           +'<div style="font-size:11.5px;color:var(--t3)">'+part+' % du produit</div></div></div>'; }).join('')
-          +'<div style="font-size:11.5px;color:var(--t3);padding-top:2px">Repère du produit partag&eacute; entre les '+gens.length+' personnes qui l\'utilisent. Au-dessus, la ligne passe en rouge.</div>';
+          +'<div style="font-size:11.5px;color:var(--t3);padding-top:2px">Chacun est compar&eacute; &agrave; ce qu\'on lui donne d\'habitude chaque mois. Au-dessus, la ligne passe en rouge.</div>';
       })()
         :'<div style="font-size:13px;color:var(--t3)">Personne pour l\'instant.</div>')+'</div>':'';
     return '<div onclick="consoToggleProd(\''+t.pid+'\')" title="'+(ouv?'Replier':'Voir qui consomme ce produit')+'" style="cursor:pointer;padding:3px 0">'
