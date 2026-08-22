@@ -14723,32 +14723,57 @@ function consoSurvolFin(){ const c=document.getElementById('conso-curseur'), pt=
    tant que l'entreprise n'a pas trois mois d'historique sur le produit ; ils
    sont indicatifs et se corrigent produit par produit (champ « Maxi consommé /
    mois » de la fiche produit), qui l'emporte toujours. */
-/* Chiffres établis d'après les dosages officiels des fabricants (gel : 0,1 g par
+/* ── REPÈRES MÉTIER ──
+   Ce qu'une personne consomme normalement en un mois, exprimé en QUANTITÉ DE
+   MATIÈRE (grammes ou millilitres) et non en « unités » : un carton de 10 kg et
+   une cartouche de 30 g ne se comptent pas pareil. L'application lit le
+   conditionnement dans le nom du produit et convertit.
+   Chiffres établis d'après les dosages officiels des fabricants (gel : 0,1 g par
    point, 2 à 5 points/m² — blocs rongeurs : 90 g par poste rat, 30 g par poste
-   souris — K-Othrine EC25 : 40 à 60 ml pour 100 m²), ramenés à une base de
-   120 interventions par mois et par technicien. */
+   souris — K-Othrine EC25 : 40 à 60 ml pour 100 m²), sur une base de
+   120 interventions par mois et par technicien.
+   `g` / `ml` : la matière consommée par mois et par personne.
+   `n` : le nombre d'unités, quand le produit ne se pèse pas (pièges, EPI…) ou
+   que son conditionnement n'est pas lisible dans le nom. */
 const REPERES_METIER=[
-  [/detection|détection|debusk|traceur|revelateur|révélateur/i,                4, 'produit de détection'],
-  [/gel\s*(anti-?)?(blatte|cafard|fourmi)|maxforce|advion|goliath|vendetta/i, 8,  'gel en seringue'],
-  [/aerosol|aérosol|spray|laque|fumigene|fumigène|bombe/i,                     6, 'aérosol ou fumigène'],
-  [/appat.*grain|grain.*(rat|souri)|raticide.*grain|ratimor.*grain/i,        100, 'appât en grains'],
-  [/(raticide|rodonticide|souricide|muskil|ratimor|romax|racumin|difenacoum|brodifacoum|bromadiolone|difethialone).*(bloc|pate|pâte|sachet|cube|frais|fraiche|fraîche)|bloc.*(rat|souri)|pate.*(rat|souri)|pâte.*(rat|souri)/i, 100, 'bloc ou pâte rongeurs'],
-  [/poste.*app|station.*app|boite.*app|boîte.*app|appat.*securis|appât.*sécuris/i, 15, "poste d'appâtage"],
-  [/piege.*collant|piège.*collant|plaquette.*glu|plaque.*glu|glue.*board/i,   40, 'piège collant'],
-  [/pheromone|phéromone|trappit|delta.*trap/i,                                15, 'piège à phéromones'],
-
-  [/concentr|emulsion|émulsion|\bec\b|\bsc\b|\bwp\b|cypermethrine|deltamethrine|k-?othrine|ficam|alta\s*7000/i, 3, 'concentré à diluer'],
-  [/gant/i,                                                                    3, 'boîte de gants'],
-  [/masque|ffp[123]|cartouche.*filtre|filtre.*masque/i,                       10, 'protection respiratoire'],
-  [/combinaison|charlotte|surchaussure|lunette|visiere|visière/i,             10, 'équipement jetable'],
-  [/xylophene|xylophène|xylo|termite|charpente|bois/i,                        60, 'traitement du bois'],
-  [/desinfect|désinfect|virucide|bactericide|bactéricide|javel|alcool/i,      10, 'désinfection'],
-  [/grillage|proofing|obturation|mousse|silicone|joint|brosse.*bas.*porte/i,  20, 'matériel de proofing'],
-  [/pulverisateur|pulvérisateur|nebuliseur|nébuliseur|atomiseur|lampe|torche|pistolet|appareil|aspirateur/i, 1, 'matériel durable']
+  [/detection|détection|debusk|traceur|revelateur|révélateur/i,               {ml:1200,n:4},  'produit de détection'],
+  [/gel\s*(anti-?)?(blatte|cafard|fourmi)|maxforce|advion|goliath|vendetta/i, {g:240,n:8},    'gel en seringue'],
+  [/aerosol|aérosol|spray|laque|fumigene|fumigène|bombe/i,                    {ml:3000,n:6},  'aérosol ou fumigène'],
+  [/appat.*grain|grain.*(rat|souri)|raticide.*grain|ratimor.*grain/i,         {g:3000,n:100}, 'appât en grains'],
+  [/(raticide|rodonticide|souricide|muskil|ratimor|romax|racumin|difenacoum|brodifacoum|bromadiolone|difethialone).*(bloc|pate|pâte|sachet|cube|frais|fraiche|fraîche)|bloc.*(rat|souri)|pate.*(rat|souri)|pâte.*(rat|souri)/i, {g:3000,n:100}, 'bloc ou pâte rongeurs'],
+  [/poste.*app|station.*app|boite.*app|boîte.*app|appat.*securis|appât.*sécuris/i, {n:15},    "poste d'appâtage"],
+  [/piege.*collant|piège.*collant|plaquette.*glu|plaque.*glu|glue.*board/i,   {n:40},         'piège collant'],
+  [/pheromone|phéromone|trappit|delta.*trap/i,                               {n:15},         'piège à phéromones'],
+  [/concentr|emulsion|émulsion|\bec\b|\bsc\b|\bwp\b|cypermethrine|deltamethrine|k-?othrine|ficam|alta\s*7000/i, {ml:3000,n:3}, 'concentré à diluer'],
+  [/gant/i,                                                                  {n:3},          'boîte de gants'],
+  [/masque|ffp[123]|cartouche.*filtre|filtre.*masque/i,                      {n:10},         'protection respiratoire'],
+  [/combinaison|charlotte|surchaussure|lunette|visiere|visière/i,            {n:10},         'équipement jetable'],
+  [/xylophene|xylophène|xylo|xilix|termite|termifilm|charpente|\bbois\b|insecticide.*anti-?termite/i, {ml:60000,n:60},'traitement du bois'],
+  [/desinfect|désinfect|virucide|bactericide|bactéricide|javel|alcool/i,     {ml:10000,n:10},'désinfection'],
+  [/grillage|proofing|obturation|mousse|silicone|joint|brosse.*bas.*porte/i, {n:20},         'matériel de proofing'],
+  [/pulverisateur|pulvérisateur|nebuliseur|nébuliseur|atomiseur|lampe|torche|pistolet|appareil|aspirateur/i, {n:1}, 'matériel durable']
 ];
+/* Ce que contient une unité du produit, lu dans son nom : « CARTON DE 10KG »,
+   « SEAU DE 5KG », « 30G », « 300 ML », « 1 LITRE »… */
+function contenuUnite(nom){
+  const t=String(nom||'').replace(',', '.');
+  let m=t.match(/(\d+(?:\.\d+)?)\s*(kg|kilo)/i);            if(m) return {g:parseFloat(m[1])*1000};
+  m=t.match(/(\d+(?:\.\d+)?)\s*(?:l|lt|litres?)\b/i);       if(m) return {ml:parseFloat(m[1])*1000};
+  m=t.match(/(\d+(?:\.\d+)?)\s*ml\b/i);                     if(m) return {ml:parseFloat(m[1])};
+  m=t.match(/(\d+(?:\.\d+)?)\s*g\b/i);                      if(m) return {g:parseFloat(m[1])};
+  return null;
+}
 function repereMetier(pid){ const p=produit(pid)||{};
   const txt=(p.nom||'')+' '+(p.categorie||'');
-  for(const [re,val,lbl] of REPERES_METIER) if(re.test(txt)) return {val,lbl};
+  for(const [re,ref,lbl] of REPERES_METIER){
+    if(!re.test(txt)) continue;
+    const c=contenuUnite(p.nom);
+    // le nom donne le conditionnement ET le repère est une matière → on convertit
+    if(c&&c.g&&ref.g)   return {val:Math.max(1,Math.round(ref.g/c.g)),   lbl:lbl+', conditionnement '+(c.g>=1000?(c.g/1000)+' kg':c.g+' g')};
+    if(c&&c.ml&&ref.ml) return {val:Math.max(1,Math.round(ref.ml/c.ml)), lbl:lbl+', conditionnement '+(c.ml>=1000?(c.ml/1000)+' L':c.ml+' ml')};
+    if(ref.n)           return {val:ref.n, lbl:lbl};
+    return null;
+  }
   return null; }
 /* Repère de consommation d'un produit, en unités par mois.
    Ordre : le maxi saisi sur la fiche produit, sinon un repère calculé sur les
