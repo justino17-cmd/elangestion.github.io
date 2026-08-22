@@ -12168,6 +12168,8 @@ function mvtMenu(k){ mvtMenuOuvert=(mvtMenuOuvert===k?'':k); if(mvtMenuOuvert!==
 function mvtChoisirType(t){ mvtFType=t; mvtMenuOuvert=''; views.mouvements(); }
 function mvtChoisirBox(id){ mvtFBox=id; mvtMenuOuvert=''; mvtFBoxQ=''; views.mouvements(); }
 function mvtBoxQ(v){ mvtFBoxQ=v; views.mouvements(); const i=$('mvt-box-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
+let consoPersOuv={}, consoPersListe=[];
+function consoTogglePers(i){ const n=(consoPersListe[i]||{}).nom; if(!n) return; consoPersOuv[n]=!consoPersOuv[n]; views.saisieConso(); }
 function mvtToggleMois(k){ mvtMoisOuverts[k]=!mvtMoisOuverts[k]; views.mouvements(); }
 function mvtSetQ(v){ mvtFQ=v; views.mouvements(); const i=$('mvt-q'); if(i){ i.focus(); const n=i.value.length; try{ i.setSelectionRange(n,n); }catch(e){} } }
 views.mouvements=function(){
@@ -15154,10 +15156,34 @@ function consoAnalyseHTML(){
       +'<div class="bar-track" style="height:20px"><div class="bar-fill" style="width:'+(t.q/maxP*100)+'%;background:'+(rep&&dep?'var(--red)':'linear-gradient(90deg,var(--acc2),var(--acc))')+'"></div></div>'
       +'<div class="bar-val" style="font-size:14px'+(rep&&dep?';color:var(--red)':'')+'">'+t.q+' u</div></div></div>'+detail; }).join('');
   const maxH=Math.max(1,...topPers.slice(0,10).map(t=>t.q));
-  const barresPers=topPers.slice(0,10).map(t=>{ const fort=t.nom!==SANS_NOM&&moyPers>0&&t.q>moyPers*1.6&&t.q>=5;
-    return '<div class="bar-row" style="margin-bottom:14px"><div class="bar-lbl" style="width:250px;font-size:13.5px" title="'+esc(t.nom)+(roleDe[t.nom]?' - '+esc(roleLbl(roleDe[t.nom])):'')+'">'+esc(t.nom)+pastilleRole(t.nom)+' '+evol(t.q,parPersAvant[t.nom]||0)+(fort?' <span class="st st-org" style="font-size:10px;padding:1px 7px">&#224; v&#233;rifier</span>':'')+'</div>'
-      +'<div class="bar-track" style="height:20px"><div class="bar-fill" style="width:'+(t.q/maxH*100)+'%;background:'+(fort?'var(--org)':'linear-gradient(90deg,var(--acc2),var(--acc))')+'"></div></div>'
-      +'<div class="bar-val" style="font-size:14px">'+t.q+' u</div></div>'; }).join('');
+  // qui consomme quoi — sert au panneau qui s'ouvre sous chaque personne
+  const croise={}; sorties.forEach(m=>{ const q=quiConso(m); (croise[q]=croise[q]||{})[m.produitId]=(croise[q][m.produitId]||0)+(m.qte||0); });
+  consoPersListe=topPers.slice(0,12);
+  const PALP=['#2EB872','#2563EB','#A78BFA','#E79A3C','#0EA5A4','#D96BB0','#8B5A2B','#E0524D'];
+  const iniP=n=>String(n||'').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).join('').toUpperCase()||'?';
+  const barresPers=consoPersListe.map((t,i)=>{
+    const fort=t.nom!==SANS_NOM&&moyPers>0&&t.q>moyPers*1.6&&t.q>=5;
+    const ouv=!!consoPersOuv[t.nom];
+    const coul=fort?'var(--org)':PALP[i%PALP.length];
+    const part=Math.round(t.q/Math.max(1,unites)*100);
+    const prods=Object.entries(croise[t.nom]||{}).map(([pid,q])=>({pid,q,nom:produit(pid).nom||'—'})).sort((a,b)=>b.q-a.q);
+    const maxPr=Math.max(1,...prods.map(p=>p.q));
+    const detail=ouv?'<div style="margin:4px 0 14px 51px;padding:14px 18px;background:var(--bg1);border:1px solid color-mix(in srgb,'+coul+' 30%,transparent);border-radius:14px">'
+      +'<div style="font-size:11px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:'+coul+';margin-bottom:12px">Ce qu\'on lui a donn&eacute; &middot; '+prods.length+' produit'+(prods.length>1?'s':'')+'</div>'
+      +prods.slice(0,10).map(p=>'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">'
+        +'<div style="width:250px;flex:none;font-size:13px;font-weight:600;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(p.nom)+'">'+esc(p.nom)+'</div>'
+        +'<div style="flex:1;min-width:60px;height:16px;background:var(--bg);border-radius:100px;overflow:hidden"><div style="height:100%;border-radius:100px;width:'+(p.q/maxPr*100)+'%;background:'+coul+'"></div></div>'
+        +'<div style="width:64px;flex:none;text-align:right;font-family:monospace;font-size:13.5px;font-weight:700;color:var(--t1)">'+p.q+' u</div></div>').join('')
+      +(prods.length>10?'<div style="font-size:12px;color:var(--t3)">'+(prods.length-10)+' autres produits.</div>':'')+'</div>':'';
+    return '<div onclick="consoTogglePers('+i+')" title="'+(ouv?'Replier':'Voir ce qu\'on lui a donn&eacute;')+'" style="cursor:pointer">'
+      +'<div style="display:flex;align-items:center;gap:13px;padding:8px 0">'
+      +'<span style="display:inline-block;width:13px;flex:none;color:'+(ouv?'var(--acc)':'var(--t3)')+';font-size:12px;transform:rotate('+(ouv?90:0)+'deg)">&#9656;</span>'
+      +'<span style="width:38px;height:38px;flex:none;border-radius:50%;background:color-mix(in srgb,'+coul+' 18%,transparent);color:'+coul+';font-size:13px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+esc(iniP(t.nom))+'</span>'
+      +'<div style="width:230px;flex:none;min-width:0"><div style="font-size:14px;font-weight:700;color:'+(fort?'var(--org)':'var(--t1)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.nom)+(fort?' &#9888;':'')+'</div>'
+      +'<div style="font-size:11.5px;color:var(--t3)">'+(roleDe[t.nom]?esc(roleLbl(roleDe[t.nom]))+' &middot; ':'')+evol(t.q,parPersAvant[t.nom]||0)+'</div></div>'
+      +'<div style="flex:1;min-width:60px;height:20px;background:var(--bg);border-radius:100px;overflow:hidden"><div style="height:100%;border-radius:100px;width:'+(t.q/maxH*100)+'%;background:'+(fort?'var(--org)':'linear-gradient(90deg,color-mix(in srgb,'+coul+' 70%,black),'+coul+')')+'"></div></div>'
+      +'<div style="width:96px;flex:none;text-align:right"><div style="font-family:monospace;font-size:14.5px;font-weight:700;color:'+(fort?'var(--org)':'var(--t1)')+'">'+t.q+' u</div>'
+      +'<div style="font-size:11.5px;color:var(--t3)">'+part+' % du total</div></div></div></div>'+detail; }).join('');
   const alertes=topPers.filter(t=>t.nom!==SANS_NOM&&moyPers>0&&t.q>moyPers*1.6&&t.q>=5);
   // ── récapitulatif mois par mois ──
   const parMoisTab={};
@@ -15173,17 +15199,13 @@ function consoAnalyseHTML(){
     const topG=Object.entries(e.gens).sort((a,b)=>b[1]-a[1])[0];
     const nbG=Object.keys(e.gens).length;
     const lbl=new Date(c+'-15T12:00:00').toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
-    return '<tr><td class="strong" style="text-transform:capitalize;white-space:nowrap">'+esc(lbl)+'</td>'
-      +'<td style="min-width:110px"><div class="bar-track" style="height:14px"><div class="bar-fill" style="width:'+(e.q/maxMois*100)+'%"></div></div></td>'
-      +'<td class="strong" style="text-align:right;white-space:nowrap">'+e.q+' u</td>'
-      +'<td style="text-align:right;white-space:nowrap">'+evol(e.q,prec)+'</td>'
-      +'<td style="white-space:nowrap">'+nbG+' personne'+(nbG>1?'s':'')+(topG?' <span style="color:var(--t3);font-size:12px">· '+esc(topG[0])+' en tête</span>':'')+'</td>'
-      +'<td style="color:var(--t2);overflow:hidden;text-overflow:ellipsis;max-width:240px">'+(topP?esc(produit(topP[0]).nom||'—')+' <b style="color:var(--t1)">'+topP[1]+' u</b>':'—')+'</td></tr>'; }).join('');
+    return '<tr><td class="strong" style="text-transform:capitalize;white-space:nowrap;font-size:14px;padding-top:14px;padding-bottom:14px">'+esc(lbl)+'</td>'
+      +'<td style="min-width:130px"><div style="height:16px;background:var(--bg);border-radius:100px;overflow:hidden"><div style="height:100%;border-radius:100px;width:'+(e.q/maxMois*100)+'%;background:linear-gradient(90deg,var(--acc2),var(--acc))"></div></div></td>'
+      +'<td style="text-align:right;white-space:nowrap"><span style="font-family:monospace;font-size:15px;font-weight:700;color:var(--t1)">'+e.q+' u</span></td>'
+      +'<td style="text-align:center;white-space:nowrap">'+evol(e.q,prec)+'</td>'
+      +'<td style="white-space:nowrap">'+nbG+' pers.'+(topG?'<div style="font-size:11.5px;color:var(--t3)">'+esc(topG[0])+' en t&ecirc;te &middot; '+topG[1]+' u</div>':'')+'</td>'
+      +'<td style="max-width:250px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2);font-size:13px">'+(topP?esc(produit(topP[0]).nom||'—'):'—')+'</div>'+(topP?'<div style="font-size:11.5px;color:var(--t3)">'+topP[1]+' u ce mois-l&agrave;</div>':'')+'</td></tr>'; }).join('');
   const moyenneMois=moisCles.length?Math.round(moisCles.reduce((s,c)=>s+parMoisTab[c].q,0)/moisCles.length):0;
-  // ── tableau croisé qui consomme quoi ──
-  const croise={}; sorties.forEach(m=>{ const q=quiConso(m); (croise[q]=croise[q]||{})[m.produitId]=(croise[q][m.produitId]||0)+(m.qte||0); });
-  const lignesCroise=topPers.slice(0,10).map(t=>{ const prods=Object.entries(croise[t.nom]||{}).sort((a,b)=>b[1]-a[1]);
-    return '<tr><td class="strong">'+esc(t.nom)+(roleDe[t.nom]?'<div style="font-size:11px;font-weight:600;color:var(--t3)">'+esc(roleLbl(roleDe[t.nom]))+'</div>':'')+'</td><td>'+prods.map(([pid,q])=>'<span class="st" style="font-size:11px;padding:2px 8px;margin:2px 4px 2px 0;background:color-mix(in srgb,var(--t3) 14%,transparent);color:var(--t2)">'+esc(produit(pid).nom||'—')+' <b style="color:var(--t1)">'+q+'</b></span>').join('')+'</td><td class="strong" style="text-align:right">'+t.q+' u</td></tr>'; }).join('');
   const actif=(on,txt)=>'cursor:pointer;font-size:12.5px;font-weight:700;padding:8px 15px;border-radius:100px;border:1px solid '+(on?'transparent':'var(--brd)')+';background:'+(on?'var(--acc)':'var(--card)')+';color:'+(on?'var(--on-acc)':'var(--t2)')+'';
   const bt=(j,l)=>'<button type="button" onclick="consoSetPeriode('+j+')" style="'+actif(!datesLibres&&consoJours===j)+'">'+l+'</button>';
   const btPas=(p,l)=>'<button type="button" onclick="consoSetPas(\''+p+'\')" style="cursor:pointer;border:none;padding:7px 13px;border-radius:9px;font-size:12px;font-weight:700;background:'+(consoPas===p?'var(--acc)':'transparent')+';color:'+(consoPas===p?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>';
@@ -15201,7 +15223,7 @@ function consoAnalyseHTML(){
   const btnRole='<button type="button" onclick="consoMenu(\'role\')" style="'+actif(!!consoFRole)+';display:inline-flex;align-items:center;gap:8px;max-width:230px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎖️ '+(consoFRole?esc(roleLbl(consoFRole)):'Tous les rôles')+'</span><span style="opacity:.5;font-size:9px">▼</span></button>';
   const dateInp=(q,v,l)=>'<label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--t3);font-weight:600">'+l+'<input type="date" value="'+esc(v)+'" onchange="consoSetDate(\''+q+'\',this.value)" style="border:1px solid '+(v?'var(--acc)':'var(--brd)')+';background:var(--card);color:var(--t1);border-radius:9px;padding:6px 9px;font-size:12.5px;font-family:inherit"></label>';
   const filtresPosés=consoFProd||consoFPers||consoFRole||datesLibres||consoPas!=='auto';
-  const barreF=voileC+`<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 12px">${bt(30,'30 jours')}${bt(90,'3 mois')}${bt(365,'12 mois')}
+  const barreF=voileC+`<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 12px">${bt(30,'30 jours')}${bt(61,'2 mois')}${bt(90,'3 mois')}${bt(183,'6 mois')}${bt(365,'12 mois')}
       <span style="width:1px;height:24px;background:var(--brd)"></span>${dateInp('du',consoDu,'Du')}${dateInp('au',consoAu,'Au')}</div>
     <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 16px">
       <div style="position:relative;z-index:${consoMenuOuv==='prod'?61:1}">${btnProd}${consoMenuOuv==='prod'?menuHtml(listeProd.map(p=>({val:p.id,lbl:p.nom})),consoFProd,'consoChoisirProd','📦 Tous les produits'):''}</div>
@@ -15219,12 +15241,9 @@ function consoAnalyseHTML(){
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📈 Consommation dans le temps</h3></div>${graph}</div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Produits les plus consommés</h3><span style="font-size:11.5px;color:var(--t3);font-weight:600">clique une ligne pour voir qui</span></div>
       ${topProd.length?barresProd:emptyState('📦','Aucun produit consommé sur cette période.','','')}</div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Consommation par personne</h3></div>
-      ${topPers.length?barresPers+`<div style="font-size:12px;color:var(--t3);padding-top:8px">Moyenne de l'équipe : <b style="color:var(--t2)">${Math.round(moyPers)} u</b> sur la période. Une barre orange signale une consommation nettement au-dessus.${topPers.some(t=>t.nom===SANS_NOM)?` « Non précisé » regroupe d'anciens mouvements enregistrés sans nom de personne — les nouveaux en portent toujours un.`:''}</div>`:emptyState('👤',"Personne n'a consommé sur cette période.",'','')}</div>
-    ${moisCles.length?`<div style="font-weight:800;font-size:13.5px;margin:0 2px 8px">📅 Consommation mois par mois</div>`
-      +tableCard(['Mois','','Unités','Évolution','Personnes','Produit le plus consommé'],lignesMois)
-      +`<div style="font-size:12px;color:var(--t3);margin:-6px 2px 16px">Moyenne sur la période : <b style="color:var(--t2)">${moyenneMois} u par mois</b>. L'évolution compare chaque mois au précédent.</div>`:''}
-    ${topPers.length?`<div style="font-weight:800;font-size:13.5px;margin:0 2px 8px">Qui consomme quoi</div>`+tableCard(['Personne','Produits consommés','Total'],lignesCroise):''}`;
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>👤 Consommation par personne</h3><span style="font-size:11.5px;color:var(--t3);font-weight:600">clique une personne pour voir ce qu'on lui a donné</span></div>
+      ${topPers.length?barresPers+`<div style="font-size:12px;color:var(--t3);padding-top:8px">Moyenne de l'équipe : <b style="color:var(--t2)">${Math.round(moyPers)} u</b> sur la période. L'évolution compare à la période précédente de même durée.${topPers.some(t=>t.nom===SANS_NOM)?` « Non précisé » regroupe d'anciens mouvements enregistrés sans nom de personne — les nouveaux en portent toujours un.`:''}</div>`:emptyState('👤',"Personne n'a consommé sur cette période.",'','')}</div>
+    ${moisCles.length?`<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>📅 Consommation mois par mois</h3><span style="font-size:11.5px;color:var(--t3);font-weight:600">moyenne : ${moyenneMois} u par mois</span></div><div class="tbl-wrap"><table class="tbl list-tbl"><thead><tr><th>Mois</th><th></th><th style="text-align:right">Unités</th><th style="text-align:center">Évolution</th><th>Personnes</th><th>Produit le plus consommé</th></tr></thead><tbody>${lignesMois}</tbody></table></div></div>`:''}`;
 }
 
 /* ═══════════════ HISTORIQUE & AUDIT ═══════════════ */
