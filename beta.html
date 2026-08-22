@@ -14774,7 +14774,8 @@ function consoRepereMois(pid,nbPers){
 function consoAnalyseHTML(){
   const isMgr=currentUser&&(currentUser.role==='admin'||currentUser.role==='dr');
   // la personne qui consomme : celle qui a reçu le produit, sinon celle qui l'a sorti
-  const quiConso=m=>m.donneA||m.technicien||(m.vehiculeId?vehName(m.vehiculeId):'')||'Non précisé';
+  const quiConso=m=>m.donneA||m.technicien||'Non précisé';   // un véhicule n'est pas une personne
+  const SANS_NOM='Non précisé';
   const roleConso=m=>m.roleConso||roleDeNom(quiConso(m))||'';
   const roleLbl=r=>ROLE[r]||'Rôle non renseigné';
   const datesLibres=!!(consoDu||consoAu);
@@ -14924,7 +14925,7 @@ function consoAnalyseHTML(){
         const refPers=met2?met2.val:Math.max(1,moyG*1.6);
         const dOu=met2?'repère métier':'moyenne de l\'équipe';
         return gens.map(g=>{ const part=Math.round(g.q/Math.max(1,t.q)*100);
-          const rythmeG=g.q/mois, trop=rythmeG>refPers*1.05, fois=refPers>0?(rythmeG/refPers):0;
+          const rythmeG=g.q/mois, trop=g.n!==SANS_NOM&&rythmeG>refPers*1.05, fois=refPers>0?(rythmeG/refPers):0;
           const coul=trop?'var(--red)':'var(--acc)';
           return '<div style="display:flex;align-items:center;gap:13px;margin-bottom:13px">'
           +'<span style="width:34px;height:34px;flex:none;border-radius:50%;background:color-mix(in srgb,'+coul+' 18%,transparent);color:'+coul+';font-size:12.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+esc(iniG(g.n))+'</span>'
@@ -14942,11 +14943,11 @@ function consoAnalyseHTML(){
       +'<div class="bar-track" style="height:20px"><div class="bar-fill" style="width:'+(t.q/maxP*100)+'%;background:'+(rep&&dep?'var(--red)':'linear-gradient(90deg,var(--acc2),var(--acc))')+'"></div></div>'
       +'<div class="bar-val" style="font-size:14px'+(rep&&dep?';color:var(--red)':'')+'">'+t.q+' u</div></div></div>'+detail; }).join('');
   const maxH=Math.max(1,...topPers.slice(0,10).map(t=>t.q));
-  const barresPers=topPers.slice(0,10).map(t=>{ const fort=moyPers>0&&t.q>moyPers*1.6&&t.q>=5;
+  const barresPers=topPers.slice(0,10).map(t=>{ const fort=t.nom!==SANS_NOM&&moyPers>0&&t.q>moyPers*1.6&&t.q>=5;
     return '<div class="bar-row" style="margin-bottom:14px"><div class="bar-lbl" style="width:250px;font-size:13.5px" title="'+esc(t.nom)+(roleDe[t.nom]?' - '+esc(roleLbl(roleDe[t.nom])):'')+'">'+esc(t.nom)+pastilleRole(t.nom)+' '+evol(t.q,parPersAvant[t.nom]||0)+(fort?' <span class="st st-org" style="font-size:10px;padding:1px 7px">&#224; v&#233;rifier</span>':'')+'</div>'
       +'<div class="bar-track" style="height:20px"><div class="bar-fill" style="width:'+(t.q/maxH*100)+'%;background:'+(fort?'var(--org)':'linear-gradient(90deg,var(--acc2),var(--acc))')+'"></div></div>'
       +'<div class="bar-val" style="font-size:14px">'+t.q+' u</div></div>'; }).join('');
-  const alertes=topPers.filter(t=>moyPers>0&&t.q>moyPers*1.6&&t.q>=5);
+  const alertes=topPers.filter(t=>t.nom!==SANS_NOM&&moyPers>0&&t.q>moyPers*1.6&&t.q>=5);
   // ── tableau croisé qui consomme quoi ──
   const croise={}; sorties.forEach(m=>{ const q=quiConso(m); (croise[q]=croise[q]||{})[m.produitId]=(croise[q][m.produitId]||0)+(m.qte||0); });
   const lignesCroise=topPers.slice(0,10).map(t=>{ const prods=Object.entries(croise[t.nom]||{}).sort((a,b)=>b[1]-a[1]);
@@ -14987,7 +14988,7 @@ function consoAnalyseHTML(){
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Produits les plus consommés</h3><span style="font-size:11.5px;color:var(--t3);font-weight:600">clique une ligne pour voir qui</span></div>
       ${topProd.length?barresProd:emptyState('📦','Aucun produit consommé sur cette période.','','')}</div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Consommation par personne</h3></div>
-      ${topPers.length?barresPers+`<div style="font-size:12px;color:var(--t3);padding-top:8px">Moyenne de l'équipe : <b style="color:var(--t2)">${Math.round(moyPers)} u</b> sur la période. Une barre orange signale une consommation nettement au-dessus.</div>`:emptyState('👤',"Personne n'a consommé sur cette période.",'','')}</div>
+      ${topPers.length?barresPers+`<div style="font-size:12px;color:var(--t3);padding-top:8px">Moyenne de l'équipe : <b style="color:var(--t2)">${Math.round(moyPers)} u</b> sur la période. Une barre orange signale une consommation nettement au-dessus.${topPers.some(t=>t.nom===SANS_NOM)?` « Non précisé » regroupe d'anciens mouvements enregistrés sans nom de personne — les nouveaux en portent toujours un.`:''}</div>`:emptyState('👤',"Personne n'a consommé sur cette période.",'','')}</div>
     ${topPers.length?`<div style="font-weight:800;font-size:13.5px;margin:0 2px 8px">Qui consomme quoi</div>`+tableCard(['Personne','Produits consommés','Total'],lignesCroise):''}`;
 }
 
