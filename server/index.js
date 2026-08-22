@@ -966,6 +966,55 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
   res.json({ ok: true, code: c, formule: e.formule, finLe });
 });
 // le patron envoie au client son lien + identifiants de départ (bel e-mail TeamOP)
+// ── 📣 ANNONCE DE MISE À JOUR : un e-mail à TOUTES les entreprises ──
+//    Le texte de l'annonce vit ici ; le patron déclenche l'envoi depuis la Tour.
+//    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
+//    gabarit TeamOP et le journal des e-mails.
+const ANNONCE = {
+  version: '547',
+  sujet: '🆕 Du nouveau dans OP GESTION — le journal de stock et l\'analyse de consommation',
+  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une belle mise à jour — elle est déjà active, il suffit de rouvrir l\'application.',
+  points: [
+    ['🔁 Le journal des mouvements, refait', 'Rangé par jour puis par box, avec pour chaque mouvement : qui a ajouté ou retiré, qui a validé, et à qui les produits ont été donnés. Les bons de remise (PDF) sont intégrés au journal.'],
+    ['🏷️ Des étiquettes automatiques', 'Chaque ligne dit d\'où elle vient : ajout sur bon de commande, ajout simple, produit pris, donné, ou consommation d\'intervention.'],
+    ['📈 L\'analyse de consommation', 'Un vrai graphique : cliquez sur un pic pour voir immédiatement qui a consommé quoi, où et quand. Périodes de 30 jours à 12 mois, filtres par produit, personne et rôle.'],
+    ['⚖️ Des repères qui vous connaissent', 'L\'application apprend ce que vous distribuez chaque mois, compare chacun à ses habitudes et au mois précédent (▲/▼), et signale en rouge ce qui sort de l\'ordinaire.'],
+    ['👤 La consommation par personne', 'Qui consomme quoi, la part de chacun, et le récapitulatif mois par mois avec l\'évolution.']
+  ]
+};
+app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
+  if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
+  // une adresse par entreprise, la plus récente gagne
+  const parMail = new Map();
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    const ad = String(e.email || '').toLowerCase().trim();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ad)) parMail.set(ad, e.nom || slug);
+  }
+  if (!parMail.size) return res.status(404).json({ error: 'aucune entreprise avec une adresse e-mail' });
+  const blocs = ANNONCE.points.map(([t, d]) =>
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F7FB;border:1px solid #E3E8F1;border-radius:12px;margin-bottom:10px"><tr><td style="padding:14px 18px">' +
+    '<div style="font-size:14px;font-weight:800;color:#17233B;padding-bottom:4px">' + t + '</div>' +
+    '<div style="font-size:13px;line-height:1.7;color:#4A5A7A">' + d + '</div></td></tr></table>').join('');
+  const texte = 'Bonjour,\n\nvotre application OP GESTION vient de recevoir une mise à jour (v' + ANNONCE.version + ') :\n\n' +
+    ANNONCE.points.map(([t, d]) => '• ' + t.replace(/^[^ ]+ /, '') + ' — ' + d).join('\n') +
+    '\n\nElle est déjà active : rouvrez simplement l\'application.\n\n— L\'équipe TEAM OP · teamop.fr';
+  let envoyes = 0, refus = 0;
+  for (const [ad, nom] of parMail) {
+    try {
+      await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: ad,
+        subject: ANNONCE.sujet, text: texte,
+        html: mailTeamOP({ chip: 'Mise à jour', chipBg: '#E7F0FE', chipColor: '#1D4ED8',
+          titre: 'Du nouveau dans votre application 🆕',
+          corpsHtml: ANNONCE.intro,
+          blocHtml: blocs,
+          boutonTxt: 'Ouvrir mon application', boutonUrl: 'https://teamop.fr/app.html',
+          bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html' }) });
+      envoyes++;
+    } catch (err) { refus++; console.error('annonce →', ad, ':', String(err.message || err).slice(0, 120)); }
+  }
+  console.log('Tour :', req.tourUser.nom, 'a envoyé l\'annonce v' + ANNONCE.version, '→', envoyes, 'entreprises', refus ? ('(' + refus + ' refus)') : '');
+  res.json({ ok: true, envoyes, refus, version: ANNONCE.version });
+});
 app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) => {
   if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
   const slug = espSlug((req.body || {}).nom);
