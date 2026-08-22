@@ -14751,7 +14751,22 @@ const REPERES_METIER=[
   [/xylophene|xylophène|xylo|xilix|termite|termifilm|charpente|\bbois\b|insecticide.*anti-?termite/i, {ml:60000,n:60},'traitement du bois'],
   [/desinfect|désinfect|virucide|bactericide|bactéricide|javel|alcool/i,     {ml:10000,n:10},'désinfection'],
   [/grillage|proofing|obturation|mousse|silicone|joint|brosse.*bas.*porte/i, {n:20},         'matériel de proofing'],
-  [/pulverisateur|pulvérisateur|nebuliseur|nébuliseur|atomiseur|lampe|torche|pistolet|appareil|aspirateur/i, {n:1}, 'matériel durable']
+  [/pulverisateur|pulvérisateur|nebuliseur|nébuliseur|atomiseur|lampe|torche|pistolet|appareil|aspirateur/i, {n:1}, 'matériel durable'],
+  /* ── produits sans catégorie : on se rattrape sur le nom ── */
+  [/rat\s*\/\s*souris|[-–\s](rats?|souris)[-–\s]|anti-?rongeur/i,      {n:15},        'poste ou tunnel rongeur'],
+  [/noxigel|\bgel\b/i,                                                {g:240,n:8},   'gel appât'],
+  [/noxidry|poudre/i,                                                  {g:5000,n:5},  'poudre insecticide'],
+  [/noxithrin|[a-z]thrine?\b|larvicide|insecticide/i,                  {ml:3000,n:6}, 'insecticide'],
+  [/leurre|attractant|app[âa]ts?\b|pastille/i,                          {n:20},        'appât ou attractant'],
+  [/pi[èe]ge|trap\b|moniteur|d[ée]tecteur\b|collier/i,                  {n:25},        'piège ou monitoring'],
+  [/connecteur|soupape|poign[ée]e|lance\b|buse|raccord|filtre|joint|tuyau|flexible|rondelle|vis\b|cheville|agrafe|clip|crochet|goupille|manchon|c[âa]ble|tige/i, {n:60}, 'pièce ou fourniture de pose'],
+  [/\bbloc\b|\bp[âa]tes?\b|d[ée]cortiqu|c[ée]r[ée]ales?|avoine|placebo|placebloc|concasse|concassé/i, {g:3000,n:100}, 'appât rongeurs'],
+  /* marques d'appâts rongeurs, quand le nom ne dit rien d'autre */
+  [/\b(nyna|orcapate|souraxa|racumin|vulcano|faar|notrac?|rodillon|broditec|broditop|magnet|exorat|storm|talon|vertox|propasta|raviox|cereox|viryl|harmonix|placedex|robust\s*25)\b/i, {g:3000,n:100}, 'appât rongeurs'],
+  [/\bpostes?\b|\bstation\b|\btunnel\b/i,                            {n:15},        'poste ou station'],
+  [/tube\s*\d+\s*w|n[ée]on|uv-?a\b|vectothor|falcon|kestrel|ampoule/i, {n:2},         'tube ou néon de destructeur'],
+  [/foret|m[èe]che|coupleur|surfactant|couvercle|cover\b|\bdome\b|cl[ée]\s+suppl/i, {n:5}, 'accessoire'],
+  [/\bpack\b|\bkit\b|\blot\b|\bset\b/i,                                {n:5},         'lot ou kit']
 ];
 /* Ce que contient une unité du produit, lu dans son nom : « CARTON DE 10KG »,
    « SEAU DE 5KG », « 30G », « 300 ML », « 1 LITRE »… */
@@ -14763,14 +14778,42 @@ function contenuUnite(nom){
   m=t.match(/(\d+(?:\.\d+)?)\s*g\b/i);                      if(m) return {g:parseFloat(m[1])};
   return null;
 }
+/* Le matériel qui dure : un outil ne se « consomme » pas, on n'en achète pas
+   plusieurs par mois. Reconnu avant tout le reste. */
+const OUTILS_DURABLES=/pince|agrapheuse|agrafeuse|cage|appareil|machine|atomiseur|n[ée]bulisateur|n[ée]buliseur|fogger|pulv[ée]risateur|pompe|injecteur|perceuse|visseuse|cam[ée]ra|drone|lampe|torche|d[ée]tecteur\s|aspirateur|nettoyeur|compresseur|chariot|[ée]chelle|escabeau|malette|mallette|coffret|sac\s+de\s+transport|support|trepied|trépied|adaptateur|chargeur|batterie|kit\s+d[ée]marrage|station\s+murale|perche|enrouleur|manom[èe]tre|balance|thermom[èe]tre|hygrom[èe]tre/i;
+/* Repères par CATÉGORIE du catalogue — filet de sécurité quand le nom ne dit
+   rien de précis. La catégorie du fournisseur est souvent très parlante
+   (« Rodonticides > Gamme Brodifacoum », « Volatiles > Protection par filets »). */
+const REPERES_CAT=[
+  [/rod[eo]nticide|tp\s*14|rongeurs?\s*>\s*app|app[âa]t.*rongeur/i, {g:3000,n:100}, 'appât rongeurs'],
+  [/gels?\s+(blattes|fourmis)|>\s*gels/i,                           {g:240,n:8},    'gel appât'],
+  [/poudres?\s+insecticide|poudrage/i,                               {g:5000,n:5},   'poudre insecticide'],
+  [/fumigateur|fumig[èe]ne/i,                                        {n:6},          'fumigateur'],
+  [/[ée]mulsion|micro-?encapsul|concentr|pr[êe]ts?\s+[àa]\s+l.emploi|teenox|pyractiv/i, {ml:3000,n:3}, 'insecticide liquide'],
+  [/pi[èe]ges?\s+rampants|pi[èe]ges?\s+volants|pi[ée]geage|monitoring|sp[ée]cial\s+mouches/i, {n:25}, 'piège ou monitoring'],
+  [/chenilles?\s+processionnaires/i,                                 {n:10},         'lutte chenilles'],
+  [/protection\s+par\s+(filets|c[âa]bles|pics)|colles?\s+et\s+fixations/i, {n:80},  'fourniture de pose volatiles'],
+  [/[ée]loignement\s+et\s+capture|volatiles/i,                       {n:10},         'dispositif volatiles'],
+  [/\bepi\b|protection\s+individuelle|[ée]quipements?\s+de\s+protection/i, {n:10},  'protection individuelle'],
+  [/m[èe]ches?\s*&?\s*forets|consommable/i,                          {n:5},          'consommable de chantier'],
+  [/traitement\s+des?\s+b[âa]timents|isolation|ventilation/i,        {n:20},         'fourniture de chantier'],
+  [/produits?\s+de\s+traitement|webac|termisol|salp[êe]tre|r[ée]sine|hydrofuge|\bbseal\b/i, {g:20000,n:5}, 'traitement du bâtiment'],
+  [/hygi[èe]ne|bact[ée]ries?|traitement\s+de\s+l.(air|eau)|d[ée]sinfect/i, {ml:10000,n:10}, 'hygiène et désinfection'],
+  [/destructeurs?\s+d.insectes/i,                                    {n:6},          'destructeur d\'insectes'],
+  [/mat[ée]riel|pompes?|injecteurs?|application\s*\/\s*protection|nettoyeurs?|drone|cam[ée]ra|calorif[èe]re/i, {n:1}, 'matériel professionnel'],
+  [/insecticides?|insectes?/i,                                       {ml:3000,n:6},  'produit insecticide'],
+  [/rongeurs?/i,                                                     {n:15},         'matériel anti-rongeurs']
+];
 function repereMetier(pid){ const p=produit(pid)||{};
   const txt=(p.nom||'')+' '+(p.categorie||'');
-  for(const [re,ref,lbl] of REPERES_METIER){
+  if(OUTILS_DURABLES.test(p.nom||'')) return {val:1, lbl:'matériel durable'};
+  for(const [re,ref,lbl] of REPERES_METIER.concat(REPERES_CAT.map(r=>[r[0],r[1],r[2]]))){
     if(!re.test(txt)) continue;
     const c=contenuUnite(p.nom);
     // le nom donne le conditionnement ET le repère est une matière → on convertit
-    if(c&&c.g&&ref.g)   return {val:Math.max(1,Math.round(ref.g/c.g)),   lbl:lbl+', conditionnement '+(c.g>=1000?(c.g/1000)+' kg':c.g+' g')};
-    if(c&&c.ml&&ref.ml) return {val:Math.max(1,Math.round(ref.ml/c.ml)), lbl:lbl+', conditionnement '+(c.ml>=1000?(c.ml/1000)+' L':c.ml+' ml')};
+    const borne=v=>Math.max(1,Math.min(200,Math.round(v)));   // ni 0, ni un chiffre délirant
+    if(c&&c.g&&ref.g)   return {val:borne(ref.g/c.g),   lbl:lbl+', conditionnement '+(c.g>=1000?(c.g/1000)+' kg':c.g+' g')};
+    if(c&&c.ml&&ref.ml) return {val:borne(ref.ml/c.ml), lbl:lbl+', conditionnement '+(c.ml>=1000?(c.ml/1000)+' L':c.ml+' ml')};
     if(ref.n)           return {val:ref.n, lbl:lbl};
     return null;
   }
