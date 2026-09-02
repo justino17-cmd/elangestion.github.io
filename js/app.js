@@ -150,7 +150,7 @@ function load(){
       const raw = localStorage.getItem(STORE_KEY);
       if(raw) localStorage.setItem(STORE_KEY+'_corrompu_'+Date.now(), raw);
     }catch(e2){ console.error('Sauvegarde de la base corrompue impossible :', e2); }
-    try{ setTimeout(()=>{ try{ toast('Données locales illisibles — une copie a été mise de côté, l\'app repart à vide'); }catch(_){} }, 1200); }catch(_){}
+    try{ setTimeout(()=>{ try{ toast('Données locales illisibles — une copie a été mise de côté, l\'app repart à vide'); }catch(_){/* toast pas encore prêt */} }, 1200); }catch(_){/* setTimeout indisponible */}
     d = migrate(seed());
   }
   // Démarrage vierge : on supprime une seule fois les données de démonstration (le compte de connexion est conservé)
@@ -159,7 +159,7 @@ function load(){
     localStorage.setItem('elan_vierge_v1','1');
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
     catch(e){ console.error('Écriture de la base pendant la migration impossible (quota ?) :', e);
-      try{ setTimeout(()=>{ try{ toast('Stockage saturé — la migration n\'a pas pu être enregistrée'); }catch(_){} }, 1200); }catch(_){} }
+      try{ setTimeout(()=>{ try{ toast('Stockage saturé — la migration n\'a pas pu être enregistrée'); }catch(_){/* toast pas encore prêt */} }, 1200); }catch(_){/* setTimeout indisponible */} }
   }
   // Restauration unique du catalogue produits : on ajoute (une seule fois) les références du catalogue ELAN absentes, sans toucher aux produits déjà saisis ni aux suppressions futures
   if(!localStorage.getItem('elan_prod_v2')){
@@ -172,7 +172,7 @@ function load(){
     localStorage.setItem('elan_prod_v1','1'); localStorage.setItem('elan_prod_v2','1');
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
     catch(e){ console.error('Écriture de la base pendant la migration impossible (quota ?) :', e);
-      try{ setTimeout(()=>{ try{ toast('Stockage saturé — la migration n\'a pas pu être enregistrée'); }catch(_){} }, 1200); }catch(_){} }
+      try{ setTimeout(()=>{ try{ toast('Stockage saturé — la migration n\'a pas pu être enregistrée'); }catch(_){/* toast pas encore prêt */} }, 1200); }catch(_){/* setTimeout indisponible */} }
   }
   return d;
 }
