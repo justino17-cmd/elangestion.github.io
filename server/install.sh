@@ -29,6 +29,10 @@ if ! command -v caddy >/dev/null; then
 fi
 
 echo "── [4/6] Téléchargement de l'API TeamOP…"
+# Compte système dédié : le service n'a besoin de root que pendant l'installation.
+if ! id -u teamop >/dev/null 2>&1; then
+  useradd --system --home-dir /opt/teamop --shell /usr/sbin/nologin teamop
+fi
 mkdir -p /opt/teamop/data
 if [ -d /opt/teamop/repo/.git ]; then
   git -C /opt/teamop/repo pull -q
@@ -44,6 +48,7 @@ if [ ! -f /opt/teamop/config.json ]; then
   PUB=$(echo "$VAPID" | cut -d' ' -f1)
   PRIV=$(echo "$VAPID" | cut -d' ' -f2)
   KEY=$(openssl rand -hex 24)
+  TEAMTOKEN=$(openssl rand -hex 32)
   cat > /opt/teamop/config.json <<EOF
 {
   "vapidPublicKey": "$PUB",
@@ -51,11 +56,14 @@ if [ ! -f /opt/teamop/config.json ]; then
   "apiKey": "$KEY",
   "contactEmail": "contact@teamop.fr",
   "origins": ["https://teamop.fr", "https://www.teamop.fr"],
+  "teamTokens": { "elan-gestion": "$TEAMTOKEN" },
+  "openTeams": ["opmsg-user-*"],
   "smtp": {}
 }
 EOF
   chmod 600 /opt/teamop/config.json
 fi
+chown -R teamop:teamop /opt/teamop/config.json /opt/teamop/data
 
 cat > /etc/systemd/system/teamop-api.service <<'EOF'
 [Unit]
@@ -67,7 +75,13 @@ WorkingDirectory=/opt/teamop/repo/server
 ExecStart=/usr/bin/node index.js
 Restart=always
 RestartSec=3
-User=root
+User=teamop
+Group=teamop
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/teamop/data
 Environment=PORT=8080
 
 [Install]
