@@ -1,6 +1,18 @@
 # Point stable TeamOP
 
-**Version stable : v550** — gravée le 2 septembre 2026.
+**Version stable : v551** — gravée le 2 septembre 2026.
+
+v551 — « Mot de passe oublié » demande l'entreprise quand l'appareil n'est
+relié à rien (ou que le compte est chez une autre entreprise), met l'appareil sur
+son espace et se rouvre tout seul, identifiant et e-mail pré-remplis. La bascule
+d'espace par le nom (connexion et mot de passe oublié) passe par un seul chemin.
+Tour : l'abonnement se règle dans la fiche entreprise (formule, places, statut
+actif / essai / impayé / suspendu / annulé, date de fin) et prime sur Stripe et les
+codes promo. Site : page reinit.html en français pour les liens Firebase
+(réinitialisation de mot de passe) — à régler comme « URL d'action » dans la
+console Firebase.
+
+Ancien point : **v550** — gravée le 2 septembre 2026.
 
 v550 — un seul lien de connexion par entreprise, lisible
 (teamop.fr/app.html#e=nom-de-l-entreprise), le même sur le site et dans
