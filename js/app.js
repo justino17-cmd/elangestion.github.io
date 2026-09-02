@@ -139,12 +139,27 @@ let currentUser = null;
 
 function load(){
   let d;
-  try{ const raw = localStorage.getItem(STORE_KEY); d = raw ? migrate(JSON.parse(raw)) : migrate(seed()); }catch(e){ d = migrate(seed()); }
+  try{ const raw = localStorage.getItem(STORE_KEY); d = raw ? migrate(JSON.parse(raw)) : migrate(seed()); }
+  catch(e){
+    /* Base locale illisible. Repartir sur des données vierges est le seul moyen
+       d'ouvrir l'application, mais écraser sans rien dire fait disparaître le
+       travail de l'utilisateur en silence : on met la copie brute de côté sous
+       une clé horodatée, et on prévient. */
+    console.error('Base locale illisible :', e);
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if(raw) localStorage.setItem(STORE_KEY+'_corrompu_'+Date.now(), raw);
+    }catch(e2){ console.error('Sauvegarde de la base corrompue impossible :', e2); }
+    try{ setTimeout(()=>{ try{ toast('Données locales illisibles — une copie a été mise de côté, l\'app repart à vide'); }catch(_){} }, 1200); }catch(_){}
+    d = migrate(seed());
+  }
   // Démarrage vierge : on supprime une seule fois les données de démonstration (le compte de connexion est conservé)
   if(!localStorage.getItem('elan_vierge_v1')){
     ['techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages','messages','groupes','conducteurs','produitsDonnes','brouillons','champsPerso','fournisseurs','taches','absences','chantiers','telecollectes'].forEach(c=>d[c]=[]);
     localStorage.setItem('elan_vierge_v1','1');
-    try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){}
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
+    catch(e){ console.error('Écriture de la base pendant la migration impossible (quota ?) :', e);
+      try{ setTimeout(()=>{ try{ toast('Stockage saturé — la migration n\'a pas pu être enregistrée'); }catch(_){} }, 1200); }catch(_){} }
   }
   // Restauration unique du catalogue produits : on ajoute (une seule fois) les références du catalogue ELAN absentes, sans toucher aux produits déjà saisis ni aux suppressions futures
   if(!localStorage.getItem('elan_prod_v2')){
@@ -155,7 +170,9 @@ function load(){
       have.add(nom.toLowerCase());
     });
     localStorage.setItem('elan_prod_v1','1'); localStorage.setItem('elan_prod_v2','1');
-    try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){}
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
+    catch(e){ console.error('Écriture de la base pendant la migration impossible (quota ?) :', e);
+      try{ setTimeout(()=>{ try{ toast('Stockage saturé — la migration n\'a pas pu être enregistrée'); }catch(_){} }, 1200); }catch(_){} }
   }
   return d;
 }
@@ -684,14 +701,22 @@ function go(view){
 }
 function gsearch(q){ const box=$('gsrch-res'); if(!box) return; q=norm((q||'').trim()); if(q.length<2){ box.style.display='none'; box.innerHTML=''; return; }
   const out=[];
-  db.clients.forEach(c=>{ if(norm(c.nom||'').includes(q)) out.push({ic:'🏢',t:c.nom,sub:'Client',fn:"ficheClient('"+c.id+"')"}); });
-  db.interventions.forEach(i2=>{ if(norm((i2.num||'')+' '+(i2.titre||'')+' '+clientName(i2.clientId)).includes(q)) out.push({ic:'🧰',t:(i2.num?i2.num+' · ':'')+(i2.titre||''),sub:(i2.date?fmtShort(i2.date)+' · ':'')+((STATUT_INT[i2.statut]||{}).l||''),fn:"detailIntervention('"+i2.id+"')"}); });
-  (db.chantiers||[]).forEach(ch=>{ if(norm(ch.nom||'').includes(q)) out.push({ic:'🏗️',t:ch.nom,sub:'Chantier',fn:"detailChantier('"+ch.id+"')"}); });
-  (db.taches||[]).forEach(t2=>{ if(norm(t2.titre||'').includes(q)) out.push({ic:'✅',t:t2.titre,sub:'Tâche',fn:"go('taches')"}); });
+  db.clients.forEach(c=>{ if(norm(c.nom||'').includes(q)) out.push({ic:'🏢',t:c.nom,sub:'Client',act:'ficheClient',arg:c.id}); });
+  db.interventions.forEach(i2=>{ if(norm((i2.num||'')+' '+(i2.titre||'')+' '+clientName(i2.clientId)).includes(q)) out.push({ic:'🧰',t:(i2.num?i2.num+' · ':'')+(i2.titre||''),sub:(i2.date?fmtShort(i2.date)+' · ':'')+((STATUT_INT[i2.statut]||{}).l||''),act:'detailIntervention',arg:i2.id}); });
+  (db.chantiers||[]).forEach(ch=>{ if(norm(ch.nom||'').includes(q)) out.push({ic:'🏗️',t:ch.nom,sub:'Chantier',act:'detailChantier',arg:ch.id}); });
+  (db.taches||[]).forEach(t2=>{ if(norm(t2.titre||'').includes(q)) out.push({ic:'✅',t:t2.titre,sub:'Tâche',act:'go',arg:'taches'}); });
   const top=out.slice(0,8);
-  box.innerHTML=top.length?top.map(r=>`<div class="gr" onclick="gsrchGo(this)" data-fn="${esc(r.fn)}"><span>${r.ic}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.t)}</span><span class="gt">${esc(r.sub)}</span></div>`).join(''):'<div class="gr" style="cursor:default;color:var(--t3)">Aucun résultat</div>';
+  box.innerHTML=top.length?top.map(r=>`<div class="gr" onclick="gsrchGo(this)" data-act="${esc(r.act)}" data-arg="${esc(r.arg)}"><span>${r.ic}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.t)}</span><span class="gt">${esc(r.sub)}</span></div>`).join(''):'<div class="gr" style="cursor:default;color:var(--t3)">Aucun résultat</div>';
   box.style.display='block'; }
-function gsrchGo(el){ const box=$('gsrch-res'); if(box){box.style.display='none';box.innerHTML='';} const inp=$('gsrch-in'); if(inp)inp.value=''; try{ eval(el.dataset.fn); }catch(e){} }
+/* Table de dispatch : la recherche globale évaluait auparavant par eval() une
+   chaîne lue dans un attribut du DOM, construite à partir de noms de clients et
+   d'interventions. Seules quatre actions existent — les nommer explicitement
+   supprime l'eval sans rien changer au comportement. */
+const GSRCH_ACTIONS={ficheClient,detailIntervention,detailChantier,go};
+function gsrchGo(el){ const box=$('gsrch-res'); if(box){box.style.display='none';box.innerHTML='';} const inp=$('gsrch-in'); if(inp)inp.value='';
+  const f=GSRCH_ACTIONS[el.dataset.act];
+  if(typeof f!=='function'){ console.error('gsrchGo : action inconnue',el.dataset.act); return; }
+  try{ f(el.dataset.arg); }catch(e){ console.error('gsrchGo',e); toast('Impossible d\'ouvrir ce résultat'); } }
 document.addEventListener('click',()=>{ const box=$('gsrch-res'); if(box&&box.style.display==='block'){ box.style.display='none'; } });
 function quickCreate(){ openModal(`<div class="modal-head"><h3>＋ Créer</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">

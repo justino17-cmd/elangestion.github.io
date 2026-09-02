@@ -155,12 +155,23 @@
   function callsCol(){ return MODE==='perso' ? fs.collection('op_calls') : fs.collection('op_companies').doc(COMP.id).collection('calls'); }
   function handleOf(v){ return (v||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,''); }
   // Liste des personnes joignables : membres de l'entreprise, ou mes contacts perso
+  /* Une erreur Firestore ici rendait une liste vide, indiscernable de « aucun
+     membre » : l'utilisateur voyait un annuaire désert sans savoir que la
+     requête avait échoué. On ne change pas le flux (huit appelants ne
+     rattrapent pas cette fonction), mais l'échec devient visible. */
+  let _membersWarned=0;
+  function membersFailed(e){
+    console.error('listMembers', e);
+    if(Date.now()-_membersWarned<30000) return;
+    _membersWarned=Date.now();
+    try{ toast('Liste des membres indisponible — vérifiez la connexion'); }catch(_){}
+  }
   async function listMembers(){
-    if(MODE!=='perso'){ const out=[]; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); qs.forEach(d=>out.push(d.data())); }catch(e){} return out; }
+    if(MODE!=='perso'){ const out=[]; try{ const qs=await fs.collection('op_companies').doc(COMP.id).collection('members').get(); qs.forEach(d=>out.push(d.data())); }catch(e){ membersFailed(e); } return out; }
     const out=[]; try{ const qs=await fs.collection('op_users').doc(ME.uid).collection('contacts').get();
       const arr=[]; qs.forEach(d=>arr.push(d.data()));
       await Promise.all(arr.map(async c=>{ let la=0,photo=c.photo; try{ const u=await fs.collection('op_users').doc(c.uid).get(); if(u.exists){ la=u.data().lastActive||0; photo=u.data().photo||photo; } }catch(e){} out.push({uid:c.uid,name:c.name||'',phone:c.phone||'',handle:c.handle||'',photo,lastActive:la}); }));
-    }catch(e){} return out;
+    }catch(e){ membersFailed(e); } return out;
   }
   let _hidden=(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('opmsg_hidden')||'[]')); }catch(e){ return new Set(); } })();
   // ---- Préférences locales (façon WhatsApp) : épinglés, muets, importants, dernière lecture ----
