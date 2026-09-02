@@ -1134,16 +1134,17 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '553',
-  sujet: '🆕 Du nouveau dans OP GESTION — chacun ne voit que ce qui le concerne',
+  version: '554',
+  sujet: '🆕 Du nouveau dans OP GESTION — permissions pour tous les rôles, chacun ne voit que ce qui le concerne',
   intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une mise à jour — elle est déjà active, il suffit de rouvrir l\'application (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['👤 Chacun ne voit que ce qui le concerne', 'Un utilisateur sans le droit « voir tout » ne voit plus que <b>ses box</b>, <b>ses bons de commande</b> (ceux de ses box ou qu\'il a faits), <b>ses demandes</b>, <b>ses mouvements</b>, <b>son véhicule</b> et <b>son historique</b> : le menu (fini le « 19 box » quand on n\'en a qu\'une), le tableau de bord, les listes et la cloche racontent tous la même chose. L\'administrateur, le DR et les rôles « voir tout » gardent la vue entière.'],
-    ['🔔 Des notifications ciblées', 'Personne ne reçoit plus les alertes des autres services ni des autres box. Quand le DR valide ou refuse un mouvement, une réception ou une demande, <b>seule la personne concernée</b> est prévenue (validé ✅ / refusé 🚫, par qui, motif). Le DR voit dans sa cloche ce qui attend sa validation.'],
-    ['📥 La réception d\'un bon passe par le DR', 'Pour un utilisateur soumis à la validation DR, « Réceptionner » envoie la réception au DR : le stock de la box ne bouge qu\'à sa validation. Refusée, le bon redevient « à réceptionner ».'],
-    ['📦 Tout est compté en unités', 'Un carton de 10 kg = 1 unité, un seau de 5 kg = 1 unité. Les bons, la réception et le stock des box parlent la même langue : plus d\'écart artificiel à la réception.'],
-    ['✉️ Envoi des bons : vous choisissez lesquels', '« Envoyer les bons prêts… » affiche la liste des bons prêts à cocher : seuls les bons cochés partent chez leur fournisseur. Plus jamais deux bons envoyés quand un seul devait partir.'],
-    ['🔐 Mon compte, dans Paramètres', 'Chaque utilisateur peut changer son mot de passe et son e-mail de récupération, choisir sa photo, son avatar, sa langue, ses couleurs — et se déconnecter (bouton ⏻ aussi en bas du menu). Les outils de test de TEAM OP n\'apparaissent plus chez vous.']
+    ['🔐 Les permissions, pour tous les rôles et toutes les catégories', 'Dans Permissions, vous choisissez pour chaque rôle (technicien, chef d\'équipe, commercial, gestion compta, directeur régional) et pour chaque personne <b>ce qu\'il voit et ce qu\'il ne voit pas</b>, catégorie par catégorie — y compris les rubriques réservées (Fournisseurs, Bons de commande, Validations DR, Enveloppes, Comptabilité, Statistiques, Administration…). Un réglage par personne passe devant celui de son rôle.'],
+    ['📦 Les box d\'un DR (ou de n\'importe qui) se choisissent', 'Un compte sans « Tout voir » ne voit que les box qu\'on lui a choisies : dans sa fiche utilisateur (« Box qu\'il voit »), dans Permissions, ou sur la fiche de la box (« Autres personnes autorisées », « Responsable » ouvert à tous les rôles). Le rôle choisi à la création pré-règle vraiment les cases : un DR créé aujourd\'hui voit toutes les box d\'office.'],
+    ['✅ « Valider (DR) » : un droit qui se donne', 'Valider les mouvements de box et les demandes n\'est plus réservé au rôle DR : vous pouvez le donner à un chef d\'équipe (ou le retirer). La personne qui l\'a voit « Validations DR » et reçoit les alertes « à valider ». Idem pour « Voir / gérer la comptabilité ».'],
+    ['👤 Chacun ne voit que ce qui le concerne', 'Sans « Tout voir » : ses box, ses bons de commande, ses demandes, ses mouvements, son véhicule et son historique — dans le menu (fini le « 19 box » quand on n\'en a qu\'une), le tableau de bord, les listes et la cloche.'],
+    ['🔔 Des notifications ciblées', 'Plus d\'alertes des autres services ni des autres box. Validé ou refusé par le DR : <b>seule la personne concernée</b> est prévenue (par qui, motif). Le DR voit ce qui attend sa validation.'],
+    ['📥 Réception d\'un bon via le DR, tout en unités, envoi des bons au choix', 'Pour un utilisateur soumis à la validation DR, la réception d\'un bon attend le DR (refusée = bon de nouveau à réceptionner). Un carton de 10 kg = 1 unité, un seau = 1 unité. « Envoyer les bons prêts… » liste les bons à cocher : seuls les bons cochés partent.'],
+    ['🔐 Mon compte, dans Paramètres', 'Chacun change son mot de passe et son e-mail de récupération, sa photo, sa langue, ses couleurs — et se déconnecte (bouton ⏻ aussi en bas du menu).']
   ]
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {

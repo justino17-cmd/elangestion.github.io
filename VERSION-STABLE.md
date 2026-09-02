@@ -1,6 +1,23 @@
 # Point stable TeamOP
 
-**Version stable : v553** — gravée le 2 septembre 2026.
+**Version stable : v554** — gravée le 2 septembre 2026.
+
+v554 — permissions pour tous les rôles et toutes les catégories : le réglage
+« Par rôle » (Permissions) s'applique à tous les modules, rubriques réservées
+comprises, et à tous les rôles (DR et chef d'équipe inclus) ; Permissions montre
+les catégories Tableau de bord et Administration ; un réglage par personne prime
+toujours (modules « mis de côté » compris) ; DR et chef d'équipe voient par
+défaut Validations DR, Carte des box, Commandes… ; la fiche utilisateur
+n'enregistre « à part » que ce qui diffère du rôle (les réglages « Par rôle »
+faits plus tard s'appliquent). Box : un compte sans « Tout voir » voit les box
+choisies pour lui (fiche utilisateur « Box qu'il voit », Permissions, fiche box
+« Autres personnes autorisées », « Responsable » ouvert à tous les rôles) —
+corrige le DR qui ne voyait pas ses box ; à la création d'un compte, le rôle
+choisi pré-règle vraiment les cases (un DR créé a « Tout voir »). Nouveaux droits
+réglables : « Valider les mouvements et demandes (DR) » (validations, alertes « à
+valider », validation DR requise) et « Voir / gérer la comptabilité ».
+
+Ancien point : **v553** — gravée le 2 septembre 2026.
 
 v553 — chacun ne voit que ce qui le concerne : sans le droit « voir tout »
 (technicien par défaut, ou réglé par personne dans Permissions), le menu, le
