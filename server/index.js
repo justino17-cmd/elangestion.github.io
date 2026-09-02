@@ -891,10 +891,43 @@ app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
   if (e.email) fbMajFicheClient(e.email, { status: 'fourni', apps: ['elan'], plan: FORMULE_LBL[f] || f, planStatus: 'actif' }).catch(() => {});
   res.json({ ok: true, slug, formule: f, quantite: q });
 });
-// payé ? — trois portes : formule gratuite, code promo actif pour l'espace, abonnement Stripe actif pour l'e-mail
+// ── L'abonnement réglé à la main par le patron (fiche entreprise de la Tour) : formule, places,
+//    statut et date de fin. Il PRIME sur les portes automatiques (Stripe, code promo). ──
+const ABO_STATUTS = ['auto', 'actif', 'essai', 'impaye', 'suspendu', 'annule'];
+app.post('/api/monitor/espaces/abonnement', monPatronStrict, (req, res) => {
+  const b = req.body || {};
+  const slug = espSlug(b.nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
+  const f = monStr(b.formule, 20);
+  if (!['gratuit', 'pro', 'business', 'premium'].includes(f)) return res.status(400).json({ error: 'formule inconnue' });
+  const st = monStr(b.statut, 12) || 'auto';
+  if (!ABO_STATUTS.includes(st)) return res.status(400).json({ error: 'statut inconnu' });
+  const fin = monStr(b.fin, 10);
+  if (fin && !/^\d{4}-\d{2}-\d{2}$/.test(fin)) return res.status(400).json({ error: 'date de fin invalide (AAAA-MM-JJ)' });
+  const q = Math.max(1, Math.min(50, parseInt(b.quantite, 10) || 1));
+  e.formule = f; e.quantite = q; e.formulePar = req.tourUser.nom; e.formuleTs = Date.now();
+  e.aboStatut = st === 'auto' ? '' : st; e.aboFin = fin; e.aboPar = req.tourUser.nom; e.aboTs = Date.now();
+  try { if (!e.t) { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); e.t = String(o.t || ''); } } catch (err) {}
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  console.log('Tour :', req.tourUser.nom, 'règle l\'abonnement de', slug, ':', f, '×' + q, st, fin || '');
+  // la fiche client (site « Mon espace ») reflète le réglage
+  const ps = { auto: 'actif', actif: 'actif', essai: 'essai', impaye: 'impaye', suspendu: 'impaye', annule: 'annule' }[st] || 'actif';
+  if (e.email) fbMajFicheClient(e.email, { status: 'fourni', apps: ['elan'], plan: FORMULE_LBL[f] || f, planStatus: ps, planFin: fin }).catch(() => {});
+  res.json({ ok: true, slug, formule: f, quantite: q, statut: e.aboStatut || 'auto', fin });
+});
+// payé ? — le réglage manuel du patron d'abord ; sinon trois portes : formule gratuite, code promo actif, abonnement Stripe actif
 const espStripeCache = { ts: 0, data: null };
 async function espacePaye(e) {
   if (!e || !e.formule) return { paye: false, motif: 'aucune formule' };
+  if (e.aboStatut) {   // réglé à la main dans la Tour
+    const auj = new Date().toISOString().slice(0, 10);
+    if (e.aboStatut === 'actif' || e.aboStatut === 'essai') {
+      if (e.aboFin && e.aboFin < auj) return { paye: false, motif: (e.aboStatut === 'essai' ? 'essai' : 'abonnement') + ' terminé le ' + e.aboFin + ' (réglé par ' + (e.aboPar || 'TEAM OP') + ')', finLe: e.aboFin };
+      return { paye: true, motif: (e.aboStatut === 'essai' ? 'essai offert' : 'abonnement activé') + ' par ' + (e.aboPar || 'TEAM OP') + (e.aboFin ? ' (jusqu\'au ' + e.aboFin + ')' : ''), finLe: e.aboFin || '' };
+    }
+    return { paye: false, motif: { impaye: 'impayé', suspendu: 'suspendu', annule: 'annulé' }[e.aboStatut] + ' (réglé par ' + (e.aboPar || 'TEAM OP') + ')' };
+  }
   if (e.formule === 'gratuit') return { paye: true, motif: 'gratuit' };
   try {   // rattrapage : un code demandé à la demande d'accès mais jamais compté (espace recréé…) s'active ici
     if (e.codePromo && e.t) {
@@ -934,7 +967,8 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
     let p = { paye: false, motif: '' };
     try { p = await espacePaye(e); } catch (err) {}
     sortie.push({ slug, nom: e.nom || slug, email: e.email || '', formule: e.formule || '', quantite: e.quantite || 1,
-      paye: p.paye, motif: p.motif, promoCode: p.promoCode || '', finLe: p.finLe || '', echeance: p.echeance || '', attribueLe: e.formuleTs || 0, par: e.formulePar || '' });
+      paye: p.paye, motif: p.motif, promoCode: p.promoCode || '', finLe: p.finLe || '', echeance: p.echeance || '', attribueLe: e.formuleTs || 0, par: e.formulePar || '',
+      aboStatut: e.aboStatut || 'auto', aboFin: e.aboFin || '' });
   }
   sortie.sort((a, b) => (b.attribueLe || 0) - (a.attribueLe || 0));
   res.json({ ok: true, espaces: sortie });
@@ -945,7 +979,7 @@ app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
   const e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
   const p = await espacePaye(e);
-  res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif });
+  res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif, aboStatut: e.aboStatut || 'auto', aboFin: e.aboFin || '', finLe: p.finLe || '' });
 });
 // ── Activité par onglet (anonyme : noms d'écrans + compteurs, par espace) ──
 const USAGE_PATH = path.join(DATA_DIR, 'usage.json');

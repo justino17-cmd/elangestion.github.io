@@ -657,12 +657,15 @@ function tourPackPrefill(nom){
     var el=document.getElementById('pack-info'); if(!el) return;
     if(!(r&&r.ok&&r.d)){ el.innerHTML='<span style="color:var(--rouge,#f87171)">'+((r&&r.d&&r.d.error)||'Statut indisponible — le serveur a-t-il été mis à jour ?')+'</span>'; return; }
     var d=r.d;
+    var sf=document.getElementById('abo-f')||document.getElementById('pack-f'); if(sf&&d.formule) sf.value=d.formule;
+    var sq=document.getElementById('abo-q')||document.getElementById('pack-q'); if(sq) sq.value=d.quantite||1;
+    var ss=document.getElementById('abo-st'); if(ss) ss.value=d.aboStatut||'auto';
+    var sd=document.getElementById('abo-fin'); if(sd) sd.value=d.aboFin||'';
+    var ST={auto:'automatique',actif:'activé par TEAM OP',essai:'en essai',impaye:'impayé',suspendu:'suspendu',annule:'annulé'};
     if(d.formule){
-      var sf=document.getElementById('pack-f'); if(sf) sf.value=d.formule;
-      var sq=document.getElementById('pack-q'); if(sq) sq.value=d.quantite||1;
-      el.innerHTML='Formule actuelle : <b>'+esc(d.formule)+(d.quantite>1?' ×'+d.quantite:'')+'</b> — '+(d.paye?'<span style="color:#34D399">✅ payé ('+esc(d.motif||'')+')</span>':'<span style="color:#F5BE4F">💳 en attente de paiement</span>');
+      el.innerHTML='Formule actuelle : <b>'+esc(d.formule)+(d.quantite>1?' ×'+d.quantite:'')+'</b> · statut : <b>'+esc(ST[d.aboStatut||'auto']||d.aboStatut)+'</b>'+(d.aboFin?' · jusqu\'au <b>'+esc(d.aboFin)+'</b>':'')+' — '+(d.paye?'<span style="color:#34D399">✅ accès ouvert ('+esc(d.motif||'')+')</span>':'<span style="color:#F5BE4F">🔒 accès fermé ('+esc(d.motif||'en attente de paiement')+')</span>');
     } else {
-      el.innerHTML='Aucune formule attribuée pour l\'instant.';
+      el.innerHTML='Aucune formule attribuée pour l\'instant — choisis-en une et Enregistrer.';
     }
   }).catch(function(){ var el=document.getElementById('pack-info'); if(el) el.textContent='Serveur injoignable.'; });
 }
@@ -680,6 +683,17 @@ function supConnecterBoite(){
     if(r&&r.ok){ toast('📬 Boîte '+email.trim()+' connectée — ses mails arrivent dans Support'); setTimeout(function(){ location.reload(); },900); }
     else toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron');
   }).catch(function(){ toast('Serveur injoignable'); });
+}
+/* 💾 L'abonnement réglé à la main : formule, places, statut, fin — prime sur Stripe et les codes */
+function tourAboEnregistrer(nom,btn){
+  var f=(document.getElementById('abo-f')||{}).value, q=parseInt((document.getElementById('abo-q')||{}).value,10)||1;
+  var st=(document.getElementById('abo-st')||{}).value||'auto', fin=(document.getElementById('abo-fin')||{}).value||'';
+  if(btn){ btn.disabled=true; btn.textContent='💾 Enregistrement…'; }
+  apiPost('/api/monitor/espaces/abonnement',{nom:nom,formule:f,quantite:q,statut:st,fin:fin}).then(function(r){
+    if(r&&r.ok&&r.d&&r.d.ok){ toast('💾 Abonnement enregistré : '+f+(q>1?' ×'+q:'')+' · '+st+(fin?' jusqu\'au '+fin:'')+' — actif à la prochaine ouverture de leur app'); tourPackPrefill(nom); setTimeout(chargerEspaces,300); }
+    else toast((r&&r.d&&r.d.error)||'Refusé — mets le serveur à jour (git pull) ou réservé au patron');
+    if(btn){ btn.disabled=false; btn.textContent='💾 Enregistrer'; }
+  }).catch(function(){ toast('Serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='💾 Enregistrer'; } });
 }
 function tourAttribuerPack(nom){
   var f=(document.getElementById('pack-f')||{}).value, q=parseInt((document.getElementById('pack-q')||{}).value,10)||1;
@@ -1417,19 +1431,21 @@ function ficheClient(){
       '<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(c.email)+'\',\''+jsq(nm)+'\')">🔗 Lien de connexion</button>'+
       '<button class="btn-fant" onclick="window.open(\'https://dashboard.stripe.com/search?query='+encodeURIComponent(c.email)+'\',\'_blank\',\'noopener\')">Voir dans Stripe '+svg('ext',14)+'</button>'+
       '<button class="btn-fant" style="color:var(--rouge,#f87171)" onclick="tourRetirerEntreprise(\''+jsq(c.email)+'\')">Retirer de la liste</button></div>'+
-    '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">FORMULE ATTRIBUÉE PAR TEAM OP</div>'+
+    '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ABONNEMENT</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:8px">Réglé ici par TEAM OP : formule, places, statut et date de fin. Ce réglage <b>prime</b> sur Stripe et les codes promo, et s\'applique à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app. Client depuis le '+esc(fmtJour(c.inscrit))+' · statut site : <span class="past '+s[1]+'">'+esc(s[0])+'</span></div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">'+
-      '<select id="pack-f" style="background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
+      '<select id="abo-f" title="Formule" style="background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
         '<option value="gratuit">Gratuit · 1 place</option><option value="pro">Pro · 1 place</option><option value="business" selected>Business · 2 places</option><option value="premium">Business Premium · 3 places</option></select>'+
-      '<input id="pack-q" type="number" min="1" max="50" value="1" title="Nombre d\'abonnements (les places s\'additionnent)" style="width:70px;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
-      '<button class="btn-plein" onclick="tourAttribuerPack(\''+jsq(nm)+'\')">📦 Attribuer</button>'+
+      '<input id="abo-q" type="number" min="1" max="50" value="1" title="Nombre d\'abonnements (les places s\'additionnent)" style="width:64px;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
+      '<select id="abo-st" title="Statut de l\'abonnement" style="background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px">'+
+        '<option value="auto">Automatique (Stripe / code promo)</option><option value="actif">✅ Actif (activé par TEAM OP)</option><option value="essai">🧪 En essai</option><option value="impaye">⚠️ Impayé</option><option value="suspendu">⏸ Suspendu</option><option value="annule">✕ Annulé</option></select>'+
+      '<input id="abo-fin" type="date" title="Valable jusqu\'au (vide = sans fin)" style="background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:7px 10px">'+
+      '<button class="btn-plein" onclick="tourAboEnregistrer(\''+jsq(nm)+'\',this)">💾 Enregistrer</button>'+
       '<button class="btn-fant" onclick="tourStatutPack(\''+jsq(nm)+'\')">💳 Statut paiement</button></div>'+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">'+
-      '<input id="pack-promo" placeholder="Code promo (ex. TEAMOP3MOIS)" style="text-transform:uppercase;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px;width:230px">'+
-      '<button class="btn-fant" onclick="tourPromoEntreprise(\''+jsq(nm)+'\',this)">🎁 Activer le code</button></div>'+
       '<div id="pack-info" style="font-size:12.5px;color:var(--muted);margin-top:8px">Chargement du statut…</div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-top:6px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
-    sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">'+
+      '<input id="pack-promo" placeholder="Code promo (ex. TEAMOP3MOIS)" style="text-transform:uppercase;background:var(--fond2,#141F36);color:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px;width:230px">'+
+      '<button class="btn-fant" onclick="tourPromoEntreprise(\''+jsq(nm)+'\',this)">🎁 Activer le code</button></div></div>'+
     sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">CONNEXIONS</div><div id="fiche-connexions" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ PAR ONGLET & PROBLÈMES</div><div id="fiche-activite" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+

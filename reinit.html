@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TEAM OP — Nouveau mot de passe</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="icons/teamop-512.png">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#0f1729;color:#eef2fa;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px}
+  .carte{width:100%;max-width:440px;background:#141f36;border:1px solid #243354;border-radius:18px;padding:26px 24px}
+  .marque{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+  .marque img{width:36px;height:36px;border-radius:9px}
+  .marque b{font-family:"Courier New",monospace;letter-spacing:2px;font-size:15px}
+  h1{font-size:19px;margin:0 0 6px}
+  p{color:#93a9d4;font-size:13.5px;line-height:1.6;margin:0 0 14px}
+  label{display:block;font-size:12px;color:#93a9d4;margin:12px 0 6px;letter-spacing:.3px}
+  input{width:100%;background:#0d1526;border:1px solid #243354;border-radius:12px;padding:13px 12px;color:#eef2fa;font-size:15px;outline:none}
+  input:focus{border-color:#34d399}
+  button{width:100%;margin-top:16px;background:#34d399;color:#08251a;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:800;cursor:pointer}
+  button:disabled{opacity:.6;cursor:default}
+  .err{display:none;color:#f87171;font-size:13px;margin-top:10px}
+  .ok{display:none;background:#0f2a22;border:1px solid #1f7a57;border-radius:12px;padding:14px;font-size:14px;line-height:1.6}
+  .ok a{color:#34d399;font-weight:700}
+  .voir{display:flex;align-items:center;gap:8px;font-size:13px;color:#93a9d4;margin-top:10px;cursor:pointer}
+  .voir input{width:auto}
+  .pied{color:#5f7297;font-size:11.5px;margin-top:18px;text-align:center}
+</style>
+</head>
+<body>
+<div class="carte">
+  <div class="marque"><img src="icons/teamop-512.png" alt="TEAM OP"><b>TEAM OP</b></div>
+  <div id="etape-chargement"><h1>Un instant…</h1><p>Vérification de ton lien de réinitialisation.</p></div>
+  <div id="etape-form" style="display:none">
+    <h1>Choisis ton nouveau mot de passe</h1>
+    <p>Pour le compte <b id="qui" style="color:#eef2fa"></b>. Au moins <b>8 caractères</b>, connu de toi seul.</p>
+    <label>Nouveau mot de passe</label><input id="p1" type="password" minlength="8" autocomplete="new-password" placeholder="8 caractères minimum">
+    <label>Confirme-le</label><input id="p2" type="password" minlength="8" autocomplete="new-password" placeholder="Le même, une deuxième fois">
+    <label class="voir"><input type="checkbox" onchange="['p1','p2'].forEach(function(i){document.getElementById(i).type=this.checked?'text':'password'},this)"> Afficher ce que je tape</label>
+    <div class="err" id="err"></div>
+    <button id="go" onclick="enregistrer()">Enregistrer mon mot de passe</button>
+  </div>
+  <div class="ok" id="etape-ok">✅ <b>Mot de passe enregistré.</b><br>Tu peux te connecter dès maintenant avec ton e-mail et ce nouveau mot de passe.<br><br><a id="suite" href="espace.html">Se connecter →</a></div>
+  <div id="etape-ko" style="display:none"><h1>Lien invalide ou expiré</h1><p id="ko-txt">Ce lien de réinitialisation ne fonctionne plus : il a peut-être déjà servi, ou il date de plus d'une heure. Redemande un nouveau lien depuis « Mot de passe oublié ».</p><a href="espace.html" style="color:#34d399;font-weight:700;font-size:14px">Retour à Mon espace →</a></div>
+  <div class="pied">TEAM OP · la suite de gestion des pros du terrain · teamop.fr</div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script>
+/* Page d'action des e-mails Firebase (réinitialisation de mot de passe, vérification d'e-mail) — en français,
+   sur teamop.fr. À régler dans la console Firebase : Authentication → Templates → « URL d'action » = https://teamop.fr/reinit.html */
+var FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"elan-gestion.firebaseapp.com", projectId:"elan-gestion" };
+var Q=new URLSearchParams(location.search), MODE=Q.get('mode')||'', CODE=Q.get('oobCode')||'', SUITE=Q.get('continueUrl')||'';
+var auth=null;
+function montre(id){ ['etape-chargement','etape-form','etape-ok','etape-ko'].forEach(function(x){ var e=document.getElementById(x); if(e) e.style.display=(x===id)?'block':'none'; }); }
+function ko(txt){ if(txt){ var t=document.getElementById('ko-txt'); if(t) t.textContent=txt; } montre('etape-ko'); }
+function suiteHref(){ try{ if(SUITE&&/^https:\/\/(www\.)?teamop\.fr\//.test(SUITE)) return SUITE; }catch(e){} return 'espace.html'; }
+(function(){
+  try{ firebase.initializeApp(FB_CONFIG); auth=firebase.auth(); }catch(e){ ko('Impossible de charger le service de connexion — réessaie dans un instant.'); return; }
+  var s=document.getElementById('suite'); if(s) s.href=suiteHref();
+  if(!CODE){ ko(); return; }
+  if(MODE==='resetPassword'){
+    auth.verifyPasswordResetCode(CODE).then(function(email){ document.getElementById('qui').textContent=email; montre('etape-form'); setTimeout(function(){ document.getElementById('p1').focus(); },80); })
+      .catch(function(){ ko(); });
+  } else if(MODE==='verifyEmail'){
+    auth.applyActionCode(CODE).then(function(){ var o=document.getElementById('etape-ok'); o.innerHTML='✅ <b>Adresse e-mail vérifiée.</b><br><br><a href="'+suiteHref()+'" style="color:#34d399;font-weight:700">Continuer →</a>'; montre('etape-ok'); }).catch(function(){ ko('Ce lien de vérification ne fonctionne plus.'); });
+  } else if(MODE==='recoverEmail'){
+    auth.applyActionCode(CODE).then(function(){ var o=document.getElementById('etape-ok'); o.innerHTML='✅ <b>Ton ancienne adresse e-mail a été rétablie.</b><br>Pense à changer ton mot de passe si tu n\'es pas à l\'origine de ce changement.<br><br><a href="'+suiteHref()+'" style="color:#34d399;font-weight:700">Continuer →</a>'; montre('etape-ok'); }).catch(function(){ ko(); });
+  } else { ko(); }
+})();
+function enregistrer(){
+  var p1=document.getElementById('p1').value, p2=document.getElementById('p2').value, err=document.getElementById('err'), b=document.getElementById('go');
+  var show=function(m){ err.textContent='⚠ '+m; err.style.display='block'; };
+  err.style.display='none';
+  if(p1.length<8){ show('8 caractères minimum.'); return; }
+  if(p1!==p2){ show('Les deux mots de passe ne correspondent pas.'); return; }
+  if(/^\d{4,8}$/.test(p1)){ show('Choisis mieux qu\'une suite de chiffres (mélange lettres et chiffres).'); return; }
+  b.disabled=true; b.textContent='⏳ Enregistrement…';
+  auth.confirmPasswordReset(CODE,p1).then(function(){ montre('etape-ok'); })
+    .catch(function(e){ b.disabled=false; b.textContent='Enregistrer mon mot de passe';
+      var c=(e&&e.code)||''; show(c==='auth/weak-password'?'Mot de passe trop faible : 8 caractères minimum.':(c==='auth/expired-action-code'||c==='auth/invalid-action-code')?'Ce lien a expiré ou a déjà servi — redemande un nouveau lien.':'Impossible d\'enregistrer — réessaie dans un instant.'); });
+}
+</script>
+</body>
+</html>
