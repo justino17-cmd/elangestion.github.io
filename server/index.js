@@ -980,6 +980,62 @@ app.post('/api/monitor/espaces/activite', monAdmin, (req, res) => {
   const bugs = (monIssues || []).filter(i => i.statut !== 'corrige' && i.statut !== 'ignore' && (i.entreprises || []).some(x => x.nom === e.nom)).length;
   res.json({ ok: true, vues, total: u.total, dernier: u.dernier, version: u.version, bugs });
 });
+// ── Connexions des applications, par espace : qui se connecte, quand, depuis quel appareil,
+//    avec quelle version, par quel chemin (lien, nom d'entreprise, session gardée) — et les
+//    échecs. L'application envoie un événement à chaque connexion ; la Tour lit le tout. ──
+const CNX_PATH = path.join(DATA_DIR, 'connexions.json');
+let cnxData = {}; try { cnxData = JSON.parse(fs.readFileSync(CNX_PATH, 'utf8')); } catch (e) {}
+let cnxTimer = null;
+function cnxSave() { clearTimeout(cnxTimer); cnxTimer = setTimeout(() => { try { fs.writeFileSync(CNX_PATH, JSON.stringify(cnxData)); } catch (e) {} }, 800); }
+app.post('/api/connexions', (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80); if (!t) return res.status(400).json({ error: 't requis' });
+  if (Object.keys(cnxData).length >= 3000 && !cnxData[t]) return res.json({ ok: true });
+  const ev = { ts: Date.now(), ev: ['connexion', 'echec', 'session', 'deconnexion'].includes(b.ev) ? b.ev : 'connexion',
+    login: monStr(b.login, 40), role: monStr(b.role, 16), version: monStr(b.version, 12), app: monStr(b.app, 12) || 'gestion',
+    via: monStr(b.via, 16), appareil: monStr(b.appareil, 20), os: monStr(b.os, 20), nav: monStr(b.nav, 20), pwa: !!b.pwa,
+    dev: monStr(b.dev, 24), motif: monStr(b.motif, 80) };
+  const l = cnxData[t] = cnxData[t] || [];
+  l.unshift(ev); if (l.length > 500) l.length = 500;
+  cnxSave(); res.json({ ok: true });
+});
+/* Résumé lisible d'un espace : dernière connexion, utilisateurs et appareils actifs, échecs, versions */
+function cnxResume(t) {
+  const l = cnxData[t] || []; const now = Date.now(), j7 = now - 7 * 86400000, j30 = now - 30 * 86400000, h24 = now - 86400000;
+  const ok = l.filter(e => e.ev === 'connexion' || e.ev === 'session');
+  const u7 = new Set(ok.filter(e => e.ts > j7 && e.login).map(e => e.login)), u30 = new Set(ok.filter(e => e.ts > j30 && e.login).map(e => e.login));
+  const d7 = new Set(ok.filter(e => e.ts > j7 && e.dev).map(e => e.dev));
+  const echecs24 = l.filter(e => e.ev === 'echec' && e.ts > h24).length;
+  const versions = {}; const vuDev = new Set();
+  ok.forEach(e => { if (!e.dev || vuDev.has(e.dev) || !e.version) return; vuDev.add(e.dev); versions[e.version] = (versions[e.version] || 0) + 1; });
+  const apps = {}; ok.forEach(e => { if (e.ts > j30) apps[e.app || 'gestion'] = (apps[e.app || 'gestion'] || 0) + 1; });
+  const appareils = {}; ok.forEach(e => { if (e.ts > j30 && e.appareil) appareils[e.appareil] = (appareils[e.appareil] || 0) + 1; });
+  const dern = ok[0] || null;
+  return { total: l.length, derniere: dern ? dern.ts : 0, dernierLogin: dern ? dern.login : '', utilisateurs7: u7.size, utilisateurs30: u30.size, appareils7: d7.size,
+    echecs24, connexions7: ok.filter(e => e.ts > j7).length, versions, apps, appareils };
+}
+// la Tour : détail des connexions d'une entreprise
+app.post('/api/monitor/espaces/connexions', monAdmin, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  let t = e ? e.t : ''; try { if (e && !t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  if (!t) t = monStr((req.body || {}).t, 80);
+  if (!t) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  res.json({ ok: true, t, resume: cnxResume(t), evenements: (cnxData[t] || []).slice(0, parseInt((req.body || {}).n, 10) || 60) });
+});
+// la Tour : toutes les entreprises d'un coup, triées par dernière connexion
+app.get('/api/monitor/connexions', monAdmin, (req, res) => {
+  const vus = new Set(); const sortie = [];
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+    if (!t || vus.has(t)) continue; vus.add(t);
+    sortie.push({ slug, nom: e.nom || slug, t, formule: e.formule || '', resume: cnxResume(t) });
+  }
+  for (const t of Object.keys(cnxData)) { if (vus.has(t)) continue; vus.add(t); sortie.push({ slug: '', nom: '(espace hors annuaire) ' + t, t, formule: '', resume: cnxResume(t) }); }
+  sortie.sort((a, b) => (b.resume.derniere || 0) - (a.resume.derniere || 0));
+  const now = Date.now(); const tous = [].concat(...Object.values(cnxData));
+  res.json({ ok: true, espaces: sortie, global: { connexions24: tous.filter(e => e.ts > now - 86400000 && e.ev !== 'echec').length, echecs24: tous.filter(e => e.ts > now - 86400000 && e.ev === 'echec').length, actives7: sortie.filter(x => x.resume.derniere > now - 7 * 86400000).length } });
+});
 // repartir à neuf : libère le nom et EFFACE l'ancien espace (données Firestore comprises),
 // SANS bloquer l'entreprise — elle repart aussitôt sur un espace propre et vide
 app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
@@ -1197,25 +1253,43 @@ function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu, preno
   try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
   return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf, t, ident, mdp: mdpProv };
 }
+/* nom d'entreprise présentable (jamais une adresse e-mail mise là faute de mieux) */
+function espNomPropre(e) { const n = String((e && e.nom) || '').trim(); return (n && !/@/.test(n) && n.toLowerCase() !== String((e && e.email) || '').toLowerCase()) ? n : ''; }
 app.post('/api/espaces/trouver', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
   if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
-  const e = espacesReg[slug];
+  let e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Entreprise inconnue — vérifie l\'orthographe, ou demande ton lien de connexion' });
+  // plusieurs inscriptions pour le même espace : la plus récente fait foi
+  try { const t = e.t || String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); const r = espaceParT(t); if (r && r.code) e = r; } catch (err) {}
+  // la clé d'équipe a changé depuis l'inscription : ce lien mènerait à un espace illisible
+  if (e.clePerimee) return res.status(404).json({ error: 'Ce lien de connexion doit être renouvelé — demande le nouveau lien à ton entreprise', motif: 'cle_changee' });
   res.json({ ok: true, nom: e.nom, code: e.code });
 });
 /* Le lien LISIBLE d'un espace (teamop.fr/app.html#e=nom), pour l'application de l'entreprise :
    t = identifiant d'équipe, kh = empreinte SHA-256 de la clé d'équipe (jamais la clé elle-même).
-   Le lien n'est confirmé que si la clé de l'annuaire est celle de l'appareil (sinon le lien
-   mènerait à un espace illisible). */
+   Le nom et le lien ne sont rendus QUE si l'empreinte est celle de la clé de l'annuaire : sans
+   preuve de clé, rien n'est révélé (un identifiant d'équipe seul ne doit mener à aucun nom). */
+const lienQuota = new Map();
 app.post('/api/espaces/lien', (req, res) => {
   const t = monStr((req.body || {}).t, 80), kh = monStr((req.body || {}).kh, 64).toLowerCase();
-  if (!t) return res.status(400).json({ error: 't requis' });
+  if (!t || !/^[0-9a-f]{64}$/.test(kh)) return res.status(400).json({ error: 't et kh requis' });
+  const q = lienQuota.get(t) || { n: 0, reset: Date.now() + 3600000 };
+  if (Date.now() > q.reset) { q.n = 0; q.reset = Date.now() + 3600000; }
+  if (++q.n > 30) return res.status(429).json({ error: 'trop de demandes — réessaie plus tard' });
+  lienQuota.set(t, q);
   const e = espaceParT(t);
-  if (!e || !e.slug) return res.status(404).json({ error: 'lien lisible pas encore activé pour cet espace' });
+  const refus = () => res.status(404).json({ error: 'lien lisible pas encore activé pour cet espace' });
+  if (!e || !e.slug || !e.code) return refus();
   let cleAnn = ''; try { cleAnn = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) {}
-  const cleOk = !kh || !cleAnn || crypto.createHash('sha256').update(cleAnn).digest('hex') === kh;
-  res.json({ ok: true, slug: e.slug, nom: e.nom || '', lien: 'https://teamop.fr/app.html#e=' + e.slug, cleOk, nomExact: espSlug(e.nom) === e.slug });
+  if (!cleAnn) return refus();
+  if (crypto.createHash('sha256').update(cleAnn).digest('hex') !== kh) {
+    // l'appareil a une autre clé que l'annuaire : le code de l'annuaire est périmé → le site cesse de le servir
+    if (!espacesReg[e.slug].clePerimee) { espacesReg[e.slug].clePerimee = Date.now(); try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} lastRefus = { ts: Date.now(), raison: 'clé d\'équipe changée pour l\'espace ' + e.slug + ' — à réinscrire dans la Tour' }; console.warn('espace', e.slug, ': clé d\'équipe changée — lien de l\'annuaire périmé'); }
+    return res.status(404).json({ error: 'la clé d\'équipe a changé depuis l\'inscription chez TEAM OP — l\'espace est à réinscrire dans la Tour', motif: 'cle_changee' });
+  }
+  if (espacesReg[e.slug].clePerimee) { delete espacesReg[e.slug].clePerimee; try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
+  res.json({ ok: true, slug: e.slug, nom: espNomPropre(e), lien: 'https://teamop.fr/app.html#e=' + e.slug, cleOk: true, nomExact: espSlug(e.nom) === e.slug });
 });
 
 // ── Fermeture totale d'une entreprise (patron) : code de confirmation par e-mail,
