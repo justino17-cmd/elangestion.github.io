@@ -8002,7 +8002,9 @@ function delChantier(id){ if(!confirm('Supprimer ce chantier ? (les intervention
 const MAIL_CATS=[['rapport',"📄 Rapports d'intervention"],['avis','📮 Avis de passage'],['rdv','⏰ Rappels / confirmations de RDV'],['devis','💰 Devis & 🧾 Factures'],['bon','📦 Bons de commande']];
 function mailBoxFor(cat){ const bx=db.mailBoxes||[]; if(!bx.length) return null; const id=(db.mailAssign||{})[cat]; return bx.find(x=>x.id===id)||bx[0]; }
 /* 🏢 Entreprise de l'espace : son nom et ses coordonnées apparaissent sur les bons, PDF, impressions et e-mails */
-function entNom(){ return (((db.entreprise||{}).nom)||'').trim() || ((db.mailFrom||'').trim()) || 'OP GESTION'; }
+function entNom(){ return (((db.entreprise||{}).nom)||'').trim() || (localStorage.getItem('elanB_entreprise_nom')||'').trim() || ((db.mailFrom||'').trim()) || 'OP GESTION'; }
+/* En-tête des bons de commande : texte réglé dans Paramètres → Mon entreprise, sinon le nom de l'entreprise */
+function bcEntete(){ return (((db.entreprise||{}).enteteBC)||'').trim() || entNom(); }
 /* 🏷️ Marque de l'entreprise dans la barre — Business : logo uniquement · Business Premium : logo + nom + couleur */
 function applyBrand(){ const img=$('brand-logo'), nm=$('brand-name'), sub=$('brand-sub'); if(!img||!nm) return;
   const E=db.entreprise||{}, f=forfait();
@@ -8040,7 +8042,8 @@ function entLogoPick(e){ const f=e.target.files&&e.target.files[0]; if(!f) retur
     im.src=r.result; }; r.readAsDataURL(f); }
 function entLogoDel(){ if(!db.entreprise) return; delete db.entreprise.logo; save(); applyBrand(); try{ avatarAccentSync(); }catch(e){} toast('Logo retiré'); if(current==='parametres') views.parametres(); }
 function entSave(){ const g=id=>((document.getElementById(id)||{}).value||'').trim();
-  db.entreprise={...(db.entreprise||{}),nom:g('ent-nom'),adresse:g('ent-adresse'),cp:g('ent-cp'),ville:g('ent-ville'),tel:g('ent-tel'),siret:g('ent-siret'),tvaIntra:g('ent-tvaintra'),iban:g('ent-iban'),bic:g('ent-bic')};   // le logo est conservé
+  db.entreprise={...(db.entreprise||{}),nom:g('ent-nom'),adresse:g('ent-adresse'),cp:g('ent-cp'),ville:g('ent-ville'),tel:g('ent-tel'),siret:g('ent-siret'),tvaIntra:g('ent-tvaintra'),iban:g('ent-iban'),bic:g('ent-bic'),enteteBC:g('ent-entete-bc')};   // le logo est conservé
+  try{ if(db.entreprise.nom) localStorage.setItem('elanB_entreprise_nom',db.entreprise.nom); }catch(e){}
   save(); applyBrand(); toast('🏢 Entreprise enregistrée — son nom apparaîtra sur les bons et e-mails'); }
 function mailBrandName(){ return ((db.mailFrom||'').trim()) || (((db.entreprise||{}).nom)||'').trim() || rapportSociete(); }
 async function srvMail(to,subject,body,okMsg,cat,boxOverride,opts){
@@ -12977,7 +12980,9 @@ function formBox(id){ const b=id?db.boxes.find(x=>x.id===id):{};
         <div class="frow"><input name="nom" value="${esc(b.nom)}" placeholder="Nom ou description"></div>
         <div class="frow"><input name="adresse" value="${esc(b.adresse)}" placeholder="Adresse" oninput="boxLat=null;boxLng=null"></div>
         <div class="frow"><input name="ville" value="${esc(b.ville)}" placeholder="Ville"></div>
+        <div class="frow"><span class="frow-lbl">📞 Tél. sur place</span><input name="tel" inputmode="tel" value="${esc(b.tel||'')}" placeholder="Contact pour les livraisons" style="text-align:right"></div>
       </div>
+      <div class="detail-desc" style="margin:-2px 2px 10px">Le téléphone sur place est repris automatiquement dans le bloc <b>Livraison</b> des bons de commande adressés à cette box.</div>
       <div class="form-sec">Classification</div>
       <div class="fgroup">
         <div class="frow"><input name="codePostal" value="${esc(b.codePostal)}" inputmode="numeric" placeholder="Code postal">${b.codePostal?'<span style="color:var(--acc)">✓</span>':''}</div>
@@ -13096,7 +13101,7 @@ function boxAddrPick(k){ const r=boxAddrResults[k]; if(!r)return; const a=r.addr
 }
 function saveBox(e,id){ e.preventDefault(); if(!permGarde('stock',id?'modifier':'ajouter','une box')) return; const f=e.target; const data=Object.fromEntries(new FormData(f));
   const techIds=[...boxTechSel];
-  const obj={numero:data.numero,reference:data.reference,nom:data.nom,adresse:data.adresse,codePostal:data.codePostal,ville:data.ville,etage:data.etage,categorie:data.categorie||'',groupe:(data.groupe||'').trim()||'Sans groupe',secteur:(data.secteur||'').trim(),respUserId:data.respUserId||'',notes:data.notes||'',frequence:data.frequence||'Aucune',prochaineVisite:data.prochaineVisite||'',photo:boxPhoto||'',dateInstallation:data.dateInstallation,techIds,visibleTous:boxVisibleTous,actif:f.actif.checked,codesAcces:boxCodes.filter(c=>c.valeur),stock:boxFormStock};
+  const obj={numero:data.numero,reference:data.reference,nom:data.nom,adresse:data.adresse,codePostal:data.codePostal,ville:data.ville,tel:(data.tel||'').trim(),etage:data.etage,categorie:data.categorie||'',groupe:(data.groupe||'').trim()||'Sans groupe',secteur:(data.secteur||'').trim(),respUserId:data.respUserId||'',notes:data.notes||'',frequence:data.frequence||'Aucune',prochaineVisite:data.prochaineVisite||'',photo:boxPhoto||'',dateInstallation:data.dateInstallation,techIds,visibleTous:boxVisibleTous,actif:f.actif.checked,codesAcces:boxCodes.filter(c=>c.valeur),stock:boxFormStock};
   if(boxLat!=null){ obj.lat=boxLat; obj.lng=boxLng; } else { obj.lat=null; obj.lng=null; }   // adresse modifiée → on re-géolocalise
   let bid=id;
   if(id){ const ix=db.boxes.findIndex(x=>x.id===id); db.boxes[ix]={...db.boxes[ix],...obj}; toast('Box mise à jour'); }
@@ -13786,10 +13791,11 @@ function fourQuickSave(fid){ const f=db.fournisseurs.find(x=>x.id===fid); if(!f)
    livraison se remplit automatiquement avec celle de la box (si elle n'est pas déjà saisie) */
 function bonBoxPick(bid){ const bx=db.boxes.find(x=>x.id===bid); if(!bx) return;
   const s=bonSites[0]||{};
+  const resp=bx.respUserId?(db.users||[]).find(u=>u.id===bx.respUserId):null;
   if(!s.nom&&!s.adresse&&!s.ville){
-    bonSites[0]={nom:bx.nom||bx.numero||'',adresse:bx.adresse||'',cp:bx.codePostal||'',ville:bx.ville||'',contact:'',tel:''};
-    renderBonSites(); toast('📍 Adresse de livraison remplie depuis la box');
-  } }
+    bonSites[0]={nom:bx.nom||bx.numero||'',adresse:bx.adresse||'',cp:bx.codePostal||'',ville:bx.ville||'',contact:resp?fullName(resp):'',tel:bx.tel||''};
+    renderBonSites(); toast('📍 Adresse de livraison'+(bx.tel?' et téléphone sur place':'')+' remplis depuis la box');
+  } else if(!s.tel&&bx.tel){ s.tel=bx.tel; if(!s.contact&&resp) s.contact=fullName(resp); renderBonSites(); toast('📞 Téléphone sur place repris de la box'); } }
 /* ── Points de livraison (une même commande peut partir vers plusieurs sites : un bon par site) ── */
 function renderBonSites(){ const el=$('bon-livraison'); if(!el) return;
   el.innerHTML=bonSites.map((s,i)=>`<div class="fgroup" style="margin-bottom:10px">
@@ -14217,13 +14223,13 @@ function printBon(id){ const b=db.bons.find(x=>x.id===id); if(!b)return; const f
   const w=window.open('','_blank'); if(!w){ toast('Autorisez les pop-ups'); return; }
   w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Bon ${esc(bonNum(b))}</title>
     <style>*{box-sizing:border-box;font-family:Arial,sans-serif}body{margin:0;padding:40px;color:#1A1F28}.hd{display:flex;justify-content:space-between;border-bottom:3px solid #1E7A4E;padding-bottom:14px;margin-bottom:20px}.logo{font-size:22px;font-weight:800;color:#1E7A4E}.muted{color:#666;font-size:13px}.box{background:#F7F9FC;border:1px solid #E3E8F0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#1E7A4E;color:#fff;padding:8px;text-align:left;font-size:12px}td{padding:8px;border-bottom:1px solid #E3E8F0;font-size:12px}.tot{margin-top:14px;margin-left:auto;width:260px}.tot div{display:flex;justify-content:space-between;padding:5px 0}.tot .ttc{font-size:16px;font-weight:800;color:#1E7A4E;border-top:2px solid #1E7A4E;margin-top:6px;padding-top:8px}@media print{body{padding:20px}}</style></head>
-    <body><div class="hd"><div><div class="logo">${esc(entNom())}</div>${(()=>{const E=db.entreprise||{};const l=[[E.adresse,[E.cp,E.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '),[E.tel?'Tél. '+E.tel:'',E.siret?'SIRET '+E.siret:''].filter(Boolean).join(' · ')].filter(Boolean);return l.map(x=>`<div class="muted">${esc(x)}</div>`).join('');})()}</div><div style="text-align:right"><h1 style="margin:0;font-size:18px">BON DE COMMANDE</h1><div class="muted">N° ${esc(bonNum(b))}<br>${new Date((b.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')}</div></div></div>
+    <body><div class="hd"><div><div class="logo">${esc(bcEntete())}</div>${(()=>{const E=db.entreprise||{};const l=[[E.adresse,[E.cp,E.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '),[E.tel?'Tél. '+E.tel:'',E.siret?'SIRET '+E.siret:''].filter(Boolean).join(' · ')].filter(Boolean);return l.map(x=>`<div class="muted">${esc(x)}</div>`).join('');})()}</div><div style="text-align:right"><h1 style="margin:0;font-size:18px">BON DE COMMANDE</h1><div class="muted">N° ${esc(bonNum(b))}<br>${new Date((b.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')}</div></div></div>
       <div class="box"><b>Fournisseur :</b> ${esc(f.nom||b.fournisseur||'—')}${f.email?'<br>'+esc(f.email):''}${f.adresse?'<br>'+esc(f.adresse)+' '+esc(f.codePostal||'')+' '+esc(f.ville||''):''}</div>
-      ${(b.nomSiteLivraison||b.adresseLivraison)?`<div class="box"><b>Livraison :</b> ${esc(b.nomSiteLivraison||'')} ${esc(b.adresseLivraison||'')} ${esc(b.villeLivraison||'')}</div>`:''}
+      ${(b.nomSiteLivraison||b.adresseLivraison)?`<div class="box"><b>Livraison :</b> ${esc(b.nomSiteLivraison||'')}${b.adresseLivraison?'<br>'+esc(b.adresseLivraison):''}${(b.codePostalLivraison||b.villeLivraison)?'<br>'+esc([b.codePostalLivraison,b.villeLivraison].filter(Boolean).join(' ')):''}${b.contactSurPlace?'<br>Contact sur place : '+esc(b.contactSurPlace):''}${b.telephoneContact?'<br>Tél. sur place : '+esc(b.telephoneContact):''}</div>`:''}
       <table><thead><tr><th>Réf</th><th>Désignation</th><th style="text-align:right">Quantité</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="tot"><div class="ttc"><span>TOTAL</span><span>${bonQteTotTxt(b)}</span></div></div>
       ${b.notes?`<div class="box" style="margin-top:20px"><b>Notes :</b> ${esc(b.notes)}</div>`:''}
-      <div style="margin-top:30px;font-size:11px;color:#999;text-align:center">${esc(entNom())} — ${b.faitPar?'Établi par '+esc(b.faitPar)+' — ':''}${new Date().toLocaleDateString('fr-FR')}</div>
+      <div style="margin-top:30px;font-size:11px;color:#999;text-align:center">${esc(bcEntete())} — ${b.faitPar?'Établi par '+esc(b.faitPar)+' — ':''}${new Date().toLocaleDateString('fr-FR')}</div>
     </body></html>`);
   w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
 }
@@ -14236,8 +14242,12 @@ function _pdfTxt(s){ s=String(s==null?'':s); let out='';
   return out; }
 function bonPdfStr(b){
   const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{};
-  const ent=entNom();
+  const ent=bcEntete();
   const GREEN='0.086 0.502 0.235', GREENLT='0.93 0.965 0.94', GREY='0.42 0.46 0.52', DARK='0.10 0.12 0.16', PANEL='0.965 0.972 0.978', LINE='0.85 0.88 0.91';
+  // texte long → plusieurs lignes (jamais tronqué avec « … » quand on peut l'éviter)
+  const wrap=(s,n,max)=>{ s=String(s||'').trim(); if(!s) return []; const out=[]; let cur='';
+    s.split(/\s+/).forEach(w=>{ if(cur&&(cur+' '+w).length>n){ out.push(cur); cur=w; } else cur=cur?cur+' '+w:w; });
+    if(cur) out.push(cur); return out.slice(0,max||3).map(l=>l.length>n?l.slice(0,n-1)+'…':l); };
   const W=595,H=842,M=42,RGT=W-M;
   const pages=[]; let ops=[]; let y;
   const T=(x,yy,sz,txt,bold,col)=>ops.push((col||DARK)+' rg','BT','/F'+(bold?'2':'1')+' '+sz+' Tf',x.toFixed(1)+' '+yy.toFixed(1)+' Td','('+_pdfTxt(txt)+') Tj','ET');
@@ -14264,20 +14274,23 @@ function bonPdfStr(b){
   // ─ panneaux Fournisseur / Livraison
   const livOn=!!(b.nomSiteLivraison||b.adresseLivraison);
   const pw=livOn?(W-2*M-10)/2:(W-2*M);
-  const fLines=[cut(f.nom||b.fournisseur||'—',34),f.email?cut(f.email,40):'',
-    [f.adresse,[f.codePostal,f.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')?cut([f.adresse,[f.codePostal,f.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '),44):'',
-    f.telephone||''].filter(Boolean);
-  const lLines=livOn?[cut(b.nomSiteLivraison||'—',32),b.adresseLivraison?cut(b.adresseLivraison,40):'',
-    [b.codePostalLivraison,b.villeLivraison].filter(Boolean).join(' '),
-    b.contactSurPlace?cut('Contact : '+b.contactSurPlace+(b.telephoneContact?' · '+b.telephoneContact:''),42):''].filter(Boolean):[];
+  // largeur utile d'un panneau : ~40 caractères en gras 10.5, ~54 en 8.8 (deux panneaux) — plus quand il n'y a que le fournisseur
+  const nG=livOn?40:84, nP=livOn?54:112;
+  const gras=(s,n)=>wrap(s,n,2).map(t=>({t,b:true})), fin=(s,n)=>wrap(s,n,2).map(t=>({t,b:false}));
+  const fAdr=[f.adresse,[f.codePostal,f.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const fLines=[...gras(f.nom||b.fournisseur||'—',nG),...fin(f.email,nP),...fin(fAdr,nP),...fin(f.telephone?'Tél. '+f.telephone:'',nP)];
+  const lLines=livOn?[...gras(b.nomSiteLivraison||'—',nG),...fin(b.adresseLivraison,nP),
+    ...fin([b.codePostalLivraison,b.villeLivraison].filter(Boolean).join(' '),nP),
+    ...fin(b.contactSurPlace?'Contact sur place : '+b.contactSurPlace:'',nP),
+    ...fin(b.telephoneContact?'Tél. sur place : '+b.telephoneContact:'',nP)]:[];
   const ph=26+Math.max(fLines.length,lLines.length||0)*12+6;
   R(M,y-ph,pw,ph,PANEL); R(M,y-ph,pw,1,LINE); R(M,y-1,pw,1,LINE);
   T(M+9,y-14,8,'FOURNISSEUR',1,GREEN);
-  fLines.forEach((tx,i)=>{ T(M+9,y-28-i*12,i?8.8:10.5,tx,i?0:1,i?GREY:DARK); });
+  fLines.forEach((l,i)=>{ T(M+9,y-28-i*12,l.b?10.5:8.8,l.t,l.b?1:0,l.b?DARK:GREY); });
   if(livOn){ const lx=M+pw+10;
     R(lx,y-ph,pw,ph,PANEL); R(lx,y-ph,pw,1,LINE); R(lx,y-1,pw,1,LINE);
     T(lx+9,y-14,8,'LIVRAISON',1,GREEN);
-    lLines.forEach((tx,i)=>{ T(lx+9,y-28-i*12,i?8.8:10.5,tx,i?0:1,i?GREY:DARK); });
+    lLines.forEach((l,i)=>{ T(lx+9,y-28-i*12,l.b?10.5:8.8,l.t,l.b?1:0,l.b?DARK:GREY); });
   }
   y-=ph+18;
   // ─ tableau des articles
@@ -16063,6 +16076,8 @@ views.parametres=function(){
         <div class="field"><label>IBAN (règlement par virement)</label><input id="ent-iban" value="${esc(E.iban||'')}" placeholder="FR76 3000 4000 …"></div>
       </div>
       <div class="field"><label>BIC (optionnel)</label><input id="ent-bic" value="${esc(E.bic||'')}" placeholder="BNPAFRPPXXX"></div>
+      <div class="form-sec">🧾 Bons de commande <span style="font-weight:400;text-transform:none;letter-spacing:0">— ce qui apparaît en haut du bon (PDF et impression)</span></div>
+      <div class="field"><label>En-tête des bons de commande</label><input id="ent-entete-bc" value="${esc(E.enteteBC||'')}" placeholder="${esc(entNom())}"><div style="font-size:11.5px;color:var(--t3);margin-top:4px;line-height:1.5">Par défaut : le nom de l'entreprise ci-dessus (jamais « OP GESTION » dès qu'il est renseigné). Sous l'en-tête, le bon reprend l'adresse, le téléphone et le SIRET. Le bloc <b>Livraison</b> reprend l'adresse de la box choisie et son <b>téléphone sur place</b> (fiche de la box).</div></div>
       <div class="form-sec">🧰 Mon métier <span style="font-weight:400;text-transform:none;letter-spacing:0">— l'application s'adapte à ton activité</span></div>
       ${(()=>{ const cur=metierId();
         return `<p style="color:var(--t3);font-size:12px;line-height:1.55;margin-bottom:9px"><b style="color:var(--t2)">Ton métier a été choisi lors de ta demande d'application</b> — il est déjà réglé ici. Il change les <b>catégories d'intervention</b>, la <b>fiche remplie sur le terrain</b> (prestations réalisées et relevés) et les <b>modules affichés</b>. Tes clients, ton planning et tes interventions ne sont jamais touchés.<br>Besoin d'autre chose pour ton métier ? Écris à <a href="mailto:support@teamop.fr?subject=Mon%20m%C3%A9tier%20sur%20TEAM%20OP" style="color:var(--acc);font-weight:700">support@teamop.fr</a> — on ajoute au pack de ton métier, sans toucher aux autres.</p>
