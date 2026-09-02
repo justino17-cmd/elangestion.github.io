@@ -8014,8 +8014,12 @@ const MAIL_CATS=[['rapport',"📄 Rapports d'intervention"],['avis','📮 Avis d
 function mailBoxFor(cat){ const bx=db.mailBoxes||[]; if(!bx.length) return null; const id=(db.mailAssign||{})[cat]; return bx.find(x=>x.id===id)||bx[0]; }
 /* 🏢 Entreprise de l'espace : son nom et ses coordonnées apparaissent sur les bons, PDF, impressions et e-mails */
 function entNom(){ return (((db.entreprise||{}).nom)||'').trim() || (localStorage.getItem('elan_entreprise_nom')||'').trim() || ((db.mailFrom||'').trim()) || 'OP GESTION'; }
-/* En-tête des bons de commande : texte réglé dans Paramètres → Mon entreprise, sinon le nom de l'entreprise */
-function bcEntete(){ return (((db.entreprise||{}).enteteBC)||'').trim() || entNom(); }
+/* En-tête des bons de commande : la société choisie sur le bon (Paramètres → Mes sociétés),
+   sinon le texte réglé dans Paramètres → Mon entreprise, sinon le nom de l'entreprise */
+function bcEntete(b){ const s=(b&&b.societe?String(b.societe):'').trim(); if(s) return s;
+  return (((db.entreprise||{}).enteteBC)||'').trim() || entNom(); }
+/* Couleur du bon : celle de la société choisie (si réglée), sinon le vert TeamOP */
+function bcCouleur(b){ const s=(b&&b.societe)?(socStyle(String(b.societe)).couleur||''):''; return /^#[0-9a-fA-F]{6}$/.test(s)?s:'#1E7A4E'; }
 /* 🏷️ Marque de l'entreprise dans la barre — Business : logo uniquement · Business Premium : logo + nom + couleur */
 function applyBrand(){ const img=$('brand-logo'), nm=$('brand-name'), sub=$('brand-sub'); if(!img||!nm) return;
   const E=db.entreprise||{}, f=forfait();
@@ -13746,6 +13750,10 @@ function formBon(id){ const b=id?db.bons.find(x=>x.id===id):{}; _bonEditId=id||'
       <div class="fgroup">
         <div class="frow"><span class="frow-lbl mono" style="color:var(--acc)">N°</span><input name="numero" required class="mono" style="text-align:right" value="${esc(bonNum(b)==='—'?'':bonNum(b))||(nextNum('bons','BC','numero'))}"></div>
         <div class="frow"><span class="frow-lbl">Date</span><div class="frow-val"><input type="date" name="date" value="${b.date||todayISO()}" style="width:auto"></div></div>
+        ${(()=>{ const socs=((db.societes||[]).map(s=>String(s).trim()).filter(Boolean)); const cur=id?(b.societe||''):(entSocUnique()||'');
+          if(!socs.length) return '';
+          if(socs.length===1&&!id) return `<input type="hidden" name="societe" value="${esc(cur)}">`;   // une seule société : appliquée d'office
+          return `<div class="frow"><span class="frow-lbl">Société (en-tête)</span><div class="frow-val"><select name="societe"><option value="">${esc(bcEntete())} — en-tête par défaut</option>${socs.map(s=>`<option value="${esc(s)}" ${cur===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div></div>`; })()}
         <div class="frow"><span class="frow-lbl">Fournisseur</span><div class="frow-val" style="display:flex;gap:6px;align-items:center"><select name="fournisseurId" style="flex:1;min-width:0" onchange="bonTotRefresh()"><option value="">— Auto (selon les produits) —</option>${db.fournisseurs.map(f=>`<option value="${f.id}" ${f.id===b.fournisseurId?'selected':''}>${esc(f.nom)}</option>`).join('')}</select><button type="button" class="btn ghost sm" title="Modifier les infos du fournisseur (e-mail…)" onclick="bonFourEdit()">✎</button><button type="button" class="btn ghost sm" title="Créer un nouveau fournisseur" onclick="bonFourNew()">＋</button></div></div>
         <div class="frow"><span class="frow-lbl">Box concernée</span><div class="frow-val"><select name="boxId" onchange="bonBoxPick(this.value)"><option value="">— Aucune —</option>${db.boxes.filter(x=>x.actif!==false).map(x=>`<option value="${x.id}" ${x.id===b.boxId?'selected':''}>${esc(x.numero||'')}${x.numero&&x.nom?' — ':''}${esc(x.nom||'')}</option>`).join('')}</select></div></div>
         <div class="frow"><span class="frow-lbl">Statut</span><div class="frow-val"><select name="statut">${Object.entries(STATBC).map(([k,v])=>`<option value="${k}" ${(b.statut||'prete')===k?'selected':''}>${v.l}</option>`).join('')}</select></div></div>
@@ -14119,7 +14127,7 @@ function bonValider(id){ const form=$('bonform'); if(!form) return; const f=Obje
   let first=true, created=0; const madeIds=[];
   fourKeys.forEach(fk=>{ sites.forEach(s=>{
     const numero=first?f.numero:(nextNum('bons','BC','numero'));
-    const obj={numero,date:f.date,fournisseurId:fidOf(fk),boxId:f.boxId||'',statut:f.statut,notes:f.notes,faitPar:fullName(currentUser),lignes:JSON.parse(JSON.stringify(groups[fk]||[])),...bonLivOf(s)};
+    const obj={numero,date:f.date,fournisseurId:fidOf(fk),boxId:f.boxId||'',statut:f.statut,notes:f.notes,societe:(f.societe||'').trim(),faitPar:fullName(currentUser),lignes:JSON.parse(JSON.stringify(groups[fk]||[])),...bonLivOf(s)};
     if(first&&id){ const ix=db.bons.findIndex(x=>x.id===id); db.bons[ix]={...db.bons[ix],...obj}; delete db.bons[ix].sitesSupp; madeIds.push(id); }
     else{ const nid=uid(); db.bons.push({id:nid,...obj}); madeIds.push(nid); if(!first) created++; logEvent(first?'Bon de commande créé':'Bon créé (séparation auto)',numero+(fk?' — '+fk:''),'commande'); }
     first=false;
@@ -14232,15 +14240,16 @@ function regrouperFournisseur(fid){
 function printBon(id){ const b=db.bons.find(x=>x.id===id); if(!b)return; const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{};
   const rows=(b.lignes||[]).map(l=>`<tr><td>${esc(l.reference)||''}</td><td>${esc(l.designation)}${l.commentaire?`<div style="font-size:10px;color:#888">» ${esc(l.commentaire)}</div>`:''}</td><td style="text-align:right;white-space:nowrap">${esc(bonQteTxt(l))}</td></tr>`).join('');
   const w=window.open('','_blank'); if(!w){ toast('Autorisez les pop-ups'); return; }
+  const CO=bcCouleur(b);
   w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Bon ${esc(bonNum(b))}</title>
-    <style>*{box-sizing:border-box;font-family:Arial,sans-serif}body{margin:0;padding:40px;color:#1A1F28}.hd{display:flex;justify-content:space-between;border-bottom:3px solid #1E7A4E;padding-bottom:14px;margin-bottom:20px}.logo{font-size:22px;font-weight:800;color:#1E7A4E}.muted{color:#666;font-size:13px}.box{background:#F7F9FC;border:1px solid #E3E8F0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#1E7A4E;color:#fff;padding:8px;text-align:left;font-size:12px}td{padding:8px;border-bottom:1px solid #E3E8F0;font-size:12px}.tot{margin-top:14px;margin-left:auto;width:260px}.tot div{display:flex;justify-content:space-between;padding:5px 0}.tot .ttc{font-size:16px;font-weight:800;color:#1E7A4E;border-top:2px solid #1E7A4E;margin-top:6px;padding-top:8px}@media print{body{padding:20px}}</style></head>
-    <body><div class="hd"><div><div class="logo">${esc(bcEntete())}</div>${(()=>{const E=db.entreprise||{};const l=[[E.adresse,[E.cp,E.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '),[E.tel?'Tél. '+E.tel:'',E.siret?'SIRET '+E.siret:''].filter(Boolean).join(' · ')].filter(Boolean);return l.map(x=>`<div class="muted">${esc(x)}</div>`).join('');})()}</div><div style="text-align:right"><h1 style="margin:0;font-size:18px">BON DE COMMANDE</h1><div class="muted">N° ${esc(bonNum(b))}<br>${new Date((b.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')}</div></div></div>
+    <style>*{box-sizing:border-box;font-family:Arial,sans-serif}body{margin:0;padding:40px;color:#1A1F28}.hd{display:flex;justify-content:space-between;border-bottom:3px solid ${CO};padding-bottom:14px;margin-bottom:20px}.logo{font-size:22px;font-weight:800;color:${CO}}.muted{color:#666;font-size:13px}.box{background:#F7F9FC;border:1px solid #E3E8F0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:${CO};color:#fff;padding:8px;text-align:left;font-size:12px}td{padding:8px;border-bottom:1px solid #E3E8F0;font-size:12px}.tot{margin-top:14px;margin-left:auto;width:260px}.tot div{display:flex;justify-content:space-between;padding:5px 0}.tot .ttc{font-size:16px;font-weight:800;color:${CO};border-top:2px solid ${CO};margin-top:6px;padding-top:8px}@media print{body{padding:20px}}</style></head>
+    <body><div class="hd"><div><div class="logo">${esc(bcEntete(b))}</div>${(()=>{const E=db.entreprise||{};const l=[[E.adresse,[E.cp,E.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '),[E.tel?'Tél. '+E.tel:'',E.siret?'SIRET '+E.siret:''].filter(Boolean).join(' · ')].filter(Boolean);return l.map(x=>`<div class="muted">${esc(x)}</div>`).join('');})()}</div><div style="text-align:right"><h1 style="margin:0;font-size:18px">BON DE COMMANDE</h1><div class="muted">N° ${esc(bonNum(b))}<br>${new Date((b.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')}</div></div></div>
       <div class="box"><b>Fournisseur :</b> ${esc(f.nom||b.fournisseur||'—')}${f.email?'<br>'+esc(f.email):''}${f.adresse?'<br>'+esc(f.adresse)+' '+esc(f.codePostal||'')+' '+esc(f.ville||''):''}</div>
       ${(b.nomSiteLivraison||b.adresseLivraison)?`<div class="box"><b>Livraison :</b> ${esc(b.nomSiteLivraison||'')}${b.adresseLivraison?'<br>'+esc(b.adresseLivraison):''}${(b.codePostalLivraison||b.villeLivraison)?'<br>'+esc([b.codePostalLivraison,b.villeLivraison].filter(Boolean).join(' ')):''}${b.contactSurPlace?'<br>Contact sur place : '+esc(b.contactSurPlace):''}${b.telephoneContact?'<br>Tél. sur place : '+esc(b.telephoneContact):''}</div>`:''}
       <table><thead><tr><th>Réf</th><th>Désignation</th><th style="text-align:right">Quantité</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="tot"><div class="ttc"><span>TOTAL</span><span>${bonQteTotTxt(b)}</span></div></div>
       ${b.notes?`<div class="box" style="margin-top:20px"><b>Notes :</b> ${esc(b.notes)}</div>`:''}
-      <div style="margin-top:30px;font-size:11px;color:#999;text-align:center">${esc(bcEntete())} — ${b.faitPar?'Établi par '+esc(b.faitPar)+' — ':''}${new Date().toLocaleDateString('fr-FR')}</div>
+      <div style="margin-top:30px;font-size:11px;color:#999;text-align:center">${esc(bcEntete(b))} — ${b.faitPar?'Établi par '+esc(b.faitPar)+' — ':''}${new Date().toLocaleDateString('fr-FR')}</div>
     </body></html>`);
   w.document.close(); w.focus(); setTimeout(()=>{try{w.print();}catch(e){}},350);
 }
@@ -14253,8 +14262,11 @@ function _pdfTxt(s){ s=String(s==null?'':s); let out='';
   return out; }
 function bonPdfStr(b){
   const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{};
-  const ent=bcEntete();
-  const GREEN='0.086 0.502 0.235', GREENLT='0.93 0.965 0.94', GREY='0.42 0.46 0.52', DARK='0.10 0.12 0.16', PANEL='0.965 0.972 0.978', LINE='0.85 0.88 0.91';
+  const ent=bcEntete(b);
+  // couleur de la société choisie (ou vert TeamOP), en composantes PDF 0..1 ; teinte claire pour les encadrés
+  const hx=bcCouleur(b), rgb=[1,3,5].map(i=>parseInt(hx.slice(i,i+2),16)/255);
+  const GREEN=rgb.map(v=>v.toFixed(3)).join(' '), GREENLT=rgb.map(v=>(0.93+v*0.07).toFixed(3)).join(' ');
+  const GREY='0.42 0.46 0.52', DARK='0.10 0.12 0.16', PANEL='0.965 0.972 0.978', LINE='0.85 0.88 0.91';
   // texte long → plusieurs lignes (jamais tronqué avec « … » quand on peut l'éviter)
   const wrap=(s,n,max)=>{ s=String(s||'').trim(); if(!s) return []; const out=[]; let cur='';
     s.split(/\s+/).forEach(w=>{ if(cur&&(cur+' '+w).length>n){ out.push(cur); cur=w; } else cur=cur?cur+' '+w:w; });
@@ -16085,7 +16097,7 @@ views.parametres=function(){
       </div>
       <div class="field"><label>BIC (optionnel)</label><input id="ent-bic" value="${esc(E.bic||'')}" placeholder="BNPAFRPPXXX"></div>
       <div class="form-sec">🧾 Bons de commande <span style="font-weight:400;text-transform:none;letter-spacing:0">— ce qui apparaît en haut du bon (PDF et impression)</span></div>
-      <div class="field"><label>En-tête des bons de commande</label><input id="ent-entete-bc" value="${esc(E.enteteBC||'')}" placeholder="${esc(entNom())}"><div style="font-size:11.5px;color:var(--t3);margin-top:4px;line-height:1.5">Par défaut : le nom de l'entreprise ci-dessus (jamais « OP GESTION » dès qu'il est renseigné). Sous l'en-tête, le bon reprend l'adresse, le téléphone et le SIRET. Le bloc <b>Livraison</b> reprend l'adresse de la box choisie et son <b>téléphone sur place</b> (fiche de la box).</div></div>
+      <div class="field"><label>En-tête des bons de commande</label><input id="ent-entete-bc" value="${esc(E.enteteBC||'')}" placeholder="${esc(entNom())}"><div style="font-size:11.5px;color:var(--t3);margin-top:4px;line-height:1.5">Par défaut : le nom de l'entreprise ci-dessus (jamais « OP GESTION » dès qu'il est renseigné). Sous l'en-tête, le bon reprend l'adresse, le téléphone et le SIRET. Le bloc <b>Livraison</b> reprend l'adresse de la box choisie et son <b>téléphone sur place</b> (fiche de la box).<br><b>Plusieurs sociétés ?</b> Déclare-les dans « Mes sociétés » (plus bas) : chaque bon de commande propose alors un choix <b>Société (en-tête)</b>, et le bon prend le nom et la couleur de la société choisie.</div></div>
       <div class="form-sec">🧰 Mon métier <span style="font-weight:400;text-transform:none;letter-spacing:0">— l'application s'adapte à ton activité</span></div>
       ${(()=>{ const cur=metierId();
         return `<p style="color:var(--t3);font-size:12px;line-height:1.55;margin-bottom:9px"><b style="color:var(--t2)">Ton métier a été choisi lors de ta demande d'application</b> — il est déjà réglé ici. Il change les <b>catégories d'intervention</b>, la <b>fiche remplie sur le terrain</b> (prestations réalisées et relevés) et les <b>modules affichés</b>. Tes clients, ton planning et tes interventions ne sont jamais touchés.<br>Besoin d'autre chose pour ton métier ? Écris à <a href="mailto:support@teamop.fr?subject=Mon%20m%C3%A9tier%20sur%20TEAM%20OP" style="color:var(--acc);font-weight:700">support@teamop.fr</a> — on ajoute au pack de ton métier, sans toucher aux autres.</p>
