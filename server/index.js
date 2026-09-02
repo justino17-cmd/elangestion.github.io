@@ -74,11 +74,12 @@ function mailerEnvoi(opts) {
   // confidentiel : code de sécurité ou mot de passe → jamais journalisé ni copié
   const secret = opts.confidentiel === true || /code/i.test(String(opts.subject || ''));
   try {
+    // trace : ce qu'on garde d'un e-mail confidentiel (destinataire, lien envoyé, espace…) — jamais le secret lui-même
     mailsLog.unshift({ ts: Date.now(), a: String(opts.to || ''), sujet: String(opts.subject || '').slice(0, 140),
-      txt: secret ? '(contenu confidentiel — code de sécurité ou mot de passe, jamais conservé)' : String(opts.text || '').slice(0, 2000) });
+      txt: secret ? (opts.trace ? String(opts.trace).slice(0, 400) : '(contenu confidentiel — code de sécurité ou mot de passe, jamais conservé)') : String(opts.text || '').slice(0, 2000) });
     if (mailsLog.length > 300) mailsLog.length = 300; mailsSave();
   } catch (e) {}
-  const o2 = Object.assign({}, opts); delete o2.confidentiel;
+  const o2 = Object.assign({}, opts); delete o2.confidentiel; delete o2.trace;
   try {
     const moi = String(config.notifDemandes || (config.smtp && (config.smtp.from || config.smtp.user)) || '').toLowerCase();
     if (moi && !secret && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
@@ -450,14 +451,17 @@ app.post('/api/notify', async (req, res) => {
 const mailQuota = new Map();
 // 30 e-mails/heure par espace ; un espace sans appareil abonné aux notifications
 // est compté par adresse IP (anti-abus). Renvoie le message de refus, ou null.
-function mailQuotaRefus(req, teamId) {
+// (prefixe/max : un compteur à part, par ex. pour les e-mails d'accès, qui ne rogne pas celui des documents)
+function mailQuotaRefus(req, teamId, prefixe, max) {
+  prefixe = prefixe || ''; max = max || 30;
   const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
-  const cle = teamConnue ? teamId : 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?');
+  const cle = prefixe + (teamConnue ? teamId : 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?'));
   const q = mailQuota.get(cle) || { count: 0, reset: Date.now() + 3600000 };
   if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
-  if (q.count >= 30) {
-    lastRefus = { ts: Date.now(), raison: teamConnue ? 'quota équipe (30/h)' : 'quota IP (espace sans notifications)' };
-    return teamConnue ? 'quota horaire atteint (30 e-mails/h)' : 'quota horaire atteint (30 e-mails/h) — réessaie dans une heure';
+  if (q.count >= max) {
+    const min = Math.max(1, Math.ceil((q.reset - Date.now()) / 60000));
+    lastRefus = { ts: Date.now(), raison: (prefixe ? prefixe + ' ' : '') + (teamConnue ? 'quota équipe (' + max + '/h)' : 'quota IP (espace sans notifications)') };
+    return 'quota horaire atteint (' + max + ' e-mails/h) — réessaie dans ' + min + ' min';
   }
   q.count++; mailQuota.set(cle, q);
   return null;
@@ -515,27 +519,44 @@ app.post('/api/compte/identifiants', async (req, res) => {
   if (!teamId || !to || !login || !mdp) return res.status(400).json({ error: 'teamId, to, login et mdp requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
   if (!mailer) return res.status(503).json({ error: 'email_off' });
-  const refus = mailQuotaRefus(req, teamId);
+  const t = String(teamId).slice(0, 80);
+  // Anti-hameçonnage : cette route envoie un e-mail officiel avec un lien d'espace → seulement pour un espace
+  // que le serveur connaît (annuaire, ou appareils abonnés aux notifications), jamais pour un espace inventé.
+  const esp = espaceParT(t);
+  const espaceConnu = !!esp || Object.values(subs).some(s => s.teamId === t);
+  if (!espaceConnu) { lastRefus = { ts: Date.now(), raison: 'accès : espace inconnu ' + t.slice(0, 30) }; return res.status(403).json({ error: 'espace inconnu du serveur — transmets les accès toi-même' }); }
+  const refus = mailQuotaRefus(req, t, 'acces:', 20);
   if (refus) return res.status(429).json({ error: refus });
   const net = (s, n) => String(s || '').replace(/[<>\r\n]/g, '').trim().slice(0, n);
-  // espace connu de l'annuaire → le lien LISIBLE porte le nom de l'entreprise (teamop.fr/app.html#e=gci)
-  const esp = espaceParT(String(teamId));
   const ent = net(entreprise, 80) || net(esp && esp.nom, 80), pre = net(prenom, 60), id = net(login, 60), pwd = net(mdp, 60), qui = net(par, 80);
-  // seul un lien TeamOP est accepté (jamais d'adresse étrangère dans nos e-mails)
-  const lienApp = /^https:\/\/teamop\.fr\/(app|beta|connexion)\.html([#?][A-Za-z0-9+/=_.&%#?-]*)?$/.test(String(lien || '')) ? String(lien).slice(0, 700) : '';
-  const url = (esp && esp.slug) ? 'https://teamop.fr/app.html#e=' + esp.slug : (lienApp || 'https://teamop.fr/connexion.html');
+  // rien qui ressemble à une adresse web ou à un numéro dans les champs libres (auto-liés par les clients mail)
+  if (/\s/.test(id) || /\s/.test(pwd) || /https?:|www\./i.test(id + ' ' + pwd + ' ' + pre + ' ' + ent + ' ' + qui)) return res.status(400).json({ error: 'champs invalides' });
+  // Lien fourni par l'app : accepté seulement s'il est TeamOP et, pour un lien d'espace #entreprise=CODE, si le code
+  // désigne bien CET espace (t identique) — sinon on l'ignore.
+  let lienApp = '', cleApp = '';
+  if (/^https:\/\/teamop\.fr\/(app|beta|connexion)\.html([#?][A-Za-z0-9+/=_.&%#?-]*)?$/.test(String(lien || ''))) {
+    const l = String(lien).slice(0, 700); const m = l.match(/#entreprise=([A-Za-z0-9+/=_-]{8,})/);
+    if (m) { try { const o = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8')); if (o && o.t === t) { lienApp = l; cleApp = String(o.k || ''); } } catch (e) {} }
+    else if (!/#e=/.test(l)) lienApp = l;   // connexion.html / app.html sans espace
+  }
+  // Espace de l'annuaire → lien lisible (teamop.fr/app.html#e=gci)… sauf si la clé d'équipe a changé depuis
+  // l'inscription : le code de l'annuaire serait périmé, le lien de l'app (clé actuelle) fait foi.
+  let cleAnn = ''; try { if (esp && esp.code) cleAnn = String(JSON.parse(Buffer.from(esp.code, 'base64').toString('utf8')).k || ''); } catch (e) {}
+  const annuaireOk = !!(esp && esp.slug) && (!cleApp || !cleAnn || cleApp === cleAnn);
+  const url = annuaireOk ? 'https://teamop.fr/app.html#e=' + esp.slug : (lienApp || 'https://teamop.fr/connexion.html');
   const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const entTxt = ent ? ' « ' + ent + ' »' : '';
   // ce que l'écran de connexion affichera vraiment : le nom porté par le lien (annuaire si #e=…, sinon celui de l'app)
-  const nomEcran = (esp && esp.nom) ? net(esp.nom, 80) : ent;
+  const nomEcran = annuaireOk ? net(esp.nom, 80) : ent;
   const ecranTxt = nomEcran ? ' « ' + nomEcran + ' »' : '';
   const lienEspace = /#(e|entreprise)=/.test(url);   // un lien d'espace met l'appareil sur l'entreprise ; connexion.html, non
   const explique = lienEspace
     ? 'Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « Vous allez vous connecter à l\'entreprise' + ecranTxt + ' ». Entrez alors votre identifiant et votre mot de passe provisoire.'
     : 'Ouvrez l\'application avec ce lien, puis entrez votre identifiant et votre mot de passe provisoire.';
-  const sansLien = (esp && esp.slug) ? '(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + ecranTxt + '.)' : '';
+  // « tapez le nom » n'est vrai que si le nom retombe exactement sur ce lien (pas sur un homonyme inscrit avant)
+  const sansLien = (annuaireOk && espSlug(esp.nom) === esp.slug) ? '(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + ecranTxt + '.)' : '';
   try {
-    await mailerEnvoi({ confidentiel: true, from: config.smtp.from || config.smtp.user, to,
+    await mailerEnvoi({ confidentiel: true, trace: 'accès @' + id + ' → ' + url + ' · espace ' + t + (qui ? ' · par ' + qui : ''), from: config.smtp.from || config.smtp.user, to,
       subject: 'Vos accès OP GESTION' + (ent ? ' — ' + ent : ''),
       text: 'Bonjour' + (pre ? ' ' + pre : '') + ',\n\n' + (qui ? qui + ' vous a créé' : 'Votre entreprise vous a créé') + ' un compte OP GESTION' + (ent ? ' (' + ent + ')' : '') + '.\n\n'
         + 'Identifiant : ' + id + '\nMot de passe provisoire : ' + pwd + '\n\n'
@@ -1109,10 +1130,12 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
 /* Fiche d'un espace de l'annuaire à partir de son identifiant d'équipe (avec son nom de lien) */
 function espaceParT(t) {
   if (!t) return null;
-  const slug = Object.keys(espacesReg).find(s => { const x = espacesReg[s];
+  const slugs = Object.keys(espacesReg).filter(s => { const x = espacesReg[s];
     if (x.t) return x.t === t;
     try { const o = JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')); return String(o.t || '') === t; } catch (err) { return false; } });
-  return slug ? Object.assign({ slug }, espacesReg[slug]) : null;
+  if (!slugs.length) return null;
+  const slug = slugs.sort((a, b) => (espacesReg[b].ts || 0) - (espacesReg[a].ts || 0))[0];   // plusieurs noms pour le même espace : le plus récent
+  return Object.assign({ slug }, espacesReg[slug]);
 }
 app.post('/api/espaces/etat', (req, res) => {
   const t = monStr((req.body || {}).t, 80);
