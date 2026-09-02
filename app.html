@@ -3151,15 +3151,14 @@ function moduleReglage(u,k){ if(!u) return null;
   return null; }
 function userSeesModule(u,k){ if(!u) return false; if(planBloque(k)) return false; if(metierBloque(k)) return false; if(u.role==='admin') return true;
   const r=moduleReglage(u,k); if(r) return r.v;                                                   // réglé par l'entreprise : par personne, sinon par rôle
+  if(k==='validations' && userCap(u,'validerDR')) return true;                                     // qui a le droit de valider voit « Validations DR » (sauf réglage contraire)
   if(u.role==='dr' || u.role==='chefEquipe') return !['utilisateurs','permissions'].includes(k);   // défaut DR / chef d'équipe : tout, sauf la gestion des comptes
   const it=NAV.flatMap(s=>s.items).find(x=>x.k===k);
-  return !(it && it.admin);                                                                       // défaut des autres rôles : rubriques « admin » fermées, le reste ouvert
+  // défaut des autres rôles : rubriques « admin » fermées, rubriques « mises de côté » fermées tant qu'elles ne sont pas
+  // affichées dans le menu (Modules OP) ni réglées — le reste ouvert. Une seule règle pour le menu, Permissions et la fiche.
+  return !(it && (it.admin || (it.aside && !showAside())));
 }
-function canSee(item){ if(!currentUser) return false;
-  // module « mis de côté » (aside) : visible s'il est affiché dans le menu (Modules OP), pour l'admin / le DR / le chef d'équipe,
-  // ou si l'entreprise l'a réglé visible pour la personne ou pour son rôle
-  if(item.aside && !showAside() && !['admin','dr','chefEquipe'].includes(currentUser.role)){ const r=moduleReglage(currentUser,item.k); if(!(r&&r.v)) return false; }
-  return userSeesModule(currentUser,item.k); }
+function canSee(item){ if(!currentUser) return false; return userSeesModule(currentUser,item.k); }
 /* ── Droits d'action par rôle (qui peut supprimer, annuler, créer, tout voir) ──
    admin / dr / chefEquipe : tout
    commercial : crée interventions & devis, voit tout, mais ne SUPPRIME pas
@@ -3231,7 +3230,7 @@ function userBoxIds(userId){ return (db.boxes||[]).filter(b=>(b.userIds||[]).inc
 function mesBoxIds(){ return new Set(visibleBoxes(db.boxes||[]).map(b=>b.id)); }
 function visibleBons(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(b=>(b.boxId&&ids.has(b.boxId))||(b.faitPar&&b.faitPar===me)); }
 /* demandes et mouvements en attente : celui qui a le droit de VALIDER (DR, admin, droit accordé) voit tout ce qu'il y a à valider, même sans « Tout voir » */
-function visibleDemandes(list){ if(can('voirTout')||can('validerDR')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=currentUser.id; return (list||[]).filter(d=>d.chefId===me||(d.boxId&&ids.has(d.boxId))); }
+function visibleDemandes(list){ if(!currentUser) return []; if(currentUser.role==='admin'||can('validerDR')) return list||[]; const me=currentUser.id; return (list||[]).filter(d=>d.chefId===me); }   // sinon : SES demandes (même règle pour « Mes demandes », l'historique et le tableau de bord)
 function visibleBoxMvts(list){ if(can('voirTout')||can('validerDR')) return list||[]; if(!currentUser) return []; const me=currentUser.id; return (list||[]).filter(m=>m.parId===me); }
 function visibleMouvements(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(m=>(m.boxId&&ids.has(m.boxId))||(m.technicien&&m.technicien===me)); }
 function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const tid=myTechId(); return (list||[]).filter(v=>!!tid&&(v.techId===tid||v.conducteurTechnicienId===tid)); }
@@ -13335,10 +13334,10 @@ const boxLabel=id=>{ const b=db.boxes.find(x=>x.id===id); return b?((b.numero||b
 function demProduitNom(l){ if(l.produitId){ const p=produit(l.produitId); return p.nom||l.nom||'—'; } return l.nom||'—'; }
 views.demandes=function(){
   setHeader('Mes demandes','Demandes de commande au Directeur Régional',`<button class="btn" onclick="formDemande()">＋ Demande</button>`);
-  let list=[...db.demandes].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  let list=visibleDemandes([...db.demandes]).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   list=visibleDemandes(list);   // les siennes (ou celles de ses box) — tout pour qui « voit tout » ou valide
   const rows=list.map(d=>`<tr class="row-clk" onclick="ficheDemande('${d.id}')"><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(d.boxNom||boxLabel(d.boxId))}</td><td>${(d.lignes||[]).length} produit(s) · ${demTotal(d)} u.</td><td>${esc(d.chefNom||userName(d.chefId))}</td><td>${fmtShort(d.date)}</td><td>${badge(STATV,d.statut)}</td>
-    <td style="text-align:right" onclick="event.stopPropagation()">${(d.statut==='enAttente'||currentUser.role==='admin')?`<button class="btn danger sm" onclick="delItem('demandes','${d.id}')">🗑</button>`:'—'}</td></tr>`).join('');
+    <td style="text-align:right" onclick="event.stopPropagation()">${((d.statut==='enAttente'&&d.chefId===currentUser.id)||currentUser.role==='admin')?`<button class="btn danger sm" onclick="delItem('demandes','${d.id}')">🗑</button>`:'—'}</td></tr>`).join('');
   $('content').innerHTML=list.length? tableCard(['N°','Box','Produits','Demandeur','Date','Statut',''],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
 };
 function ficheDemande(id){ const d=db.demandes.find(x=>x.id===id); if(!d)return;
@@ -13353,7 +13352,7 @@ function ficheDemande(id){ const d=db.demandes.find(x=>x.id===id); if(!d)return;
     <div class="dt-lbl" style="margin:14px 0 8px">Produits demandés</div>
     ${(d.lignes||[]).map(l=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${esc(demProduitNom(l))}</div></div><span class="strong">×${l.quantite}</span></div>`).join('')||'<div style="color:var(--t3);font-size:13px">Aucun produit</div>'}
     ${d.notes?`<div class="detail-desc">${esc(d.notes)}</div>`:''}
-    <div class="modal-foot">${(currentUser.role==='admin'||currentUser.role==='dr')&&d.statut==='enAttente'?`<button class="btn danger" onclick="closeModal();validerDemande('${d.id}','refuse')">Refuser</button><button class="btn" onclick="closeModal();validerDemande('${d.id}','valide')">Valider</button>`:`<button class="btn ghost" onclick="closeModal()">Fermer</button>`}</div>`);
+    <div class="modal-foot">${can('validerDR')&&d.statut==='enAttente'?`<button class="btn danger" onclick="closeModal();validerDemande('${d.id}','refuse')">Refuser</button><button class="btn" onclick="closeModal();validerDemande('${d.id}','valide')">Valider</button>`:`<button class="btn ghost" onclick="closeModal()">Fermer</button>`}</div>`);
 }
 let demLignes=[];
 function formDemande(){
@@ -15555,7 +15554,8 @@ views.utilisateurs=function(){
   const admin=currentUser.role==='admin';
   if(!admin && !can('creerUtilisateurs') && !userSeesModule(currentUser,'utilisateurs')){ setHeader('Accès restreint','Réservé aux administrateurs'); $('content').innerHTML=emptyState('🔒','Réservé aux administrateurs (ou au droit « Créer des utilisateurs » / à la rubrique « Utilisateurs » accordée dans Permissions).','',''); return; }
   const places=planPlaces();
-  setHeader('Utilisateurs',`${db.users.length} / ${places} place(s) de l'abonnement`, (db.users.length<500)?`<button class="btn" onclick="formUser()">＋ Utilisateur</button>`:'');
+  const peutCreer=admin||can('creerUtilisateurs');   // voir la rubrique ne suffit pas pour créer des comptes
+  setHeader('Utilisateurs',`${db.users.length} / ${places} place(s) de l'abonnement`, (peutCreer&&db.users.length<500)?`<button class="btn" onclick="formUser()">＋ Utilisateur</button>`:'');
   const rows=db.users.map(u=>{ const moi=u.id===currentUser.id;
     return `<div class="card" style="padding:13px 16px;margin-bottom:10px;${u.actif?'':'opacity:.6'}">
       <div style="display:flex;gap:13px;align-items:center;flex-wrap:wrap">
@@ -15585,7 +15585,7 @@ const USER_CAPS=[
   ['creerUtilisateurs','Créer des utilisateurs','Peut ajouter des comptes terrain (technicien, chef d\'équipe, commercial…) dans la limite des places de l\'abonnement — la modification reste réservée à l\'administrateur'],
   ['devisIA','Utiliser Devis IA','Peut générer des devis automatiquement — l\'accès de l\'entreprise est activé par TeamOP, aucune clé ni code ne circule'],
 ];
-function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUserNew=!id;
+function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUserNew=!id; window._formUserRole0=u.role||'technicien';
   const lt = u.techId ? (db.techniciens||[]).find(x=>x.id===u.techId) : null;
   const isTech = ['technicien','chefEquipe'].includes(u.role||'technicien');
   const roleVal = u.role || 'technicien';
@@ -15601,7 +15601,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
   // Box qu'il voit quand il n'a pas « Tout voir » (DR, commercial, compta… ou technicien à qui on ajoute des box)
   const boxSection = `<div id="user-boxes" style="display:${capOf('voirTout')?'none':'block'}"><div class="form-sec" style="margin-top:8px">📦 Box qu'il voit</div>
       <p style="font-size:12px;color:var(--t3);margin:0 0 8px;line-height:1.5">Sans « Tout voir », la personne ne voit <b>que les box cochées ici</b> — en plus de celles où sa fiche technicien est cochée, de celles dont elle est responsable et de celles visibles par toute l'équipe.</p>
-      <div class="fgroup">${(db.boxes||[]).filter(b=>b.actif!==false).map(b=>{ const viaTech=!!(u.techId&&(b.techIds||[]).includes(u.techId)); const resp=!!(id&&b.respUserId===id); const fixe=b.visibleTous||viaTech||resp; const on=fixe||!!(id&&(b.userIds||[]).includes(id));
+      <div class="fgroup">${(currentUser.role==='admin'?(db.boxes||[]):visibleBoxes(db.boxes||[])).filter(b=>b.actif!==false).map(b=>{ const viaTech=!!(u.techId&&(b.techIds||[]).includes(u.techId)); const resp=!!(id&&b.respUserId===id); const fixe=b.visibleTous||viaTech||resp; const on=fixe||!!(id&&(b.userIds||[]).includes(id));
         return `<div class="frow"><span class="frow-lbl">🧱 ${esc(b.nom||b.numero||'Box')}${b.visibleTous?' <span style="font-size:11px;color:var(--t3)">(visible par tous)</span>':viaTech?' <span style="font-size:11px;color:var(--t3)">(via sa fiche technicien)</span>':resp?' <span style="font-size:11px;color:var(--t3)">(responsable)</span>':''}</span><div class="frow-val">${fixe?'<span class="st st-green">Voit</span>':''}<label class="switch" style="${fixe?'opacity:.45;pointer-events:none':''}"><input type="checkbox" name="box_${b.id}" ${on?'checked':''} ${fixe?'disabled':''}><span class="track"></span><span class="knob"></span></label></div></div>`; }).join('')||'<div class="frow" style="color:var(--t3)">Aucune box pour l\'instant.</div>'}</div></div>`;
   const accSection = `<div id="user-admin-note" style="display:${roleVal==='admin'?'block':'none'}"><div class="fgroup" style="padding:14px;text-align:center;color:var(--t2);font-size:13px">Un administrateur a <b>automatiquement tous les accès</b> — rien à régler.</div></div>
       <div id="user-access" style="display:${roleVal==='admin'?'none':'block'}">${capsSection}${boxSection}${modSection}</div>`;
@@ -15614,7 +15614,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
       <div class="field"><label>Rôle</label><select name="role" onchange="userToggleRole(this.value)">${Object.entries(ROLE).filter(([k])=>currentUser.role==='admin'||!['admin','dr'].includes(k)).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">Le rôle pré-règle les accès ci-dessous. Tu peux ensuite tout ajuster.</div></div>
       <div class="field"><label style="display:flex;align-items:center;justify-content:space-between;gap:10px">🔒 Ses mouvements de box passent par la validation DR
         <input type="checkbox" name="boxValidDR" ${u.boxValidDR?'checked':''} style="width:40px;height:24px;accent-color:var(--acc)"></label>
-        <div style="font-size:11px;color:var(--t3);margin-top:4px">Coché : ses arrivages, prises ＋/−, retraits de box et produits pris en intervention attendent le « Valider » du DR. Sans effet pour les rôles administrateur / DR.</div></div>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px">Coché : ses arrivages, réceptions, prises ＋/−, retraits de box et produits pris en intervention attendent le « Valider » du DR. Sans effet pour les comptes qui ont le droit « Valider les mouvements de box et les demandes » (administrateur et DR par défaut).</div></div>
       <input type="hidden" name="techId" value="${esc(u.techId||'')}">
       <div id="user-tech" style="display:${isTech?'block':'none'}">
         <div class="form-sec" style="margin:2px 0 10px">Fiche technicien <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--t3)">— créée automatiquement</span></div>
@@ -15714,9 +15714,9 @@ function userToggleRole(role){
   const isAdmin = role==='admin';
   const acc=document.getElementById('user-access'); if(acc) acc.style.display=isAdmin?'none':'block';
   const note=document.getElementById('user-admin-note'); if(note) note.style.display=isAdmin?'block':'none';
-  // NOUVEAU compte : le rôle choisi pré-règle vraiment les cases (droits + menus) — avant, elles restaient sur les défauts
-  // « technicien », d'où un DR créé sans « Tout voir » qui ne voyait aucune box
-  if(window._formUserNew){ const f=acc?acc.closest('form'):null; if(f){ const ref={role};
+  // NOUVEAU compte, ou CHANGEMENT de rôle d'un compte existant : le rôle choisi pré-règle vraiment les cases (droits + menus) —
+  // avant, elles restaient sur les défauts « technicien », d'où un DR créé sans « Tout voir » qui ne voyait aucune box
+  if(window._formUserNew || role!==window._formUserRole0){ const f=acc?acc.closest('form'):null; if(f){ const ref={role};
     USER_CAPS.forEach(([k])=>{ const c=f.querySelector('[name="cap_'+k+'"]'); if(c) c.checked=!!userCap(ref,k); });
     NAV.flatMap(s=>s.items).forEach(m=>{ const c=f.querySelector('[name="mod_'+m.k+'"]'); if(c) c.checked=!!userSeesModule(ref,m.k); });
     userToggleVoirTout(!!userCap(ref,'voirTout')); } }
@@ -15725,6 +15725,7 @@ function userToggleRole(role){
 function userToggleVoirTout(on){ const el=document.getElementById('user-boxes'); if(el) el.style.display=on?'none':'block'; }
 async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target));
   if(id && currentUser.role!=='admin'){ toast('Modification des comptes réservée à l\'administrateur'); return; }
+  if(!id && currentUser.role!=='admin' && !can('creerUtilisateurs')){ toast('Créer des comptes demande le droit « Créer des utilisateurs » (Permissions)'); return; }
   if(!id && !planPlaceLibre()){ proposerAbonnement(); return; }
   const loginNorm=(d.login||'').trim().toLowerCase();
   if(db.users.some(x=>x.login&&x.login.toLowerCase()===loginNorm&&x.id!==id)){ toast('Identifiant déjà utilisé'); return; }
@@ -15744,11 +15745,14 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   const acces = { caps: {}, modules: {} }; const roleRef={role:d.role};
   Object.keys(ancien.caps||{}).forEach(k=>{ if(!USER_CAPS.some(c=>c[0]===k)) acces.caps[k]=ancien.caps[k]; });   // les droits par catégorie réglés dans Permissions (cat_…) sont conservés
   USER_CAPS.forEach(([k])=>{ const v=(d['cap_'+k]!==undefined); if(v!==!!userCap(roleRef,k)) acces.caps[k]=v; });
-  NAV.flatMap(s=>s.items).filter(it=>it.k!=='dashboard' && it.k!=='utilisateurs' && it.k!=='permissions').forEach(m=>{ const v=(d['mod_'+m.k]!==undefined); if(v!==!!userSeesModule(roleRef,m.k)) acces.modules[m.k]=v; });
+  const modsForm=NAV.flatMap(s=>s.items).filter(it=>it.k!=='dashboard' && it.k!=='utilisateurs' && it.k!=='permissions');
+  Object.keys(ancien.modules||{}).forEach(k=>{ if(!modsForm.some(m=>m.k===k)) acces.modules[k]=ancien.modules[k]; });   // ce que la fiche ne montre pas (ex. Utilisateurs réglé dans Permissions) est conservé
+  modsForm.forEach(m=>{ const v=(d['mod_'+m.k]!==undefined); if(v!==!!userSeesModule(roleRef,m.k)) acces.modules[m.k]=v; });
   const voirToutForm=(d['cap_voirTout']!==undefined);
-  // Box choisies pour lui (sans « Tout voir ») : rangées sur chaque box (userIds), comme les techniciens cochés
+  // Box choisies pour lui (sans « Tout voir ») : rangées sur chaque box (userIds), comme les techniciens cochés — seulement les box que la fiche a proposées
   const boxCoches=new Set(Object.keys(d).filter(k=>k.indexOf('box_')===0).map(k=>k.slice(4)));
-  const appliquerBox=(uidU)=>{ if(voirToutForm||d.role==='admin') return; (db.boxes||[]).forEach(b=>{ if(b.visibleTous||(techId&&(b.techIds||[]).includes(techId))||b.respUserId===uidU) return; userBoxSet(uidU,b.id,boxCoches.has(b.id)); }); };
+  const boxForm=(currentUser.role==='admin'?(db.boxes||[]):visibleBoxes(db.boxes||[])).filter(b=>b.actif!==false);
+  const appliquerBox=(uidU)=>{ if(voirToutForm||d.role==='admin') return; boxForm.forEach(b=>{ if(b.visibleTous||(techId&&(b.techIds||[]).includes(techId))||b.respUserId===uidU) return; userBoxSet(uidU,b.id,boxCoches.has(b.id)); }); };
   if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
     appliquerBox(id); if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=ROLE[currentUser.role]||'Technicien'; renderNav(); } toast('Mis à jour'); }
   else{ if(db.users.length>=500){toast('Limite de 500 comptes atteinte');return;}
@@ -17285,7 +17289,7 @@ function envoyerComptaComplet(){
 function factPayee(id){ const f=db.factures.find(x=>x.id===id); if(f){ f.statut='payee'; if(!f.datePaiement)f.datePaiement=todayISO(); logEvent('Facture payée',f.num,'finance'); save(); go(current); } }
 let comptaTab='controle', teleTablePeriod='tout', teleTableTech='tous';
 views.comptabilite=function(){
-  if(!isFinanceMgr()){ setHeader('Comptabilité',''); $('content').innerHTML=emptyState('🔒','Réservé à l\'administrateur, au DR et à la gestion compta.','',''); return; }
+  if(!isFinanceMgr()){ setHeader('Comptabilité',''); $('content').innerHTML=emptyState('🔒','Réservé aux comptes qui ont le droit « Voir / gérer la comptabilité et les tarifs » (administrateur, DR et gestion compta par défaut) — réglable dans Permissions → Ventes → Droits spéciaux, ou dans la fiche utilisateur.','',''); return; }
   setHeader('Comptabilité','Synthèse & encaissements','');
   const tabs=[['controle','🔍 Contrôle du jour'],['synthese','Synthèse'],['registre','Registre des encaissements'],['telecollecte','Journées télécollecte']];
   const bar=`<div class="filters" style="margin:0 0 14px;flex-wrap:wrap">${tabs.map(([k,l])=>`<div class="chip ${comptaTab===k?'active':''}" onclick="comptaTab='${k}';views.comptabilite()">${l}</div>`).join('')}</div>`;
@@ -18989,7 +18993,7 @@ function brouillonToDemande(){ const boxId=$('brBox').value; if(!boxId){toast('C
 let hdFilter='all';
 views.histoDemandes=function(){
   setHeader('Historique demandes','Toutes les demandes de commande');
-  let list=[...db.demandes].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  let list=visibleDemandes([...db.demandes]).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   if(hdFilter!=='all') list=list.filter(d=>d.statut===hdFilter);
   const chips=['all','enAttente','valide','refuse']; const lbl={all:'Toutes',enAttente:'En attente',valide:'Validées',refuse:'Refusées'};
   const rows=list.map(d=>`<div class="pl-row" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))}</div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${(d.lignes||[]).length} produit(s) · ${fmtShort(d.date)}</div></div>${badge(STATV,d.statut)}</div>`).join('');
@@ -19317,7 +19321,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   }
   if(notifVoitModule('interventions')||notifVoitModule('planning')) visibleInts(db.interventions).filter(i=>i.date===today&&i.statut!=='terminee'&&i.statut!=='annulee').forEach(i=>out.push({id:'today:'+i.id,ic:'🧰',txt:`Aujourd'hui : <b>${esc(i.titre)}</b> à ${i.heure}`,act:"detailIntervention('"+i.id+"')"}));
   // Télécollecte effectuée → la personne qui gère la compta ET le DR sont avertis
-  if(currentUser && (currentUser.role==='admin'||currentUser.role==='dr'||currentUser.role==='compta') && notifVoitModule('telecollecte')){
+  if(can('voirCompta') && notifVoitModule('telecollecte')){
     const recent=Date.now()-2*86400000;
     (db.telecollectes||[]).filter(r=>(r.ts||0)>=recent).forEach(r=>out.push({id:'tele:'+r.id,ts:r.ts||0,ic:'💳',txt:`<b>Télécollecte</b> effectuée par <b>${esc(teleWho(r))}</b> — ${eur(teleTotal(r))}${r.envoyeeCompta?' · transmise':' · à transmettre'}`,act:"go('telecollecte')"}));
   }
@@ -20128,7 +20132,7 @@ function asstDiagnostic(){
   const out=[];
   const bas=db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil);
   out.push((bas.length?'⚠️':'✅')+` Stock : ${bas.length? bas.length+' produit(s) sous le seuil':'tout est OK'}`);
-  if(currentUser.role==='admin'||currentUser.role==='dr'){ const da=db.demandes.filter(d=>d.statut==='enAttente').length; out.push((da?'⚠️':'✅')+` Demandes à valider : ${da}`); }
+  if(can('validerDR')){ const da=db.demandes.filter(d=>d.statut==='enAttente').length; out.push((da?'⚠️':'✅')+` Demandes à valider : ${da}`); }
   let kb=0; try{ kb=Math.round((localStorage.getItem(STORE_KEY)||'').length/1024);}catch(e){}
   out.push(`Données locales : ~${kb} Ko sauvegardés`);
   out.push(navigator.onLine?'Réseau : en ligne':'Hors connexion (l\'app fonctionne quand même)');
@@ -20151,7 +20155,7 @@ const ASST_KB = [
   {k:['message','messagerie','groupe','discussion','chat','mention'], a:()=>`La <b>Messagerie</b> : écris à une personne ou à un groupe, envoie des <b>photos</b>, mentionne quelqu\'un avec <b>@</b>. Les admins créent des groupes (photo + plusieurs membres).`},
   {k:['client','fiche client','coordonnee'], a:()=>`Les <b>Clients</b> regroupent coordonnées, adresses et historique. Tu crées un client en tapant son nom dans une intervention, ou via <b>Clients → ＋</b>.`},
   {k:['rapport','compte rendu','compte-rendu','pdf'], a:()=>`À la fin d\'une intervention, remplis le <b>compte-rendu</b> (photos, signature client), passe-la en <b>Effectué</b>, puis <b>Au client</b> pour envoyer le rapport PDF.`},
-  {k:['demande','validation','bon de commande','commande','fournisseur'], a:()=>`Fais une demande de réappro dans <b>Mes demandes → ＋</b>. ${(currentUser.role==='admin'||currentUser.role==='dr')?'Tu valides ensuite dans <b>Validations DR</b> → un bon de commande est créé automatiquement.':'Un responsable la validera dans Validations DR.'}`},
+  {k:['demande','validation','bon de commande','commande','fournisseur'], a:()=>`Fais une demande de réappro dans <b>Mes demandes → ＋</b>. ${can('validerDR')?'Tu valides ensuite dans <b>Validations DR</b> → un bon de commande est créé automatiquement.':'Un responsable la validera dans Validations DR.'}`},
   {k:['vehicule','flotte','voiture','camion','immat','kilometr'], a:()=>`Gère la flotte dans <b>Véhicules</b> : immatriculation, affectation à un technicien, kilométrage, statut.`},
   {k:['permission','acces','droit','role','rôle'], a:()=>`Les accès dépendent du rôle (Technicien, Chef d\'équipe, Directeur Régional, Administrateur). ${currentUser.role==='admin'?'Tu règles les accès des techniciens dans <b>Permissions</b>.':'Un administrateur gère les permissions.'}`},
   {k:['securite','sur','protection','chiffr','hash','hache'], a:()=>`Sécurité : connexion par mot de passe <b>haché en SHA-256</b> (jamais stocké en clair, 8 caractères minimum). ${defaultPinWarning()}`},
@@ -20188,7 +20192,7 @@ CONSIGNES :
 const stripHtml = h => (h||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
 function asstContext(){ const role=ROLE[currentUser.role]||currentUser.role;
   const bas=db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).length;
-  const da=(currentUser.role==='admin'||currentUser.role==='dr')?db.demandes.filter(d=>d.statut==='enAttente').length:null;
+  const da=can('validerDR')?db.demandes.filter(d=>d.statut==='enAttente').length:null;
   return `CONTEXTE TEMPS RÉEL — Personne connectée : ${fullName(currentUser)}, rôle « ${role} ». Application v${APP_VERSION}. Alertes : ${bas} produit(s) sous le seuil${da!=null?`, ${da} demande(s) en attente de validation`:''}.`; }
 function welcomeText(){ const p=currentUser.prenom||''; const role=currentUser.role; let actions='';
   if(role==='technicien'){ actions=`• <b>Planning</b> / <b>Interventions</b> : tes interventions du jour. Ouvre-en une, remplis le compte-rendu, ajoute photos + signature, puis <b>Effectué</b> et envoie le rapport au client.<br>• <b>Télécollecte</b> : déclare tes encaissements du jour (ton nom est détecté tout seul) + photo → c'est automatiquement transmis à la <b>Comptabilité</b>.<br>• <b>Stock</b> / <b>Boxes</b> : ajuste les quantités et fais tes relevés de passage.<br>• <b>Mes demandes</b> : demande du réappro.`; }
