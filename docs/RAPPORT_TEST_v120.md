@@ -1,3 +1,13 @@
+> **Archive — document historique, non maintenu.**
+> Ce compte rendu décrit la v120 de l'application, alors que la version en
+> service est la v319 : ses constats ne valent plus. Il est conservé pour
+> mémoire, pas comme état des lieux.
+>
+> Les tests réellement exécutables vivent désormais dans `server/test/` :
+> `cd server && npm test`.
+
+---
+
 # 🧪 Rapport de test complet — ELAN GESTION (v120)
 
 **Date :** 21 juin 2026

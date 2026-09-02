@@ -303,3 +303,6 @@ if (require.main === module) {
 }
 
 module.exports = app;
+// Exposé pour les tests : la neutralisation des URL poussées se vérifie
+// directement, sans passer par l'envoi Web Push.
+module.exports.safePushUrl = safePushUrl;
