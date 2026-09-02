@@ -1,0 +1,146 @@
+rules_version = '2';
+
+// ══════════════════════════════════════════════════════════════════════════
+//  Règles de sécurité Firestore — TeamOP / ELAN GESTION
+//
+//  ⚠️  NE PAS DÉPLOYER SANS AVOIR FAIT LES DEUX ÉTAPES PRÉALABLES :
+//
+//   1. Console Firebase → Authentication → Sign-in method → activer
+//      le fournisseur « Anonyme ». Sans lui, app.html ne peut pas obtenir
+//      d'identité et TOUT accès sera refusé : la synchro ELAN s'arrête net.
+//
+//   2. Déployer d'abord la version d'app.html qui appelle syncSignIn(),
+//      et vérifier dans la console que des sessions anonymes apparaissent.
+//
+//  Ensuite seulement :  firebase deploy --only firestore:rules
+//
+//  ── Pourquoi ce fichier existe ────────────────────────────────────────
+//  Ces règles n'étaient pas versionnées : l'autorisation réelle de
+//  l'application vivait uniquement dans la console, invérifiable par
+//  lecture du code. Le client, lui, ne fait que MASQUER les fonctions
+//  sensibles avec des tests currentUser.role === 'admin' — un contrôle
+//  d'affichage, contournable en une ligne de console navigateur. La vraie
+//  frontière est ici.
+//
+//  ── État de départ constaté ───────────────────────────────────────────
+//  app.html accède à Firestore SANS authentification. Le projet et le nom
+//  d'équipe figurent en clair dans le source public : n'importe qui peut
+//  donc lire et écrire elan_teams/. Le chiffrement AES est la seule
+//  barrière — et sur la clé par défaut, cette clé est elle aussi publique.
+//  Verrouiller ces règles est ce qui referme réellement la porte.
+// ══════════════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Utilisateur OP MESSAGES (messages.html / espace.html : vrais comptes Firebase)
+    function isUser(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Le rôle ne doit jamais être modifiable par son propre porteur : c'est
+    // le chemin d'élévation de privilèges le plus direct (technicien → admin).
+    function roleUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+    }
+
+    // ── Synchro ELAN GESTION ────────────────────────────────────────────
+    // Un document par équipe, contenu chiffré côté client
+    // ({enc, iv, salt, ts, writer, at, by}).
+    //
+    // L'app n'a pas de comptes Firebase : toute session anonyme peut donc
+    // atteindre n'importe quelle équipe. Exiger une identité reste un gain
+    // net (plus d'accès sans passer par l'app, journalisation possible,
+    // quotas par session), mais ce N'EST PAS un cloisonnement entre
+    // entreprises. Le vrai cloisonnement demande des comptes nominatifs et
+    // une liste de membres par équipe — voir la variante commentée dessous.
+    match /elan_teams/{team} {
+      allow read, write: if signedIn();
+    }
+
+    // Variante à activer le jour où ELAN GESTION aura de vrais comptes :
+    // chaque équipe porte la liste des uid autorisés, et seul un membre entre.
+    //
+    // match /elan_teams/{team} {
+    //   allow read, write: if signedIn()
+    //     && request.auth.uid in get(/databases/$(database)/documents/elan_members/$(team)).data.uids;
+    // }
+
+    // ── OP MESSAGES : comptes utilisateurs ──────────────────────────────
+    match /op_users/{uid} {
+      allow read: if signedIn();
+      allow create: if isUser(uid);
+      allow update: if isUser(uid) && roleUnchanged();
+      allow delete: if false;
+    }
+
+    match /op_companies/{cid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && roleUnchanged();
+    }
+
+    // ── Fils de discussion et messages ──────────────────────────────────
+    // Lecture et écriture réservées aux membres déclarés du fil.
+    match /teamop_threads/{tid} {
+      function isMember() {
+        return signedIn() && request.auth.uid in resource.data.members;
+      }
+      allow read: if isMember();
+      allow create: if signedIn() && request.auth.uid in request.resource.data.members;
+      allow update: if isMember();
+      allow delete: if false;
+
+      match /msgs/{mid} {
+        function threadMembers() {
+          return get(/databases/$(database)/documents/teamop_threads/$(tid)).data.members;
+        }
+        allow read: if signedIn() && request.auth.uid in threadMembers();
+        // Un message ne peut être publié qu'en son propre nom : sans ce test,
+        // n'importe quel membre peut écrire sous l'identité d'un autre.
+        allow create: if signedIn()
+          && request.auth.uid in threadMembers()
+          && request.resource.data.from == request.auth.uid;
+        allow update, delete: if signedIn() && resource.data.from == request.auth.uid;
+      }
+
+      match /reads/{uid} {
+        allow read: if signedIn();
+        allow write: if isUser(uid);
+      }
+    }
+
+    // ── Demandes d'accès et actualités ──────────────────────────────────
+    match /teamop_requests/{rid} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if signedIn();
+    }
+
+    match /teamop_news/{nid} {
+      allow read: if signedIn();
+      allow write: if false;   // publié depuis la console uniquement
+    }
+
+    // ── Appareils, appels, invitations ──────────────────────────────────
+    match /devices/{did} {
+      allow read, write: if signedIn();
+    }
+    match /op_calls/{cid} {
+      allow read, write: if signedIn();
+    }
+    match /invites/{iid} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // Tout le reste est refusé. Une collection oubliée doit apparaître comme
+    // une panne visible, pas comme une porte ouverte silencieuse.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

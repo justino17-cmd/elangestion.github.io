@@ -776,14 +776,21 @@ function syncTeam(){ return (localStorage.getItem('elan_sync_team')||FB_TEAM).tr
 function syncEnabled(){ return localStorage.getItem('elan_sync_on')!=='0' && !!syncGetCfg() && !!syncTeam(); }
 function loadFirebase(){ return new Promise((res,rej)=>{ if(window.firebase&&window.firebase.firestore) return res();
   const add=src=>new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=ko; document.head.appendChild(s); });
-  add('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js').then(()=>add('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js')).then(res).catch(rej); }); }
+  add('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js').then(()=>add('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js')).then(()=>add('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js')).then(res).catch(rej); }); }
+/* Connexion anonyme — préalable indispensable au verrouillage de Firestore.
+   Sans elle, request.auth est null et AUCUNE règle ne peut distinguer un
+   appareil légitime d'un inconnu : le document d'équipe doit rester ouvert
+   à tous. Volontairement non bloquante : tant que le fournisseur « Anonyme »
+   n'est pas activé dans la console Firebase et que firestore.rules n'est pas
+   déployé, l'échec est sans conséquence et la synchro fonctionne comme avant. */
+async function syncSignIn(){ try{ if(!firebase.auth) return false;
+  if(firebase.auth().currentUser) return true;
+  await firebase.auth().signInAnonymously(); return true;
+}catch(e){ console.warn('auth anonyme indisponible (fournisseur désactivé ?) :',e&&e.code); return false; } }
 async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn) return;
-  try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); const fs=firebase.firestore();
+  try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); await syncSignIn(); const fs=firebase.firestore();
     _fbDoc=fs.collection('elan_teams').doc(syncTeam()); _syncOn=true; _syncGotInitial=false; try{updateSyncBtn();}catch(e){}
-    _fbDoc.onSnapshot(async snap=>{ const d=snap.data();
-      /* Jeton d'équipe déposé par l'admin dans le doc Firestore → cache local. */
-      if(d&&typeof d.pushToken==='string'&&d.pushToken) localStorage.setItem('elan_push_token',d.pushToken);
-      const plain=await syncReadRemote(d);
+    _fbDoc.onSnapshot(async snap=>{ const d=snap.data(); const plain=await syncReadRemote(d);
       if(!_syncGotInitial){ _syncGotInitial=true;
         if(!d||(!d.enc&&!d.db)){ syncPush(true); return; }   // équipe vide → on amorce avec nos données
         if(d.enc&&plain===null){ try{toast('Clé d\'équipe différente — données non lues');}catch(e){} return; }   // chiffré avec une autre clé → ne rien écraser
@@ -811,10 +818,16 @@ function syncDisable(){ localStorage.setItem('elan_sync_on','0'); _syncOn=false;
 const PUSH_API='https://api.teamop.fr';
 const PUSH_VAPID='BBOBOciYMxg1WjLB2oxOgl23Ayu-DBkPnf9DhRUe660mBaEcAVvQVKlLZdWyzZbmyZlb9cjhCoPhjJolZSLvNiE';
 /* Jeton d'équipe : le serveur exige X-TeamOP-Token sur /api/subscribe, /api/notify
-   et /api/sendmail. Il est déposé par l'admin dans le document Firestore de
-   l'équipe (champ pushToken) et récupéré ici via l'écoute de synchro déjà en
-   place — pas de requête supplémentaire. Généré par server/set-team-token.sh. */
+   et /api/sendmail. Il est saisi une fois par appareil dans Paramètres → Synchro,
+   comme la clé d'équipe. Il n'est PAS stocké dans le document Firestore : cette
+   application accède à Firestore sans authentification, donc le document d'équipe
+   est lisible par tous et y déposer le jeton reviendrait à le publier.
+   Généré côté serveur par server/set-team-token.sh. */
 function pushToken(){ return localStorage.getItem('elan_push_token')||''; }
+function pushSetToken(){ const v=(($('push-token')||{}).value||'').trim();
+  if(!v){ localStorage.removeItem('elan_push_token'); toast('Jeton supprimé — les notifications seront refusées par le serveur'); }
+  else { localStorage.setItem('elan_push_token',v); toast('Jeton enregistré sur cet appareil'); }
+  if(current==='parametres') views.parametres(); }
 function pushHeaders(){ const h={'Content-Type':'application/json'}; const t=pushToken(); if(t) h['X-TeamOP-Token']=t; return h; }
 function _vapidArr(k){ const p='='.repeat((4-k.length%4)%4); const b=atob((k+p).replace(/-/g,'+').replace(/_/g,'/')); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
 function pushSupported(){ return ('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window); }
@@ -4933,6 +4946,12 @@ views.parametres=function(){
         <div class="fgroup"><div class="frow"><input id="sync-secret" type="text" placeholder="Clé d'équipe (min. 8 caractères)" value="${esc(syncHasCustomSecret()?syncSecret():'')}" autocomplete="off"></div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" onclick="syncSetSecret()">Enregistrer la clé</button>${syncHasCustomSecret()?'<button class="btn ghost sm" onclick="$(\'sync-secret\').value=\'\';syncSetSecret()">Rétablir la clé par défaut</button>':''}</div>
         <p style="color:var(--t3);font-size:12px;margin-top:8px">Notez bien cette clé. Tous les appareils doivent utiliser <b>exactement la même</b> pour se voir. <b>Changer la clé rend illisibles les données déjà synchronisées</b> tant que chaque appareil n\'a pas reçu la nouvelle : prévoyez de la reporter partout dans la foulée.</p>
+      </div>
+      <div style="margin:14px 0;padding:14px;border:1px solid var(--brd);border-radius:14px">
+        <div style="font-weight:700;margin-bottom:6px">Jeton de notifications</div>
+        <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:10px">Le serveur de notifications n\'accepte que les appareils qui présentent le jeton de l\'équipe. Obtenez-le avec <code>server/set-team-token.sh</code> et saisissez-le une fois par appareil. ${pushToken()?'<b style="color:var(--acc)">Jeton enregistré.</b>':'<b style="color:var(--red)">Aucun jeton — les notifications sont refusées.</b>'}</p>
+        <div class="fgroup"><div class="frow"><input id="push-token" type="text" placeholder="Jeton d\'équipe" value="${esc(pushToken())}" autocomplete="off"></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn sm" onclick="pushSetToken()">Enregistrer le jeton</button></div>
       </div>
       <button class="btn ghost" onclick="syncDisable()">Désactiver sur cet appareil</button>`
       :`<p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:10px">La synchro est <b>désactivée sur cet appareil</b> (les données restent locales).</p>
