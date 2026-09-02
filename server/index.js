@@ -1202,6 +1202,19 @@ app.post('/api/espaces/trouver', (req, res) => {
   if (!e) return res.status(404).json({ error: 'Entreprise inconnue — vérifie l\'orthographe, ou demande ton lien de connexion' });
   res.json({ ok: true, nom: e.nom, code: e.code });
 });
+/* Le lien LISIBLE d'un espace (teamop.fr/app.html#e=nom), pour l'application de l'entreprise :
+   t = identifiant d'équipe, kh = empreinte SHA-256 de la clé d'équipe (jamais la clé elle-même).
+   Le lien n'est confirmé que si la clé de l'annuaire est celle de l'appareil (sinon le lien
+   mènerait à un espace illisible). */
+app.post('/api/espaces/lien', (req, res) => {
+  const t = monStr((req.body || {}).t, 80), kh = monStr((req.body || {}).kh, 64).toLowerCase();
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const e = espaceParT(t);
+  if (!e || !e.slug) return res.status(404).json({ error: 'lien lisible pas encore activé pour cet espace' });
+  let cleAnn = ''; try { cleAnn = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) {}
+  const cleOk = !kh || !cleAnn || crypto.createHash('sha256').update(cleAnn).digest('hex') === kh;
+  res.json({ ok: true, slug: e.slug, nom: e.nom || '', lien: 'https://teamop.fr/app.html#e=' + e.slug, cleOk, nomExact: espSlug(e.nom) === e.slug });
+});
 
 // ── Fermeture totale d'une entreprise (patron) : code de confirmation par e-mail,
 //    puis retrait de la liste, du nom, du lien, de la formule — et les applications

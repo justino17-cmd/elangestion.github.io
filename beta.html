@@ -15494,13 +15494,28 @@ function nuLoginAuto(){
 }
 /* Mot de passe provisoire lisible (sans caractères ambigus), 8 signes après « OP- » */
 function mdpProvisoire(){ const A='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'; const r=crypto.getRandomValues(new Uint8Array(8)); return 'OP-'+Array.from(r).map(x=>A[x%A.length]).join(''); }
-function lienConnexionEntreprise(){ return (typeof teamopLienActuel==='function'&&teamopLienActuel())||'https://teamop.fr/connexion.html'; }
+/* ── Le lien de connexion de l'entreprise : le même pour tout le monde, site et applications ──
+   Lisible (teamop.fr/app.html#e=gci) dès que TEAM OP a activé l'espace dans l'annuaire ; sinon le lien
+   codé (#entreprise=…), qui fonctionne aussi. Le lisible est demandé au serveur et retenu sur l'appareil. */
+function lienLisible(){ try{ const t=localStorage.getItem('elanB_sync_team'); const l=localStorage.getItem('elanB_lien_lisible')||''; return (t&&l&&localStorage.getItem('elanB_lien_lisible_t')===t)?l:''; }catch(e){ return ''; } }
+async function lienLisibleCharger(force){ try{
+  const t=localStorage.getItem('elanB_sync_team'), k=localStorage.getItem('elanB_sync_secret'); if(!t||!k) return '';
+  const ts=+(localStorage.getItem('elanB_lien_lisible_ts')||0);
+  if(!force && localStorage.getItem('elanB_lien_lisible_t')===t && Date.now()-ts<86400000) return lienLisible();
+  const kh=await sha256(k);
+  const r=await fetch(PUSH_API+'/api/espaces/lien',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t,kh})});
+  const j=await r.json().catch(()=>({}));
+  const lien=(r.ok&&j.ok&&j.cleOk&&j.lien)?String(j.lien):'';
+  localStorage.setItem('elanB_lien_lisible',lien); localStorage.setItem('elanB_lien_lisible_t',t); localStorage.setItem('elanB_lien_lisible_ts',String(Date.now()));
+  if(lien&&j.nom&&!entrepriseNom()){ try{ localStorage.setItem('elanB_entreprise_nom',String(j.nom)); }catch(e){} }
+  return lien; }catch(e){ return lienLisible(); } }
+function lienConnexionEntreprise(){ return lienLisible()||(typeof teamopLienActuel==='function'&&teamopLienActuel())||'https://teamop.fr/connexion.html'; }
 /* Envoie identifiant + mot de passe provisoire + lien de connexion de l'entreprise à l'adresse de la fiche */
 async function identifiantsParMail(u,pwd){
   const to=(u.email||'').trim(); if(!to) return {sans:true};
   try{
     const r=await fetch(PUSH_API+'/api/compte/identifiants',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({teamId:syncTeam(),to,prenom:u.prenom||'',entreprise:entrepriseNom(),login:u.login,mdp:pwd,lien:lienConnexionEntreprise(),par:currentUser?fullName(currentUser):''})});
+      body:JSON.stringify({teamId:syncTeam(),to,prenom:u.prenom||'',entreprise:entrepriseNom(),login:u.login,mdp:pwd,lien:(typeof teamopLienActuel==='function'&&teamopLienActuel())||lienConnexionEntreprise(),par:currentUser?fullName(currentUser):''})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok) return {err:(j&&j.error)||('erreur '+r.status)};
     return {ok:true,to,lien:j.lien||'',entreprise:j.entreprise||''};
@@ -15516,6 +15531,7 @@ function identifiantsMailEtat(r,id,pwd){ const z=$('ui-mail'); if(!z) return;
 /* Fiche « à transmettre » affichée juste après la création d'un compte (ou une réinitialisation) */
 function userIdentifiantsModal(u,pwd){
   const lien=lienConnexionEntreprise(), ent=entrepriseNom(), espace=!!(typeof teamopLienActuel==='function'&&teamopLienActuel());
+  if(espace&&!lienLisible()) lienLisibleCharger().then(l=>{ const z=$('ui-lien'); if(l&&z&&!/#e=/.test(z.textContent)){ z.textContent=l; const b=document.querySelector('#overlay [data-t]'); if(b) b.dataset.t=String(b.dataset.t||'').replace(/Lien de connexion[^\n]*: .*$/,'Lien de connexion (clique dessus, puis connecte-toi) : '+l); } });
   const texte='Connexion OP GESTION'+(ent?' — '+ent:'')+'\nIdentifiant : '+u.login+'\nMot de passe provisoire : '+pwd+'\nLien de connexion (clique dessus, puis connecte-toi) : '+lien;
   openModal(`<div class="modal-head"><h3>✅ Accès de ${esc(fullName(u))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">${espace
@@ -16073,7 +16089,7 @@ views.parametres=function(){
     ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>Espaces entreprise (TeamOP)</h3></div>
       <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:8px">Crée un <b>espace isolé</b> par entreprise cliente : chaque espace a ses <b>propres données</b>, chiffrées et séparées des autres. Donne le <b>Code espace</b> à l'entreprise pour qu'elle se connecte.</p>
       <p style="font-size:12.5px;color:var(--t3);margin-bottom:12px">Espace actuel de cet appareil : <b style="color:var(--t2)">${esc(teamopCurrentSpace())}</b></p>
-      ${teamopLienActuel()?`<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:10px 12px;margin-bottom:12px"><div style="font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--t3);margin-bottom:5px">🔗 LIEN DE CONNEXION DE TON ENTREPRISE</div><div style="word-break:break-all;font-family:var(--mono,monospace);font-size:11.5px;color:var(--acc);margin-bottom:8px">${esc(teamopLienActuel())}</div><button class="btn sm" onclick="teamopCopy('${esc(teamopLienActuel())}',this)">Copier le lien</button><span style="font-size:11.5px;color:var(--t3);margin-left:8px">à donner à tes employés : un clic et ils sont sur le bon espace — l'écran de connexion leur dit « Vous allez vous connecter à l'entreprise ${esc(entrepriseNom()||'…')} »</span>${entrepriseNom()?'':`<div style="margin-top:8px;font-size:12px;color:var(--org,#e8a33d);font-weight:700">⚠️ Renseigne le nom de ton entreprise (« Mon entreprise », plus bas) : il est mis dans le lien et affiché à tes utilisateurs.</div>`}</div>`:''}
+      ${teamopLienActuel()?`<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:10px 12px;margin-bottom:12px"><div style="font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--t3);margin-bottom:5px">🔗 LIEN DE CONNEXION DE TON ENTREPRISE ${lienLisible()?'<span style="color:var(--acc)">· activé ✓</span>':''}</div><div id="par-lien" style="word-break:break-all;font-family:var(--mono,monospace);font-size:${lienLisible()?'14px;font-weight:700':'11.5px'};color:var(--acc);margin-bottom:8px">${esc(lienConnexionEntreprise())}</div><button class="btn sm" onclick="teamopCopy(document.getElementById('par-lien').textContent,this)">Copier le lien</button><span style="font-size:11.5px;color:var(--t3);margin-left:8px">le même lien pour tous tes utilisateurs, sur le site comme dans l'application : un clic et ils sont sur le bon espace — l'écran de connexion leur dit « Vous allez vous connecter à l'entreprise ${esc(entrepriseNom()||'…')} »</span>${lienLisible()?'':`<div style="margin-top:8px;font-size:12px;color:var(--t3)">Le lien lisible (teamop.fr/app.html#e=nom-de-ton-entreprise) apparaîtra ici dès que TEAM OP aura activé ton espace ; en attendant, ce lien fonctionne exactement pareil. <a onclick="lienLisibleCharger(true).then(()=>views.parametres())" style="cursor:pointer;text-decoration:underline">Vérifier maintenant</a></div>`}${entrepriseNom()?'':`<div style="margin-top:8px;font-size:12px;color:var(--org,#e8a33d);font-weight:700">⚠️ Renseigne le nom de ton entreprise (« Mon entreprise », plus bas) : il est mis dans le lien et affiché à tes utilisateurs.</div>`}</div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="teamopCreateSpace()">＋ Créer un espace entreprise</button>
       <button class="btn ghost" onclick="teamopJoinPrompt()">Rejoindre un espace (code)</button></div>
       ${teamopSpaces().length?`<div style="margin-top:14px;border-top:1px solid var(--brd);padding-top:12px"><div style="font-size:12px;color:var(--t3);margin-bottom:8px">Espaces créés (enregistrés sur cet appareil)</div>${teamopSpaces().map(s=>`<div class="perm-row"><div class="pn">${esc(s.name||s.t)}<div style="font-size:11px;color:var(--t3);font-weight:400">${esc(s.t)}</div></div><div style="display:flex;gap:6px"><button class="btn sm" onclick="teamopCopieLienSauve('${esc(s.t)}')">🔗 Lien</button><button class="btn ghost sm" onclick="teamopShowSavedCode('${esc(s.t)}')">Voir le code</button></div></div>`).join('')}</div>`:''}
@@ -19415,6 +19431,7 @@ function enterApp(u){ currentUser=u; try{ localStorage.removeItem('elanB_lien_ok
   setTimeout(maybeProfilePhoto,900); setTimeout(avatarAccentSync,1600);
   setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') pushSubscribe(true); else setTimeout(pushPropose,1800); }catch(e){} },2400);
   setTimeout(()=>{ try{ forfaitServeurSync(); }catch(e){} },2600);
+  setTimeout(()=>{ try{ lienLisibleCharger(); }catch(e){} },3000);     // le lien lisible de l'entreprise (teamop.fr/app.html#e=…) pour la fiche d'accès et Paramètres
   setTimeout(()=>{ try{ bandeauFormule(); }catch(e){} },1500); }
 /* TEST/DÉMO — ajoute une fois une télécollecte d'exemple si aucune n'existe, pour voir le rendu en Comptabilité. À retirer plus tard. */
 function maybeDemoTelecollecte(){ return; if(!currentUser) return;
@@ -19438,7 +19455,7 @@ function renderLogin(){ $('app-root').style.display='none'; $('login').style.dis
     <form onsubmit="doLogin(event)" autocomplete="off">
       <div class="login-card">
         <div class="login-card-title">Connexion</div>
-        ${_surEspace?'':`<div style="background:color-mix(in srgb,var(--acc) 8%,transparent);border:1px solid color-mix(in srgb,var(--acc) 28%,transparent);border-radius:12px;padding:10px 14px;font-size:12.5px;color:var(--t2);line-height:1.55;margin-bottom:12px">🔗 Ton entreprise t'a donné un <b>lien de connexion</b> ? Passe par lui : il met cet appareil sur le bon espace, et il n'y a plus que l'identifiant et le mot de passe à entrer.<br><a href="connexion.html" style="color:var(--acc);font-weight:700">Retrouver mon entreprise →</a></div>`}
+        ${_surEspace?'':`<div class="field"><label>Entreprise</label><input id="li-ent" placeholder="Nom de ton entreprise (ex : GCI)" autocomplete="organization" autocapitalize="off" required><div style="font-size:11px;color:var(--t3);margin-top:4px;line-height:1.5">Le nom de ton entreprise, tel qu'il est dans son lien de connexion. Tu as reçu le lien ? Clique dessus, ce champ se remplit tout seul.</div></div>`}
         <div class="field"><label>Identifiant</label><input id="li-login" value="${esc(saved)}" placeholder="Votre identifiant" autocomplete="username" required></div>
         <div class="field"><label>Mot de passe</label><input id="li-pin" type="password" placeholder="••••••••" autocomplete="current-password" required><div style="font-size:11px;color:var(--t3);margin-top:4px">Ancien compte à code PIN ? Tape ton PIN — on te fera créer ton mot de passe juste après.</div></div>
         <label class="login-remember"><input type="checkbox" id="li-remember" ${saved?'checked':''}> Rester connecté</label>
@@ -19478,8 +19495,9 @@ async function doLogin(e){ e.preventDefault();
       try{ const _o=teamopDecode(j.code); if(_o&&_o.a) localStorage.setItem('elanB_admin_login',_o.a); if(_o&&_o.m) localStorage.setItem('elanB_admin_mdp',_o.m); if(_o&&_o.e) localStorage.setItem('elanB_admin_mail',_o.e); }catch(_e){}
       if(syncTeam()!==o.t){
         localStorage.setItem('elanB_sync_team',o.t); localStorage.setItem('elanB_sync_secret',o.k); localStorage.setItem('elanB_sync_on','1');
-        try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elanB_frais','1'); }catch(_e){}
-        toast('Espace « '+(j.nom||_entSaisi)+' » chargé — connecte-toi avec ton identifiant');
+        try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elanB_frais','1'); localStorage.setItem('elanB_lien_ok','1'); }catch(_e){}
+        try{ if(login) localStorage.setItem('elanB_savedLogin',login); }catch(_e){}   // l'identifiant tapé reste rempli après le rechargement
+        toast('Espace « '+(j.nom||_entSaisi)+' » chargé — entre ton mot de passe');
         setTimeout(()=>location.reload(),700); return;
       }
     }catch(_e){ if(er){ er.textContent='Serveur injoignable — vérifie ta connexion internet'; er.style.display='block'; } return; }
