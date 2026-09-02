@@ -288,6 +288,7 @@ var IC={
   abonnements:'<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18"></path>',
   equipe:'<circle cx="9" cy="9" r="3"></circle><path d="M4 19c0-3 2.2-5 5-5s5 2 5 5"></path><circle cx="17" cy="10" r="2.4"></circle><path d="M15.5 14.6c2.8.2 4.5 2 4.5 4.4"></path>',
   journal:'<path d="M8 6h12M8 12h12M8 18h12"></path><path d="M4 6h.5M4 12h.5M4 18h.5"></path>',
+  connexions:'<circle cx="12" cy="8" r="3.5"></circle><path d="M5 20a7 7 0 0 1 14 0"></path><path d="M17 4l3 3-3 3"></path>',
   loupe:'<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.3-4.3"></path>',
   refresh:'<path d="M20 12a8 8 0 1 1-2.3-5.7"></path><path d="M20 4v5h-5"></path>',
   crayon:'<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3"></path>',
@@ -302,7 +303,7 @@ function svg(n,t){ t=t||17; return '<svg width="'+t+'" height="'+t+'" viewBox="0
 
 function renderTabs(){
   var t=[['accueil','Accueil'],null,['surveillance','Surveillance','bdg-surv'],['support','Support','bdg-supp'],
-         null,['entreprises','Entreprises'],['abonnements','Abonnements'],['devisia','Devis IA'],null,['equipe','Équipe'],['journal','Journal']];
+         null,['entreprises','Entreprises'],['connexions','Connexions'],['abonnements','Abonnements'],['devisia','Devis IA'],null,['equipe','Équipe'],['journal','Journal']];
   var grp=['ACTIVITÉ','CLIENTS','ADMIN'], gi=0, h='';
   t.forEach(function(x){
     if(!x){ h+='<div class="grp"><i></i><span>'+grp[gi++]+'</span></div>'; return; }
@@ -317,6 +318,7 @@ function setTab(t){
   render();
   if(t==='support'&&!MSG.loaded) chargerMail();
   if(t==='entreprises'&&!CLI.loaded) chargerClients();
+  if(t==='connexions') chargerConnexions();
   if(t==='abonnements'&&!ABO.loaded) chargerAbos();
   if(t==='devisia'&&!DIA.loaded) chargerDevisIA();
   if(t==='equipe'&&!EQ.loaded) chargerEquipe();
@@ -334,6 +336,89 @@ var CLI={list:[],total:0,loaded:false,err:'',sel:null,q:''};
 var ABO={abos:[],paiements:[],mrr:0,actifs:0,impayes:0,echecs:0,configured:false,loaded:false,err:'',f:''};
 var EQ={users:[],loaded:false,err:'',nom:'',pass:'',role:'collaborateur'};
 var JR={cnx:[],loaded:false,err:'',actions:[]};
+/* ── Connexions des applications : toutes les entreprises, le moindre détail ── */
+var CNX={list:[],global:{},loaded:false,err:'',sel:null,det:null,detErr:'',q:'',f:'toutes'};
+function chargerConnexions(){
+  apiGet('/api/monitor/connexions').then(function(d){ if(!d) return;
+    CNX.list=d.espaces||[]; CNX.global=d.global||{}; CNX.loaded=true; CNX.err='';
+    if(CNX.sel&&!CNX.list.some(function(x){ return x.t===CNX.sel; })) CNX.sel=null;
+    if(TAB==='connexions') render();
+  }).catch(function(){ CNX.err=INJOIGNABLE; CNX.loaded=true; if(TAB==='connexions') render(); });
+}
+function cnxSel(t){ CNX.sel=t; CNX.det=null; CNX.detErr=''; render();
+  var e=CNX.list.filter(function(x){ return x.t===t; })[0]||{};
+  apiPost('/api/monitor/espaces/connexions',{nom:e.slug?e.nom:'',t:t,n:120}).then(function(r){
+    if(CNX.sel!==t) return;
+    if(r&&r.ok&&r.d&&r.d.ok){ CNX.det=r.d; } else { CNX.detErr=(r&&r.d&&r.d.error)||'Indisponible — le serveur a-t-il été mis à jour ?'; }
+    render();
+  }).catch(function(){ if(CNX.sel===t){ CNX.detErr=INJOIGNABLE; render(); } });
+}
+function cnxQ(v){ CNX.q=v; render(); }
+function cnxF(v){ CNX.f=v; render(); }
+var CNX_VIA={lien:'par le lien',entreprise:'nom d\'entreprise',session:'session gardée',identifiants:'identifiants',code:'code espace'};
+var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion']};
+function cnxDepuis(ts){ if(!ts) return 'jamais'; var m=Math.round((Date.now()-ts)/60000);
+  if(m<1) return 'à l\'instant'; if(m<60) return 'il y a '+m+' min'; var h=Math.round(m/60); if(h<24) return 'il y a '+h+' h'; var j=Math.round(h/24); if(j<30) return 'il y a '+j+' j'; return fmtJour(ts); }
+function cnxAppareil(e){ return [e.appareil,e.os,e.nav].filter(Boolean).join(' · ')+(e.pwa?' · app installée':''); }
+function cnxLigne(e){ var ev=CNX_EV[e.ev]||['•',e.ev];
+  return '<tr'+(e.ev==='echec'?' style="color:var(--rouge,#f87171)"':'')+'><td style="white-space:nowrap">'+fmtDate(e.ts)+'</td>'+
+    '<td>'+ev[0]+' '+ev[1]+(e.motif?' <span style="color:var(--muted)">— '+esc(e.motif)+'</span>':'')+'</td>'+
+    '<td><b>'+esc(e.login||'—')+'</b>'+(e.role?' <span style="color:var(--muted)">'+esc(e.role)+'</span>':'')+'</td>'+
+    '<td>'+esc(CNX_VIA[e.via]||e.via||'—')+'</td>'+
+    '<td>'+esc(cnxAppareil(e)||'—')+'</td>'+
+    '<td>'+esc((e.app&&e.app!=='gestion')?e.app+' ':'')+(e.version?'v'+esc(e.version):'—')+'</td></tr>'; }
+function cnxResumeHtml(r,nom){ if(!r) return '';
+  var versions=Object.keys(r.versions||{}).sort().map(function(v){ return 'v'+esc(v)+' ×'+r.versions[v]; }).join(', ')||'—';
+  var apps=Object.keys(r.apps||{}).map(function(a){ return esc(a)+' ('+r.apps[a]+')'; }).join(', ')||'—';
+  var appareils=Object.keys(r.appareils||{}).map(function(a){ return esc(a)+' ('+r.appareils[a]+')'; }).join(', ')||'—';
+  var kpi=function(v,l,c){ return '<div style="flex:1;min-width:110px;background:var(--fond2,#141F36);border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="font-size:20px;font-weight:800;color:'+(c||'inherit')+'">'+v+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
+  return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+    kpi(r.derniere?cnxDepuis(r.derniere):'jamais','dernière connexion'+(r.dernierLogin?' · '+esc(r.dernierLogin):''))+
+    kpi(r.utilisateurs7,'utilisateurs actifs 7 j')+kpi(r.utilisateurs30,'utilisateurs actifs 30 j')+kpi(r.appareils7,'appareils 7 j')+
+    kpi(r.connexions7,'connexions 7 j')+kpi(r.echecs24,'échecs 24 h',r.echecs24?'var(--rouge,#f87171)':'#34d399')+'</div>'+
+    '<div style="font-size:12.5px;color:var(--text2);line-height:1.8"><b>Versions</b> (par appareil) : '+versions+'<br><b>Applications</b> (30 j) : '+apps+'<br><b>Appareils</b> (30 j) : '+appareils+'</div>'; }
+function vueConnexions(){
+  var g=CNX.global||{};
+  var tete='<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">'+
+    '<div><div class="ttl-page">Connexions</div>'+
+    '<div class="desc">Qui se connecte, quand, depuis quel appareil, avec quelle version, par quel chemin — et les échecs. Remonté par les applications à chaque connexion (à partir de la v551).</div></div>'+
+    '<button class="btn-fant" onclick="chargerConnexions()">↻ Actualiser</button></div><div style="height:16px"></div>';
+  if(!CNX.loaded) return tete+'<div class="vide">Chargement des connexions…</div>';
+  if(CNX.err) return tete+'<div class="vide">'+esc(CNX.err)+'</div>';
+  var kpi=function(v,l,c){ return '<div class="carte" style="flex:1;min-width:150px;padding:14px 16px"><div style="font-size:24px;font-weight:800;color:'+(c||'inherit')+'">'+v+'</div><div style="font-size:12px;color:var(--muted)">'+l+'</div></div>'; };
+  var bandeau='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">'+kpi(g.connexions24||0,'connexions sur 24 h')+kpi(g.actives7||0,'entreprises actives sur 7 j')+kpi(g.echecs24||0,'échecs de connexion sur 24 h',(g.echecs24||0)?'var(--rouge,#f87171)':'#34d399')+'</div>';
+  var q=(CNX.q||'').toLowerCase().trim(); var now=Date.now();
+  var l=CNX.list.filter(function(x){ if(q&&(x.nom||'').toLowerCase().indexOf(q)<0) return false;
+    if(CNX.f==='actives') return x.resume.derniere>now-7*86400000; if(CNX.f==='silence') return !(x.resume.derniere>now-7*86400000); if(CNX.f==='echecs') return x.resume.echecs24>0; return true; });
+  var filtres=[['toutes','Toutes'],['actives','Actives 7 j'],['silence','Silencieuses'],['echecs','Avec échecs']].map(function(f){ return '<button class="'+(CNX.f===f[0]?'btn-plein':'btn-fant')+'" style="padding:6px 12px" onclick="cnxF(\''+f[0]+'\')">'+f[1]+'</button>'; }).join(' ');
+  var rows=l.map(function(x){ var r=x.resume; var vers=Object.keys(r.versions||{}).sort().slice(-2).map(function(v){ return 'v'+v; }).join(', ')||'—';
+    return '<tr class="item'+(CNX.sel===x.t?' on':'')+'" style="cursor:pointer" onclick="cnxSel(\''+jsq(x.t)+'\')">'+
+      '<td><b>'+esc(x.nom)+'</b>'+(x.formule?' <span style="color:var(--muted);font-size:11.5px">'+esc(x.formule)+'</span>':'')+'</td>'+
+      '<td>'+(r.derniere?cnxDepuis(r.derniere):'<span style="color:var(--muted)">jamais</span>')+(r.dernierLogin?' <span style="color:var(--muted)">('+esc(r.dernierLogin)+')</span>':'')+'</td>'+
+      '<td style="text-align:center">'+r.utilisateurs7+'</td><td style="text-align:center">'+r.appareils7+'</td><td style="text-align:center">'+r.connexions7+'</td>'+
+      '<td style="text-align:center;color:'+(r.echecs24?'var(--rouge,#f87171)':'inherit')+'">'+r.echecs24+'</td><td>'+esc(vers)+'</td></tr>'; }).join('');
+  var table='<div class="carte" style="padding:0;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    '<thead><tr style="color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.4px"><th style="text-align:left;padding:10px 12px">Entreprise</th><th style="text-align:left;padding:10px 12px">Dernière connexion</th><th style="padding:10px 8px">Utilisateurs 7 j</th><th style="padding:10px 8px">Appareils 7 j</th><th style="padding:10px 8px">Connexions 7 j</th><th style="padding:10px 8px">Échecs 24 h</th><th style="text-align:left;padding:10px 12px">Versions</th></tr></thead>'+
+    '<tbody>'+(rows||'<tr><td colspan="7" class="vide">Aucune entreprise pour ce filtre.</td></tr>')+'</tbody></table></div>';
+  var det='';
+  if(CNX.sel){ var e=CNX.list.filter(function(x){ return x.t===CNX.sel; })[0]||{};
+    det='<div class="carte p24" style="margin-top:16px"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><div style="font-size:17px;font-weight:700">'+esc(e.nom||CNX.sel)+'</div><button class="btn-fant" onclick="CNX.sel=null;render()">Fermer</button></div>'+
+      (CNX.detErr?'<div class="vide">'+esc(CNX.detErr)+'</div>':(!CNX.det?'<div class="vide">Chargement…</div>':
+        '<div style="margin-top:12px">'+cnxResumeHtml(CNX.det.resume,e.nom)+'</div>'+
+        '<div class="sec" style="margin-top:16px">TOUTES LES CONNEXIONS ('+(CNX.det.evenements||[]).length+' dernières)</div>'+
+        '<div style="overflow:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase"><th style="text-align:left;padding:6px 8px">Quand</th><th style="text-align:left;padding:6px 8px">Quoi</th><th style="text-align:left;padding:6px 8px">Utilisateur</th><th style="text-align:left;padding:6px 8px">Chemin</th><th style="text-align:left;padding:6px 8px">Appareil</th><th style="text-align:left;padding:6px 8px">Version</th></tr></thead><tbody>'+
+        ((CNX.det.evenements||[]).map(cnxLigne).join('')||'<tr><td colspan="6" class="vide">Aucune connexion remontée pour l\'instant.</td></tr>')+'</tbody></table></div>'))+'</div>'; }
+  return tete+bandeau+'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><div class="rech" style="flex:1;min-width:220px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CNX.q)+'" oninput="cnxQ(this.value)"></div>'+filtres+'</div>'+table+det;
+}
+function tourConnexionsCharge(nm){
+  apiPost('/api/monitor/espaces/connexions',{nom:nm,n:8}).then(function(r){
+    var el=document.getElementById('fiche-connexions'); if(!el) return;
+    if(!(r&&r.ok&&r.d&&r.d.ok)){ el.textContent=(r&&r.d&&r.d.error)||'Indisponible — le serveur a-t-il été mis à jour ?'; return; }
+    var d=r.d, ev=d.evenements||[];
+    el.innerHTML=cnxResumeHtml(d.resume,nm)+(ev.length?'<div style="overflow:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>'+ev.map(cnxLigne).join('')+'</tbody></table></div>':'<div style="color:var(--muted);margin-top:8px">Aucune connexion remontée pour l\'instant (à partir de la v551 de l\'application).</div>')+
+      '<div style="margin-top:8px"><a style="color:#7cc6ff;cursor:pointer" onclick="setTab(\'connexions\');cnxSel(\''+jsq(d.t)+'\')">Voir toutes les connexions →</a></div>';
+  }).catch(function(){ var el=document.getElementById('fiche-connexions'); if(el) el.textContent='Serveur injoignable.'; });
+}
 
 function chargerTout(){ chargerIncidents(); chargerClients(); chargerAbos(); chargerJournal(); chargerEquipe(); chargerMail(); }
 
@@ -449,6 +534,7 @@ function tourPromoEntreprise(nomEnt,btn){
   }).catch(function(){ toast('Serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='🎁 Activer le code'; } });
 }
 function tourActiviteCharge(nm){
+  try{ tourConnexionsCharge(nm); }catch(e){}
   apiPost('/api/monitor/espaces/activite',{nom:nm}).then(function(r){
     var el=document.getElementById('fiche-activite'); if(!el) return;
     if(!(r&&r.ok&&r.d&&r.d.ok)){ el.textContent=(r&&r.d&&r.d.error)||'Indisponible — le serveur a-t-il été mis à jour ?'; return; }
@@ -677,6 +763,7 @@ function render(){
   else if(TAB==='surveillance') v.innerHTML=vueSurveillance();
   else if(TAB==='support') v.innerHTML=vueSupport();
   else if(TAB==='entreprises') v.innerHTML=vueEntreprises();
+  else if(TAB==='connexions') v.innerHTML=vueConnexions();
   else if(TAB==='abonnements') v.innerHTML=vueAbonnements();
   else if(TAB==='devisia') v.innerHTML=vueDevisIA();
   else if(TAB==='equipe') v.innerHTML=vueEquipe();
@@ -1344,6 +1431,7 @@ function ficheClient(){
       '<div style="font-size:12px;color:var(--muted);margin-top:6px">S\'applique tout seul à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app (le lien de connexion doit avoir été généré).</div></div>'+
     sect('ABONNEMENT',[['Formule',esc(c.plan||'—')],['Statut','<span class="past '+s[1]+'">'+esc(s[0])+'</span>'],['Client depuis',esc(fmtJour(c.inscrit))]])+
     sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
+    '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">CONNEXIONS</div><div id="fiche-connexions" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ PAR ONGLET & PROBLÈMES</div><div id="fiche-activite" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>'],['Téléphone',c.tel?('<a href="tel:'+esc(String(c.tel).replace(/[^0-9+]/g,''))+'">'+esc(c.tel)+'</a>'):'—']])+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ RÉCENTE</div>'+
