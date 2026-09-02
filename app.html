@@ -2487,7 +2487,7 @@ function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catc
 /* Config Firebase intégrée (équipe OP GESTION) — synchro active pour TOUS sans réglage */
 const FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"elan-gestion.firebaseapp.com", projectId:"elan-gestion", storageBucket:"elan-gestion.firebasestorage.app", messagingSenderId:"910528393731", appId:"1:910528393731:web:128d97b6a3269fb6d21436" };
 const FB_TEAM='elan-gestion';
-let _syncOn=false,_fbDoc=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false;
+let _syncOn=false,_fbDoc=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
 function syncDeviceId(){ let d=localStorage.getItem('elan_dev'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('elan_dev',d);} return d; }
 /* Sécurité — chiffrement de bout en bout des données synchronisées (AES-256-GCM).
    Le cloud ne stocke QUE du texte chiffré : sans la clé d'équipe, les données sont illisibles,
@@ -2526,30 +2526,34 @@ async function syncAuth(){ try{
   ]);
   if(!u) await firebase.auth().signInAnonymously();
 }catch(e){ try{ console.warn('auth sync :', e&&e.message); }catch(_e){} } }
-async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn) return;
+async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn||_syncDemarre) return; _syncDemarre=true;
   try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); await syncAuth(); const fs=firebase.firestore();
     _fbDoc=fs.collection('elan_teams').doc(syncTeam()); _syncOn=true; _syncGotInitial=false; try{updateSyncBtn();}catch(e){}
     _fbDoc.onSnapshot(async snap=>{ const d=snap.data(); const plain=await syncReadRemote(d);
       if(!_syncGotInitial){ _syncGotInitial=true;
-        if(!d||(!d.enc&&!d.db)){ syncPush(true); return; }   // équipe vide → on amorce avec nos données
+        // appareil qui vient de rejoindre l'espace (lien / code entreprise) : les données de l'équipe font foi, jamais la base de départ locale
+        const frais=!!localStorage.getItem('elan_frais');
+        if(!d||(!d.enc&&!d.db)){ try{ localStorage.removeItem('elan_frais'); }catch(e){} syncPush(true); return; }   // équipe vide → on amorce avec nos données
         if(d.enc&&plain===null){ try{toast('Clé d\'équipe différente — données non lues');}catch(e){} return; }   // chiffré avec une autre clé → ne rien écraser
-        try{ if(plain&&dbWeight(db) > dbWeight(JSON.parse(plain))+5){ syncPush(true); return; } }catch(e){}   // notre base est nettement plus complète → on garde la nôtre
+        try{ if(!frais&&plain&&dbWeight(db) > dbWeight(JSON.parse(plain))+5){ syncPush(true); return; } }catch(e){}   // notre base est nettement plus complète → on garde la nôtre
+        if(frais) _syncTs=0;   // on adopte les données de l'équipe quoi qu'il en soit
       }
       if(!plain) return; if(d.writer===syncDeviceId()) return; if((d.ts||0)<=(_syncTs||0)) return;
       try{ const remote=JSON.parse(plain);
         let diffMsg=''; try{ diffMsg=planSyncDiff(db,remote,d.by||''); }catch(e){}
         _syncApplying=true; db=remote; localStorage.setItem(STORE_KEY,JSON.stringify(db)); _syncTs=d.ts||Date.now();
+        try{ localStorage.removeItem('elan_frais'); }catch(e){}
         if(currentUser){ currentUser=(db.users||[]).find(u=>u.id===currentUser.id)||currentUser; }
         try{ refreshBadges&&refreshBadges(); updateBell&&updateBell();
           if(currentUser&&views[current]){ if(planEnGlissement()&&current==='planning'){ window._planPending=true; } else views[current](); } }catch(e){}
-        _syncApplying=false; try{ toast(diffMsg||'Données de l\'équipe mises à jour'); }catch(e){}
+        _syncApplying=false; if(currentUser){ try{ toast(diffMsg||'Données de l\'équipe mises à jour'); }catch(e){} }
         try{ seedFournisseurs(); }catch(e){}
         try{ seedPrix(); }catch(e){}
         try{ restoreFournisseurEmails(); }catch(e){}
         try{ fixArmosaEmail(); }catch(e){}
       }catch(e){ _syncApplying=false; } },
-      err=>{ console.error('sync',err); _syncOn=false; try{updateSyncBtn();}catch(e){} });
-  }catch(e){ console.error('syncInit',e); _syncOn=false; } }
+      err=>{ console.error('sync',err); _syncOn=false; _syncDemarre=false; try{updateSyncBtn();}catch(e){} });
+  }catch(e){ console.error('syncInit',e); _syncOn=false; _syncDemarre=false; } }
 /* Décrit les déplacements d'interventions reçus d'un collègue (planning temps réel) */
 function planSyncDiff(oldDb,newDb,by){ try{
   const o=new Map(((oldDb&&oldDb.interventions)||[]).map(i=>[i.id,i])); const chg=[];
@@ -2699,7 +2703,7 @@ async function teamopLienCheck(){
   localStorage.setItem('elan_sync_team',o.t);
   localStorage.setItem('elan_sync_secret',o.k);
   localStorage.setItem('elan_sync_on','1');
-  try{ localStorage.removeItem(STORE_KEY); }catch(e){}
+  try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); }catch(e){}
   try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   try{ localStorage.setItem('elan_lien_ok','1'); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
@@ -2716,7 +2720,7 @@ function teamopJoin(code){
   localStorage.setItem('elan_sync_team',o.t);
   localStorage.setItem('elan_sync_secret',o.k);
   localStorage.setItem('elan_sync_on','1');
-  try{ localStorage.removeItem(STORE_KEY); }catch(e){}   // repart propre → pas de fuite de données entre espaces
+  try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); }catch(e){}   // repart propre → pas de fuite de données entre espaces
   _ck={}; _syncTs=0;
   try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
@@ -15387,7 +15391,7 @@ views.utilisateurs=function(){
         <span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">${u.actif?'<span class="st st-green">Actif</span>':'<span class="st st-red">Désactivé</span>'}${(!u.pwdHash||u.mustChangePwd)?'<span class="st st-org" title="Ce compte n\'a pas encore choisi son mot de passe personnel">🔑 à définir</span>':''}</span>
         <span style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">${admin?`<button class="btn ghost sm" onclick="resetPwd('${u.id}')" title="Poser un mot de passe provisoire">🔑</button><button class="btn ghost sm" onclick="formUser('${u.id}')">✎ Modifier</button>${moi?'':`<button class="btn danger sm" onclick="delUser('${u.id}')" title="Supprimer">🗑</button>`}`:''}</span>
       </div></div>`;}).join('');
-  $('content').innerHTML=`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Chaque compte se connecte avec <b>son identifiant et son mot de passe personnel</b> (choisi à la première connexion). ${admin?'« 🔑 » pose un mot de passe provisoire, et l\'<b>e-mail</b> de chaque fiche sert au « Mot de passe oublié ? » de l\'écran de connexion.':'Tu peux créer des comptes ; leur modification reste réservée à l\'administrateur.'}</div>`+rows;
+  $('content').innerHTML=`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">À la création d'un compte, un <b>mot de passe provisoire</b> est généré et <b>envoyé par e-mail</b> avec le lien de connexion de l'entreprise ; la personne choisit ensuite son mot de passe personnel à sa première connexion. ${admin?'« 🔑 » pose un nouveau mot de passe provisoire (et le renvoie par e-mail), et l\'<b>e-mail</b> de chaque fiche sert aussi au « Mot de passe oublié ? ».':'Tu peux créer des comptes ; leur modification reste réservée à l\'administrateur.'}</div>`+rows;
 };
 const USER_CAPS=[
   ['creerIntervention','Créer / planifier des interventions',''],
@@ -15434,9 +15438,9 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{};
         <div class="field"><label>Couleur (carte)</label><select name="couleur"><option value="">Auto</option>${(TECH_PALETTE||[]).map((c,i)=>`<option value="${c}" ${lt&&lt.couleur===c?'selected':''}>${['Vert','Bleu','Violet','Orange','Rouge','Cyan','Jaune','Rose'][i]||c}</option>`).join('')}</select></div>
       </div>
       ${id?`<div class="field"><label>Statut</label><select name="actif"><option value="true" ${u.actif?'selected':''}>Actif</option><option value="false" ${!u.actif?'selected':''}>Désactivé</option></select></div>`
-          :`<div class="field"><label>Mot de passe provisoire <span style="font-weight:400;color:var(--t3)">— facultatif</span></label>
-             <div style="display:flex;gap:8px"><input name="pwd" id="nu-pwd" minlength="8" placeholder="Laisse vide (recommandé)" style="flex:1" autocomplete="new-password"><button type="button" class="btn ghost" title="Générer" onclick="document.getElementById('nu-pwd').value='OP-'+Math.random().toString(36).slice(2,6)+Math.floor(10+Math.random()*90)">🎲</button></div>
-             <div style="font-size:11px;color:var(--t3);margin-top:4px"><b>Vide (recommandé)</b> : la personne tape juste son identifiant à sa première connexion et choisit son mot de passe elle-même. Rempli : transmets-lui ce provisoire, l'app lui fera créer le sien.</div></div>`}
+          :`<div class="field"><label>Mot de passe provisoire <span style="font-weight:400;color:var(--t3)">— généré automatiquement si vide</span></label>
+             <div style="display:flex;gap:8px"><input name="pwd" id="nu-pwd" minlength="8" placeholder="Généré automatiquement" style="flex:1" autocomplete="new-password"><button type="button" class="btn ghost" title="Générer" onclick="document.getElementById('nu-pwd').value=mdpProvisoire()">🎲</button></div>
+             <div style="font-size:11px;color:var(--t3);margin-top:4px">Il est <b>envoyé par e-mail</b> à la personne avec le <b>lien de connexion de l'entreprise</b> (si un e-mail est renseigné ci-dessus), et affiché pour que tu puisses aussi le lui transmettre. À sa première connexion, l'app lui fera choisir son propre mot de passe.</div></div>`}
       ${accSection}
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
 }
@@ -15453,19 +15457,40 @@ function nuLoginAuto(){
   let k=2; const base=prop; while(pris(prop)){ prop=base+k; k++; }
   li.value=prop;
 }
-/* Fiche « à transmettre » affichée juste après la création d'un compte */
-function userIdentifiantsModal(login,pwd){
-  const lien=(typeof teamopLienActuel==='function'&&teamopLienActuel())||'https://teamop.fr/connexion.html';
-  const texte='Connexion OP GESTION\nIdentifiant : '+login+'\n'+(pwd?('Mot de passe provisoire : '+pwd):'Mot de passe : tu le choisiras toi-même à ta première connexion')+'\nLien de connexion (clique dessus, puis connecte-toi) : '+lien;
-  openModal(`<div class="modal-head"><h3>✅ Compte créé</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Transmets ces identifiants à la personne — <b>à sa première connexion, l'app lui fera choisir son propre mot de passe</b>.</p>
-    <div class="fgroup" style="margin-bottom:14px">
-      <div class="frow"><span class="frow-lbl">Identifiant</span><div class="frow-val"><b class="mono" style="font-size:16px">${esc(login)}</b></div></div>
-      <div class="frow"><span class="frow-lbl">Mot de passe</span><div class="frow-val">${pwd?`<b class="mono" style="font-size:16px">${esc(pwd)}</b>`:`<span style="font-size:13px">il le choisira à sa première connexion</span>`}</div></div>
-      <div class="frow"><span class="frow-lbl">Où se connecter</span><div class="frow-val" style="word-break:break-all;font-size:11.5px">${esc(lien)}</div></div>
+/* Mot de passe provisoire lisible (sans caractères ambigus), 8 signes après « OP- » */
+function mdpProvisoire(){ const A='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'; const r=crypto.getRandomValues(new Uint8Array(8)); return 'OP-'+Array.from(r).map(x=>A[x%A.length]).join(''); }
+function lienConnexionEntreprise(){ return (typeof teamopLienActuel==='function'&&teamopLienActuel())||'https://teamop.fr/connexion.html'; }
+/* Envoie identifiant + mot de passe provisoire + lien de connexion de l'entreprise à l'adresse de la fiche */
+async function identifiantsParMail(u,pwd){
+  const to=(u.email||'').trim(); if(!to) return {sans:true};
+  try{
+    const r=await fetch(PUSH_API+'/api/compte/identifiants',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({teamId:syncTeam(),to,prenom:u.prenom||'',entreprise:((db.entreprise||{}).nom)||localStorage.getItem('elan_entreprise_nom')||'',login:u.login,mdp:pwd,lien:lienConnexionEntreprise(),par:currentUser?fullName(currentUser):''})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok) return {err:(j&&j.error)||('erreur '+r.status)};
+    return {ok:true,to};
+  }catch(e){ return {err:'serveur injoignable'}; }
+}
+async function identifiantsRenvoyer(id,pwd){ const u=db.users.find(x=>x.id===id); if(!u) return; const z=$('ui-mail'); if(z) z.innerHTML='⏳ Envoi…'; const r=await identifiantsParMail(u,pwd); identifiantsMailEtat(r,id,pwd); }
+function identifiantsMailEtat(r,id,pwd){ const z=$('ui-mail'); if(!z) return;
+  if(r.ok) z.innerHTML='✉️ <b>E-mail envoyé à '+esc(r.to)+'</b> — identifiant, mot de passe provisoire et lien de connexion de l\'entreprise.';
+  else if(r.sans) z.innerHTML='Aucune adresse e-mail sur la fiche — transmets-lui ces accès toi-même (bouton ci-dessous).';
+  else z.innerHTML='<span style="color:var(--red)">E-mail non envoyé ('+esc(r.err||'')+')</span> — <a onclick="identifiantsRenvoyer(\''+id+'\',\''+esc(pwd)+'\')" style="cursor:pointer;text-decoration:underline">réessayer</a>, ou transmets-lui ces accès toi-même.'; }
+/* Fiche « à transmettre » affichée juste après la création d'un compte (ou une réinitialisation) */
+function userIdentifiantsModal(u,pwd){
+  const lien=lienConnexionEntreprise();
+  const texte='Connexion OP GESTION\nIdentifiant : '+u.login+'\nMot de passe provisoire : '+pwd+'\nLien de connexion (clique dessus, puis connecte-toi) : '+lien;
+  openModal(`<div class="modal-head"><h3>✅ Accès de ${esc(fullName(u))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Le lien met son appareil sur l'espace <b>${esc(((db.entreprise||{}).nom)||localStorage.getItem('elan_entreprise_nom')||'de l\'entreprise')}</b> ; <b>à sa première connexion, l'app lui fera choisir son propre mot de passe</b>.</p>
+    <div class="fgroup" style="margin-bottom:12px">
+      <div class="frow"><span class="frow-lbl">Identifiant</span><div class="frow-val"><b class="mono" style="font-size:16px">${esc(u.login)}</b></div></div>
+      <div class="frow"><span class="frow-lbl">Mot de passe provisoire</span><div class="frow-val"><b class="mono" style="font-size:16px">${esc(pwd)}</b></div></div>
+      <div class="frow"><span class="frow-lbl">Lien de connexion</span><div class="frow-val" style="word-break:break-all;font-size:11.5px">${esc(lien)}</div></div>
     </div>
+    <div id="ui-mail" style="font-size:12.5px;color:var(--t2);line-height:1.55;margin-bottom:12px">${(u.email||'').trim()?'⏳ Envoi de l\'e-mail à '+esc(u.email.trim())+'…':'Aucune adresse e-mail sur la fiche — transmets-lui ces accès toi-même (bouton ci-dessous).'}</div>
     <button class="btn block" onclick="copieIdentifiants(this)" data-t="${esc(texte)}">📋 Copier pour lui envoyer</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="closeModal()">Fermer</button>`);
+  identifiantsParMail(u,pwd).then(r=>identifiantsMailEtat(r,u.id,pwd));
 }
 function copieIdentifiants(btn){
   const t=btn.dataset.t||'';
@@ -15502,15 +15527,19 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     if((d.pwd||'').length>0 && (d.pwd||'').length<8){ toast('Mot de passe provisoire : 8 caractères minimum (ou laisse-le vide)'); return; }
     // un non-administrateur (droit « Créer des utilisateurs ») ne peut créer que des rôles terrain
     if(currentUser.role!=='admin' && ['admin','dr'].includes(d.role)){ toast('Seul un administrateur peut créer ce rôle'); return; }
-    if(d.pwd){ db.users.push({id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(d.pwd),mustChangePwd:true}); }
-    else { db.users.push({id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),sansMdp:true,pinHash:'—'}); }
-    logEvent('Utilisateur créé',`@${loginNorm}`,'auth'); }
+    // toujours un mot de passe provisoire (généré si non saisi) : envoyé par e-mail avec le lien de l'entreprise
+    const pwd=d.pwd||mdpProvisoire();
+    const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
+    db.users.push(nu);
+    logEvent('Utilisateur créé',`@${loginNorm}`,'auth');
+    save(); closeModal(); views.utilisateurs();
+    setTimeout(()=>userIdentifiantsModal(nu,pwd),120);
+    return; }
   save(); closeModal(); views.utilisateurs();
-  if(!id){ setTimeout(()=>userIdentifiantsModal(loginNorm, d.pwd||''), 120); }   // fiche « à transmettre » : identifiant (+ mot de passe provisoire s'il y en a un)
 }
-async function resetPwd(id){ const p=prompt('Nouveau mot de passe provisoire (8 caractères minimum) :'); if(!p)return; if(p.length<8){toast('8 caractères minimum');return;}
-  const u=db.users.find(x=>x.id===id); u.pwdHash=await sha256(p); u.mustChangePwd=true; delete u.pinHash;
-  logEvent('Mot de passe réinitialisé','@'+(u.login||''),'auth'); save(); toast('Mot de passe provisoire posé — il devra le changer à sa prochaine connexion'); }
+async function resetPwd(id){ const p=prompt('Nouveau mot de passe provisoire (8 caractères minimum) — laisse vide pour en générer un :'); if(p===null)return; if(p&&p.length<8){toast('8 caractères minimum');return;}
+  const u=db.users.find(x=>x.id===id); const pwd=p||mdpProvisoire(); u.pwdHash=await sha256(pwd); u.mustChangePwd=true; delete u.pinHash; delete u.sansMdp;
+  logEvent('Mot de passe réinitialisé','@'+(u.login||''),'auth'); save(); userIdentifiantsModal(u,pwd); }
 /* rétrocompat : les vieux boutons « PIN » pointent maintenant sur le mot de passe */
 function resetPin(id){ return resetPwd(id); }
 /* ── Suppression d'un compte : confirmée par un code envoyé par e-mail à CELUI qui supprime.
@@ -19094,7 +19123,8 @@ async function boot(){
   if(ch) save();
   defaultPinHash=await sha256('1234');
   if(sessionStorage.getItem('elan_create_admin')==='1'){ renderCreateAdmin(); return; }
-  const u=db.users.find(x=>x.id===getSession()&&x.actif); if(u) enterApp(u); else renderLogin(); }
+  const u=db.users.find(x=>x.id===getSession()&&x.actif); if(u) enterApp(u);
+  else { try{ if(syncEnabled()) syncInit(); }catch(e){} renderLogin(); } }   // les comptes de l'entreprise arrivent AVANT la connexion (appareil neuf via le lien)
 /* Premier accès à un nouvel espace entreprise : le client crée son compte administrateur */
 function renderCreateAdmin(){ $('app-root').style.display='none'; $('login').style.display='flex';
   $('login-box').innerHTML=`<img class="login-logo" src="icons/logo-day.png" alt="OP GESTION"><h2>Bienvenue 👋</h2>
@@ -19355,6 +19385,7 @@ function renderLogin(){ $('app-root').style.display='none'; $('login').style.dis
   $('login-box').innerHTML=`<img class="login-logo" src="${_logo}" alt="OP GESTION"><h2>OP GESTION</h2>
     ${(_surEspace&&_entNom)?`<div style="text-align:center;margin:2px 0 14px"><span style="display:inline-block;background:color-mix(in srgb,var(--acc) 12%,transparent);border:1px solid color-mix(in srgb,var(--acc) 35%,transparent);border-radius:100px;padding:6px 16px;font-size:13.5px;font-weight:700">🏢 ${esc(_entNom)}</span></div>`:''}
     ${(_surEspace&&localStorage.getItem('elan_lien_ok'))?`<div style="text-align:center;margin:-6px 0 14px;font-size:12.5px;color:var(--acc);font-weight:700">✅ Ton lien de connexion est bon — entre ton identifiant et ton mot de passe.</div>`:''}
+    ${(_surEspace&&!_syncGotInitial&&syncEnabled())?`<div id="li-sync" style="text-align:center;margin:-4px 0 12px;font-size:12px;color:var(--t3)">⏳ Chargement des comptes de l'entreprise…</div>`:''}
     <form onsubmit="doLogin(event)" autocomplete="off">
       <div class="login-card">
         <div class="login-card-title">Connexion</div>
@@ -19370,7 +19401,10 @@ function renderLogin(){ $('app-root').style.display='none'; $('login').style.dis
     <div style="text-align:center;margin-top:14px"><a onclick="teamopJoinPrompt()" style="cursor:pointer;color:var(--t3);font-size:12.5px;text-decoration:underline">Rejoindre un espace TeamOP (code entreprise)</a>${(_surEspace&&_entNom)?` · <a href="connexion.html?choix=1" style="color:var(--t3);font-size:12.5px;text-decoration:underline">changer d'entreprise</a>`:''}</div>
     <div style="text-align:center;margin-top:12px"><a href="index.html?hub=1" style="color:var(--t3);font-size:12.5px;text-decoration:none;border:1px solid var(--brd);border-radius:100px;padding:7px 14px;display:inline-block">🏠 Accueil TeamOP</a></div>`;
   setTimeout(()=>{ const el=$(saved?'li-pin':'li-login'); if(el) el.focus(); },60);
+  (function tick(n){ const s=$('li-sync'); if(!s) return; if(_syncGotInitial||!syncEnabled()||n>50) s.remove(); else setTimeout(()=>tick(n+1),300); })(0);
 }
+/* Les comptes de l'entreprise arrivent par la synchro : on l'attend (quelques secondes au plus) avant de juger une connexion */
+async function syncAttendre(ms){ const fin=Date.now()+(ms||9000); while(!_syncGotInitial&&syncEnabled()&&Date.now()<fin){ await new Promise(r=>setTimeout(r,150)); } }
 async function doLogin(e){ e.preventDefault();
   const login=$('li-login').value.trim(), pin=$('li-pin').value.trim(), remember=$('li-remember').checked;
   // Champ « Entreprise » (connexion à la Organilog) : si le nom tapé n'est pas l'espace
@@ -19390,16 +19424,30 @@ async function doLogin(e){ e.preventDefault();
       try{ const _o=teamopDecode(j.code); if(_o&&_o.a) localStorage.setItem('elan_admin_login',_o.a); if(_o&&_o.m) localStorage.setItem('elan_admin_mdp',_o.m); if(_o&&_o.e) localStorage.setItem('elan_admin_mail',_o.e); }catch(_e){}
       if(syncTeam()!==o.t){
         localStorage.setItem('elan_sync_team',o.t); localStorage.setItem('elan_sync_secret',o.k); localStorage.setItem('elan_sync_on','1');
-        try{ localStorage.removeItem(STORE_KEY); }catch(_e){}
+        try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); }catch(_e){}
         toast('Espace « '+(j.nom||_entSaisi)+' » chargé — connecte-toi avec ton identifiant');
         setTimeout(()=>location.reload(),700); return;
       }
     }catch(_e){ if(er){ er.textContent='Serveur injoignable — vérifie ta connexion internet'; er.style.display='block'; } return; }
   }
+  const h=await sha256(pin);
+  const trouver=()=>db.users.find(x=> x.login && x.login.toLowerCase()===login.toLowerCase() && x.actif);
+  // vrai si le compte peut se connecter avec ce qui a été tapé (mot de passe, ancien PIN, ou 1re connexion libre / compte du site)
+  const valide=x=>!!x && (x.compteSite || x.sansMdp || (x.pwdHash ? x.pwdHash===h : (x.pinHash===h || x.pinHash===pin)));
+  let u=trouver();
+  // Appareil neuf (lien de l'entreprise) : les comptes arrivent par la synchro — on l'attend avant de refuser.
+  // Un compte déjà présent sur l'appareil se connecte tout de suite, même hors ligne.
+  if(!valide(u) && !_syncGotInitial && syncEnabled()){
+    const er=$('li-error'); if(er){ er.textContent='⏳ Chargement des comptes de l\'entreprise…'; er.style.display='block'; er.style.color='var(--t3)'; }
+    try{ if(!_syncOn&&!_syncDemarre) syncInit(); }catch(_e){}
+    await syncAttendre(9000);
+    if(er){ er.style.display='none'; er.style.color=''; }
+    u=trouver();
+  }
   // Compte relié au site teamop.fr (lien envoyé automatiquement après la demande) :
   // la 1re connexion se fait avec l'e-mail + le mot de passe du compte TeamOP du site,
   // vérifié auprès du serveur d'authentification. Ensuite tout est local (hors ligne ok).
-  const _site=db.users.find(x=> x.login && x.login.toLowerCase()===login.toLowerCase() && x.actif && !x.pwdHash && x.compteSite);
+  const _site=(u && !u.pwdHash && u.compteSite)?u:null;
   if(_site){
     const er=$('li-error');
     if(!pin){ if(er){ er.textContent='Entre le mot de passe de ton compte TeamOP (celui du site teamop.fr)'; er.style.display='block'; } return; }
@@ -19419,24 +19467,21 @@ async function doLogin(e){ e.preventDefault();
   }
   // Compte créé SANS mot de passe provisoire : la première connexion au nom suffit,
   // l'app fait aussitôt choisir le mot de passe personnel (puis lui seul fonctionne).
-  const _libre=db.users.find(x=> x.login && x.login.toLowerCase()===login.toLowerCase() && x.actif && !x.pwdHash && x.sansMdp && !x.compteSite);
+  const _libre=(u && !u.pwdHash && u.sansMdp && !u.compteSite)?u:null;
   if(_libre){
     sessionStorage.setItem('elan_session',_libre.id);
     if(remember){ localStorage.setItem('elan_session',_libre.id); localStorage.setItem('elan_savedLogin',_libre.login); }
     enterApp(_libre);   // forcePwdModal s'ouvre tout seul (pas de pwdHash)
     return;
   }
-  const h=await sha256(pin);
   // mot de passe d'abord ; sinon l'ancien code PIN (comptes pas encore migrés)
-  const u=db.users.find(x=> x.login && x.login.toLowerCase()===login.toLowerCase() && x.actif &&
-    ( (x.pwdHash && x.pwdHash===h) || (!x.pwdHash && (x.pinHash===h || x.pinHash===pin)) ));
-  if(u){
+  if(u && (u.pwdHash ? u.pwdHash===h : (u.pinHash===h || u.pinHash===pin))){
     sessionStorage.setItem('elan_session',u.id);
     if(remember){ localStorage.setItem('elan_session',u.id); localStorage.setItem('elan_savedLogin',u.login); }
     else { localStorage.removeItem('elan_session'); localStorage.removeItem('elan_savedLogin'); }
     enterApp(u);
   } else {
-    const er=$('li-error'); if(er){ er.textContent='Identifiant ou mot de passe incorrect'; er.style.display='block'; }
+    const er=$('li-error'); if(er){ er.textContent=(!_syncGotInitial&&syncEnabled())?'Les comptes de l\'entreprise ne sont pas encore arrivés sur cet appareil — vérifie ta connexion internet, puis réessaie':'Identifiant ou mot de passe incorrect'; er.style.display='block'; }
     const c=document.querySelector('.login-card'); if(c){ c.classList.add('pin-err'); setTimeout(()=>c.classList.remove('pin-err'),400); }
     const p=$('li-pin'); if(p){ p.value=''; p.focus(); }
   }
@@ -19871,8 +19916,15 @@ function updateSyncBtn(){ const b=$('sync-btn'); if(!b) return; b.style.color=_s
 /* Bannière « nouvelle version » */
 function showUpdateBanner(){ if($('update-banner')) return; const d=document.createElement('div'); d.id='update-banner';
   d.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));z-index:130;background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:12px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5);display:flex;gap:12px;align-items:center';
-  d.innerHTML='Mise à jour disponible <button onclick="location.reload()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
+  d.innerHTML='Mise à jour disponible <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
   document.body.appendChild(d); }
+/* « Mettre à jour » : on demande d'abord au service worker de ranger la version fraîche
+   (réseau lent compris), puis on recharge — sinon l'ancienne copie revenait et le bandeau avec. */
+function majAppliquer(){ const b=$('update-banner'); if(b) b.innerHTML='⏳ Mise à jour en cours…';
+  let fait=false; const go=()=>{ if(fait) return; fait=true; location.reload(); };
+  try{ const sw=navigator.serviceWorker&&navigator.serviceWorker.controller;
+    if(sw){ const ch=new MessageChannel(); ch.port1.onmessage=go; sw.postMessage({op:'maj-forcer',url:location.pathname},[ch.port2]); setTimeout(go,6000); return; } }catch(e){}
+  go(); }
 function avatarAccentSync(){ try{ if(!currentUser) return; const u=db.users.find(x=>x.id===currentUser.id); const m=u&&u.photoMeta; if(!m||!u.photo) return;
   const logoAJour=(m.type!=='insta')||(m.logoV===3 && m.badgeKey===brandBadgeKey());
   if(logoAJour && (m.accent===getAccent()||m.fixedBg)) return;   // déjà à jour (couleur + écusson)

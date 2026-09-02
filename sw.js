@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v744';
+const CACHE = 'elan-gestion-v745';
 const ASSETS = [
   './',
   'index.html',
@@ -54,6 +54,23 @@ function annonceMaj(chemin) {
     .catch(() => {});
 }
 
+/* « Mettre à jour » : la page demande la version fraîche AVANT de se recharger.
+   On la télécharge en ignorant tout cache, on la garde, puis on répond — et la
+   prochaine navigation attend le réseau plutôt que de resservir l'ancienne copie. */
+let forcerFraisJusqua = 0;
+self.addEventListener('message', e => {
+  const d = (e && e.data) || {};
+  if (d.op !== 'maj-forcer') return;
+  const url = new URL(d.url || 'app.html', self.location.href).href;
+  const repondre = () => { try { if (e.ports && e.ports[0]) e.ports[0].postMessage({ op: 'maj-ok' }); } catch (_) {} };
+  const travail = fetch(url, { cache: 'reload' })
+    .then(res => { if (!res || !res.ok) throw new Error('réseau'); return caches.open(CACHE).then(c => c.put(url, res.clone())); })
+    /* rangée : la copie servie au rechargement EST la fraîche ; sinon la prochaine navigation attend le réseau */
+    .then(() => { forcerFraisJusqua = 0; }, () => { forcerFraisJusqua = Date.now() + 30000; })
+    .then(repondre);
+  if (e.waitUntil) e.waitUntil(travail);
+});
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -78,27 +95,35 @@ self.addEventListener('fetch', e => {
      C'est ce détail qui a fait essayer pendant des jours des corrections
      déjà livrées mais jamais reçues. */
   if (isDoc) {
+    /* la page est rangée sous son adresse (pas sous la requête de navigation,
+       que certains navigateurs refusent de ranger) */
+    const cle = req.url;
+    const forcer = Date.now() < forcerFraisJusqua;
+    if (forcer) forcerFraisJusqua = 0;
     e.respondWith(
-      caches.match(req).then(garde => {
+      caches.match(cle).then(garde => {
+        let enCache = Promise.resolve(false);
         const frais = fetch(req).then(res => {
           if (res && res.ok) {
             const copie = res.clone();
-            caches.open(CACHE).then(c => c.put(req, copie)).catch(() => {});
+            enCache = caches.open(CACHE).then(c => c.put(cle, copie)).then(() => true, () => false);
           }
           return res;
         }).catch(() => null);
 
         if (!garde) return frais.then(r => r || caches.match('app.html'));
 
-        /* course : le réseau a 2 secondes pour gagner */
-        const patience = new Promise(r => setTimeout(() => r(null), 2000));
+        /* course : le réseau a 2 secondes pour gagner (15 juste après « Mettre à jour ») */
+        const patience = new Promise(r => setTimeout(() => r(null), forcer ? 15000 : 2000));
         return Promise.race([frais, patience]).then(r => {
           if (r && r.ok) return r;                       // ← la version fraîche
-          /* le réseau traîne : on sert la copie, et on préviendra si ça change */
+          /* le réseau traîne : on sert la copie, et on préviendra si ça change —
+             seulement une fois la version fraîche bien rangée, sinon le bouton
+             « Mettre à jour » resservirait l'ancienne copie et le bandeau reviendrait */
           frais.then(res => {
             if (!res || !res.ok) return;
             Promise.all([garde.clone().text(), res.clone().text()])
-              .then(([a, b]) => { if (a !== b) annonceMaj(url.pathname); })
+              .then(([a, b]) => { if (a !== b) return enCache.then(ok => { if (ok) annonceMaj(url.pathname); }); })
               .catch(() => {});
           }).catch(() => {});
           return garde;

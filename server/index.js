@@ -71,16 +71,16 @@ const MAILS_PATH = path.join(DATA_DIR, 'mails-envoyes.json');
 let mailsLog = []; try { mailsLog = JSON.parse(fs.readFileSync(MAILS_PATH, 'utf8')); } catch (e) {}
 function mailsSave() { try { fs.writeFileSync(MAILS_PATH, JSON.stringify(mailsLog)); } catch (e) {} }
 function mailerEnvoi(opts) {
+  // confidentiel : code de sécurité ou mot de passe → jamais journalisé ni copié
+  const secret = opts.confidentiel === true || /code/i.test(String(opts.subject || ''));
   try {
-    const secret0 = /code/i.test(String(opts.subject || ''));
     mailsLog.unshift({ ts: Date.now(), a: String(opts.to || ''), sujet: String(opts.subject || '').slice(0, 140),
-      txt: secret0 ? '(contenu confidentiel — code de sécurité, jamais conservé)' : String(opts.text || '').slice(0, 2000) });
+      txt: secret ? '(contenu confidentiel — code de sécurité ou mot de passe, jamais conservé)' : String(opts.text || '').slice(0, 2000) });
     if (mailsLog.length > 300) mailsLog.length = 300; mailsSave();
   } catch (e) {}
-  const o2 = Object.assign({}, opts);
+  const o2 = Object.assign({}, opts); delete o2.confidentiel;
   try {
     const moi = String(config.notifDemandes || (config.smtp && (config.smtp.from || config.smtp.user)) || '').toLowerCase();
-    const secret = /code/i.test(String(opts.subject || ''));
     if (moi && !secret && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
   } catch (e) {}
   if (LOGO_OK && o2.html && String(o2.html).indexOf('cid:logoteamop') >= 0)
@@ -448,25 +448,26 @@ app.post('/api/notify', async (req, res) => {
 // envoi d'e-mail métier (rapports, avis, devis…) — TOUJOURS via la boîte de l'entreprise (fournie par l'app),
 // jamais via l'adresse TeamOP (réservée aux codes de sécurité)
 const mailQuota = new Map();
+// 30 e-mails/heure par espace ; un espace sans appareil abonné aux notifications
+// est compté par adresse IP (anti-abus). Renvoie le message de refus, ou null.
+function mailQuotaRefus(req, teamId) {
+  const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
+  const cle = teamConnue ? teamId : 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?');
+  const q = mailQuota.get(cle) || { count: 0, reset: Date.now() + 3600000 };
+  if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
+  if (q.count >= 30) {
+    lastRefus = { ts: Date.now(), raison: teamConnue ? 'quota équipe (30/h)' : 'quota IP (espace sans notifications)' };
+    return teamConnue ? 'quota horaire atteint (30 e-mails/h)' : 'quota horaire atteint (30 e-mails/h) — réessaie dans une heure';
+  }
+  q.count++; mailQuota.set(cle, q);
+  return null;
+}
 app.post('/api/sendmail', async (req, res) => {
   const { teamId, to, subject, text, smtp, brand, atts, meta, useMailbox } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
-  const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
-  if (!teamConnue) {
-    // Espace sans appareil abonné aux notifications : envoi autorisé quand même,
-    // mais quota serré par adresse IP (anti-abus). Notifications activées = quota complet.
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
-    const qi = mailQuota.get('ip:' + ip) || { count: 0, reset: Date.now() + 3600000 };
-    if (Date.now() > qi.reset) { qi.count = 0; qi.reset = Date.now() + 3600000; }
-    if (qi.count >= 30) { lastRefus = { ts: Date.now(), raison: 'quota IP (espace sans notifications)' }; return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h) — réessaie dans une heure' }); }
-    qi.count++; mailQuota.set('ip:' + ip, qi);
-  } else {
-    const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
-    if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
-    if (q.count >= 30) { lastRefus = { ts: Date.now(), raison: 'quota équipe (30/h)' }; return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' }); }
-    q.count++; mailQuota.set(teamId, q);
-  }
+  const refus = mailQuotaRefus(req, teamId);
+  if (refus) return res.status(429).json({ error: refus });
   const msg = { to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) };
   // Pièces jointes (ex : bon de commande en PDF) — max 3 fichiers, ~4 Mo au total (base64)
   if (Array.isArray(atts) && atts.length) {
@@ -507,6 +508,35 @@ app.post('/api/sendmail', async (req, res) => {
   } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
 });
 
+// Accès d'un compte créé par l'entreprise : identifiant + mot de passe provisoire + lien de connexion
+// de l'entreprise (le lien met l'appareil sur le bon espace). Le mot de passe n'est jamais journalisé.
+app.post('/api/compte/identifiants', async (req, res) => {
+  const { teamId, to, prenom, entreprise, login, mdp, lien, par } = req.body || {};
+  if (!teamId || !to || !login || !mdp) return res.status(400).json({ error: 'teamId, to, login et mdp requis' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
+  if (!mailer) return res.status(503).json({ error: 'email_off' });
+  const refus = mailQuotaRefus(req, teamId);
+  if (refus) return res.status(429).json({ error: refus });
+  const net = (s, n) => String(s || '').replace(/[<>\r\n]/g, '').trim().slice(0, n);
+  const ent = net(entreprise, 80), pre = net(prenom, 60), id = net(login, 60), pwd = net(mdp, 60), qui = net(par, 80);
+  // seul un lien TeamOP est accepté (jamais d'adresse étrangère dans nos e-mails)
+  const url = /^https:\/\/teamop\.fr\/(app|beta|connexion)\.html([#?][A-Za-z0-9+/=_.&%#?-]*)?$/.test(String(lien || '')) ? String(lien).slice(0, 700) : 'https://teamop.fr/connexion.html';
+  const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  try {
+    await mailerEnvoi({ confidentiel: true, from: config.smtp.from || config.smtp.user, to,
+      subject: 'Vos accès OP GESTION' + (ent ? ' — ' + ent : ''),
+      text: 'Bonjour' + (pre ? ' ' + pre : '') + ',\n\n' + (qui ? qui + ' vous a créé' : 'Votre entreprise vous a créé') + ' un compte OP GESTION' + (ent ? ' (' + ent + ')' : '') + '.\n\n'
+        + 'Identifiant : ' + id + '\nMot de passe provisoire : ' + pwd + '\n\n'
+        + 'Lien de connexion (cliquez dessus, puis entrez vos identifiants) :\n' + url + '\n\n'
+        + 'À votre première connexion, l\'application vous fera choisir votre propre mot de passe.\n\n— TEAM OP · teamop.fr',
+      html: mailTeamOP({ chip: 'Bienvenue', titre: 'Vos accès OP GESTION' + (ent ? ' · ' + ent : ''),
+        corpsHtml: 'Bonjour' + (pre ? ' ' + x(pre) : '') + ',<br>' + (qui ? '<b>' + x(qui) + '</b> vous a créé' : 'votre entreprise vous a créé') + ' un compte sur l\'application OP GESTION' + (ent ? ' de <b>' + x(ent) + '</b>' : '') + '. Cliquez sur le bouton ci-dessous : il met votre appareil sur le bon espace, il ne reste qu\'à entrer vos identifiants.',
+        blocHtml: MAIL_BLOCS.acces(x(id), x(pwd)),
+        boutonTxt: 'Ouvrir mon application', boutonUrl: url }) });
+    res.json({ ok: true });
+  } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
+});
+
 /* ── Gabarit d'e-mail TEAM OP (modèle « Suivi ») : logo, pastille d'état, frise,
    boutons. Sert à tous les e-mails automatiques envoyés aux clients. ── */
 function mailTeamOP(o) {
@@ -540,6 +570,7 @@ const MAIL_BLOCS = {
   code: (c) => '<div align="center"><div style="display:inline-block;background:#F3F7FB;border:1.5px dashed #C6D3E4;border-radius:14px;padding:18px 34px;font-family:\'Courier New\',monospace;font-size:32px;font-weight:800;letter-spacing:10px;color:#17233B">' + String(c).split('').join(' ') + '</div><div style="font-size:12px;color:#93A2BF;padding-top:10px">Ce code expire dans <b>10 minutes</b> · 5 essais maximum</div></div>',
   transmettre: (login) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF8EC;border:1px solid #F2DFB6;border-radius:12px"><tr><td style="padding:14px 18px;font-size:13.5px;line-height:1.7;color:#7A5A17">👤 À transmettre à <b>' + login + '</b> — ce membre de votre équipe a oublié son mot de passe et son compte n\'a pas d\'adresse e-mail.</td></tr></table>',
   ident: (a, m) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3FBF7;border:1px solid #C9EBDC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;line-height:2;color:#17233B"><b>Vos identifiants de départ</b><br>Identifiant : <b style="font-family:\'Courier New\',monospace">' + a + '</b> <span style="color:#93A2BF">(votre prénom)</span><br>Mot de passe provisoire : <b style="font-family:\'Courier New\',monospace">' + m + '</b> <span style="color:#93A2BF">(votre nom + « !! »)</span></td></tr></table><div style="font-size:12px;color:#93A2BF;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
+  acces: (a, m) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3FBF7;border:1px solid #C9EBDC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;line-height:2;color:#17233B"><b>Vos identifiants</b><br>Identifiant : <b style="font-family:\'Courier New\',monospace">' + a + '</b><br>Mot de passe provisoire : <b style="font-family:\'Courier New\',monospace">' + m + '</b></td></tr></table><div style="font-size:12px;color:#93A2BF;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
   promo: (c, f, fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F6F1FE;border:1px solid #E0D3F7;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#3F2B66;line-height:1.9"><b>🎁 Code ' + c + ' activé</b><br>Formule <b>' + f + '</b> offerte jusqu\'au <b>' + fin + '</b><br><span style="color:#8A76AC;font-size:12.5px">Aucune carte bancaire requise · un rappel avant la fin</span></td></tr></table>',
   echeance: (fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF6EE;border:1px solid #F5D9BC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#7A4A17;line-height:1.9"><b>⏳ Votre période offerte se termine le ' + fin + '</b><br><span style="font-size:13px">Vos données ne bougent pas, quoi qu\'il arrive — mais sans abonnement, l\'application repassera en formule Gratuit.</span></td></tr></table>',
   vigie: (e2) => { const x = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'); return '<table width="100%" cellpadding="0" cellspacing="0" style="background:#1B2233;border-radius:12px"><tr><td style="padding:16px 20px;font-family:\'Courier New\',monospace;font-size:12px;line-height:1.8;color:#D7E2F2">App : ' + x(e2.app) + ' (v' + x(e2.version) + ')<br>Espace : ' + x(e2.team) + '<br>Erreur : ' + x(e2.msg) + '<br>Fichier : ' + x(e2.src || '—') + (e2.line ? ' · ligne ' + e2.line : '') + '<br>Appareil : ' + x(String(e2.ua).slice(0, 90)) + (e2.stack ? '<br><br><span style="color:#93A2BF">' + x(e2.stack).replace(/\n/g, '<br>') + '</span>' : '') + '</td></tr></table>'; }
