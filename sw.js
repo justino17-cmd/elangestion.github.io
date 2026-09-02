@@ -1,5 +1,5 @@
 /* ELAN GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v327';
+const CACHE = 'elan-gestion-v328';
 const ASSETS = [
   './',
   'index.html',
@@ -7,6 +7,8 @@ const ASSETS = [
   'espace.html',
   'messages.html',
   'app.html',
+  'css/app.css',
+  'js/app.js',
   'manifest.webmanifest',
   'manifest-teamop.webmanifest',
   'manifest-opmsg.webmanifest',
@@ -27,25 +29,56 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Stratégie : stale-while-revalidate.
+//
+// L'ancienne version faisait « réseau d'abord » avec cache:'no-store' sur les
+// documents, ce qui contournait délibérément le cache HTTP : chaque navigation
+// retéléchargeait la page en entier avant d'afficher quoi que ce soit. Sur le
+// gros fichier applicatif, cela coûtait plusieurs centaines de kilo-octets à
+// chaque ouverture, y compris quand rien n'avait changé.
+//
+// Ici, on répond immédiatement depuis le cache et on revalide en arrière-plan.
+// L'intention d'origine — que les mises à jour arrivent vite — est préservée
+// autrement : quand la revalidation ramène un contenu différent, on prévient
+// les pages ouvertes (message 'sw-updated'), à charge pour l'app de proposer
+// le rechargement.
+function sameOrigin(req) {
+  try { return new URL(req.url).origin === self.location.origin; } catch (_) { return false; }
+}
+
+async function notifyUpdated(url) {
+  const ws = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const w of ws) w.postMessage({ type: 'sw-updated', url });
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  // Stratégie : réseau d'abord, repli sur le cache (utile hors-ligne)
-  // Pour les pages HTML : on contourne aussi le cache HTTP du navigateur
-  // afin que les mises à jour arrivent immédiatement.
-  const isDoc = req.mode === 'navigate' || req.destination === 'document';
-  e.respondWith(
-    fetch(isDoc ? new Request(req.url, { cache: 'no-store' }) : req)
-      .then(res => {
-        const url = new URL(req.url);
-        if (url.origin === self.location.origin) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+  if (!sameOrigin(req)) return;   // tiers (CDN, Firebase) : laissé au navigateur
+
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const cached = await cache.match(req);
+
+    const network = fetch(req).then(async res => {
+      if (res && res.ok) {
+        const before = cached ? await cached.clone().text().catch(() => null) : null;
+        const copy = res.clone();
+        await cache.put(req, res.clone()).catch(() => {});
+        if (before !== null) {
+          const after = await copy.text().catch(() => null);
+          if (after !== null && after !== before) notifyUpdated(req.url).catch(() => {});
         }
-        return res;
-      })
-      .catch(() => caches.match(req).then(r => r || caches.match('app.html')))
-  );
+      }
+      return res;
+    }).catch(() => null);
+
+    // Cache d'abord quand on l'a ; sinon on attend le réseau ; en tout
+    // dernier recours, la coquille de l'application.
+    if (cached) { network.catch(() => {}); return cached; }
+    const res = await network;
+    return res || (await cache.match('app.html')) || Response.error();
+  })());
 });
 
 /* ── Notifications push ── */
