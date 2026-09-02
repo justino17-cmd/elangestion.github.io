@@ -320,7 +320,7 @@ async function pushTest(){ const ok=await pushSubscribe(); if(!ok) return;
 function pushPropose(){ try{ if(!pushSupported()||!currentUser) return; if(Notification.permission!=='default') return;
   if(document.querySelector('#overlay.open')) return;
   const k='elan_push_ask_'+currentUser.id; if(localStorage.getItem(k)) return; localStorage.setItem(k,'1');
-  openModal(`<div class="modal-head"><h3>🔔 Notifications</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>🔔 Notifications</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t2);font-size:14px;line-height:1.55;margin-bottom:14px">Reçois les infos importantes de l'équipe — interventions assignées, arrivages, messages — même quand l'application est fermée.</p>
     <button class="btn block" onclick="closeModal();pushSubscribe()">Activer les notifications</button>
     <button class="btn block ghost" style="margin-top:8px" onclick="closeModal()">Plus tard</button>`);
@@ -362,7 +362,7 @@ function teamopCreateSpace(){
   teamopShowCode(sp);
 }
 function teamopShowCode(sp){
-  openModal(`<div class="modal-head"><h3>Espace créé : ${esc(sp.name)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Espace créé : ${esc(sp.name)}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div style="padding:6px">
       <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:12px">Voici le <b>Code espace</b> de cette entreprise. Donne-le à l'entreprise : ses membres l'entrent une fois dans l'app pour accéder à <b>leurs données isolées et chiffrées</b>.</p>
       <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:14px;word-break:break-all;font-family:var(--mono,monospace);font-size:13px;color:var(--acc)">${esc(sp.code)}</div>
@@ -390,7 +390,7 @@ function teamopJoin(code){
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
   setTimeout(()=>location.reload(),700);
 }
-function syncGuide(){ openModal(`<div class="modal-head"><h3>Activer la synchro (gratuit)</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+function syncGuide(){ openModal(`<div class="modal-head"><h3>Activer la synchro (gratuit)</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
   <div style="padding:6px;font-size:14px;line-height:1.7;color:var(--t2)">
   <b>Une seule fois</b>, pour toute l'équipe :<br><br>
   1. <b>console.firebase.google.com</b> → <b>Ajouter un projet</b> (gratuit, sans carte).<br>
@@ -711,7 +711,7 @@ function gsrchGo(el){ const box=$('gsrch-res'); if(box){box.style.display='none'
   if(typeof f!=='function'){ console.error('gsrchGo : action inconnue',el.dataset.act); return; }
   try{ f(el.dataset.arg); }catch(e){ console.error('gsrchGo',e); toast('Impossible d\'ouvrir ce résultat'); } }
 document.addEventListener('click',()=>{ const box=$('gsrch-res'); if(box&&box.style.display==='block'){ box.style.display='none'; } });
-function quickCreate(){ openModal(`<div class="modal-head"><h3>＋ Créer</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+function quickCreate(){ openModal(`<div class="modal-head"><h3>＋ Créer</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
     ${can('creerIntervention')?`<button class="btn" onclick="closeModal();formIntervention()">Intervention</button>`:''}
     <button class="btn ghost" onclick="closeModal();formClient()">Client</button>
@@ -980,7 +980,7 @@ views.taches=function(){ db.taches=db.taches||[];
     +(rows||`<div class="card">${emptyState('✅','Aucune tâche dans ce filtre.','＋ Tâche','formTache()')}</div>`);
 };
 function formTache(id){ db.taches=db.taches||[]; const t=id?db.taches.find(x=>x.id===id):{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier la tâche':'Nouvelle tâche'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier la tâche':'Nouvelle tâche'}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveTache(event,'${id||''}')">
       <div class="field"><label>Titre *</label><input name="titre" required value="${esc(t.titre||'')}" placeholder="Ex : Rappeler le client / Commander des postes"></div>
       <div class="field-row">
@@ -1019,7 +1019,7 @@ views.absences=function(){ db.absences=db.absences||[];
     +(past.length?`<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin:16px 2px 8px;font-weight:700">Passées</div>`+past.map(row).join(''):'');
 };
 function formAbsence(){ const myTid=myTechId();
-  openModal(`<div class="modal-head"><h3>Nouvelle absence</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Nouvelle absence</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveAbsence(event)">
       <div class="field"><label>Personne *</label><select name="techId" required>${optOf(db.techniciens,myTid)}</select></div>
       <div class="field"><label>Type</label><select name="type">${Object.entries(ABS_TYPES).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
@@ -1083,7 +1083,7 @@ function allTags(){ const st=new Set(); [...(db.clients||[]),...(db.intervention
 function tagChipsHtml(x){ return (x.tags||[]).map(t=>`<span class="tag" style="font-size:9px">🏷 ${esc(t)}</span>`).join(' '); }
 function openTagEditor(coll,id){ const x=db[coll].find(v=>v.id===id); if(!x) return; x.tags=x.tags||[];
   const known=allTags();
-  openModal(`<div class="modal-head"><h3>Étiquettes</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Étiquettes</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t3);font-size:12px;margin-bottom:10px">Touchez pour ajouter/retirer. Les étiquettes servent à filtrer.</p>
     <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px">${known.map(t=>`<span class="chip ${x.tags.includes(t)?'active':''}" onclick="toggleTag('${coll}','${id}',this.textContent)">${esc(t)}</span>`).join('')||'<span style="color:var(--t3);font-size:13px">Aucune étiquette pour l\'instant.</span>'}</div>
     <div class="field"><label>Nouvelle étiquette</label><div style="display:flex;gap:8px"><input id="tag-new" placeholder="Ex : VIP, HACCP, Urgent"><button type="button" class="btn sm" onclick="addNewTag('${coll}','${id}')">Ajouter</button></div></div>`); }
@@ -1107,7 +1107,7 @@ views.chantiers=function(){ db.chantiers=db.chantiers||[];
   $('content').innerHTML=rows||`<div class="card">${emptyState('🏗️','Aucun chantier. Regroupez plusieurs interventions dans un projet.','＋ Chantier','formChantier()')}</div>`;
 };
 function formChantier(id){ db.chantiers=db.chantiers||[]; const c=id?db.chantiers.find(x=>x.id===id):{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier le chantier':'Nouveau chantier'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier le chantier':'Nouveau chantier'}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveChantier(event,'${id||''}')">
       <div class="field"><label>Nom *</label><input name="nom" required value="${esc(c.nom||'')}" placeholder="Ex : Résidence Les Pins — traitement complet"></div>
       <div class="field"><label>Client</label><select name="clientId"><option value="">—</option>${optOf(db.clients,c.clientId)}</select></div>
@@ -1123,7 +1123,7 @@ function saveChantier(e,id){ e.preventDefault(); const d=Object.fromEntries(new 
 function detailChantier(id){ const ch=db.chantiers.find(x=>x.id===id); if(!ch) return;
   const ints=db.interventions.filter(i=>i.chantierId===id).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const done=ints.filter(i=>i.statut==='terminee').length;
-  openModal(`<div class="modal-head"><h3>🏗️ ${esc(ch.nom)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>🏗️ ${esc(ch.nom)}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t3);font-size:13px;margin-bottom:12px">${esc(clientName(ch.clientId))||''} · ${done}/${ints.length} intervention(s) terminée(s)${ch.note?' · '+esc(ch.note):''}</p>
     ${ints.map(i=>`<div class="pl-row" onclick="closeModal();detailIntervention('${i.id}')"><div class="pl-info"><div class="pl-title">${esc(i.titre)}</div><div class="pl-meta">${i.date?fmtShort(i.date):'À planifier'}${i.heure?' · '+i.heure:''} · ${esc(techName(i.techId))}</div></div>${badge(STATUT_INT,i.statut)}</div>`).join('')||'<p style="color:var(--t3)">Aucune intervention liée. Choisissez ce chantier dans la fiche intervention.</p>'}
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal();formChantier('${ch.id}')">Modifier</button><button class="btn" onclick="closeModal();formIntervention()">＋ Intervention</button>${can('supprimer')?`<button class="btn danger" onclick="delChantier('${ch.id}')">🗑</button>`:''}</div>`); }
@@ -1158,7 +1158,7 @@ function mailSimpleSave(){ const g=id=>((document.getElementById(id)||{}).value|
 function mailSimpleTest(){ const to=prompt('Envoyer un e-mail de test à :',(currentUser&&currentUser.email)||''); if(!to) return;
   srvMail(to,'Test — '+mailBrandName(),'E-mail de test envoyé depuis votre application.\n\nVos clients verront « '+mailBrandName()+' » comme expéditeur'+(db.mailReply?' et leurs réponses arriveront sur '+db.mailReply:'')+'.','✉️ Test envoyé à '+to+' — vérifie la réception'); }
 function userMailForm(){ const b=(currentUser&&currentUser.mailBox)||{};
-  openModal(`<div class="modal-head"><h3>💼 Mon e-mail professionnel</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>💼 Mon e-mail professionnel</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t2);font-size:13px;line-height:1.55;margin-bottom:12px">Tes envois (rapports, avis, devis…) partiront de TON adresse pro. Laisse vide pour utiliser l'adresse de l'entreprise.</p>
     <form onsubmit="userMailSave(event)">
       <div class="fgroup">
@@ -1183,7 +1183,7 @@ function userMailTest(){ const b=currentUser&&currentUser.mailBox; if(!b||!b.use
   const to=prompt('Envoyer un e-mail de test à :',(currentUser&&currentUser.email)||''); if(!to) return;
   srvMail(to,'Test — '+(b.from||b.user),'E-mail de test envoyé depuis votre application.\n\nSi vous le recevez, votre adresse professionnelle fonctionne.','✉️ Test envoyé à '+to,null,b); }
 function mailBoxForm(id){ const b=(db.mailBoxes||[]).find(x=>x.id===id)||{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Ajouter'} une adresse d'envoi</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Ajouter'} une adresse d'envoi</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="mailBoxSave(event,'${id||''}')">
       <div class="fgroup">
         <div class="frow"><span class="frow-lbl">Adresse e-mail</span><div class="frow-val"><input name="user" type="email" required placeholder="rapports@monentreprise.fr" value="${esc(b.user||'')}"></div></div>
@@ -2001,18 +2001,18 @@ function intQSet(id,f,v){ const i=db.interventions.find(x=>x.id===id); if(!i) re
 function intEditField(id,f,v){ const i=db.interventions.find(x=>x.id===id); if(!i) return; i[f]=v; save(); }
 function intEditDone(id){ const i=db.interventions.find(x=>x.id===id); if(i) intHisto(i,'Fiche modifiée'); intEdit=false; save(); renderIntDetail(id); toast('Enregistré'); }
 function intSetClient(id,cid){ const i=db.interventions.find(x=>x.id===id); if(!i) return; i.clientId=cid; const c=db.clients.find(x=>x.id===cid)||{}; if(c.adresse) i.adresse=i.adresse||c.adresse; intHisto(i,'Client modifié : '+(c.nom||'')); save(); closeModal(); renderIntDetail(id); }
-function intPickClient(id){ openModal(`<div class="modal-head"><h3>Changer de client</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+function intPickClient(id){ openModal(`<div class="modal-head"><h3>Changer de client</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     ${db.clients.map(c=>`<div class="pl-row" onclick="intSetClient('${id}','${c.id}')" style="cursor:pointer"><div class="pl-info"><div class="pl-title">${esc(c.nom)}</div><div class="pl-meta">${esc(c.adresse||'')}${c.tel?' · '+esc(c.tel):''}</div></div></div>`).join('')||'<p style="color:var(--t3)">Aucun client — créez-en un dans Clients.</p>'}`); }
 function intChangeAdresse(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
-  openModal(`<div class="modal-head"><h3>Adresse de l'intervention</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Adresse de l'intervention</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="field"><label>Adresse</label><textarea id="adr-inp" rows="3" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-family:inherit">${esc(i.adresse||'')}</textarea></div>
     <button class="btn" style="width:100%;justify-content:center;margin-top:12px" onclick="intEditField('${id}','adresse',document.getElementById('adr-inp').value.trim());closeModal();renderIntDetail('${id}')">Enregistrer</button>`); }
 function intChangeContact(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
-  openModal(`<div class="modal-head"><h3>Contact sur place</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Contact sur place</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="field"><label>Nom du contact</label><input id="ctc-inp" value="${esc(i.contactSurPlace||'')}" placeholder="Ex : M. Dupont, gardien"></div>
     <button class="btn" style="width:100%;justify-content:center;margin-top:12px" onclick="intEditField('${id}','contactSurPlace',document.getElementById('ctc-inp').value.trim());closeModal();renderIntDetail('${id}')">Enregistrer</button>`); }
 function intAddDemande(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
-  openModal(`<div class="modal-head"><h3>Ajouter une demande client</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Ajouter une demande client</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="field"><label>Demande</label><textarea id="dem-inp" rows="3" placeholder="Ex : traiter aussi le garage…" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-family:inherit"></textarea></div>
     <button class="btn" style="width:100%;justify-content:center;margin-top:12px" onclick="intPushDemande('${id}')">Ajouter</button>`); }
 function intPushDemande(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return; const v=($('dem-inp')?$('dem-inp').value.trim():''); if(!v){ toast('Écris la demande d\'abord'); return; }
@@ -2022,7 +2022,7 @@ function intTerminerPrevu(id){ const i=db.interventions.find(x=>x.id===id); if(!
   i.debutReel=base.getTime(); i.finReel=base.getTime()+(i.duree||60)*60000; i.dureeReelle=i.duree||60; i.statut='terminee';
   intHisto(i,'Terminée à la date prévue'); logEvent('Intervention terminée',i.titre,'intervention'); save(); renderIntDetail(id); toast('Terminée à la date prévue'); }
 function intStatutMenu(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
-  openModal(`<div class="modal-head"><h3>Statut de l'intervention</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Statut de l'intervention</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     ${['aplanifier','planifiee','encours','terminee','annulee'].map(s=>{ const cur=i.statut===s;
       return `<button class="btn ${cur?'':'ghost'}" style="width:100%;justify-content:space-between;margin-bottom:8px;padding:13px 16px" onclick="closeModal();intSetStatut('${id}','${s}')"><span>${(STATUT_INT[s]||{}).l||s}</span>${cur?'✓':''}</button>`; }).join('')}`); }
 function intSetStatut(id,st){ if(st==='annulee' && !can('annuler')){ toast('Annulation non autorisée pour votre rôle'); return; } const i=db.interventions.find(x=>x.id===id); if(!i)return; i.statut=st; intHisto(i,'Statut : '+((STATUT_INT[st]||{}).l||st));
@@ -2085,7 +2085,7 @@ function saveInlineSigs(id){ const i=db.interventions.find(x=>x.id===id); if(!i)
   intHisto(i,'Signatures enregistrées'); save(); renderIntDetail(id); toast('Signatures enregistrées'); }
 function intHistoriquePassages(id){ const i=db.interventions.find(x=>x.id===id); if(!i) return;
   const list=db.interventions.filter(x=>x.clientId===i.clientId).sort((a,b)=>((b.date||'9999')+(b.heure||'')).localeCompare((a.date||'9999')+(a.heure||'')));
-  openModal(`<div class="modal-head"><h3>Historique des passages — ${esc(clientName(i.clientId))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Historique des passages — ${esc(clientName(i.clientId))}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t3);font-size:12.5px;margin-bottom:12px">${list.length} passage(s) chez ce client — touchez pour ouvrir la fiche (quel que soit le technicien).</p>
     ${list.map(x=>{ const done=x.statut==='terminee'; const cancel=x.statut==='annulee';
       return `<div class="pl-row" onclick="closeModal();detailIntervention('${x.id}')" style="border-left:3px solid ${INT_STCOLOR[x.statut]||'var(--t3)'}">
@@ -2234,7 +2234,7 @@ function ficheClient(id){ const c=db.clients.find(x=>x.id===id); if(!c) return;
   const caFact=facts.filter(f=>f.statut==='payee').reduce((s,f)=>s+docTot(f).ttc,0);
   const k=(ic,bg,val,lbl)=>`<div class="kpi" style="padding:14px"><div class="kpi-ico" style="width:34px;height:34px;font-size:16px;margin-bottom:8px;background:${bg}">${ic}</div><div class="kpi-val" style="font-size:22px">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
   const sec=(t,arr,fn)=>`<div class="dt-lbl" style="margin:16px 0 8px">${t}</div>${arr.length?arr.slice(0,4).map(fn).join(''):'<div style="color:var(--t3);font-size:13px;padding:4px 0">Aucun</div>'}`;
-  openModal(`<div class="modal-head"><h3>🏢 ${esc(c.nom)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>🏢 ${esc(c.nom)}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="detail-grid" style="margin-bottom:8px">
       <div><div class="dt-lbl">Contact</div><div class="dt-val">${esc(c.contact)||'—'}</div></div>
       <div><div class="dt-lbl">Téléphone</div><div class="dt-val">${esc(c.tel)||'—'}</div></div>
@@ -2254,7 +2254,7 @@ function ficheClient(id){ const c=db.clients.find(x=>x.id===id); if(!c) return;
       <button class="btn" onclick="closeModal();formDoc('devis')">＋ Devis</button></div>`);
 }
 function formClient(id){ const c=id?db.clients.find(x=>x.id===id):{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} client</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} client</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveSimple(event,'clients','${id||''}',['x','y'])">
       <div class="field"><label>Nom / Raison sociale *</label><input name="nom" required value="${esc(c.nom)}"></div>
       <div class="field-row"><div class="field"><label>Contact</label><input name="contact" value="${esc(c.contact)}"></div>
@@ -2587,7 +2587,7 @@ function champInput(f){ const v=rapChamps[f.id];
 function rapTableAddRow(fid,nc){ if(!Array.isArray(rapChamps[fid])) rapChamps[fid]=[]; rapChamps[fid].push(new Array(nc).fill('')); renderChamps(); }
 function renderChamps(){ const el=$('rap-champs'); if(!el) return; const list=db.champsPerso||[];
   el.innerHTML = list.map(f=>`<div class="field"><label>🧩 ${esc(f.label)}</label>${champInput(f)}</div>`).join(''); }
-function formChamp(){ openModal(`<div class="modal-head"><h3>Nouveau champ personnalisé</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+function formChamp(){ openModal(`<div class="modal-head"><h3>Nouveau champ personnalisé</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveChamp(event)">
       <div class="field"><label>Libellé *</label><input name="label" required placeholder="Ex : Température relevée"></div>
       <div class="field"><label>Type</label><select name="type">${Object.entries(CHAMP_TYPES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
@@ -2652,7 +2652,7 @@ function saveRapport(e,id){ e.preventDefault(); const f=e.target; const data=Obj
   intHisto(db.interventions[ix],effectuee?'Rapport rédigé — intervention effectuée':'Rapport enregistré');
   logEvent('Rapport rédigé',db.interventions[ix].titre+(effectuee?' (effectuée)':''),'intervention'); save();
   if(effectuee){ closeModal(); toast('Intervention effectuée ✓'+recurMsg);
-    openModal(`<div class="modal-head"><h3>Intervention effectuée</h3><button class="modal-close" onclick="closeModal();go('interventions')">✕</button></div>
+    openModal(`<div class="modal-head"><h3>Intervention effectuée</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal();go('interventions')">✕</button></div>
       <div style="padding:2px">
         <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:14px">Le rapport de <b>${esc(it.titre)}</b> est enregistré. Veux-tu l'<b>envoyer au client</b> maintenant (le PDF inclut les photos) ?</p>
         <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal();go('interventions')">Plus tard</button><button type="button" class="btn" onclick="closeModal();envoiRapportClient('${id}')">Envoyer au client</button></div>
@@ -2732,7 +2732,7 @@ function genRapportTexte(i){ const c=db.clients.find(x=>x.id===i.clientId)||{}; 
   return L.join('\n');
 }
 function envoiRapportClient(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return; const c=db.clients.find(x=>x.id===i.clientId)||{};
-  openModal(`<div class="modal-head"><h3>Envoyer le rapport au client</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Envoyer le rapport au client</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div style="padding:2px">
       <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:14px">Rapport de <b>${esc(i.titre)}</b> — ${esc(clientName(i.clientId))}. Choisis comment l'envoyer :</p>
       <div style="display:flex;flex-direction:column;gap:10px">
@@ -2861,7 +2861,7 @@ views.fournisseurs=function(){
   $('content').innerHTML=db.fournisseurs.length? tableCard(['Fournisseur','Email','Téléphone','Ville','Produits',''],rows):`<div class="card">${emptyState('🏭','Aucun fournisseur.','Ajouter','formFournisseur()')}</div>`;
 };
 function formFournisseur(id){ const f=id?db.fournisseurs.find(x=>x.id===id):{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} fournisseur</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} fournisseur</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveSimple(event,'fournisseurs','${id||''}',[])">
       <div class="field"><label>Nom *</label><input name="nom" required value="${esc(f.nom)}"></div>
       <div class="field-row"><div class="field"><label>Contact</label><input name="contact" value="${esc(f.contact)}"></div>
@@ -2921,7 +2921,7 @@ views.mouvements=function(){
   $('content').innerHTML=list.length? tableCard(['Date','Produit','Type','Qté','Motif','Véhicule'],rows):`<div class="card">${emptyState('🔁','Aucun mouvement.','Nouveau','formMouvement()')}</div>`;
 };
 function formMouvement(){
-  openModal(`<div class="modal-head"><h3>Mouvement de stock</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Mouvement de stock</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveMouvement(event)">
       <div class="field"><label>Produit *</label><select name="produitId" required><option value="">—</option>${db.produits.map(p=>`<option value="${p.id}">${esc(p.ref)} — ${esc(p.nom)} (stock ${p.qte})</option>`).join('')}</select></div>
       <div class="field-row"><div class="field"><label>Type *</label><select name="type"><option value="entree">Entrée (+)</option><option value="sortie">Sortie (−)</option></select></div>
@@ -3546,7 +3546,7 @@ views.demandes=function(){
   $('content').innerHTML=list.length? tableCard(['N°','Box','Produits','Demandeur','Date','Statut',''],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
 };
 function ficheDemande(id){ const d=db.demandes.find(x=>x.id===id); if(!d)return;
-  openModal(`<div class="modal-head"><h3>✈️ ${esc(d.num)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>✈️ ${esc(d.num)}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div style="margin-bottom:14px">${badge(STATV,d.statut)}</div>
     <div class="detail-grid">
       <div style="grid-column:1/-1"><div class="dt-lbl">Box concernée</div><div class="dt-val">${esc(d.boxNom||boxLabel(d.boxId))}</div></div>
@@ -3562,7 +3562,7 @@ function ficheDemande(id){ const d=db.demandes.find(x=>x.id===id); if(!d)return;
 let demLignes=[];
 function formDemande(){
   demLignes=[{produitId:'',quantite:1}];
-  openModal(`<div class="modal-head"><h3>Nouvelle demande</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Nouvelle demande</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveDemande(event)">
       <div class="field"><label>Box concernée *</label><select name="boxId" required><option value="">—</option>${db.boxes.map(b=>`<option value="${b.id}">${esc(b.numero||b.ref)} — ${esc(b.nom)}</option>`).join('')}</select></div>
       <div class="field"><label>Produits demandés</label><div id="dem-lignes"></div></div>
@@ -3645,7 +3645,7 @@ function renderBonsList(){
 }
 function ficheBon(id){ const b=db.bons.find(x=>x.id===id); if(!b)return; const t=bonTot(b);
   const liv=[b.nomSiteLivraison,b.adresseLivraison,b.codePostalLivraison,b.villeLivraison].filter(Boolean).join(' ');
-  openModal(`<div class="modal-head"><h3>✉️ ${esc(bonNum(b))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>✉️ ${esc(bonNum(b))}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div style="margin-bottom:12px">${badge(STATBC,b.statut)}</div>
     <div class="detail-grid">
       <div><div class="dt-lbl">Fournisseur</div><div class="dt-val">${esc(fournName(b.fournisseurId)||b.fournisseur||'—')}</div></div>
@@ -3760,7 +3760,7 @@ function openRegroupBons(){
           <div class="pl-info"><div class="pl-title">${esc(fournName(fid)||'Fournisseur')}</div><div class="pl-meta">${bs.length} brouillon(s) · ${nLignes} ligne(s) · ${eur(tot)} TTC</div></div>
           <button class="btn sm" onclick="regrouperFournisseur('${fid}')">Regrouper</button></div>`; }).join('');
   }
-  openModal(`<div class="modal-head"><h3>Regrouper les commandes</h3><button class="modal-close" onclick="closeModal()">✕</button></div>${body}<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Fermer</button></div>`);
+  openModal(`<div class="modal-head"><h3>Regrouper les commandes</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>${body}<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Fermer</button></div>`);
 }
 function regrouperFournisseur(fid){
   const bs=db.bons.filter(b=>b.statut==='brouillon'&&b.fournisseurId===fid);
@@ -3837,7 +3837,7 @@ views.vehicules=function(){
 }
 function ficheVehicule(id){ const v=db.vehicules.find(x=>x.id===id); if(!v) return;
   const sec=t=>`<div class="dt-lbl" style="margin:16px 0 8px;color:var(--acc)">${t}</div>`;
-  openModal(`<div class="modal-head"><h3>🚐 ${esc(vPlaque(v))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>🚐 ${esc(vPlaque(v))}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div style="display:flex;gap:8px;margin-bottom:6px">${badge(VEH,v.statut||'service')} ${assurEtat(v)} <span class="tag">${esc(v.marque)} ${esc(v.modele)}</span></div>
     ${sec('Identification')}<div class="detail-grid">
       <div><div class="dt-lbl">Plaque</div><div class="dt-val mono">${esc(vPlaque(v))}</div></div>
@@ -3873,7 +3873,7 @@ function formVehicule(id){ const v=id?db.vehicules.find(x=>x.id===id):{};
   vehPhotos={photoCGRecto:v.photoCGRecto||'',photoCGVerso:v.photoCGVerso||'',photoAttestation:v.photoAttestation||'',photoCarteVerte:v.photoCarteVerte||''};
   const sec=t=>`<div class="dt-lbl" style="margin:14px 0 8px;color:var(--acc)">${t}</div>`;
   const techOpt=sel=>`<option value="">—</option>`+db.techniciens.map(t=>`<option value="${t.id}" ${t.id===sel?'selected':''}>${esc(t.nom)}</option>`).join('');
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} véhicule</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} véhicule</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveVehicule(event,'${id||''}')">
       ${sec('Identification')}
       <div class="field"><label>Plaque d'immatriculation *</label><input name="plaque" required value="${esc(vPlaque(v)==='—'?'':vPlaque(v))}"></div>
@@ -4149,7 +4149,7 @@ function ficheTech(id){ const t=db.techniciens.find(x=>x.id===id); if(!t) return
   const veh=db.vehicules.find(v=>v.techId===id);
   const enCours=ints.filter(i=>i.statut==='encours'||i.statut==='planifiee').length;
   const k=(ic,bg,val,lbl)=>`<div class="kpi" style="padding:14px"><div class="kpi-ico" style="width:34px;height:34px;font-size:16px;margin-bottom:8px;background:${bg}">${ic}</div><div class="kpi-val" style="font-size:22px">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
-  openModal(`<div class="modal-head"><h3>👷 ${esc(t.nom)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>👷 ${esc(t.nom)}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="detail-grid" style="margin-bottom:6px">
       <div><div class="dt-lbl">Rôle</div><div class="dt-val">${esc(t.metier)||'Technicien'}</div></div>
       <div><div class="dt-lbl">Téléphone</div><div class="dt-val">${esc(t.tel)||'—'}</div></div>
@@ -4177,7 +4177,7 @@ async function saveTech(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   const pin=String(Math.floor(1000+Math.random()*9000));
   db.users.push({id:uid(),prenom,nom,login,role,techId:tid,actif:true,pinHash:await sha256(pin)});
   logEvent('Technicien + compte créés',d.nom+' (@'+login+')','auth'); save();
-  openModal(`<div class="modal-head"><h3>Technicien & compte créés</h3><button class="modal-close" onclick="closeModal();views.techniciens()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Technicien & compte créés</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal();views.techniciens()">✕</button></div>
     <div style="padding:2px">
       <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:14px">Le compte de <b>${esc(d.nom)}</b> est créé (rôle : ${role==='chefEquipe'?"Chef d'équipe":'Technicien'}). Transmets-lui ces identifiants :</p>
       <div class="fgroup"><div class="frow"><span class="frow-lbl">Identifiant</span><div class="frow-val"><b style="font-size:17px">${esc(login)}</b></div></div>
@@ -4187,7 +4187,7 @@ async function saveTech(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     </div>`);
 }
 function formTech(id){ const t=id?db.techniciens.find(x=>x.id===id):{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} technicien</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} technicien</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveTech(event,'${id||''}')">
       <div class="field"><label>Nom complet *</label><input name="nom" required value="${esc(t.nom)}"></div>
       <div class="field"><label>Rôle</label><select name="metier"><option ${(t.metier||'Technicien')==='Technicien'?'selected':''}>Technicien</option><option ${t.metier==="Chef d'équipe"?'selected':''}>Chef d'équipe</option></select></div>
@@ -4227,7 +4227,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{};
       ${accSecs.map(s=>`<div style="margin-bottom:4px"><div style="font-size:11px;letter-spacing:.04em;color:var(--t3);text-transform:uppercase;margin:10px 2px 4px">${esc(t(s.g))}</div>${s.items.map(m=>`<div class="frow"><span class="frow-lbl">${m.ic} ${esc(t(m.l))}</span><div class="frow-val"><input type="checkbox" name="mod_${m.k}" ${modOf(m.k)?'checked':''} style="width:40px;height:24px;accent-color:var(--acc)"></div></div>`).join('')}</div>`).join('')}`;
   const accSection = `<div id="user-admin-note" style="display:${roleVal==='admin'?'block':'none'}"><div class="fgroup" style="padding:14px;text-align:center;color:var(--t2);font-size:13px">Un administrateur a <b>automatiquement tous les accès</b> — rien à régler.</div></div>
       <div id="user-access" style="display:${roleVal==='admin'?'none':'block'}">${capsSection}${modSection}</div>`;
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouvel'} utilisateur</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouvel'} utilisateur</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveUser(event,'${id||''}')">
       <div class="field-row"><div class="field"><label>Prénom *</label><input name="prenom" required value="${esc(u.prenom)}"></div>
         <div class="field"><label>Nom *</label><input name="nom" required value="${esc(u.nom)}"></div></div>
@@ -4492,7 +4492,7 @@ function genTestNuisibles(){
 /* Mise en production : efface toutes les données de test, garde comptes/techniciens/permissions/catalogue */
 function resetProduction(){ if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
   const mail=((currentUser.email||'').trim())||'justin.17553@gmail.com';
-  openModal(`<div class="modal-head"><h3>⚠️ Mise en production</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>⚠️ Mise en production</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="card" style="border-color:rgba(220,60,60,.45);background:rgba(220,60,60,.06);margin-bottom:12px"><p style="font-size:13.5px;line-height:1.65;color:var(--t2)">
       <b style="color:var(--red)">Cette action est IRRÉVERSIBLE</b> et s'applique à <b>toute l'équipe</b> via la synchronisation.<br><br>
       🗑️ <b>Sera effacé :</b> clients, interventions, boxes, stock, mouvements, arrivages, devis, factures, contrats, enveloppes, bons, demandes, tâches, absences, chantiers, pointages, véhicules, fournisseurs, messages, journal.<br><br>
@@ -4545,7 +4545,7 @@ function delItem(coll,id){ if(!can('supprimer')){ toast('Suppression réservée 
 /* ═══════════════ SCANNER ═══════════════ */
 let scanStream=null, scanTimer=null;
 function openScanner(){ const hasBD='BarcodeDetector' in window;
-  openModal(`<div class="modal-head"><h3>Scanner</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Scanner</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     ${hasBD?`<div class="scan-view"><video id="scan-video" playsinline muted></video><div class="scan-frame"></div></div><p style="color:var(--t3);font-size:13px;text-align:center;margin-bottom:14px">Placez le code dans le cadre…</p>`:''}
     <div class="field"><label>${hasBD?'Ou saisissez la référence':'Référence produit'}</label><input id="scan-ref" list="rl" placeholder="Ex : PLB-001" oninput="scanLookup(this.value)" autofocus>
     <datalist id="rl">${db.produits.map(r=>`<option value="${esc(r.ref)}">${esc(r.nom)}</option>`).join('')}</datalist></div>
@@ -4583,7 +4583,7 @@ function similarite(a,b){ a=a||''; b=b||''; if(a===b) return 1; if(!a||!b) retur
 
 function openBoxScanner(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) return;
   boxScan={ boxId:boxId, action:'ajouter', stream:null, timer:null, busy:false, cands:[] }; boxScanSel=null;
-  openModal(`<div class="modal-head"><h3>Scanner — ${esc(b.nom||b.numero||'Box')}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Scanner — ${esc(b.nom||b.numero||'Box')}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="bscan-toggle">
       <button id="bscan-add" class="bscan-tg on" onclick="boxScanAction('ajouter')">＋ Ajouter</button>
       <button id="bscan-rem" class="bscan-tg rem" onclick="boxScanAction('retirer')">－ Retirer</button>
@@ -5111,7 +5111,7 @@ function comptaTeleTable(){
   return periodBar + recap + detail;
 }
 function teleDetail(id){ const r=(db.telecollectes||[]).find(x=>x.id===id); if(!r)return;
-  openModal(`<div class="modal-head"><h3>Télécollecte — ${esc(teleWho(r))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Télécollecte — ${esc(teleWho(r))}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="form-sec">${new Date((r.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}${r.heure?' · '+esc(r.heure):''}</div>
     <div style="overflow-x:auto"><table class="xl" style="min-width:0"><tbody>${TELE_CHAMPS.map(([k,l,u])=>`<tr><td>${esc(l)}</td><td style="text-align:right">${u==='#'?(Number(r[k])||0):eur(Number(r[k])||0)}</td></tr>`).join('')}<tr class="tot"><td><b>TOTAL ENCAISSÉ</b></td><td style="text-align:right"><b style="color:var(--acc)">${eur(teleTotal(r))}</b></td></tr></tbody></table></div>
     ${r.photo?`<div style="margin-top:14px"><div class="dt-lbl" style="margin-bottom:6px">Photo de la télécollecte</div><img src="${r.photo}" onclick="window.open(this.src)" style="max-width:100%;border-radius:10px;border:1px solid var(--brd);cursor:pointer"></div>`:'<p style="color:var(--t3);font-size:13px;margin-top:12px">Aucune photo jointe.</p>'}
@@ -5208,7 +5208,7 @@ function genDemoTelecollecte(){
     db.telecollectes.unshift({id:uid(),date:ago(day),ts:Date.now()-idx*3600000,heure:(9+idx)+':'+(idx%2?'30':'15'),techId:p.techId||'',declarantId:p.declarantId||'',declarantNom:p.nom||'',auteurId:currentUser.id,cb:s.cb,esp:s.esp,nbChq:s.nbChq,chq:s.chq,vmt:s.vmt,smupLdp:0,troisQuatre:0,envoyeeCompta:idx%3===0,exemple:true}); n++; });
   logEvent('Données démo télécollecte','×'+n,'finance'); save(); views.telecollecte(); toast(n+" télécollectes d'exemple créées ✓ — vois la Comptabilité");
 }
-function teleVoirPhoto(id){ const r=(db.telecollectes||[]).find(x=>x.id===id); if(!r||!r.photo)return; openModal(`<div class="modal-head"><h3>Télécollecte — ${esc(teleWho(r))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div><div style="padding:6px"><img src="${r.photo}" style="width:100%;border-radius:10px"></div>`); }
+function teleVoirPhoto(id){ const r=(db.telecollectes||[]).find(x=>x.id===id); if(!r||!r.photo)return; openModal(`<div class="modal-head"><h3>Télécollecte — ${esc(teleWho(r))}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div><div style="padding:6px"><img src="${r.photo}" style="width:100%;border-radius:10px"></div>`); }
 /* Export tableur (Excel/CSV) de toutes les télécollectes — pour la comptabilité */
 function exportTelecollecteCSV(){ const num=n=>(Number(n)||0).toFixed(2).replace('.',',');
   const list=(db.telecollectes||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.ts||0)-(b.ts||0));
@@ -5227,7 +5227,7 @@ function teleCheckPlanning(id){ const r=(db.telecollectes||[]).find(x=>x.id===id
   const planTot=ints.reduce((s,i)=>s+(Number(i.montant)||0),0);
   const decl=teleTotal(r); const ecart=decl-planTot; const match=Math.abs(ecart)<0.01;
   const jour=new Date((r.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
-  openModal(`<div class="modal-head"><h3>Vérification planning</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Vérification planning</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div class="form-sec" style="text-transform:capitalize">${esc(teleWho(r))} — ${esc(jour)}</div>
     <div class="card" style="padding:4px 4px">
       <div class="bdt-row"><span class="bdt-ic">💳</span><span class="bdt-lbl">Total encaissé déclaré</span><span class="bdt-val" style="color:var(--acc);font-weight:800">${eur(decl)}</span></div>
@@ -5324,7 +5324,7 @@ function docCliInfo(id){ const el=document.getElementById('doc-cli-info'); if(!e
 function formDoc(kind,id){
   const cfg=DOC[kind], d=id?db[cfg.coll].find(x=>x.id===id):{};
   formLignes = id ? JSON.parse(JSON.stringify(d.lignes||[])) : [{designation:'',qte:1,pu:0}];
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} ${cfg.un}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} ${cfg.un}</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveDoc(event,'${kind}','${id||''}')">
       <div class="field-row"><div class="field"><label>N° *</label><input name="num" required value="${esc(d.num)||docNum(kind)}"></div>
         <div class="field"><label>Date</label><input type="date" name="date" value="${d.date||todayISO()}"></div></div>
@@ -5422,7 +5422,7 @@ function genererInterventionContrat(id){ const ct=db.contrats.find(x=>x.id===id)
   const obj={id:uid(),titre:ct.titre,clientId:ct.clientId,techId:'',date:iso,heure:'09:00',duree:60,statut:'planifiee',prio:'normale',rapportModele:ct.rapportModele||'',adresse:cli.adresse||'',desc:'Intervention récurrente — contrat '+ct.num,compteRendu:'',contratId:id,produitsUtilises:[],equipements:[]}; db.interventions.push(obj); notifyTechNewInt(obj);
   ct.derniereGeneration=iso; logEvent('Intervention générée (contrat)',`${ct.num} → ${iso}`,'crud'); save(); toast('Intervention planifiée le '+fmtShort(iso)); views.contrats(); }
 function formContrat(id){ const ct=id?db.contrats.find(x=>x.id===id):{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} contrat</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} contrat</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveContrat(event,'${id||''}')">
       <div class="field-row"><div class="field"><label>N° *</label><input name="num" required value="${esc(ct.num)||('CTR-'+new Date().getFullYear()+'-'+String(db.contrats.length+1).padStart(3,'0'))}"></div>
         <div class="field"><label>Montant (€)</label><input type="number" step="0.01" name="montant" value="${ct.montant??0}"></div></div>
@@ -5458,7 +5458,7 @@ views.pointage=function(){
     ${list.length? tableCard(['Date','Technicien','Horaires','Pause','Net','Note',''],rows):`<div class="card">${emptyState('⏱️','Aucun pointage.','Pointer','formPointage()')}</div>`}`;
 };
 function formPointage(id){ const p=id?db.pointages.find(x=>x.id===id):{};
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} pointage</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} pointage</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="savePointage(event,'${id||''}')">
       <div class="field"><label>Technicien *</label><select name="techId" required><option value="">—</option>${db.techniciens.map(t=>`<option value="${t.id}" ${t.id===p.techId||(!id&&t.id===currentUser.id)?'selected':''}>${esc(t.nom)}</option>`).join('')}</select></div>
       <div class="field"><label>Date</label><input type="date" name="date" value="${p.date||todayISO()}"></div>
@@ -5697,7 +5697,7 @@ views.messagerie=function(){
 let msgPhoto='';
 async function msgAddPhoto(e){ const f=e.target.files&&e.target.files[0]; if(!f)return; const d=await compressImage(f,1280,0.7); if(d){ msgPhoto=d; const pv=$('msg-photo-prev'); if(pv){ pv.style.display='flex'; pv.innerHTML=`<img src="${d}" style="height:58px;border-radius:8px"><button class="btn ghost sm" onclick="msgClearPhoto()">Retirer la photo</button>`; } } e.target.value=''; }
 function msgClearPhoto(){ msgPhoto=''; const pv=$('msg-photo-prev'); if(pv){ pv.style.display='none'; pv.innerHTML=''; } }
-function msgViewPhoto(id){ const m=(db.messages||[]).find(x=>x.id===id); if(!m||!m.photo)return; openModal(`<div class="modal-head"><h3>Photo</h3><button class="modal-close" onclick="closeModal()">✕</button></div><img src="${m.photo}" style="width:100%;border-radius:12px">`); }
+function msgViewPhoto(id){ const m=(db.messages||[]).find(x=>x.id===id); if(!m||!m.photo)return; openModal(`<div class="modal-head"><h3>Photo</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div><img src="${m.photo}" style="width:100%;border-radius:12px">`); }
 function envoyerMsg(){ const inp=$('msg-input'); const v=inp?inp.value.trim():''; if(!v && !msgPhoto)return;
   const msg={id:uid(),ts:Date.now(),fromId:currentUser.id,fromNom:fullName(currentUser),texte:v,photo:msgPhoto||'',toUserId:'',toTechId:'',toGroupe:'',mentions:[],mentionAll:false};
   if(msgSel.startsWith('user:')) msg.toUserId=msgSel.slice(5); else if(msgSel.startsWith('group:')) msg.toGroupe=msgSel.slice(6); else if(msgSel.startsWith('tech:')) msg.toTechId=msgSel.slice(5);
@@ -5714,7 +5714,7 @@ function formGroupe(id){ db.groupes=db.groupes||[]; const g=id?db.groupes.find(x
   groupePhoto = id ? (g.photo||'') : '';
   const checked=u=>(g.membreUserIds||[]).includes(u.id) || (u.techId && (g.membreTechIds||[]).includes(u.techId));
   const users=(db.users||[]).slice().sort((a,b)=>fullName(a).localeCompare(fullName(b)));
-  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} groupe</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} groupe</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveGroupe(event,'${id||''}')">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
         <div class="grp-photo-pick" id="grp-photo" onclick="document.getElementById('grp-photo-file').click()"></div>
@@ -5818,7 +5818,7 @@ views.secteurs=function(){
 };
 
 /* ═══════════════ RECHERCHE GLOBALE ═══════════════ */
-function openSearch(){ openModal(`<div class="modal-head"><h3>Rechercher partout</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+function openSearch(){ openModal(`<div class="modal-head"><h3>Rechercher partout</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <input class="search-inp" id="gsearch" placeholder="Client, intervention, produit, box, véhicule, devis…" oninput="renderSearch(this.value)">
     <div id="gsearch-res"><div style="color:var(--t3);font-size:13px;padding:8px">Tapez au moins 2 lettres…</div></div>`);
   setTimeout(()=>{ const i=$('gsearch'); if(i) i.focus(); },60); }
@@ -6107,7 +6107,7 @@ function avbSave(quiet){ const svg=avbSvg(_avb,256);
 function maybeProfilePhoto(){ if(!currentUser||currentUser.photo) return;
   if(document.querySelector('#overlay.open')) return;                       // un autre écran est déjà ouvert → on proposera à la prochaine connexion
   const k='elan_photo_prompt_'+currentUser.id; if(localStorage.getItem(k)) return; localStorage.setItem(k,'1');
-  openModal(`<div class="modal-head"><h3>Photo de profil</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head"><h3>Photo de profil</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div>
     <div style="display:flex;justify-content:center;margin:6px 0 14px"><span class="avatar" style="width:74px;height:74px;font-size:26px">${initials(fullName(currentUser))}</span></div>
     <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:14px;text-align:center">Ajoute une photo de profil ou crée ton avatar ELAN — visible par toute l'équipe.</p>
     <input type="file" id="pp-file" accept="image/*" capture="user" style="display:none" onchange="profilePhotoPick(event)">
@@ -6441,7 +6441,7 @@ function installInstructions(){ const ua=navigator.userAgent||'';
   return '💻 <b>Ordinateur (Chrome / Edge)</b> : clique l\'icône <b>⊕ Installer</b> à droite de la barre d\'adresse, ou menu <b>⋮ → Installer ELAN GESTION</b>.';
 }
 function installApp(){ if(deferredInstall){ deferredInstall.prompt(); deferredInstall.userChoice.then(()=>{ deferredInstall=null; if(current==='parametres') views.parametres(); }); return; }
-  openModal(`<div class="modal-head"><h3>Installer ELAN GESTION</h3><button class="modal-close" onclick="closeModal()">✕</button></div><div style="padding:6px;font-size:14.5px;line-height:1.8;color:var(--t2)">${installInstructions()}<br><br><span style="font-size:12.5px;color:var(--t3)">Une fois installée : icône sur l\'écran d\'accueil/bureau, ouverture en plein écran et fonctionnement hors-ligne.</span></div>`); }
+  openModal(`<div class="modal-head"><h3>Installer ELAN GESTION</h3><button class="modal-close" aria-label="Fermer" onclick="closeModal()">✕</button></div><div style="padding:6px;font-size:14.5px;line-height:1.8;color:var(--t2)">${installInstructions()}<br><br><span style="font-size:12.5px;color:var(--t3)">Une fois installée : icône sur l\'écran d\'accueil/bureau, ouverture en plein écran et fonctionnement hors-ligne.</span></div>`); }
 /* PWA : service worker pour le mode hors-ligne (HTTPS / GitHub Pages) */
 if('serviceWorker' in navigator){
   // Dès qu'une nouvelle version est publiée, on affiche un MESSAGE « Mise à jour disponible »
