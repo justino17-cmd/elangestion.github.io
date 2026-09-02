@@ -1,6 +1,15 @@
 # Point stable TeamOP
 
-**Version stable : v549** — gravée le 2 septembre 2026.
+**Version stable : v550** — gravée le 2 septembre 2026.
+
+v550 — un seul lien de connexion par entreprise, lisible
+(teamop.fr/app.html#e=nom-de-l-entreprise), le même sur le site et dans
+l'application : l'app le demande au serveur et l'affiche dans Paramètres et sur la
+fiche d'accès (« activé ✓ »), le lien codé reste en secours. L'écran de connexion
+d'un appareil non relié propose le champ « Entreprise » : le nom du lien suffit,
+l'identifiant est conservé, puis mot de passe. Annonce v550 aux entreprises.
+
+Ancien point : **v549** — gravée le 2 septembre 2026.
 
 v549 — bons de commande multi-sociétés : les sociétés déclarées dans
 Paramètres → Mes sociétés sont proposées sur chaque bon (« Société (en-tête) »),

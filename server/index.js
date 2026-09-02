@@ -1044,10 +1044,12 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '549',
-  sujet: '🆕 Du nouveau dans OP GESTION — vos utilisateurs, vos bons de commande',
-  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une mise à jour importante — elle est déjà active, il suffit de rouvrir l\'application.',
+  version: '550',
+  sujet: '🆕 Du nouveau dans OP GESTION — un seul lien de connexion pour toute votre équipe',
+  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une mise à jour — elle est déjà active, il suffit de rouvrir l\'application.',
   points: [
+    ['🔗 Un seul lien de connexion, le vôtre', 'Votre entreprise a son lien : <b>teamop.fr/app.html#e=votre-nom</b>. Le même pour tout le monde, sur le site comme dans l\'application. Vous le retrouvez dans Paramètres → « Lien de connexion de ton entreprise » (Copier) pour l\'envoyer à toute l\'équipe.'],
+    ['🏢 Sans le lien ? Le nom de l\'entreprise suffit', 'Sur l\'écran de connexion, un champ « Entreprise » : la personne tape le nom de son entreprise, son identifiant et son mot de passe, et elle est sur le bon espace.'],
     ['👥 Vos utilisateurs se connectent en un clic', 'Quand vous créez un utilisateur, il reçoit par e-mail son identifiant, un mot de passe provisoire et <b>le lien de connexion de votre entreprise</b>. Il clique, l\'application affiche « Vous allez vous connecter à l\'entreprise … », il entre ses accès : c\'est tout.'],
     ['🔐 Un compte sûr dès la première connexion', 'À sa première connexion, chacun choisit son mot de passe personnel et enregistre son e-mail de récupération. « Mot de passe oublié ? » lui envoie ensuite un code par e-mail, sans déranger personne.'],
     ['🚪 Un compte supprimé ou désactivé ne se connecte plus', 'Dès que vous supprimez ou désactivez un utilisateur, il est déconnecté sur tous ses appareils et ne peut plus entrer dans votre espace.'],
