@@ -2667,10 +2667,12 @@ function teamopShowSavedCode(t){ const s=teamopSpaces().find(x=>x.t===t); if(!s)
    teamop.fr/app.html#entreprise=CODE : l'appareil rejoint tout seul le bon espace,
    il ne reste qu'à taper identifiant + mot de passe. Zéro mélange entre entreprises. */
 function teamopLien(code){ return 'https://teamop.fr/app.html#entreprise='+code; }
+/* Nom de l'entreprise tel qu'il apparaît dans le lien et sur l'écran de connexion */
+function entrepriseNom(){ return (((db||{}).entreprise||{}).nom||localStorage.getItem('elanB_entreprise_nom')||'').trim(); }
 function teamopLienActuel(){
   const t=localStorage.getItem('elanB_sync_team'), k=localStorage.getItem('elanB_sync_secret');
   if(!t||!k) return '';
-  const n=((db.entreprise||{}).nom)||'';
+  const n=entrepriseNom();
   return teamopLien(btoa(unescape(encodeURIComponent(JSON.stringify({t,k,n})))).replace(/=+$/,''));
 }
 function teamopCopieLienSauve(t){ const s=teamopSpaces().find(x=>x.t===t); if(!s){ toast('Espace introuvable'); return; }
@@ -15438,9 +15440,11 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{};
         <div class="field"><label>Couleur (carte)</label><select name="couleur"><option value="">Auto</option>${(TECH_PALETTE||[]).map((c,i)=>`<option value="${c}" ${lt&&lt.couleur===c?'selected':''}>${['Vert','Bleu','Violet','Orange','Rouge','Cyan','Jaune','Rose'][i]||c}</option>`).join('')}</select></div>
       </div>
       ${id?`<div class="field"><label>Statut</label><select name="actif"><option value="true" ${u.actif?'selected':''}>Actif</option><option value="false" ${!u.actif?'selected':''}>Désactivé</option></select></div>`
-          :`<div class="field"><label>Mot de passe provisoire <span style="font-weight:400;color:var(--t3)">— généré automatiquement si vide</span></label>
-             <div style="display:flex;gap:8px"><input name="pwd" id="nu-pwd" minlength="8" placeholder="Généré automatiquement" style="flex:1" autocomplete="new-password"><button type="button" class="btn ghost" title="Générer" onclick="document.getElementById('nu-pwd').value=mdpProvisoire()">🎲</button></div>
-             <div style="font-size:11px;color:var(--t3);margin-top:4px">Il est <b>envoyé par e-mail</b> à la personne avec le <b>lien de connexion de l'entreprise</b> (si un e-mail est renseigné ci-dessus), et affiché pour que tu puisses aussi le lui transmettre. À sa première connexion, l'app lui fera choisir son propre mot de passe.</div></div>`}
+          :`<div class="field"><label>Mot de passe provisoire *</label>
+             <div style="display:flex;gap:8px"><input name="pwd" id="nu-pwd" required minlength="8" value="${esc(mdpProvisoire())}" style="flex:1;font-family:var(--mono,monospace)" autocomplete="new-password" autocapitalize="off"><button type="button" class="btn ghost" title="En générer un autre" onclick="document.getElementById('nu-pwd').value=mdpProvisoire()">🎲</button></div>
+             <div style="font-size:11px;color:var(--t3);margin-top:4px"><b>Obligatoire</b> (8 caractères minimum) — proposé tout seul, tu peux le changer. Il est <b>envoyé par e-mail</b> à la personne avec le <b>lien de connexion de l'entreprise</b> (si un e-mail est renseigné ci-dessus) et affiché pour que tu puisses aussi le lui transmettre. À sa première connexion, l'app lui fera choisir son propre mot de passe.</div></div>
+           ${entrepriseNom()?'':`<div class="field" style="background:color-mix(in srgb,var(--org,#e8a33d) 10%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 40%,transparent);border-radius:12px;padding:10px 12px"><label>Nom de ton entreprise *</label><input name="entNom" required placeholder="ex : GCI" autocomplete="organization">
+             <div style="font-size:11px;color:var(--t3);margin-top:4px">Pas encore renseigné : il est <b>obligatoire</b>, car il est mis <b>dans le lien de connexion</b> et affiché à tes utilisateurs sur l'écran de connexion : « Vous allez vous connecter à l'entreprise <b>…</b> ».</div></div>`}`}
       ${accSection}
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
 }
@@ -15465,27 +15469,29 @@ async function identifiantsParMail(u,pwd){
   const to=(u.email||'').trim(); if(!to) return {sans:true};
   try{
     const r=await fetch(PUSH_API+'/api/compte/identifiants',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({teamId:syncTeam(),to,prenom:u.prenom||'',entreprise:((db.entreprise||{}).nom)||localStorage.getItem('elanB_entreprise_nom')||'',login:u.login,mdp:pwd,lien:lienConnexionEntreprise(),par:currentUser?fullName(currentUser):''})});
+      body:JSON.stringify({teamId:syncTeam(),to,prenom:u.prenom||'',entreprise:entrepriseNom(),login:u.login,mdp:pwd,lien:lienConnexionEntreprise(),par:currentUser?fullName(currentUser):''})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok) return {err:(j&&j.error)||('erreur '+r.status)};
-    return {ok:true,to};
+    return {ok:true,to,lien:j.lien||'',entreprise:j.entreprise||''};
   }catch(e){ return {err:'serveur injoignable'}; }
 }
 async function identifiantsRenvoyer(id,pwd){ const u=db.users.find(x=>x.id===id); if(!u) return; const z=$('ui-mail'); if(z) z.innerHTML='⏳ Envoi…'; const r=await identifiantsParMail(u,pwd); identifiantsMailEtat(r,id,pwd); }
 function identifiantsMailEtat(r,id,pwd){ const z=$('ui-mail'); if(!z) return;
-  if(r.ok) z.innerHTML='✉️ <b>E-mail envoyé à '+esc(r.to)+'</b> — identifiant, mot de passe provisoire et lien de connexion de l\'entreprise.';
+  if(r.ok){ z.innerHTML='✉️ <b>E-mail envoyé à '+esc(r.to)+'</b> — identifiant, mot de passe provisoire et lien de connexion de l\'entreprise'+(r.entreprise?' « '+esc(r.entreprise)+' »':'')+'.';
+    // le serveur connaît l'espace → le lien envoyé porte le nom de l'entreprise (teamop.fr/app.html#e=…) : on l'affiche tel quel
+    const l=$('ui-lien'); if(l&&r.lien){ l.textContent=r.lien; const b=document.querySelector('#overlay [data-t]'); if(b) b.dataset.t=String(b.dataset.t||'').replace(/Lien de connexion[^\n]*: .*$/, 'Lien de connexion (clique dessus, puis connecte-toi) : '+r.lien); } }
   else if(r.sans) z.innerHTML='Aucune adresse e-mail sur la fiche — transmets-lui ces accès toi-même (bouton ci-dessous).';
   else z.innerHTML='<span style="color:var(--red)">E-mail non envoyé ('+esc(r.err||'')+')</span> — <a onclick="identifiantsRenvoyer(\''+id+'\',\''+esc(pwd)+'\')" style="cursor:pointer;text-decoration:underline">réessayer</a>, ou transmets-lui ces accès toi-même.'; }
 /* Fiche « à transmettre » affichée juste après la création d'un compte (ou une réinitialisation) */
 function userIdentifiantsModal(u,pwd){
-  const lien=lienConnexionEntreprise();
-  const texte='Connexion OP GESTION\nIdentifiant : '+u.login+'\nMot de passe provisoire : '+pwd+'\nLien de connexion (clique dessus, puis connecte-toi) : '+lien;
+  const lien=lienConnexionEntreprise(), ent=entrepriseNom();
+  const texte='Connexion OP GESTION'+(ent?' — '+ent:'')+'\nIdentifiant : '+u.login+'\nMot de passe provisoire : '+pwd+'\nLien de connexion (clique dessus, puis connecte-toi) : '+lien;
   openModal(`<div class="modal-head"><h3>✅ Accès de ${esc(fullName(u))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Le lien met son appareil sur l'espace <b>${esc(((db.entreprise||{}).nom)||localStorage.getItem('elanB_entreprise_nom')||'de l\'entreprise')}</b> ; <b>à sa première connexion, l'app lui fera choisir son propre mot de passe</b>.</p>
+    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Le lien est <b>celui de l'entreprise${ent?' « '+esc(ent)+' »':''}</b> : en cliquant dessus, son appareil se met sur le bon espace et l'écran de connexion lui dit « <b>Vous allez vous connecter à l'entreprise ${esc(ent||'…')}</b> ». <b>À sa première connexion, l'app lui fera choisir son propre mot de passe</b>.</p>
     <div class="fgroup" style="margin-bottom:12px">
       <div class="frow"><span class="frow-lbl">Identifiant</span><div class="frow-val"><b class="mono" style="font-size:16px">${esc(u.login)}</b></div></div>
       <div class="frow"><span class="frow-lbl">Mot de passe provisoire</span><div class="frow-val"><b class="mono" style="font-size:16px">${esc(pwd)}</b></div></div>
-      <div class="frow"><span class="frow-lbl">Lien de connexion</span><div class="frow-val" style="word-break:break-all;font-size:11.5px">${esc(lien)}</div></div>
+      <div class="frow"><span class="frow-lbl">Lien de connexion</span><div class="frow-val" id="ui-lien" style="word-break:break-all;font-size:11.5px">${esc(lien)}</div></div>
     </div>
     <div id="ui-mail" style="font-size:12.5px;color:var(--t2);line-height:1.55;margin-bottom:12px">${(u.email||'').trim()?'⏳ Envoi de l\'e-mail à '+esc(u.email.trim())+'…':'Aucune adresse e-mail sur la fiche — transmets-lui ces accès toi-même (bouton ci-dessous).'}</div>
     <button class="btn block" onclick="copieIdentifiants(this)" data-t="${esc(texte)}">📋 Copier pour lui envoyer</button>
@@ -15527,8 +15533,14 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     if((d.pwd||'').length>0 && (d.pwd||'').length<8){ toast('Mot de passe provisoire : 8 caractères minimum (ou laisse-le vide)'); return; }
     // un non-administrateur (droit « Créer des utilisateurs ») ne peut créer que des rôles terrain
     if(currentUser.role!=='admin' && ['admin','dr'].includes(d.role)){ toast('Seul un administrateur peut créer ce rôle'); return; }
-    // toujours un mot de passe provisoire (généré si non saisi) : envoyé par e-mail avec le lien de l'entreprise
-    const pwd=d.pwd||mdpProvisoire();
+    // mot de passe provisoire OBLIGATOIRE : envoyé par e-mail avec le lien de l'entreprise
+    const pwd=(d.pwd||'').trim();
+    if(pwd.length<8){ toast('Mot de passe provisoire obligatoire (8 caractères minimum)'); return; }
+    // le nom de l'entreprise va dans le lien de connexion et sur l'écran de connexion de ses utilisateurs
+    if(!entrepriseNom()){
+      const en=(d.entNom||'').trim(); if(!en){ toast('Indique le nom de ton entreprise : il va dans le lien de connexion'); return; }
+      db.entreprise={...(db.entreprise||{}),nom:en}; try{ localStorage.setItem('elanB_entreprise_nom',en); }catch(_e){}
+    }
     const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
     db.users.push(nu);
     logEvent('Utilisateur créé',`@${loginNorm}`,'auth');
@@ -16028,7 +16040,7 @@ views.parametres=function(){
     ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>Espaces entreprise (TeamOP)</h3></div>
       <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:8px">Crée un <b>espace isolé</b> par entreprise cliente : chaque espace a ses <b>propres données</b>, chiffrées et séparées des autres. Donne le <b>Code espace</b> à l'entreprise pour qu'elle se connecte.</p>
       <p style="font-size:12.5px;color:var(--t3);margin-bottom:12px">Espace actuel de cet appareil : <b style="color:var(--t2)">${esc(teamopCurrentSpace())}</b></p>
-      ${teamopLienActuel()?`<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:10px 12px;margin-bottom:12px"><div style="font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--t3);margin-bottom:5px">🔗 LIEN DE CONNEXION DE TON ENTREPRISE</div><div style="word-break:break-all;font-family:var(--mono,monospace);font-size:11.5px;color:var(--acc);margin-bottom:8px">${esc(teamopLienActuel())}</div><button class="btn sm" onclick="teamopCopy('${esc(teamopLienActuel())}',this)">Copier le lien</button><span style="font-size:11.5px;color:var(--t3);margin-left:8px">à donner à tes employés : un clic et ils sont sur le bon espace</span></div>`:''}
+      ${teamopLienActuel()?`<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:10px 12px;margin-bottom:12px"><div style="font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--t3);margin-bottom:5px">🔗 LIEN DE CONNEXION DE TON ENTREPRISE</div><div style="word-break:break-all;font-family:var(--mono,monospace);font-size:11.5px;color:var(--acc);margin-bottom:8px">${esc(teamopLienActuel())}</div><button class="btn sm" onclick="teamopCopy('${esc(teamopLienActuel())}',this)">Copier le lien</button><span style="font-size:11.5px;color:var(--t3);margin-left:8px">à donner à tes employés : un clic et ils sont sur le bon espace — l'écran de connexion leur dit « Vous allez vous connecter à l'entreprise ${esc(entrepriseNom()||'…')} »</span>${entrepriseNom()?'':`<div style="margin-top:8px;font-size:12px;color:var(--org,#e8a33d);font-weight:700">⚠️ Renseigne le nom de ton entreprise (« Mon entreprise », plus bas) : il est mis dans le lien et affiché à tes utilisateurs.</div>`}</div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="teamopCreateSpace()">＋ Créer un espace entreprise</button>
       <button class="btn ghost" onclick="teamopJoinPrompt()">Rejoindre un espace (code)</button></div>
       ${teamopSpaces().length?`<div style="margin-top:14px;border-top:1px solid var(--brd);padding-top:12px"><div style="font-size:12px;color:var(--t3);margin-bottom:8px">Espaces créés (enregistrés sur cet appareil)</div>${teamopSpaces().map(s=>`<div class="perm-row"><div class="pn">${esc(s.name||s.t)}<div style="font-size:11px;color:var(--t3);font-weight:400">${esc(s.t)}</div></div><div style="display:flex;gap:6px"><button class="btn sm" onclick="teamopCopieLienSauve('${esc(s.t)}')">🔗 Lien</button><button class="btn ghost sm" onclick="teamopShowSavedCode('${esc(s.t)}')">Voir le code</button></div></div>`).join('')}</div>`:''}
@@ -19380,11 +19392,11 @@ function maybeDemoTelecollecte(){ return; if(!currentUser) return;
 function renderLogin(){ $('app-root').style.display='none'; $('login').style.display='flex';
   const saved=localStorage.getItem('elanB_savedLogin')||'';
   const _logo = (typeof effectiveTheme==='function' && effectiveTheme()==='dark') ? 'icons/logo-night.png' : 'icons/logo-day.png';
-  const _entNom=localStorage.getItem('elanB_entreprise_nom')||'';
+  const _entNom=(typeof entrepriseNom==='function'?entrepriseNom():'')||localStorage.getItem('elanB_entreprise_nom')||'';
   const _surEspace=!!localStorage.getItem('elanB_sync_team');
   $('login-box').innerHTML=`<img class="login-logo" src="${_logo}" alt="OP GESTION"><h2>OP GESTION <span style="font-size:12px;color:var(--org);vertical-align:middle">🧪 BÊTA</span></h2>
-    ${(_surEspace&&_entNom)?`<div style="text-align:center;margin:2px 0 14px"><span style="display:inline-block;background:color-mix(in srgb,var(--acc) 12%,transparent);border:1px solid color-mix(in srgb,var(--acc) 35%,transparent);border-radius:100px;padding:6px 16px;font-size:13.5px;font-weight:700">🏢 ${esc(_entNom)}</span></div>`:''}
-    ${(_surEspace&&localStorage.getItem('elanB_lien_ok'))?`<div style="text-align:center;margin:-6px 0 14px;font-size:12.5px;color:var(--acc);font-weight:700">✅ Ton lien de connexion est bon — entre ton identifiant et ton mot de passe.</div>`:''}
+    ${_surEspace?`<div style="text-align:center;margin:2px 0 14px"><div style="font-size:13px;color:var(--t2);margin-bottom:7px">Vous allez vous connecter à l'entreprise</div><div id="li-entnom" style="display:inline-block;background:color-mix(in srgb,var(--acc) 12%,transparent);border:1px solid color-mix(in srgb,var(--acc) 35%,transparent);border-radius:100px;padding:8px 20px;font-size:16px;font-weight:800">🏢 ${esc(_entNom||'…')}</div>
+    ${localStorage.getItem('elanB_lien_ok')?`<div style="margin-top:8px;font-size:12.5px;color:var(--acc);font-weight:700">✅ Lien de connexion reconnu — entre ton identifiant et ton mot de passe.</div>`:''}</div>`:''}
     ${(_surEspace&&!_syncGotInitial&&syncEnabled())?`<div id="li-sync" style="text-align:center;margin:-4px 0 12px;font-size:12px;color:var(--t3)">⏳ Chargement des comptes de l'entreprise…</div>`:''}
     <form onsubmit="doLogin(event)" autocomplete="off">
       <div class="login-card">
@@ -19401,7 +19413,11 @@ function renderLogin(){ $('app-root').style.display='none'; $('login').style.dis
     <div style="text-align:center;margin-top:14px"><a onclick="teamopJoinPrompt()" style="cursor:pointer;color:var(--t3);font-size:12.5px;text-decoration:underline">Rejoindre un espace TeamOP (code entreprise)</a>${(_surEspace&&_entNom)?` · <a href="connexion.html?choix=1" style="color:var(--t3);font-size:12.5px;text-decoration:underline">changer d'entreprise</a>`:''}</div>
     <div style="text-align:center;margin-top:12px"><a href="index.html?hub=1" style="color:var(--t3);font-size:12.5px;text-decoration:none;border:1px solid var(--brd);border-radius:100px;padding:7px 14px;display:inline-block">🏠 Accueil TeamOP</a></div>`;
   setTimeout(()=>{ const el=$(saved?'li-pin':'li-login'); if(el) el.focus(); },60);
-  (function tick(n){ const s=$('li-sync'); if(!s) return; if(_syncGotInitial||!syncEnabled()||n>50) s.remove(); else setTimeout(()=>tick(n+1),300); })(0);
+  (function tick(n){ const s=$('li-sync'); if(!s) return;
+    if(_syncGotInitial||!syncEnabled()||n>50){ s.remove();
+      // le nom de l'entreprise vient d'arriver avec les données de l'équipe → on l'affiche et on le retient pour la prochaine fois
+      try{ const e=$('li-entnom'), n2=entrepriseNom(); if(e&&n2&&/…$/.test(e.textContent)){ e.textContent='🏢 '+n2; localStorage.setItem('elanB_entreprise_nom',n2); } }catch(_e){} }
+    else setTimeout(()=>tick(n+1),300); })(0);
 }
 /* Les comptes de l'entreprise arrivent par la synchro : on l'attend (quelques secondes au plus) avant de juger une connexion */
 async function syncAttendre(ms){ const fin=Date.now()+(ms||9000); while(!_syncGotInitial&&syncEnabled()&&Date.now()<fin){ await new Promise(r=>setTimeout(r,150)); } }
