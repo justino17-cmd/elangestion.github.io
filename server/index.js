@@ -518,22 +518,36 @@ app.post('/api/compte/identifiants', async (req, res) => {
   const refus = mailQuotaRefus(req, teamId);
   if (refus) return res.status(429).json({ error: refus });
   const net = (s, n) => String(s || '').replace(/[<>\r\n]/g, '').trim().slice(0, n);
-  const ent = net(entreprise, 80), pre = net(prenom, 60), id = net(login, 60), pwd = net(mdp, 60), qui = net(par, 80);
+  // espace connu de l'annuaire → le lien LISIBLE porte le nom de l'entreprise (teamop.fr/app.html#e=gci)
+  const esp = espaceParT(String(teamId));
+  const ent = net(entreprise, 80) || net(esp && esp.nom, 80), pre = net(prenom, 60), id = net(login, 60), pwd = net(mdp, 60), qui = net(par, 80);
   // seul un lien TeamOP est accepté (jamais d'adresse étrangère dans nos e-mails)
-  const url = /^https:\/\/teamop\.fr\/(app|beta|connexion)\.html([#?][A-Za-z0-9+/=_.&%#?-]*)?$/.test(String(lien || '')) ? String(lien).slice(0, 700) : 'https://teamop.fr/connexion.html';
+  const lienApp = /^https:\/\/teamop\.fr\/(app|beta|connexion)\.html([#?][A-Za-z0-9+/=_.&%#?-]*)?$/.test(String(lien || '')) ? String(lien).slice(0, 700) : '';
+  const url = (esp && esp.slug) ? 'https://teamop.fr/app.html#e=' + esp.slug : (lienApp || 'https://teamop.fr/connexion.html');
   const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const entTxt = ent ? ' « ' + ent + ' »' : '';
   try {
     await mailerEnvoi({ confidentiel: true, from: config.smtp.from || config.smtp.user, to,
       subject: 'Vos accès OP GESTION' + (ent ? ' — ' + ent : ''),
       text: 'Bonjour' + (pre ? ' ' + pre : '') + ',\n\n' + (qui ? qui + ' vous a créé' : 'Votre entreprise vous a créé') + ' un compte OP GESTION' + (ent ? ' (' + ent + ')' : '') + '.\n\n'
         + 'Identifiant : ' + id + '\nMot de passe provisoire : ' + pwd + '\n\n'
-        + 'Lien de connexion (cliquez dessus, puis entrez vos identifiants) :\n' + url + '\n\n'
-        + 'À votre première connexion, l\'application vous fera choisir votre propre mot de passe.\n\n— TEAM OP · teamop.fr',
+        + 'Votre lien de connexion — c\'est celui de l\'entreprise' + entTxt + ' :\n' + url + '\n'
+        + 'Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « Vous allez vous connecter à l\'entreprise' + entTxt + ' ». Entrez alors votre identifiant et votre mot de passe provisoire.\n'
+        + (esp && esp.slug ? '(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + entTxt + '.)\n' : '')
+        + '\nÀ votre première connexion, l\'application vous fera choisir votre propre mot de passe.\n\n— TEAM OP · teamop.fr',
       html: mailTeamOP({ chip: 'Bienvenue', titre: 'Vos accès OP GESTION' + (ent ? ' · ' + ent : ''),
-        corpsHtml: 'Bonjour' + (pre ? ' ' + x(pre) : '') + ',<br>' + (qui ? '<b>' + x(qui) + '</b> vous a créé' : 'votre entreprise vous a créé') + ' un compte sur l\'application OP GESTION' + (ent ? ' de <b>' + x(ent) + '</b>' : '') + '. Cliquez sur le bouton ci-dessous : il met votre appareil sur le bon espace, il ne reste qu\'à entrer vos identifiants.',
+        corpsHtml: 'Bonjour' + (pre ? ' ' + x(pre) : '') + ',<br>' + (qui ? '<b>' + x(qui) + '</b> vous a créé' : 'votre entreprise vous a créé') + ' un compte sur l\'application OP GESTION' + (ent ? ' de <b>' + x(ent) + '</b>' : '') + '.<br><br>'
+          + '<b>Votre lien de connexion</b> — c\'est celui de l\'entreprise' + x(entTxt) + ' :<br><a href="' + x(url) + '" style="color:#34A97E">' + x(url.replace('https://', '')) + '</a><br>'
+          + '<span style="font-size:13px">Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « <b>Vous allez vous connecter à l\'entreprise' + x(entTxt) + '</b> ». Entrez alors votre identifiant et votre mot de passe provisoire.'
+          + (esp && esp.slug ? '<br><span style="color:#8fa3c8">(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + x(entTxt) + '.)</span>' : '') + '</span>',
         blocHtml: MAIL_BLOCS.acces(x(id), x(pwd)),
+        frise: [
+          { titre: 'Compte créé', sous: qui ? 'par ' + qui : 'par votre entreprise', fait: true },
+          { titre: 'Connectez-vous', sous: 'avec le lien', fait: false },
+          { titre: 'Votre mot de passe', sous: 'choisi à la 1re connexion', fait: false }
+        ],
         boutonTxt: 'Ouvrir mon application', boutonUrl: url }) });
-    res.json({ ok: true });
+    res.json({ ok: true, lien: url, entreprise: ent });
   } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
 });
 
@@ -1085,13 +1099,18 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
   } catch (err) { res.status(500).json({ error: 'envoi impossible : ' + String(err.message).slice(0, 120) }); }
 });
 // l'app d'un espace demande sa formule attribuée (public — ne révèle que la formule)
+/* Fiche d'un espace de l'annuaire à partir de son identifiant d'équipe (avec son nom de lien) */
+function espaceParT(t) {
+  if (!t) return null;
+  const slug = Object.keys(espacesReg).find(s => { const x = espacesReg[s];
+    if (x.t) return x.t === t;
+    try { const o = JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')); return String(o.t || '') === t; } catch (err) { return false; } });
+  return slug ? Object.assign({ slug }, espacesReg[slug]) : null;
+}
 app.post('/api/espaces/etat', (req, res) => {
   const t = monStr((req.body || {}).t, 80);
   if (!t) return res.status(400).json({ error: 't requis' });
-  const e = Object.values(espacesReg).find(x => {
-    if (x.t) return x.t === t;
-    try { const o = JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')); return String(o.t || '') === t; } catch (err) { return false; }
-  });
+  const e = espaceParT(t);
   if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
   if (!e || !e.formule) return res.json({ ok: true });
   espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif }))
