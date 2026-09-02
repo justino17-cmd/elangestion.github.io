@@ -2487,7 +2487,7 @@ function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catc
 /* Config Firebase intégrée (équipe OP GESTION) — synchro active pour TOUS sans réglage */
 const FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"elan-gestion.firebaseapp.com", projectId:"elan-gestion", storageBucket:"elan-gestion.firebasestorage.app", messagingSenderId:"910528393731", appId:"1:910528393731:web:128d97b6a3269fb6d21436" };
 const FB_TEAM='elan-gestion-beta';
-let _syncOn=false,_fbDoc=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
+let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
 function syncDeviceId(){ let d=localStorage.getItem('elanB_dev'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('elanB_dev',d);} return d; }
 /* Sécurité — chiffrement de bout en bout des données synchronisées (AES-256-GCM).
    Le cloud ne stocke QUE du texte chiffré : sans la clé d'équipe, les données sont illisibles,
@@ -2529,16 +2529,23 @@ async function syncAuth(){ try{
 async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn||_syncDemarre) return; _syncDemarre=true;
   try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); await syncAuth(); const fs=firebase.firestore();
     _fbDoc=fs.collection('elanB_teams').doc(syncTeam()); _syncOn=true; _syncGotInitial=false; try{updateSyncBtn();}catch(e){}
-    _fbDoc.onSnapshot(async snap=>{ const d=snap.data(); const plain=await syncReadRemote(d);
-      if(!_syncGotInitial){ _syncGotInitial=true;
-        // appareil qui vient de rejoindre l'espace (lien / code entreprise) : les données de l'équipe font foi, jamais la base de départ locale
-        const frais=!!localStorage.getItem('elanB_frais');
-        if(!d||(!d.enc&&!d.db)){ try{ localStorage.removeItem('elanB_frais'); }catch(e){} syncPush(true); return; }   // équipe vide → on amorce avec nos données
+    _fbUnsub=_fbDoc.onSnapshot(async snap=>{
+      // Hors ligne (ou réseau trop lent), le SDK livre un instantané « depuis le cache », VIDE : il ne doit jamais
+      // servir à amorcer l'espace ni à pousser quoi que ce soit — on attend un vrai instantané du serveur.
+      if(!_syncGotInitial && snap.metadata && snap.metadata.fromCache) return;
+      const d=snap.data(); const plain=await syncReadRemote(d);
+      // appareil qui vient de rejoindre l'espace (lien / code entreprise) : les données de l'équipe font foi, jamais la base de départ locale
+      const frais=!!localStorage.getItem('elanB_frais'); let premier=false;
+      if(!_syncGotInitial){ _syncGotInitial=true; premier=true;
+        // rien n'est poussé depuis l'écran de connexion : l'amorçage d'un espace vide attend qu'un compte soit connecté (save() s'en charge)
+        if(!d||(!d.enc&&!d.db)){ try{ localStorage.removeItem('elanB_frais'); }catch(e){} if(currentUser) syncPush(true); return; }   // équipe vide → on amorce avec nos données
         if(d.enc&&plain===null){ try{toast('Clé d\'équipe différente — données non lues');}catch(e){} return; }   // chiffré avec une autre clé → ne rien écraser
-        try{ if(!frais&&plain&&dbWeight(db) > dbWeight(JSON.parse(plain))+5){ syncPush(true); return; } }catch(e){}   // notre base est nettement plus complète → on garde la nôtre
+        try{ if(!frais&&plain&&dbWeight(db) > dbWeight(JSON.parse(plain))+5){ if(currentUser) syncPush(true); return; } }catch(e){}   // notre base est nettement plus complète → on garde la nôtre
         if(frais) _syncTs=0;   // on adopte les données de l'équipe quoi qu'il en soit
       }
-      if(!plain) return; if(d.writer===syncDeviceId()) return; if((d.ts||0)<=(_syncTs||0)) return;
+      if(!plain) return;
+      // (sauf à l'arrivée dans l'espace : on adopte les données même si c'est cet appareil qui les avait écrites la dernière fois)
+      if(!(premier&&frais)){ if(d.writer===syncDeviceId()) return; if((d.ts||0)<=(_syncTs||0)) return; }
       try{ const remote=JSON.parse(plain);
         let diffMsg=''; try{ diffMsg=planSyncDiff(db,remote,d.by||''); }catch(e){}
         _syncApplying=true; db=remote; localStorage.setItem(STORE_KEY,JSON.stringify(db)); _syncTs=d.ts||Date.now();
@@ -2576,7 +2583,9 @@ function syncSave(){ const cfgT=(($('sync-cfg')||{}).value||'').trim(); const te
   if(!team){ toast('Indique un code équipe (le même pour tous)'); return; }
   localStorage.setItem('elanB_sync_cfg',JSON.stringify(cfg)); localStorage.setItem('elanB_sync_team',team); localStorage.setItem('elanB_sync_on','1');
   toast('Activation de la synchro…'); syncInit().then(()=>{ if(current==='parametres') views.parametres(); }); }
-function syncDisable(){ localStorage.setItem('elanB_sync_on','0'); _syncOn=false; toast('Synchro désactivée — recharge l\'app pour couper la connexion'); if(current==='parametres') views.parametres(); }
+function syncDisable(){ localStorage.setItem('elanB_sync_on','0');
+  try{ if(_fbUnsub) _fbUnsub(); }catch(e){} _fbUnsub=null; _fbDoc=null; _syncOn=false; _syncDemarre=false; _syncGotInitial=false;   // l'écoute est vraiment coupée ; « Réactiver » repart de zéro
+  toast('Synchro désactivée sur cet appareil'); if(current==='parametres') views.parametres(); }
 /* ── Notifications push — serveur api.teamop.fr ── */
 const PUSH_API='https://api.teamop.fr';
 const PUSH_VAPID='BBOBOciYMxg1WjLB2oxOgl23Ayu-DBkPnf9DhRUe660mBaEcAVvQVKlLZdWyzZbmyZlb9cjhCoPhjJolZSLvNiE';
@@ -2897,7 +2906,9 @@ function openModal(html,taille){ const m=$('modal');
   if(taille==='carte'){ m.className='modal carte'; $('overlay').classList.remove('full'); $('overlay').classList.add('centre'); }
   else { m.className='modal full'; $('overlay').classList.remove('centre'); $('overlay').classList.add('full'); }
   m.innerHTML=html; $('overlay').classList.add('open'); m.scrollTop=0; }
-function closeModal(){ $('overlay').classList.remove('open'); if(scanTimer){clearInterval(scanTimer);scanTimer=null;} if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;} stopBoxScanCamera(); }
+/* Écran obligatoire (mot de passe personnel à la 1re connexion) : ni Échap ni fermeture tant qu'il n'est pas validé */
+let _modalForcee=false;
+function closeModal(force){ if(_modalForcee&&force!==true) return; $('overlay').classList.remove('open'); if(scanTimer){clearInterval(scanTimer);scanTimer=null;} if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;} stopBoxScanCamera(); }
 /* Une fenêtre ouverte NE se ferme QUE par sa croix ✕ ou son bouton Annuler —
    plus jamais par un clic à côté (qui faisait perdre la saisie en revenant
    d'une autre fenêtre : le clic de reprise tombait sur le fond sombre). */
@@ -15357,17 +15368,12 @@ async function saveTech(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   const parts=(d.nom||'').trim().split(/\s+/); const prenom=parts[0]||''; const nom=parts.slice(1).join(' ')||'';
   let base=(prenom||nom||'tech').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')||'tech';
   let login=base, k=1; while(db.users.some(u=>u.login&&u.login.toLowerCase()===login)){ login=base+(++k); }
-  const pwd='OP-'+Math.random().toString(36).slice(2,6)+Math.floor(10+Math.random()*90);
-  db.users.push({id:uid(),prenom,nom,login,role,techId:tid,actif:true,pwdHash:await sha256(pwd),mustChangePwd:true});
-  logEvent('Technicien + compte créés',d.nom+' (@'+login+')','auth'); save();
-  openModal(`<div class="modal-head"><h3>Technicien & compte créés</h3><button class="modal-close" onclick="closeModal();views.techniciens()">✕</button></div>
-    <div style="padding:2px">
-      <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:14px">Le compte de <b>${esc(d.nom)}</b> est créé (rôle : ${role==='chefEquipe'?"Chef d'équipe":'Technicien'}). Transmets-lui ces identifiants :</p>
-      <div class="fgroup"><div class="frow"><span class="frow-lbl">Identifiant</span><div class="frow-val"><b style="font-size:17px">${esc(login)}</b></div></div>
-        <div class="frow"><span class="frow-lbl">Mot de passe provisoire</span><div class="frow-val"><b style="font-size:18px;letter-spacing:1px" class="mono">${pwd}</b></div></div></div>
-      <p style="color:var(--t3);font-size:12px;line-height:1.5">À sa première connexion, l'app lui fera <b>choisir son mot de passe personnel</b>. Il ne voit que ce qui lui est autorisé (ses interventions, ses rapports…).</p>
-      <div class="modal-foot"><button class="btn" onclick="closeModal();views.techniciens()">OK, c'est noté</button></div>
-    </div>`);
+  // même circuit que Utilisateurs → Nouvel utilisateur : mot de passe provisoire, e-mail d'accès avec le lien de l'entreprise, fiche à transmettre
+  const pwd=mdpProvisoire();
+  const nu={id:uid(),prenom,nom,login,email:(d.email||'').trim(),role,techId:tid,actif:true,pwdHash:await sha256(pwd),mustChangePwd:true};
+  db.users.push(nu);
+  logEvent('Technicien + compte créés',d.nom+' (@'+login+')','auth'); save(); closeModal(); views.techniciens();
+  setTimeout(()=>userIdentifiantsModal(nu,pwd),120);
 }
 function formTech(id){ const t=id?db.techniciens.find(x=>x.id===id):{};
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouveau'} technicien</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
@@ -15456,7 +15462,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{};
           :`<div class="field"><label>Mot de passe provisoire *</label>
              <div style="display:flex;gap:8px"><input name="pwd" id="nu-pwd" required minlength="8" value="${esc(mdpProvisoire())}" style="flex:1;font-family:var(--mono,monospace)" autocomplete="new-password" autocapitalize="off"><button type="button" class="btn ghost" title="En générer un autre" onclick="document.getElementById('nu-pwd').value=mdpProvisoire()">🎲</button></div>
              <div style="font-size:11px;color:var(--t3);margin-top:4px"><b>Obligatoire</b> (8 caractères minimum) — proposé tout seul, tu peux le changer. Il est <b>envoyé par e-mail</b> à la personne avec le <b>lien de connexion de l'entreprise</b> (si un e-mail est renseigné ci-dessus) et affiché pour que tu puisses aussi le lui transmettre. À sa première connexion, l'app lui fera choisir son propre mot de passe.</div></div>
-           ${entrepriseNom()?'':`<div class="field" style="background:color-mix(in srgb,var(--org,#e8a33d) 10%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 40%,transparent);border-radius:12px;padding:10px 12px"><label>Nom de ton entreprise *</label><input name="entNom" required placeholder="ex : GCI" autocomplete="organization">
+           ${(entrepriseNom()||!localStorage.getItem('elanB_sync_team'))?'':`<div class="field" style="background:color-mix(in srgb,var(--org,#e8a33d) 10%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 40%,transparent);border-radius:12px;padding:10px 12px"><label>Nom de ton entreprise *</label><input name="entNom" required placeholder="ex : GCI" autocomplete="organization">
              <div style="font-size:11px;color:var(--t3);margin-top:4px">Pas encore renseigné : il est <b>obligatoire</b>, car il est mis <b>dans le lien de connexion</b> et affiché à tes utilisateurs sur l'écran de connexion : « Vous allez vous connecter à l'entreprise <b>…</b> ».</div></div>`}`}
       ${accSection}
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
@@ -15490,17 +15496,19 @@ async function identifiantsParMail(u,pwd){
 }
 async function identifiantsRenvoyer(id,pwd){ const u=db.users.find(x=>x.id===id); if(!u) return; const z=$('ui-mail'); if(z) z.innerHTML='⏳ Envoi…'; const r=await identifiantsParMail(u,pwd); identifiantsMailEtat(r,id,pwd); }
 function identifiantsMailEtat(r,id,pwd){ const z=$('ui-mail'); if(!z) return;
-  if(r.ok){ z.innerHTML='✉️ <b>E-mail envoyé à '+esc(r.to)+'</b> — identifiant, mot de passe provisoire et lien de connexion de l\'entreprise'+(r.entreprise?' « '+esc(r.entreprise)+' »':'')+'.';
+  if(r.ok){ const espace=/#(e|entreprise)=/.test(r.lien||''); z.innerHTML='✉️ <b>E-mail envoyé à '+esc(r.to)+'</b> — identifiant, mot de passe provisoire et '+(espace?'lien de connexion de l\'entreprise'+(r.entreprise?' « '+esc(r.entreprise)+' »':''):'lien vers l\'application')+'.';
     // le serveur connaît l'espace → le lien envoyé porte le nom de l'entreprise (teamop.fr/app.html#e=…) : on l'affiche tel quel
     const l=$('ui-lien'); if(l&&r.lien){ l.textContent=r.lien; const b=document.querySelector('#overlay [data-t]'); if(b) b.dataset.t=String(b.dataset.t||'').replace(/Lien de connexion[^\n]*: .*$/, 'Lien de connexion (clique dessus, puis connecte-toi) : '+r.lien); } }
   else if(r.sans) z.innerHTML='Aucune adresse e-mail sur la fiche — transmets-lui ces accès toi-même (bouton ci-dessous).';
   else z.innerHTML='<span style="color:var(--red)">E-mail non envoyé ('+esc(r.err||'')+')</span> — <a onclick="identifiantsRenvoyer(\''+id+'\',\''+esc(pwd)+'\')" style="cursor:pointer;text-decoration:underline">réessayer</a>, ou transmets-lui ces accès toi-même.'; }
 /* Fiche « à transmettre » affichée juste après la création d'un compte (ou une réinitialisation) */
 function userIdentifiantsModal(u,pwd){
-  const lien=lienConnexionEntreprise(), ent=entrepriseNom();
+  const lien=lienConnexionEntreprise(), ent=entrepriseNom(), espace=!!(typeof teamopLienActuel==='function'&&teamopLienActuel());
   const texte='Connexion OP GESTION'+(ent?' — '+ent:'')+'\nIdentifiant : '+u.login+'\nMot de passe provisoire : '+pwd+'\nLien de connexion (clique dessus, puis connecte-toi) : '+lien;
   openModal(`<div class="modal-head"><h3>✅ Accès de ${esc(fullName(u))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Le lien est <b>celui de l'entreprise${ent?' « '+esc(ent)+' »':''}</b> : en cliquant dessus, son appareil se met sur le bon espace et l'écran de connexion lui dit « <b>Vous allez vous connecter à l'entreprise ${esc(ent||'…')}</b> ». <b>À sa première connexion, l'app lui fera choisir son propre mot de passe</b>.</p>
+    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">${espace
+      ?`Le lien est <b>celui de l'entreprise${ent?' « '+esc(ent)+' »':''}</b> : en cliquant dessus, son appareil se met sur le bon espace et l'écran de connexion lui dit « <b>Vous allez vous connecter à l'entreprise ${esc(ent||'…')}</b> ».`
+      :`Cet appareil n'est relié à <b>aucun espace entreprise</b> (pas de lien d'entreprise) : la personne ouvre l'application via ce lien et se connecte avec son identifiant et son mot de passe.`} <b>À sa première connexion, l'app lui fera choisir son propre mot de passe</b>.</p>
     <div class="fgroup" style="margin-bottom:12px">
       <div class="frow"><span class="frow-lbl">Identifiant</span><div class="frow-val"><b class="mono" style="font-size:16px">${esc(u.login)}</b></div></div>
       <div class="frow"><span class="frow-lbl">Mot de passe provisoire</span><div class="frow-val"><b class="mono" style="font-size:16px">${esc(pwd)}</b></div></div>
@@ -15549,8 +15557,8 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     // mot de passe provisoire OBLIGATOIRE : envoyé par e-mail avec le lien de l'entreprise
     const pwd=(d.pwd||'').trim();
     if(pwd.length<8){ toast('Mot de passe provisoire obligatoire (8 caractères minimum)'); return; }
-    // le nom de l'entreprise va dans le lien de connexion et sur l'écran de connexion de ses utilisateurs
-    if(!entrepriseNom()){
+    // le nom de l'entreprise va dans le lien de connexion et sur l'écran de connexion de ses utilisateurs (appareil relié à un espace)
+    if(!entrepriseNom() && localStorage.getItem('elanB_sync_team')){
       const en=(d.entNom||'').trim(); if(!en){ toast('Indique le nom de ton entreprise : il va dans le lien de connexion'); return; }
       db.entreprise={...(db.entreprise||{}),nom:en}; try{ localStorage.setItem('elanB_entreprise_nom',en); }catch(_e){}
     }
@@ -19407,7 +19415,8 @@ function maybeDemoTelecollecte(){ return; if(!currentUser) return;
 function renderLogin(){ $('app-root').style.display='none'; $('login').style.display='flex';
   const saved=localStorage.getItem('elanB_savedLogin')||'';
   const _logo = (typeof effectiveTheme==='function' && effectiveTheme()==='dark') ? 'icons/logo-night.png' : 'icons/logo-day.png';
-  const _entNom=(typeof entrepriseNom==='function'?entrepriseNom():'')||localStorage.getItem('elanB_entreprise_nom')||'';
+  // le nom porté par le lien de connexion d'abord (c'est celui annoncé dans l'e-mail), sinon celui des données de l'équipe
+  const _entNom=localStorage.getItem('elanB_entreprise_nom')||(typeof entrepriseNom==='function'?entrepriseNom():'')||'';
   const _surEspace=!!localStorage.getItem('elanB_sync_team');
   $('login-box').innerHTML=`<img class="login-logo" src="${_logo}" alt="OP GESTION"><h2>OP GESTION <span style="font-size:12px;color:var(--org);vertical-align:middle">🧪 BÊTA</span></h2>
     ${_surEspace?`<div style="text-align:center;margin:2px 0 14px"><div style="font-size:13px;color:var(--t2);margin-bottom:7px">Vous allez vous connecter à l'entreprise</div><div id="li-entnom" style="display:inline-block;background:color-mix(in srgb,var(--acc) 12%,transparent);border:1px solid color-mix(in srgb,var(--acc) 35%,transparent);border-radius:100px;padding:8px 20px;font-size:16px;font-weight:800">🏢 ${esc(_entNom||'…')}</div>
@@ -19469,8 +19478,8 @@ async function doLogin(e){ e.preventDefault();
   const valide=x=>!!x && (x.compteSite || x.sansMdp || (x.pwdHash ? x.pwdHash===h : (x.pinHash===h || x.pinHash===pin)));
   let u=trouver();
   // Appareil neuf (lien de l'entreprise) : les comptes arrivent par la synchro — on l'attend avant de refuser.
-  // Un compte déjà présent sur l'appareil se connecte tout de suite, même hors ligne.
-  if(!valide(u) && !_syncGotInitial && syncEnabled()){
+  // Un compte déjà présent sur l'appareil est jugé tout de suite, même hors ligne (bon ou mauvais mot de passe).
+  if(!u && !_syncGotInitial && syncEnabled()){
     const er=$('li-error'); if(er){ er.textContent='⏳ Chargement des comptes de l\'entreprise…'; er.style.display='block'; er.style.color='var(--t3)'; }
     try{ if(!_syncOn&&!_syncDemarre) syncInit(); }catch(_e){}
     await syncAttendre(9000);
@@ -19516,12 +19525,12 @@ async function doLogin(e){ e.preventDefault();
   } else {
     // compte désactivé par l'entreprise (bon mot de passe) : on le dit clairement plutôt que « incorrect »
     const inact=db.users.find(x=> x.login && x.login.toLowerCase()===login.toLowerCase() && !x.actif);
-    const er=$('li-error'); if(er){ er.textContent=(inact&&valide(inact))?'Ce compte a été désactivé par ton entreprise — contacte ton administrateur.':((!_syncGotInitial&&syncEnabled())?'Les comptes de l\'entreprise ne sont pas encore arrivés sur cet appareil — vérifie ta connexion internet, puis réessaie':'Identifiant ou mot de passe incorrect'); er.style.display='block'; }
+    const er=$('li-error'); if(er){ er.textContent=(inact&&valide(inact))?'Ce compte a été désactivé par ton entreprise — contacte ton administrateur.':((!u&&!inact&&!_syncGotInitial&&syncEnabled())?'Les comptes de l\'entreprise ne sont pas encore arrivés sur cet appareil — vérifie ta connexion internet, puis réessaie':'Identifiant ou mot de passe incorrect'); er.style.display='block'; }
     const c=document.querySelector('.login-card'); if(c){ c.classList.add('pin-err'); setTimeout(()=>c.classList.remove('pin-err'),400); }
     const p=$('li-pin'); if(p){ p.value=''; p.focus(); }
   }
 }
-function logout(){ logEvent('Déconnexion','','auth'); save(); localStorage.removeItem('elanB_session'); sessionStorage.removeItem('elanB_session'); currentUser=null; asstMsgs=[]; asstOpen=false; $('assistant').innerHTML=''; closeNotif(); renderLogin(); }
+function logout(){ logEvent('Déconnexion','','auth'); save(); localStorage.removeItem('elanB_session'); sessionStorage.removeItem('elanB_session'); currentUser=null; asstMsgs=[]; asstOpen=false; $('assistant').innerHTML=''; _modalForcee=false; closeModal(true); closeNotif(); renderLogin(); }
 /* ── Compte supprimé ou désactivé par l'entreprise (reçu par la synchro ou un autre onglet) :
    déconnexion immédiate, session effacée, message clair — il ne peut plus se connecter. ── */
 let _compteRetire='';
@@ -19532,8 +19541,8 @@ function compteVerifier(){ if(!currentUser) return true;
 function compteRetire(motif){ _compteRetire=motif;
   try{ console.warn('compte '+motif+' par l\'entreprise → déconnexion'); }catch(e){}
   localStorage.removeItem('elanB_session'); sessionStorage.removeItem('elanB_session'); localStorage.removeItem('elanB_savedLogin');
-  currentUser=null; asstMsgs=[]; asstOpen=false;
-  try{ $('assistant').innerHTML=''; closeModal(); closeNotif(); }catch(e){}
+  currentUser=null; asstMsgs=[]; asstOpen=false; _modalForcee=false;
+  try{ $('assistant').innerHTML=''; closeModal(true); closeNotif(); }catch(e){}
   renderLogin(); }
 /* ── MOT DE PASSE OUBLIÉ ── un code à 6 chiffres est envoyé sur l'e-mail enregistré
    sur le compte (Utilisateurs → ✎, ou saisi à la 1ère connexion), valable 10 minutes,
@@ -19553,8 +19562,8 @@ async function pwdForgotSend(){
   const login=(($('pf-login')||{}).value||'').trim().toLowerCase(), mail=(($('pf-mail')||{}).value||'').trim().toLowerCase();
   const err=$('pf-err'); const show=m=>{ if(err){ err.textContent='⚠ '+m; err.style.display='block'; } };
   if(!login||!mail){ show('Remplis les deux champs.'); return; }
-  // appareil neuf : les comptes de l'entreprise arrivent par la synchro — on l'attend avant de juger
-  if(!_syncGotInitial && syncEnabled()){
+  // appareil neuf : les comptes de l'entreprise arrivent par la synchro — on l'attend avant de juger un identifiant inconnu
+  if(!db.users.some(x=>x.login && x.login.toLowerCase()===login) && !_syncGotInitial && syncEnabled()){
     const b0=$('pf-go'); if(b0){ b0.disabled=true; b0.textContent='⏳ Chargement des comptes de l\'entreprise…'; }
     try{ if(!_syncOn&&!_syncDemarre) syncInit(); }catch(_e){}
     await syncAttendre(9000);
@@ -19651,6 +19660,7 @@ async function pwdForgotSave(){
    À la première connexion (ancien compte à PIN, compte neuf avec mot de passe
    provisoire, ou après réinitialisation), on fait créer un vrai mot de passe. */
 function forcePwdModal(){ if(!currentUser) return;
+  _modalForcee=true;
   const mail=(currentUser.email||'').trim(), ent=(typeof entrepriseNom==='function'?entrepriseNom():'');
   openModal(`<div class="modal-head"><h3>🔐 Bienvenue${currentUser.prenom?' '+esc(currentUser.prenom):''} — crée ton mot de passe</h3></div>
     <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:14px">${ent?'Tu es connecté à l\'entreprise <b>'+esc(ent)+'</b>. ':''}${currentUser.pwdHash?'Ton mot de passe provisoire doit être remplacé par le tien.':'Ton compte passe du code PIN au mot de passe — plus sûr.'} Choisis un mot de passe d'au moins <b>8 caractères</b>, connu de toi seul.</p>
@@ -19679,6 +19689,7 @@ async function forcePwdSave(){ const p1=($('fp-p1')||{}).value||'', p2=($('fp-p2
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fm)){ show('Entre une adresse e-mail valide — elle sert à récupérer ton mot de passe si tu l\'oublies.'); const el=$('fp-mail'); if(el) el.focus(); return; }
   currentUser.pwdHash=await sha256(p1); delete currentUser.mustChangePwd; delete currentUser.pinHash; delete currentUser.sansMdp;
   currentUser.email=fm;
+  _modalForcee=false;
   logEvent('Mot de passe défini','@'+(currentUser.login||''),'auth'); save(); closeModal();
   toast('🔐 Mot de passe enregistré, e-mail de récupération aussi — c\'est ce mot de passe qu\'il faudra taper désormais'); }
 /* ── Rappel à la connexion : un compte sans e-mail ne peut pas utiliser
