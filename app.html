@@ -3060,7 +3060,7 @@ async function promoAppliquer(codeDirect){
     db.forfaitEssai={code,formule:f,debut:todayISO(),finLe:j.finLe,mois:j.mois,rappels:{}};
     logEvent('Code promo activé',code+' → '+PLANS[f].l+" jusqu'au "+fmtShort(j.finLe),'auth');
     save(); renderNav();
-    const so=$('suite-opmsg'); if(so) so.style.display=(can('opMessages')&&planOpMsg())?'flex':'none';
+    try{ suiteRefresh(); }catch(e){}
     openModal(`<div class="modal-head"><h3>🎉 Code accepté !</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <p style="color:var(--t2);font-size:14px;line-height:1.7;margin-bottom:14px">La formule <b style="color:var(--acc)">${PLANS[f].l}</b> est activée pour toute l'équipe : <b>${j.mois} mois offert(s)</b>, jusqu'au <b>${fmtShort(j.finLe)}</b>.<br><br>Aucune carte bancaire n'est enregistrée. Avant la fin, un rappel te préviendra pour prendre l'abonnement et continuer sans coupure.</p>
       <button class="btn" style="width:100%;justify-content:center;padding:13px" onclick="closeModal();if(current==='parametres')views.parametres()">C'est parti !</button>`);
@@ -3138,7 +3138,7 @@ function bandeauFormule(){
 }
 try{ document.addEventListener('visibilitychange',()=>{ try{ if(document.visibilityState==='visible'&&db&&db.formuleAttente) forfaitServeurSync(true); }catch(e){} }); }catch(e){}
 function setForfait(p){ if(!PLANS[p]) return; db.forfait=p; logEvent('Forfait choisi',PLANS[p].l,'auth'); save(); renderNav();
-  const so=$('suite-opmsg'); if(so) so.style.display=(can('opMessages')&&planOpMsg())?'flex':'none';
+  try{ suiteRefresh(); }catch(e){}
   try{ avatarAccentSync(); }catch(e){}
   toast('Forfait « '+PLANS[p].l+' » activé'); if(current==='parametres') views.parametres(); else go('dashboard'); }
 /* Réglage explicite d'un module (rubrique du menu) pour une personne : par personne (fiche utilisateur / Permissions
@@ -12595,7 +12595,7 @@ function renderBoxDetail(){
               <div style="font-weight:800;font-size:13.5px">${sent?'Commande envoyée au fournisseur':'Commande prévue'}</div>
               <div style="font-size:12px;color:var(--t3)">${x.statut==='arrivageNote'?'<b style="color:var(--org)">Réception notée — en attente de validation DR</b>':(sent?'<b style="color:#60A5FA">En attente de réception</b>':(x.statut==='prete'?'Prête à envoyer':'En préparation'))}</div>
             </div>
-            ${sent&&x.statut!=='arrivageNote'&&can('voirTout')?`<button class="btn sm" onclick="event.stopPropagation();bonReception('${x.id}')">Réceptionner</button>`:''}
+            ${sent&&can('voirTout')&&(x.statut!=='arrivageNote'||!bonAttenteDR(x))?`<button class="btn sm" onclick="event.stopPropagation();bonReception('${x.id}')">Réceptionner</button>`:''}
           </div>
           <div style="margin-top:9px;border-top:1px solid var(--brd);padding-top:8px">
             ${prods.slice(0,8).map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:2px 0"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)">• ${esc(l.designation||'—')}</span><b style="white-space:nowrap;color:var(--t1)">${esc(bonQteTxt(l))}</b></div>`).join('')}
@@ -12694,7 +12694,7 @@ function printBox(id){ const b=db.boxes.find(x=>x.id===id); if(!b)return; const 
 let _arrPhoto=null, _arrLignes=[];
 function openArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) return; _arrPhoto=null; _arrLignes=[{produitId:'',qte:1}]; _arrBon='';
   const fours=[...new Set([...Object.keys(FOUR_COLORS),...db.fournisseurs.map(f=>f.nom)])].filter(Boolean);
-  const bonsDispo=(db.bons||[]).filter(x=>['envoyee','enLivraison'].includes(x.statut));
+  const bonsDispo=visibleBons(db.bons||[]).filter(x=>['envoyee','enLivraison'].includes(x.statut)&&(!x.boxId||x.boxId===b.id));   // ses bons, et seulement ceux de cette box (ou sans box)
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal();renderBoxDetail()">Annuler</button><h3>Arrivage</h3><button type="button" class="btn sm" onclick="saveArrivage('${boxId}')">Enregistrer</button></div>
     <div class="form-sec">${esc(b.nom||b.numero||'Box')}</div>
     ${bonsDispo.length?`<div class="field"><label>C'est la livraison d'un bon de commande ?</label>
@@ -12734,8 +12734,9 @@ function saveArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) ret
   const lignes=_arrLignes.filter(l=>l.produitId&&l.qte>0); if(!lignes.length){ toast('Ajoute au moins un produit reçu'); return; }
   const bonLie=(db.bons||[]).find(x=>x.id===_arrBon)||null;
   if(boxValidRequis()){
-    boxMvtEnvoyer({type:'arrivage',boxId:b.id,fournisseur:four,lignes:lignes.map(l=>({produitId:l.produitId,qte:l.qte})),photo:_arrPhoto||'',bcId:bonLie?bonLie.id:''});
-    if(bonLie){ bonLie.statut='arrivageNote'; bonLie.recuPar=fullName(currentUser); bonLie.recuLe=todayISO(); save(); }
+    if(bonLie&&bonAttenteDR(bonLie)){ toast('Une réception de ce bon attend déjà la validation du DR'); return; }
+    boxMvtEnvoyer({type:'arrivage',boxId:b.id,fournisseur:four,lignes:lignes.map(l=>({produitId:l.produitId,qte:l.qte})),photo:_arrPhoto||'',bcId:bonLie?bonLie.id:'',statutAvant:bonLie?bonLie.statut:''});
+    if(bonLie){ bonLie.statut='arrivageNote'; bonLie.recuPar=fullName(currentUser); bonLie.recuLe=todayISO(); bonLie.dateReception=todayISO(); save(); }
     closeModal(); renderBoxDetail(); toast('📨 Arrivage envoyé au DR pour validation — le stock bougera après son accord'); return; }
   b.stock=b.stock||{};
   lignes.forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
@@ -12850,19 +12851,22 @@ function boxMvtEnvoyer(m,silencieux){ db.boxMvtAttente=db.boxMvtAttente||[];
   if(!silencieux) try{ const dest=valideursDR().map(x=>x.id);
     if(dest.length) pushNotify('🔒 À valider — mouvement de box',boxMvtLibelle(m)+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){}
   save(); return m; }
+/* refus d'un mouvement en attente (motif du DR, box introuvable, bon déjà réceptionné…) : une seule remise en état —
+   le bon lié redevient « à réceptionner », l'auteur est prévenu et le voit dans SON historique */
+function boxMvtRefuser(m,motif){
+  m.motifRefus=motif||''; m.statut='refuse'; m.drNom=fullName(currentUser); m.dateValidation=todayISO();
+  logEvent('Mouvement box refusé',boxMvtLibelle(m)+(motif?' — '+motif:''),'stock',m.parId);
+  if(m.bcId){ const bonR=(db.bons||[]).find(x=>x.id===m.bcId);
+    if(bonR&&bonR.statut==='arrivageNote'){ bonR.statut=m.statutAvant||'envoyee'; delete bonR.recuPar; delete bonR.recuLe; delete bonR.dateReception; if(bonR.arrivage&&bonR.arrivage.enAttenteDR) delete bonR.arrivage;
+      logEvent('Réception refusée par le DR',bonNum(bonR)+(motif?' — '+motif:''),'commande',m.parId); } }
+  try{ if(m.parId) pushNotify('🚫 Refusé par le DR '+fullName(currentUser),boxMvtLibelle(m)+(motif?' — motif : '+motif:''),'/app.html#v=boxes',[m.parId]); }catch(e){}
+  save(); if(current==='validations') views.validations(); }
 function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('Validation réservée au DR / administrateur (droit « Valider les mouvements et demandes »)'); return; }
   const m=(db.boxMvtAttente||[]).find(x=>x.id===id&&x.statut==='enAttente'); if(!m) return;
-  if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return;
-    m.motifRefus=motif; m.statut='refuse'; m.drNom=fullName(currentUser); m.dateValidation=todayISO();
-    logEvent('Mouvement box refusé',boxMvtLibelle(m)+(motif?' — '+motif:''),'stock',m.parId);
-    // réception d'un bon refusée → le bon redevient « à réceptionner » (plus bloqué en « Arrivée — attente DR »)
-    if(m.bcId){ const bonR=(db.bons||[]).find(x=>x.id===m.bcId);
-      if(bonR&&bonR.statut==='arrivageNote'){ bonR.statut=m.statutAvant||'envoyee'; delete bonR.recuPar; delete bonR.recuLe; delete bonR.dateReception; if(bonR.arrivage&&bonR.arrivage.enAttenteDR) delete bonR.arrivage;
-        logEvent('Réception refusée par le DR',bonNum(bonR)+(motif?' — '+motif:''),'commande',m.parId); } }
-    try{ if(m.parId) pushNotify('🚫 Refusé par le DR '+fullName(currentUser),boxMvtLibelle(m)+(motif?' — motif : '+motif:''),'/app.html#v=boxes',[m.parId]); }catch(e){}
-    save(); if(current==='validations') views.validations(); toast('Mouvement refusé'); return; }
+  if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return; boxMvtRefuser(m,motif); toast('Mouvement refusé'); return; }
   const b=db.boxes.find(x=>x.id===m.boxId);
-  if(!b){ m.statut='refuse'; m.motifRefus='box introuvable'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); save(); if(current==='validations') views.validations(); toast('Box introuvable — mouvement refusé'); return; }
+  if(!b){ boxMvtRefuser(m,'box introuvable'); toast('Box introuvable — mouvement refusé'); return; }
+  if(m.type==='arrivage'&&m.bcId){ const bv=(db.bons||[]).find(x=>x.id===m.bcId); if(bv&&bv.statut==='livree'){ boxMvtRefuser(m,'bon déjà réceptionné'); toast('Ce bon a déjà été réceptionné — mouvement refusé (pas de double crédit)'); return; } }
   b.stock=b.stock||{};
   if(m.type==='arrivage'){
     (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
@@ -13356,7 +13360,7 @@ function formDemande(){
   demLignes=[{produitId:'',quantite:1}];
   openModal(`<div class="modal-head"><h3>Nouvelle demande</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveDemande(event)">
-      <div class="field"><label>Box concernée *</label><select name="boxId" required><option value="">—</option>${db.boxes.map(b=>`<option value="${b.id}">${esc(b.numero||b.ref)} — ${esc(b.nom)}</option>`).join('')}</select></div>
+      <div class="field"><label>Box concernée *</label><select name="boxId" required><option value="">—</option>${visibleBoxes(db.boxes).map(b=>`<option value="${b.id}">${esc(b.numero||b.ref)} — ${esc(b.nom)}</option>`).join('')}</select></div>
       <div class="field"><label>Produits demandés</label><div id="dem-lignes"></div></div>
       <div class="field"><label>Notes</label><input name="notes" placeholder="Précision pour le DR..."></div>
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">Envoyer au DR</button></div></form>`);
@@ -13425,8 +13429,10 @@ const bonNum=b=>b.numero||b.num||'—';
 /* Quantités d'une ligne de bon — TOUT se compte en UNITÉS de stock. Un carton n'est qu'un conditionnement :
    avec « unités/carton » connu, 5 ctn × 12 = 60 u ; sans, un carton = 1 unité (un « carton de 10 kg » ou un
    « seau de 5 kg » est UNE unité de stock, jamais 0). */
-function bonLU(l){ const c=parseInt(l.cartons)||0, upc=parseInt(l.upc)||0, u=parseInt(l.quantite)||0; return c*(upc||1)+u; }
-function bonQteTxt(l){ const c=parseInt(l.cartons)||0, upc=parseInt(l.upc)||0, u=parseInt(l.quantite)||0;
+/* unités par carton d'une ligne : celles du bon, sinon le conditionnement de la fiche produit — la même règle partout (PDF, mail, réception) */
+function bonUpc(l){ const upc=parseInt(l.upc)||0; if(upc) return upc; try{ const p=l.produitId?(produit(l.produitId)||{}):{}; return parseInt(p.qteCarton)||0; }catch(e){ return 0; } }
+function bonLU(l){ const c=parseInt(l.cartons)||0, upc=bonUpc(l), u=parseInt(l.quantite)||0; return c*(upc||1)+u; }
+function bonQteTxt(l){ const c=parseInt(l.cartons)||0, upc=bonUpc(l), u=parseInt(l.quantite)||0;
   if(c&&upc) return c+' ctn × '+upc+(u?' + '+u+' u':'')+' = '+bonLU(l)+' u';
   return bonLU(l)+' u'; }
 function bonTot(b){ const ls=b.lignes||[]; const ht=ls.reduce((s,l)=>s+bonLU(l)*(l.prixUnitaireHT||0),0); const tva=ls.reduce((s,l)=>s+bonLU(l)*(l.prixUnitaireHT||0)*((l.tvaRate||0)/100),0); return {ht,tva,ttc:ht+tva}; }
@@ -13439,6 +13445,28 @@ function bonQteTot(b){ const ls=b.lignes||[];
            conv:ls.reduce((s,l)=>s+bonLU(l),0),
            allUpc:true }; }
 function bonQteTotTxt(b){ const t=bonQteTot(b); return t.u+' u'+(t.ctn?' (dont '+t.ctn+' carton'+(t.ctn>1?'s':'')+')':''); }
+let bonsTab='liste', bonsFilter='attente', bonsSearch='';
+views.bons=function(){
+  const mes=visibleBons(db.bons);   // ses box (ou les siens) — tout pour qui « voit tout »
+  const att=mes.filter(b=>b.statut==='brouillon').length;
+  const prets=mes.filter(b=>b.statut==='prete').length;
+  setHeader('Bons de commande',`${mes.length} bon(s)${can('voirTout')?'':' (mes box)'}`,`<button class="btn ghost" onclick="bonSuggere()">⚡ Commande suggérée</button><button class="btn ghost" onclick="openRegroupBons()">Regrouper</button><button class="btn" onclick="formBon()">＋ Nouveau</button>`);
+  $('content').innerHTML=`
+    <div class="filters" style="gap:0;background:var(--bg1);border:1px solid var(--brd);border-radius:10px;padding:3px;display:inline-flex">
+      ${[['liste','Liste'],['site','Par site'],['fournisseur','Par fournisseur']].map(([k,l])=>`<div onclick="bonsTab='${k}';views.bons()" style="padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;${bonsTab===k?'background:var(--acc);color:var(--on-acc)':'color:var(--t2)'}">${l}</div>`).join('')}
+    </div>
+    <div class="filters" style="margin-top:12px">
+      <div class="chip ${bonsFilter==='attente'?'active':''}" onclick="bonsFilter='attente';views.bons()">🛒 En préparation ${att?`(${att})`:''}</div>
+      <div class="chip ${bonsFilter==='prets'?'active':''}" onclick="bonsFilter='prets';views.bons()">✅ Prêts à envoyer ${prets?`(${prets})`:''}</div>
+      <div class="chip ${bonsFilter==='envoyes'?'active':''}" onclick="bonsFilter='envoyes';views.bons()">✉️ Envoyés</div>
+      <div class="chip ${bonsFilter==='reponses'?'active':''}" onclick="bonsFilter='reponses';views.bons()">📥 Réponses</div>
+    </div>
+    <input class="search-inp" placeholder="Rechercher…" value="${esc(bonsSearch)}" oninput="bonsSearch=this.value;renderBonsList()">
+    <div id="bons-list"></div>`;
+  renderBonsList();
+};
+/* une réception de ce bon attend-elle déjà la validation du DR ? */
+function bonAttenteDR(b){ return !!b && (db.boxMvtAttente||[]).some(m=>m.bcId===b.id&&m.statut==='enAttente'); }
 function renderBonsList(){
   const el=$('bons-list'); if(!el) return;
   if(bonsFilter==='reponses'){ renderBonsReponses(el); return; }
@@ -13818,7 +13846,7 @@ function ficheBon(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
     <div style="text-align:right;margin-top:12px;font-size:14px;color:var(--t2)">${(b.lignes||[]).length} article(s) · <b style="color:var(--acc);font-size:16px">${bonQteTotTxt(b)}</b></div>
     ${b.notes?`<div class="detail-desc">${esc(b.notes)}</div>`:''}
     ${b.arrivage?`<div class="form-sec">Réception du ${fmtShort(b.arrivage.date)}${b.arrivage.par?' · '+esc(b.arrivage.par):''}</div><div class="detail-desc" style="margin-top:6px">${b.arrivage.conforme?'Livraison conforme.':'Écart de livraison.'}${b.arrivage.notes?'<br>'+esc(b.arrivage.notes):''}</div>${(b.arrivage.lignes||[]).some(l=>l.qteRecue!==l.qteCommandee)?`<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Désignation</th><th>Commandé</th><th>Reçu</th></tr></thead><tbody>${b.arrivage.lignes.map(l=>`<tr><td>${esc(l.designation)}</td><td>${l.qteCommandee}</td><td style="color:${l.qteRecue===l.qteCommandee?'var(--acc)':'var(--red)'}">${l.qteRecue}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
-    <div class="modal-foot">${b.statut==='brouillon'?`<button class="btn" onclick="bonStatut('${b.id}','prete');closeModal()">✅ Prêt à envoyer</button>`:''}<button class="btn${b.statut==='brouillon'?' ghost':''}" onclick="envoiBonApercu('${b.id}')">✉️ Email fournisseur</button>${(b.statut==='envoyee'||b.statut==='enLivraison')?`<button class="btn" onclick="closeModal();bonReception('${b.id}')">Réceptionner</button>`:''}<button class="btn ghost" onclick="bonDupliquer('${b.id}')">🔁 Recommander</button><button class="btn ghost" onclick="bonShare('${b.id}')">📤 Partager</button><button class="btn ghost" onclick="bonPdfOpen('${b.id}')">📄 PDF</button><button class="btn ghost" onclick="bonPdfDownload('${b.id}')">⬇️ Télécharger</button><button class="btn ghost" onclick="printBon('${b.id}')">🖨️</button><button class="btn ghost" onclick="exportBonCSV('${b.id}')">CSV</button><button class="btn ghost" onclick="closeModal();formBon('${b.id}')">Modifier</button></div>`);
+    <div class="modal-foot">${b.statut==='brouillon'?`<button class="btn" onclick="bonStatut('${b.id}','prete');closeModal()">✅ Prêt à envoyer</button>`:''}<button class="btn${b.statut==='brouillon'?' ghost':''}" onclick="envoiBonApercu('${b.id}')">✉️ Email fournisseur</button>${(b.statut==='envoyee'||b.statut==='enLivraison'||(b.statut==='arrivageNote'&&!bonAttenteDR(b)))?`<button class="btn" onclick="closeModal();bonReception('${b.id}')">Réceptionner</button>`:(b.statut==='arrivageNote'?'<span class="st st-purple">📦 Réception en attente du DR</span>':'')}<button class="btn ghost" onclick="bonDupliquer('${b.id}')">🔁 Recommander</button><button class="btn ghost" onclick="bonShare('${b.id}')">📤 Partager</button><button class="btn ghost" onclick="bonPdfOpen('${b.id}')">📄 PDF</button><button class="btn ghost" onclick="bonPdfDownload('${b.id}')">⬇️ Télécharger</button><button class="btn ghost" onclick="printBon('${b.id}')">🖨️</button><button class="btn ghost" onclick="exportBonCSV('${b.id}')">CSV</button><button class="btn ghost" onclick="closeModal();formBon('${b.id}')">Modifier</button></div>`);
 }
 let bonLignes=[]; let _bonEditId=''; let bonSites=[];
 function formBon(id){ const b=id?db.bons.find(x=>x.id===id):{}; _bonEditId=id||'';
@@ -13836,7 +13864,7 @@ function formBon(id){ const b=id?db.bons.find(x=>x.id===id):{}; _bonEditId=id||'
           if(socs.length===1&&!id) return `<input type="hidden" name="societe" value="${esc(cur)}">`;   // une seule société : appliquée d'office
           return `<div class="frow"><span class="frow-lbl">Société (en-tête)</span><div class="frow-val"><select name="societe"><option value="">${esc(bcEntete())} — en-tête par défaut</option>${socs.map(s=>`<option value="${esc(s)}" ${cur===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div></div>`; })()}
         <div class="frow"><span class="frow-lbl">Fournisseur</span><div class="frow-val" style="display:flex;gap:6px;align-items:center"><select name="fournisseurId" style="flex:1;min-width:0" onchange="bonTotRefresh()"><option value="">— Auto (selon les produits) —</option>${db.fournisseurs.map(f=>`<option value="${f.id}" ${f.id===b.fournisseurId?'selected':''}>${esc(f.nom)}</option>`).join('')}</select><button type="button" class="btn ghost sm" title="Modifier les infos du fournisseur (e-mail…)" onclick="bonFourEdit()">✎</button><button type="button" class="btn ghost sm" title="Créer un nouveau fournisseur" onclick="bonFourNew()">＋</button></div></div>
-        <div class="frow"><span class="frow-lbl">Box concernée</span><div class="frow-val"><select name="boxId" onchange="bonBoxPick(this.value)"><option value="">— Aucune —</option>${db.boxes.filter(x=>x.actif!==false).map(x=>`<option value="${x.id}" ${x.id===b.boxId?'selected':''}>${esc(x.numero||'')}${x.numero&&x.nom?' — ':''}${esc(x.nom||'')}</option>`).join('')}</select></div></div>
+        <div class="frow"><span class="frow-lbl">Box concernée</span><div class="frow-val"><select name="boxId" onchange="bonBoxPick(this.value)"><option value="">— Aucune —</option>${visibleBoxes(db.boxes).filter(x=>x.actif!==false).map(x=>`<option value="${x.id}" ${x.id===b.boxId?'selected':''}>${esc(x.numero||'')}${x.numero&&x.nom?' — ':''}${esc(x.nom||'')}</option>`).join('')}</select></div></div>
         <div class="frow"><span class="frow-lbl">Statut</span><div class="frow-val"><select name="statut">${Object.entries(STATBC).map(([k,v])=>`<option value="${k}" ${(b.statut||'prete')===k?'selected':''}>${v.l}</option>`).join('')}</select></div></div>
       </div>
       <div class="form-sec" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Articles (<span id="bon-lignes-count"></span>)<span style="flex:1"></span><button type="button" class="btn ghost sm" onclick="bonQtyOpen()">📋 Tableau</button><button type="button" class="btn sm" onclick="bonCatOpen()">📖 Catalogue</button></div>
@@ -14061,7 +14089,7 @@ function bonPdfDraftFour(k){ const d=_bonDraftGroups; if(!d) return; const ls=d.
    Stock général : produits sous leur seuil (besoin = remonter à 2 × seuil) */
 function bonSuggere(){
   const need={};
-  (db.boxes||[]).filter(b=>b.actif!==false).forEach(b=>{ const st=b.stock||{};
+  visibleBoxes(db.boxes||[]).filter(b=>b.actif!==false).forEach(b=>{ const st=b.stock||{};
     Object.keys(st).forEach(pid=>{ const u=(st[pid]||{}).u||0; if(u<=2){ const p=produit(pid); if(!p.id) return; need[pid]=(need[pid]||0)+Math.max(3-u,1); } }); });
   (db.produits||[]).filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).forEach(p=>{ need[p.id]=(need[p.id]||0)+Math.max(p.seuil*2-(p.qte||0),1); });
   const pids=Object.keys(need);
@@ -14286,10 +14314,11 @@ function recRefresh(){ const el=$('rec-sum'); if(!el)return; const cmd=recLignes
 function applyReception(id){ const b=db.bons.find(x=>x.id===id); if(!b)return; const notes=($('rec-notes')||{}).value||'';
   const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;   // commande liée à une box → la réception crédite SA box
   // utilisateur soumis à la validation DR : la réception part en file de validation, le stock ne bouge qu'au « Valider » du DR
-  if(bx && boxValidRequis()){
+  const lgDR=recLignes.filter(l=>l.produitId&&l.qteRecue>0).map(l=>({produitId:l.produitId,qte:l.qteRecue}));   // lignes qui créditent du stock (produits du catalogue)
+  if(bx && boxValidRequis() && lgDR.length){
+    if(bonAttenteDR(b)){ closeModal(); toast('Une réception de ce bon attend déjà la validation du DR'); return; }
     const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{};
-    const lignes=recLignes.filter(l=>l.produitId&&l.qteRecue>0).map(l=>({produitId:l.produitId,qte:l.qteRecue}));
-    if(!lignes.length){ toast('Aucune quantité reçue'); return; }
+    const lignes=lgDR;
     const conforme=recLignes.every(l=>l.qteRecue===l.qteCommandee);
     boxMvtEnvoyer({type:'arrivage',boxId:bx.id,fournisseur:f.nom||b.fournisseur||'',lignes,bcId:b.id,statutAvant:b.statut,note:notes||(conforme?'':'écart à la réception')});
     b.statut='arrivageNote'; b.dateReception=todayISO(); b.recuPar=fullName(currentUser); b.recuLe=todayISO();
@@ -14311,7 +14340,7 @@ function applyReception(id){ const b=db.bons.find(x=>x.id===id); if(!b)return; c
 function regroupGroups(){
   // Brouillons regroupables : statut brouillon + un fournisseur défini
   const groups={};
-  db.bons.filter(b=>b.statut==='brouillon'&&b.fournisseurId).forEach(b=>{ (groups[b.fournisseurId]=groups[b.fournisseurId]||[]).push(b); });
+  visibleBons(db.bons).filter(b=>b.statut==='brouillon'&&b.fournisseurId).forEach(b=>{ (groups[b.fournisseurId]=groups[b.fournisseurId]||[]).push(b); });
   return groups;
 }
 function openRegroupBons(){
@@ -14331,7 +14360,7 @@ function openRegroupBons(){
   openModal(`<div class="modal-head"><h3>Regrouper les commandes</h3><button class="modal-close" onclick="closeModal()">✕</button></div>${body}<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Fermer</button></div>`);
 }
 function regrouperFournisseur(fid){
-  const bs=db.bons.filter(b=>b.statut==='brouillon'&&b.fournisseurId===fid);
+  const bs=visibleBons(db.bons).filter(b=>b.statut==='brouillon'&&b.fournisseurId===fid);
   if(bs.length<2){ toast('Rien à regrouper'); return; }
   // Fusion des lignes : clé = produitId sinon référence+désignation
   const merged={}; const order=[];
@@ -18785,10 +18814,10 @@ views.contrats=function(){
   $('content').innerHTML=`<div class="card" style="background:color-mix(in srgb,var(--acc) 7%,transparent);border-color:color-mix(in srgb,var(--acc) 30%,transparent)"><div style="font-size:13px;color:var(--t2)">Le bouton <b>Générer</b> crée automatiquement la prochaine intervention planifiée selon la fréquence du contrat.</div></div>
     ${list.length? tableCard(['N°','Intitulé','Client','Fréquence','Montant','Période','Statut',''],rows):`<div class="card">${emptyState('📑','Aucun contrat.','Créer','formContrat()')}</div>`}`;
 };
-function freqDays(f){ return {mensuel:30,trimestriel:91,semestriel:182,annuel:365}[f]||30; }
+function ctrFreqDays(f){ return {mensuel:30,trimestriel:91,semestriel:182,annuel:365}[f]||30; }   // contrats (minuscules) — distinct de freqDays des box
 function genererInterventionContrat(id){ const ct=db.contrats.find(x=>x.id===id); if(!ct)return;
   const base=ct.derniereGeneration||ct.dateDebut||todayISO();
-  const nx=new Date(base+'T00:00:00'); nx.setDate(nx.getDate()+freqDays(ct.frequence));
+  const nx=new Date(base+'T00:00:00'); nx.setDate(nx.getDate()+ctrFreqDays(ct.frequence));
   const iso=ISO(nx), cli=db.clients.find(c=>c.id===ct.clientId)||{};
   const obj={id:uid(),titre:ct.titre,clientId:ct.clientId,techId:'',date:iso,heure:'09:00',duree:60,statut:'planifiee',prio:'normale',rapportModele:ct.rapportModele||'',adresse:cli.adresse||'',desc:'Intervention récurrente — contrat '+ct.num,compteRendu:'',contratId:id,produitsUtilises:[],equipements:[]}; db.interventions.push(obj); notifyTechNewInt(obj);
   ct.derniereGeneration=iso; logEvent('Intervention générée (contrat)',`${ct.num} → ${iso}`,'crud'); save(); toast('Intervention planifiée le '+fmtShort(iso)); views.contrats(); }
@@ -18934,7 +18963,7 @@ views.brouillon=function(){
     <div class="pl-info"><div class="pl-title">${esc(p.nom||'—')}</div><div class="pl-meta">${esc(p.ref||'')}</div></div><span class="strong">×${b.quantite}</span>
     <span onclick="event.stopPropagation()"><button class="btn danger sm" onclick="delItem('brouillons','${b.id}')">🗑</button></span></div>`;}).join('');
   $('content').innerHTML=`${mine.length? rows+`<div class="card" style="margin-top:12px"><div class="card-head"><h3>Transformer en demande</h3></div>
-      <div class="field"><label>Box concernée *</label><select id="brBox"><option value="">—</option>${db.boxes.map(x=>`<option value="${x.id}">${esc(x.numero||x.ref)} — ${esc(x.nom)}</option>`).join('')}</select></div>
+      <div class="field"><label>Box concernée *</label><select id="brBox"><option value="">—</option>${visibleBoxes(db.boxes).map(x=>`<option value="${x.id}">${esc(x.numero||x.ref)} — ${esc(x.nom)}</option>`).join('')}</select></div>
       <button class="btn" onclick="brouillonToDemande()">Envoyer la demande au DR</button></div>`
     : `<div class="card">${emptyState('📝','Brouillon vide.','Ajouter un produit','formBrouillon()')}</div>`}`;
 };
@@ -19227,10 +19256,10 @@ function renderSearch(qq){ const el=$('gsearch-res'); if(!el) return; const q=no
   if(q.length<2){ el.innerHTML='<div style="color:var(--t3);font-size:13px;padding:8px">Tapez au moins 2 lettres…</div>'; return; }
   const R=[]; const add=(arr,type,ic,nameFn,subFn,actFn)=>{ (arr||[]).forEach(x=>{ const nom=nameFn(x)||''; const sub=subFn(x)||''; if(norm(nom+' '+sub).includes(q)&&R.filter(r=>r.type===type).length<6) R.push({ic,type,nom,sub,act:actFn(x)}); }); };
   add(db.clients,'Client','🏢',c=>c.nom,c=>c.adresse,c=>`closeModal();ficheClient('${c.id}')`);
-  add(db.interventions,'Intervention','🧰',i=>i.titre,i=>clientName(i.clientId)+' · '+fmtShort(i.date),i=>`closeModal();detailIntervention('${i.id}')`);
+  add(visibleInts(db.interventions),'Intervention','🧰',i=>i.titre,i=>clientName(i.clientId)+' · '+fmtShort(i.date),i=>`closeModal();detailIntervention('${i.id}')`);
   add(db.produits,'Produit','📦',p=>p.nom,p=>p.ref,p=>`closeModal();formProduit('${p.id}')`);
-  add(db.boxes,'Box','🧱',b=>b.nom||b.numero,b=>b.ville,b=>`closeModal();openBox('${b.id}')`);
-  add(db.vehicules,'Véhicule','🚐',v=>vPlaque(v),v=>(v.marque||'')+' '+(v.modele||''),v=>`closeModal();ficheVehicule('${v.id}')`);
+  add(visibleBoxes(db.boxes),'Box','🧱',b=>b.nom||b.numero,b=>b.ville,b=>`closeModal();openBox('${b.id}')`);   // la recherche respecte le périmètre
+  add(visibleVehicules(db.vehicules),'Véhicule','🚐',v=>vPlaque(v),v=>(v.marque||'')+' '+(v.modele||''),v=>`closeModal();ficheVehicule('${v.id}')`);
   add(db.devis,'Devis','💰',d=>d.num,d=>clientName(d.clientId),()=>`closeModal();go('devis')`);
   add(db.factures,'Facture','🧾',f=>f.num,f=>clientName(f.clientId),()=>`closeModal();go('factures')`);
   add(db.fournisseurs,'Fournisseur','🏭',f=>f.nom,f=>f.ville,()=>`closeModal();go('fournisseurs')`);
@@ -19280,7 +19309,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
     if(can('validerDR') && notifVoitModule('validations')){   // toute personne qui a le droit de valider (DR, admin, ou droit accordé)
       db.demandes.filter(d=>d.statut==='enAttente').forEach(d=>out.push({id:'dem:'+d.id,ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>${(d.chefNom||d.chefId)?' · '+esc(d.chefNom||userName(d.chefId)):''}`,act:"go('validations')"}));
       // mouvements de box (arrivages, réceptions de bons, ajustements…) en attente de la validation du DR
-      (db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente'&&!notifMoi(m.par)).forEach(m=>{   // tout ce qui attend SA validation, quelle que soit la box
+      (db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente'&&!m.bcId&&!notifMoi(m.par)).forEach(m=>{   // tout ce qui attend SA validation, quelle que soit la box (les réceptions de bons sont portées par « bonarr » ci-dessous)
         out.push({id:'mvatt:'+m.id,ts:m.ts||0,ic:'🔒',txt:`<b>À valider</b> — ${esc(boxMvtLibelle(m))} · par <b>${esc(m.par||'')}</b>`,act:"go('validations')"}); });
     }
     if(estDir && notifVoitModule('enveloppes')) db.enveloppes.filter(e=>(e.paiements||[]).some(p=>p.statut==='attente')).forEach(e=>out.push({id:'env:'+e.id,ic:'📮',txt:`Enveloppe avec paiement en attente : <b>${esc(e.numero)}</b>`,act:"go('enveloppes')"}));
@@ -19320,14 +19349,14 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
       out.push({id:'essai:'+db.forfaitEssai.finLe,ic:'🎁',txt:`Ton essai <b>${(PLANS[fEss]||{}).l||''}</b> se termine ${rest===0?"<b>aujourd'hui</b>":'dans <b>'+rest+' jour(s)</b>'} — aucune carte n'est enregistrée : pense à prendre l'abonnement pour continuer sans coupure.`,act:"window.open('https://teamop.fr/recap-abonnement.html?formule="+cible+"&utilisateurs='+db.users.length,'_blank')"}); } }
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
   { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
-    (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
+    (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
       out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?"go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120)":"go('validations')"}); });
-    if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
+    if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&!notifMoi(d.drNom)&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
       out.push({id:'demv:'+d.id+':'+d.statut,ts:new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes')"}); });
   }
   // Bons réceptionnés en attente de la validation du DR (admin / DR, sur les box qu'ils voient)
   if(can('validerDR')&&(notifVoitModule('commandes')||notifVoitModule('validations'))){
-    (db.bons||[]).filter(b=>b.statut==='arrivageNote'&&!notifMoi(b.recuPar)).forEach(b=>{ const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;
+    (db.bons||[]).filter(b=>b.statut==='arrivageNote'&&bonAttenteDR(b)&&!notifMoi(b.recuPar)).forEach(b=>{ const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;
       out.push({id:'bonarr:'+b.id,ic:'📥',txt:`Bon <b>${esc(bonNum(b))}</b> réceptionné${b.recuPar?' par <b>'+esc(b.recuPar)+'</b>':''} — <b>en attente de ta validation</b>${bx?' · '+esc(bx.nom||bx.numero||''):''}`,act:"go('validations')"}); });
   }
   // élague les éléments « vus » qui n'existent plus
@@ -19625,6 +19654,13 @@ function maybeProfilePhoto(){ if(!currentUser||currentUser.photo) return;
    tant qu'il est en développement — jamais visibles chez les entreprises */
 function equipeTeamOP(){ try{ return APP_VERSION.indexOf('beta')>=0 || syncTeam()===FB_TEAM; }catch(e){ return false; } }
 function opMsgDisponible(){ return equipeTeamOP(); }
+/* Barre « SUITE » du menu : une seule règle, réutilisée à la connexion, au changement de forfait et au code promo —
+   OP MESSAGES = droit accordé + forfait + application ouverte (encore en développement pour les entreprises) ;
+   sans autre application à ouvrir, le sélecteur « Changer d'application » est retiré (il reste la déconnexion) */
+function suiteRefresh(){ if(!currentUser) return;
+  const soOn=!!(can('opMessages')&&planOpMsg()&&opMsgDisponible());
+  const so=$('suite-opmsg'); if(so) so.style.display=soOn?'flex':'none';
+  try{ const sb=$('suite-box'); if(sb){ const on=soOn||currentUser.role==='admin'; sb.style.display=on?'':'none'; const lbl=sb.previousElementSibling; if(lbl) lbl.style.display=on?'':'none'; } }catch(e){} }
 function enterApp(u){ currentUser=u; try{ localStorage.removeItem('elan_lien_ok'); localStorage.removeItem('elan_ent_ok'); }catch(e){} try{ gpsAutoChrono(); }catch(e){} $('login').style.display='none'; $('app-root').style.display='flex';
   const av=$('app-ver'); if(av) av.textContent=APP_VERSION;
   const fn=fullName(u); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); userAvatarApply();
@@ -19633,10 +19669,7 @@ function enterApp(u){ currentUser=u; try{ localStorage.removeItem('elan_lien_ok'
   const fa=$('foot-ava'); if(fa&&!u.photo) fa.textContent=initials(fn);
   const fn2=$('foot-name'); if(fn2) fn2.textContent=fn;
   const fr=$('foot-role'); if(fr) fr.textContent=(ROLE[u.role]||'Technicien')+(db.entreprise&&db.entreprise.nom?' · '+db.entreprise.nom:'');
-  const soOn=!!(can('opMessages')&&planOpMsg()&&opMsgDisponible());
-  const so=$('suite-opmsg'); if(so) so.style.display=soOn?'flex':'none';   // OP MESSAGES : droit accordé + forfait Premium + application ouverte (encore en développement pour les entreprises)
-  // sans autre application à ouvrir, le sélecteur « Changer d'application » n'a rien à proposer : on le retire (il reste la déconnexion)
-  try{ const sb=$('suite-box'); if(sb){ const on=soOn||u.role==='admin'; sb.style.display=on?'':'none'; const lbl=sb.previousElementSibling; if(lbl) lbl.style.display=on?'':'none'; } }catch(e){}
+  suiteRefresh();
   try{ notifSeenCharger(); }catch(e){}   // notifications « vues » propres à ce compte
   const ta=$('topbar-ava'); if(ta) ta.textContent=initials(fn);
   asstMsgs=[]; asstOpen=false; renderAsst();
