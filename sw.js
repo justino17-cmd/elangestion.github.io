@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v745';
+const CACHE = 'elan-gestion-v746';
 const ASSETS = [
   './',
   'index.html',
@@ -35,16 +35,34 @@ const ASSETS = [
   'sons/appel.mp3'
 ];
 
+/* Précache ressource par ressource : une coupure sur un fichier ne vide pas tout le cache. */
 self.addEventListener('install', e => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(ASSETS.map(a => c.add(a).catch(() => {})))));
 });
 
+/* À l'activation : ce qui manque dans le nouveau cache est repris de l'ancien (jamais d'appareil
+   sans copie hors ligne), puis l'ancien est supprimé. */
 self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    let neuf = null; try { neuf = await caches.open(CACHE); } catch (_) {}
+    for (const k of keys) {
+      if (k === CACHE) continue;
+      try {
+        if (neuf) {
+          const vieux = await caches.open(k);
+          for (const r of await vieux.keys()) {
+            if (await neuf.match(r)) continue;
+            const rep = await vieux.match(r);
+            if (rep) await neuf.put(r, rep);
+          }
+        }
+      } catch (_) {}
+      try { await caches.delete(k); } catch (_) {}
+    }
+    await self.clients.claim();
+  })());
 });
 
 /* Prévenir les onglets ouverts qu'une version plus fraîche est arrivée. */
@@ -54,20 +72,42 @@ function annonceMaj(chemin) {
     .catch(() => {});
 }
 
+/* Deux réponses sont-elles la même version ? Par les en-têtes quand le serveur les donne
+   (GitHub Pages : etag), sinon en comparant le texte. */
+function memeVersion(a, b) {
+  const ea = a.headers.get('etag'), eb = b.headers.get('etag');
+  if (ea && eb) return Promise.resolve(ea === eb);
+  const la = a.headers.get('last-modified'), lb = b.headers.get('last-modified');
+  if (la && lb && la !== lb) return Promise.resolve(false);
+  return Promise.all([a.text(), b.text()]).then(([x, y]) => x === y).catch(() => true);
+}
+
+const pageHorsLigne = () => new Response(
+  '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hors ligne</title></head>' +
+  '<body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1729;color:#eef2fa;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px">' +
+  '<div><div style="font-size:42px">📡</div><h1 style="font-size:20px;margin:12px 0 6px">Cette page n\'est pas disponible hors ligne</h1>' +
+  '<p style="color:#93a9d4;font-size:14px">Reconnecte-toi à internet, ou <a href="app.html" style="color:#34d399">ouvre l\'application</a>.</p></div></body></html>',
+  { status: 503, headers: { 'Content-Type': 'text/html;charset=utf-8' } });
+
 /* « Mettre à jour » : la page demande la version fraîche AVANT de se recharger.
-   On la télécharge en ignorant tout cache, on la garde, puis on répond — et la
-   prochaine navigation attend le réseau plutôt que de resservir l'ancienne copie. */
-let forcerFraisJusqua = 0;
+   On la télécharge en ignorant tout cache, on la range, puis on répond ; une navigation
+   qui arrive pendant ce téléchargement l'attend, et la page fraîche est servie du cache
+   sans second téléchargement. */
+let majEnCours = null;      // promesse du téléchargement forcé en cours
+let majFraiche = '';        // adresse dont la copie en cache vient d'être rafraîchie de force
+let forcerFraisJusqua = 0;  // secours : la prochaine navigation attend le réseau si le forçage a échoué
 self.addEventListener('message', e => {
   const d = (e && e.data) || {};
   if (d.op !== 'maj-forcer') return;
-  const url = new URL(d.url || 'app.html', self.location.href).href;
-  const repondre = () => { try { if (e.ports && e.ports[0]) e.ports[0].postMessage({ op: 'maj-ok' }); } catch (_) {} };
+  const port = e.ports && e.ports[0];
+  const dire = (m) => { try { if (port) port.postMessage(m); } catch (_) {} };
+  dire({ op: 'maj-recu' });
+  const url = new URL(d.url || 'app.html', self.location.href).href.split('?')[0];
   const travail = fetch(url, { cache: 'reload' })
     .then(res => { if (!res || !res.ok) throw new Error('réseau'); return caches.open(CACHE).then(c => c.put(url, res.clone())); })
-    /* rangée : la copie servie au rechargement EST la fraîche ; sinon la prochaine navigation attend le réseau */
-    .then(() => { forcerFraisJusqua = 0; }, () => { forcerFraisJusqua = Date.now() + 30000; })
-    .then(repondre);
+    .then(() => { majFraiche = url; forcerFraisJusqua = 0; }, () => { majFraiche = ''; forcerFraisJusqua = Date.now() + 30000; })
+    .then(() => { if (majEnCours === travail) majEnCours = null; dire({ op: 'maj-ok' }); });
+  majEnCours = travail;
   if (e.waitUntil) e.waitUntil(travail);
 });
 
@@ -91,45 +131,48 @@ self.addEventListener('fetch', e => {
      sert la toute dernière version : une correction livrée arrive TOUT DE
      SUITE, sans double rechargement.
      Si le réseau traîne ou manque, la copie gardée s'affiche instantanément
-     comme avant, et la version fraîche prendra sa place au retour.
-     C'est ce détail qui a fait essayer pendant des jours des corrections
-     déjà livrées mais jamais reçues. */
+     comme avant, et on prévient (bandeau « Mise à jour disponible ») dès que
+     la version fraîche est bien rangée. */
   if (isDoc) {
-    /* la page est rangée sous son adresse (pas sous la requête de navigation,
-       que certains navigateurs refusent de ranger) */
-    const cle = req.url;
-    const forcer = Date.now() < forcerFraisJusqua;
-    if (forcer) forcerFraisJusqua = 0;
-    e.respondWith(
-      caches.match(cle).then(garde => {
-        let enCache = Promise.resolve(false);
-        const frais = fetch(req).then(res => {
-          if (res && res.ok) {
-            const copie = res.clone();
-            enCache = caches.open(CACHE).then(c => c.put(cle, copie)).then(() => true, () => false);
-          }
-          return res;
-        }).catch(() => null);
+    /* la page est rangée sous son adresse sans paramètres (index.html?hub=1 → index.html) */
+    const cle = req.url.split('?')[0];
+    e.respondWith((async () => {
+      if (majEnCours) { try { await majEnCours; } catch (_) {} }
+      /* juste après « Mettre à jour » : la copie rangée EST la fraîche, on la sert sans re-télécharger */
+      if (majFraiche === cle) { majFraiche = ''; const g = await caches.match(cle); if (g) return g; }
+      const forcer = Date.now() < forcerFraisJusqua;
+      if (forcer) forcerFraisJusqua = 0;
 
-        if (!garde) return frais.then(r => r || caches.match('app.html'));
+      const garde = await caches.match(cle);
+      const temoin = garde ? garde.clone() : null;   // copie pour comparer plus tard (le corps servi ne se relit pas)
+      let enCache = Promise.resolve(false);
+      const frais = fetch(req).then(res => {
+        if (res && res.ok) {
+          const copie = res.clone();
+          enCache = caches.open(CACHE).then(c => c.put(cle, copie)).then(() => true, () => false);
+        }
+        return res;
+      }).catch(() => null);
 
-        /* course : le réseau a 2 secondes pour gagner (15 juste après « Mettre à jour ») */
-        const patience = new Promise(r => setTimeout(() => r(null), forcer ? 15000 : 2000));
-        return Promise.race([frais, patience]).then(r => {
-          if (r && r.ok) return r;                       // ← la version fraîche
-          /* le réseau traîne : on sert la copie, et on préviendra si ça change —
-             seulement une fois la version fraîche bien rangée, sinon le bouton
-             « Mettre à jour » resservirait l'ancienne copie et le bandeau reviendrait */
-          frais.then(res => {
-            if (!res || !res.ok) return;
-            Promise.all([garde.clone().text(), res.clone().text()])
-              .then(([a, b]) => { if (a !== b) return enCache.then(ok => { if (ok) annonceMaj(url.pathname); }); })
-              .catch(() => {});
-          }).catch(() => {});
-          return garde;
-        });
-      })
-    );
+      if (!garde) {
+        const r = await frais;
+        if (r) return r;
+        return url.pathname.endsWith('/app.html') ? ((await caches.match('app.html')) || pageHorsLigne()) : pageHorsLigne();
+      }
+
+      /* course : le réseau a 2 secondes pour gagner (15 en secours après « Mettre à jour ») */
+      const patience = new Promise(r => setTimeout(() => r(null), forcer ? 15000 : 2000));
+      const r = await Promise.race([frais, patience]);
+      if (r && r.ok) return r;                       // ← la version fraîche
+      /* le réseau traîne : on sert la copie, et on préviendra si ça change —
+         seulement une fois la version fraîche bien rangée, sinon le bouton
+         « Mettre à jour » resservirait l'ancienne copie et le bandeau reviendrait */
+      frais.then(res => {
+        if (!res || !res.ok || !temoin) return;
+        return memeVersion(temoin, res.clone()).then(meme => { if (!meme) return enCache.then(ok => { if (ok) annonceMaj(url.pathname); }); });
+      }).catch(() => {});
+      return garde;
+    })());
     return;
   }
 

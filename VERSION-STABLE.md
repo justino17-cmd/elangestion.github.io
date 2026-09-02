@@ -1,6 +1,17 @@
 # Point stable TeamOP
 
-**Version stable : v547** — gravée le 22 août 2026.
+**Version stable : v548** — gravée le 2 septembre 2026.
+
+v548 — les comptes créés par l'entreprise se connectent vraiment : les données de
+l'équipe arrivent avant l'écran de connexion (appareil neuf via le lien), l'écran
+dit « Vous allez vous connecter à l'entreprise X », mot de passe provisoire
+obligatoire envoyé par e-mail avec le lien de l'entreprise, e-mail de récupération
+obligatoire à la 1re connexion, compte supprimé ou désactivé déconnecté aussitôt.
+Bons de commande : en-tête au nom de l'entreprise (réglage dans Paramètres),
+téléphone sur place des box. Service worker : « Mise à jour disponible » et
+« Mettre à jour » fiables même sur réseau lent, copie hors ligne jamais perdue.
+
+Ancien point : **v547** — gravée le 22 août 2026.
 
 v547 — le journal des mouvements refait (cases pliées par jour et par box,
 bons de remise intégrés, Donné à, étiquettes automatiques, recherche), et
