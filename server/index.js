@@ -1134,18 +1134,16 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '550',
-  sujet: '🆕 Du nouveau dans OP GESTION — un seul lien de connexion pour toute votre équipe',
-  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une mise à jour — elle est déjà active, il suffit de rouvrir l\'application.',
+  version: '553',
+  sujet: '🆕 Du nouveau dans OP GESTION — chacun ne voit que ce qui le concerne',
+  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une mise à jour — elle est déjà active, il suffit de rouvrir l\'application (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['🔗 Un seul lien de connexion, le vôtre', 'Votre entreprise a son lien : <b>teamop.fr/app.html#e=votre-nom</b>. Le même pour tout le monde, sur le site comme dans l\'application. Vous le retrouvez dans Paramètres → « Lien de connexion de ton entreprise » (Copier) pour l\'envoyer à toute l\'équipe.'],
-    ['🏢 Sans le lien ? Le nom de l\'entreprise suffit', 'Sur l\'écran de connexion, un champ « Entreprise » : la personne tape le nom de son entreprise, son identifiant et son mot de passe, et elle est sur le bon espace.'],
-    ['👥 Vos utilisateurs se connectent en un clic', 'Quand vous créez un utilisateur, il reçoit par e-mail son identifiant, un mot de passe provisoire et <b>le lien de connexion de votre entreprise</b>. Il clique, l\'application affiche « Vous allez vous connecter à l\'entreprise … », il entre ses accès : c\'est tout.'],
-    ['🔐 Un compte sûr dès la première connexion', 'À sa première connexion, chacun choisit son mot de passe personnel et enregistre son e-mail de récupération. « Mot de passe oublié ? » lui envoie ensuite un code par e-mail, sans déranger personne.'],
-    ['🚪 Un compte supprimé ou désactivé ne se connecte plus', 'Dès que vous supprimez ou désactivez un utilisateur, il est déconnecté sur tous ses appareils et ne peut plus entrer dans votre espace.'],
-    ['🧾 Vos bons de commande à votre nom', 'L\'en-tête du bon porte le nom de votre entreprise (réglable dans Paramètres → Mon entreprise). Plusieurs sociétés ? Déclarez-les dans « Mes sociétés » : chaque bon choisit la sienne, avec son nom et sa couleur.'],
-    ['📞 Le téléphone sur place des box', 'Chaque box peut avoir un téléphone de contact : il est repris automatiquement dans le bloc Livraison du bon de commande, avec l\'adresse de la box.'],
-    ['🔄 Des mises à jour qui arrivent vraiment', 'Sur réseau lent, le message « Mise à jour disponible » et le bouton « Mettre à jour » fonctionnent désormais à coup sûr.']
+    ['👤 Chacun ne voit que ce qui le concerne', 'Un utilisateur sans le droit « voir tout » ne voit plus que <b>ses box</b>, <b>ses bons de commande</b> (ceux de ses box ou qu\'il a faits), <b>ses demandes</b>, <b>ses mouvements</b>, <b>son véhicule</b> et <b>son historique</b> : le menu (fini le « 19 box » quand on n\'en a qu\'une), le tableau de bord, les listes et la cloche racontent tous la même chose. L\'administrateur, le DR et les rôles « voir tout » gardent la vue entière.'],
+    ['🔔 Des notifications ciblées', 'Personne ne reçoit plus les alertes des autres services ni des autres box. Quand le DR valide ou refuse un mouvement, une réception ou une demande, <b>seule la personne concernée</b> est prévenue (validé ✅ / refusé 🚫, par qui, motif). Le DR voit dans sa cloche ce qui attend sa validation.'],
+    ['📥 La réception d\'un bon passe par le DR', 'Pour un utilisateur soumis à la validation DR, « Réceptionner » envoie la réception au DR : le stock de la box ne bouge qu\'à sa validation. Refusée, le bon redevient « à réceptionner ».'],
+    ['📦 Tout est compté en unités', 'Un carton de 10 kg = 1 unité, un seau de 5 kg = 1 unité. Les bons, la réception et le stock des box parlent la même langue : plus d\'écart artificiel à la réception.'],
+    ['✉️ Envoi des bons : vous choisissez lesquels', '« Envoyer les bons prêts… » affiche la liste des bons prêts à cocher : seuls les bons cochés partent chez leur fournisseur. Plus jamais deux bons envoyés quand un seul devait partir.'],
+    ['🔐 Mon compte, dans Paramètres', 'Chaque utilisateur peut changer son mot de passe et son e-mail de récupération, choisir sa photo, son avatar, sa langue, ses couleurs — et se déconnecter (bouton ⏻ aussi en bas du menu). Les outils de test de TEAM OP n\'apparaissent plus chez vous.']
   ]
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
