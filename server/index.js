@@ -1044,15 +1044,16 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '547',
-  sujet: '🆕 Du nouveau dans OP GESTION — le journal de stock et l\'analyse de consommation',
-  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une belle mise à jour — elle est déjà active, il suffit de rouvrir l\'application.',
+  version: '549',
+  sujet: '🆕 Du nouveau dans OP GESTION — vos utilisateurs, vos bons de commande',
+  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une mise à jour importante — elle est déjà active, il suffit de rouvrir l\'application.',
   points: [
-    ['🔁 Le journal des mouvements, refait', 'Rangé par jour puis par box, avec pour chaque mouvement : qui a ajouté ou retiré, qui a validé, et à qui les produits ont été donnés. Les bons de remise (PDF) sont intégrés au journal.'],
-    ['🏷️ Des étiquettes automatiques', 'Chaque ligne dit d\'où elle vient : ajout sur bon de commande, ajout simple, produit pris, donné, ou consommation d\'intervention.'],
-    ['📈 L\'analyse de consommation', 'Un vrai graphique : cliquez sur un pic pour voir immédiatement qui a consommé quoi, où et quand. Périodes de 30 jours à 12 mois, filtres par produit, personne et rôle.'],
-    ['⚖️ Des repères qui vous connaissent', 'L\'application apprend ce que vous distribuez chaque mois, compare chacun à ses habitudes et au mois précédent (▲/▼), et signale en rouge ce qui sort de l\'ordinaire.'],
-    ['👤 La consommation par personne', 'Qui consomme quoi, la part de chacun, et le récapitulatif mois par mois avec l\'évolution.']
+    ['👥 Vos utilisateurs se connectent en un clic', 'Quand vous créez un utilisateur, il reçoit par e-mail son identifiant, un mot de passe provisoire et <b>le lien de connexion de votre entreprise</b>. Il clique, l\'application affiche « Vous allez vous connecter à l\'entreprise … », il entre ses accès : c\'est tout.'],
+    ['🔐 Un compte sûr dès la première connexion', 'À sa première connexion, chacun choisit son mot de passe personnel et enregistre son e-mail de récupération. « Mot de passe oublié ? » lui envoie ensuite un code par e-mail, sans déranger personne.'],
+    ['🚪 Un compte supprimé ou désactivé ne se connecte plus', 'Dès que vous supprimez ou désactivez un utilisateur, il est déconnecté sur tous ses appareils et ne peut plus entrer dans votre espace.'],
+    ['🧾 Vos bons de commande à votre nom', 'L\'en-tête du bon porte le nom de votre entreprise (réglable dans Paramètres → Mon entreprise). Plusieurs sociétés ? Déclarez-les dans « Mes sociétés » : chaque bon choisit la sienne, avec son nom et sa couleur.'],
+    ['📞 Le téléphone sur place des box', 'Chaque box peut avoir un téléphone de contact : il est repris automatiquement dans le bloc Livraison du bon de commande, avec l\'adresse de la box.'],
+    ['🔄 Des mises à jour qui arrivent vraiment', 'Sur réseau lent, le message « Mise à jour disponible » et le bouton « Mettre à jour » fonctionnent désormais à coup sûr.']
   ]
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
@@ -1069,7 +1070,7 @@ app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
     '<div style="font-size:14px;font-weight:800;color:#17233B;padding-bottom:4px">' + t + '</div>' +
     '<div style="font-size:13px;line-height:1.7;color:#4A5A7A">' + d + '</div></td></tr></table>').join('');
   const texte = 'Bonjour,\n\nvotre application OP GESTION vient de recevoir une mise à jour (v' + ANNONCE.version + ') :\n\n' +
-    ANNONCE.points.map(([t, d]) => '• ' + t.replace(/^[^ ]+ /, '') + ' — ' + d).join('\n') +
+    ANNONCE.points.map(([t, d]) => '• ' + t.replace(/^[^ ]+ /, '') + ' — ' + d.replace(/<[^>]+>/g, '')).join('\n') +
     '\n\nElle est déjà active : rouvrez simplement l\'application.\n\n— L\'équipe TEAM OP · teamop.fr';
   let envoyes = 0, refus = 0;
   for (const [ad, nom] of parMail) {

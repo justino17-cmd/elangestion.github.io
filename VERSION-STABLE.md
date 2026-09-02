@@ -1,6 +1,13 @@
 # Point stable TeamOP
 
-**Version stable : v548** — gravée le 2 septembre 2026.
+**Version stable : v549** — gravée le 2 septembre 2026.
+
+v549 — bons de commande multi-sociétés : les sociétés déclarées dans
+Paramètres → Mes sociétés sont proposées sur chaque bon (« Société (en-tête) »),
+le PDF et l'impression prennent le nom et la couleur de la société choisie ;
+une seule société est appliquée d'office. Annonce v549 envoyée aux entreprises.
+
+Ancien point : **v548** — gravée le 2 septembre 2026.
 
 v548 — les comptes créés par l'entreprise se connectent vraiment : les données de
 l'équipe arrivent avant l'écran de connexion (appareil neuf via le lien), l'écran
