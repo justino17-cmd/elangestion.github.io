@@ -1,6 +1,18 @@
 # Point stable TeamOP
 
-**Version stable : v551** — gravée le 2 septembre 2026.
+**Version stable : v552** — gravée le 2 septembre 2026.
+
+v552 — une personne supprimée l'est partout : la suppression d'un utilisateur
+archive sa fiche technicien (l'historique garde son nom) et le retire des box,
+véhicules, groupes, chefs et du planning à venir ; supprimer un technicien qui a
+un compte passe par la suppression du compte (code de confirmation). Plus de
+doublons : création reliée à la fiche ou au compte existant du même nom, bouton
+« Fusionner les doublons » dans Techniciens ; « Visible par » d'un box sans noms
+répétés. Réception d'un bon : des cartons sans « unités par carton » comptent
+1 unité chacun (jamais 0), le conditionnement de la fiche produit est repris.
+Produits d'un box : ce qui est en stock d'abord (plus gros stocks en tête).
+
+Ancien point : **v551** — gravée le 2 septembre 2026.
 
 v551 — « Mot de passe oublié » demande l'entreprise quand l'appareil n'est
 relié à rien (ou que le compte est chez une autre entreprise), met l'appareil sur
