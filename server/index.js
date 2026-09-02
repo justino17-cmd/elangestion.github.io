@@ -526,20 +526,27 @@ app.post('/api/compte/identifiants', async (req, res) => {
   const url = (esp && esp.slug) ? 'https://teamop.fr/app.html#e=' + esp.slug : (lienApp || 'https://teamop.fr/connexion.html');
   const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const entTxt = ent ? ' « ' + ent + ' »' : '';
+  // ce que l'écran de connexion affichera vraiment : le nom porté par le lien (annuaire si #e=…, sinon celui de l'app)
+  const nomEcran = (esp && esp.nom) ? net(esp.nom, 80) : ent;
+  const ecranTxt = nomEcran ? ' « ' + nomEcran + ' »' : '';
+  const lienEspace = /#(e|entreprise)=/.test(url);   // un lien d'espace met l'appareil sur l'entreprise ; connexion.html, non
+  const explique = lienEspace
+    ? 'Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « Vous allez vous connecter à l\'entreprise' + ecranTxt + ' ». Entrez alors votre identifiant et votre mot de passe provisoire.'
+    : 'Ouvrez l\'application avec ce lien, puis entrez votre identifiant et votre mot de passe provisoire.';
+  const sansLien = (esp && esp.slug) ? '(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + ecranTxt + '.)' : '';
   try {
     await mailerEnvoi({ confidentiel: true, from: config.smtp.from || config.smtp.user, to,
       subject: 'Vos accès OP GESTION' + (ent ? ' — ' + ent : ''),
       text: 'Bonjour' + (pre ? ' ' + pre : '') + ',\n\n' + (qui ? qui + ' vous a créé' : 'Votre entreprise vous a créé') + ' un compte OP GESTION' + (ent ? ' (' + ent + ')' : '') + '.\n\n'
         + 'Identifiant : ' + id + '\nMot de passe provisoire : ' + pwd + '\n\n'
-        + 'Votre lien de connexion — c\'est celui de l\'entreprise' + entTxt + ' :\n' + url + '\n'
-        + 'Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « Vous allez vous connecter à l\'entreprise' + entTxt + ' ». Entrez alors votre identifiant et votre mot de passe provisoire.\n'
-        + (esp && esp.slug ? '(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + entTxt + '.)\n' : '')
+        + 'Votre lien de connexion' + (lienEspace ? ' — c\'est celui de l\'entreprise' + entTxt : '') + ' :\n' + url + '\n'
+        + explique + '\n' + (sansLien ? sansLien + '\n' : '')
         + '\nÀ votre première connexion, l\'application vous fera choisir votre propre mot de passe.\n\n— TEAM OP · teamop.fr',
       html: mailTeamOP({ chip: 'Bienvenue', titre: 'Vos accès OP GESTION' + (ent ? ' · ' + ent : ''),
         corpsHtml: 'Bonjour' + (pre ? ' ' + x(pre) : '') + ',<br>' + (qui ? '<b>' + x(qui) + '</b> vous a créé' : 'votre entreprise vous a créé') + ' un compte sur l\'application OP GESTION' + (ent ? ' de <b>' + x(ent) + '</b>' : '') + '.<br><br>'
-          + '<b>Votre lien de connexion</b> — c\'est celui de l\'entreprise' + x(entTxt) + ' :<br><a href="' + x(url) + '" style="color:#34A97E">' + x(url.replace('https://', '')) + '</a><br>'
-          + '<span style="font-size:13px">Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « <b>Vous allez vous connecter à l\'entreprise' + x(entTxt) + '</b> ». Entrez alors votre identifiant et votre mot de passe provisoire.'
-          + (esp && esp.slug ? '<br><span style="color:#8fa3c8">(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + x(entTxt) + '.)</span>' : '') + '</span>',
+          + '<b>Votre lien de connexion</b>' + (lienEspace ? ' — c\'est celui de l\'entreprise' + x(entTxt) : '') + ' :<br><a href="' + x(url) + '" style="color:#34A97E">' + x(url.replace('https://', '')) + '</a><br>'
+          + '<span style="font-size:13px">' + x(explique).replace('« Vous allez vous connecter à l\'entreprise' + x(ecranTxt) + ' »', '« <b>Vous allez vous connecter à l\'entreprise' + x(ecranTxt) + '</b> »')
+          + (sansLien ? '<br><span style="color:#8fa3c8">' + x(sansLien) + '</span>' : '') + '</span>',
         blocHtml: MAIL_BLOCS.acces(x(id), x(pwd)),
         frise: [
           { titre: 'Compte créé', sous: qui ? 'par ' + qui : 'par votre entreprise', fait: true },
