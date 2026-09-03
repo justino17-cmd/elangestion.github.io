@@ -223,8 +223,13 @@ var _tt=null;
 function toast(t){ var e=$('toast'); e.textContent=t; e.style.display='block';
   clearTimeout(_tt); _tt=setTimeout(function(){ e.style.display='none'; },2600); }
 
+/* Une date sans année est ambiguë dès qu'on relit un journal de plus de douze mois — et
+   « il y a 3 h » ne dit pas QUAND. Partout dans la Tour : jour, mois, année, heure. */
 function fmtDate(ts){ if(!ts) return '—'; var d=new Date(ts);
-  return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
+  return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})+' · '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
+/* forme longue, pour les fiches et les infobulles */
+function fmtDateLong(ts){ if(!ts) return '—'; var d=new Date(ts);
+  return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
 function fmtHeure(ts){ if(!ts) return ''; return new Date(ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
 function fmtAgo(ts){ if(!ts) return '—'; var m=Math.round((Date.now()-ts)/60000);
   if(m<1) return "à l'instant"; if(m<60) return 'il y a '+m+' min';
@@ -1011,7 +1016,7 @@ function vueSurveillance(){
           '<span style="color:var(--dim);display:flex">'+svg('chev',15)+'</span></div>'+
         '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">'+
           Object.keys(apps).sort().map(function(a){ return '<span class="chip">'+esc(a)+'</span>'; }).join('')+
-          '<span style="font-size:12px;color:var(--muted)">'+g.length+' problème'+(g.length>1?'s':'')+' · dernier '+esc(fmtAgo(dernierDe(g)))+'</span></div>'+
+          '<span style="font-size:12px;color:var(--muted)">'+g.length+' problème'+(g.length>1?'s':'')+' · dernier le '+esc(fmtDate(dernierDe(g)))+'</span></div>'+
       '</div>';
     }).join('') : '<div class="vide">Aucun incident ne correspond à ces filtres.</div>';
   // les entreprises SANS problème sont là aussi — en bonne santé, c'est dit clairement
@@ -1058,7 +1063,7 @@ function vueEntreprise(nom){
           '<span style="color:var(--dim);display:flex">'+svg('chev',15)+'</span></div>'+
         '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">'+
           '<span class="chip">'+esc(TYPE_L[i.type]||i.type||'Autre')+'</span>'+
-          '<span style="font-size:12px;color:var(--muted)">×'+(i.count||1)+' · '+esc(fmtAgo(i.lastTs))+'</span></div>'+
+          '<span style="font-size:12px;color:var(--muted)">×'+(i.count||1)+' · '+esc(fmtDate(i.lastTs))+'</span></div>'+
       '</div>'; }).join('');
     return '<div style="display:flex;align-items:center;gap:10px;margin:24px 0 11px">'+
       '<div class="ttl-carte">'+esc(APP_L[a]||a)+'</div>'+
@@ -1092,7 +1097,7 @@ function vueIncident(i){
         '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(e.nom||e.entreprise||'\u2014')+'</div>'+
           (e.email?'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+esc(e.email)+'</div>':'')+'</div>'+
         '<div style="text-align:right;flex-shrink:0"><div class="mono" style="font-size:12.5px;font-weight:600">\u00d7'+(e.count||1)+'</div>'+
-          '<div style="font-size:11.5px;color:var(--dim);margin-top:2px">'+esc(fmtAgo(e.lastTs))+'</div></div></div>'; }).join('')
+          '<div style="font-size:11.5px;color:var(--dim);margin-top:2px" title="'+esc(fmtDateLong(e.lastTs))+'">'+esc(fmtDate(e.lastTs))+'</div></div></div>'; }).join('')
     : '<div style="font-size:13px;color:var(--muted);padding-top:6px">Aucune entreprise identifi\u00e9e.</div>';
 
   var histo=(i.historique||[]).slice().reverse().map(function(h){
@@ -1317,7 +1322,7 @@ function vueEnvoyes(){
           '<div style="display:flex;align-items:center;gap:10px">'+
             '<span style="flex-shrink:0;font-size:10.5px;font-weight:800;letter-spacing:.5px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.4);color:#34d399;border-radius:99px;padding:2px 9px">📤</span>'+
             '<span style="flex:1;min-width:0;font-size:13.5px;font-weight:700;color:var(--strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.sujet||'(sans objet)')+'</span>'+
-            '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0">'+esc(fmtDate(m.ts))+'</span></div>'+
+            '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0" title="'+esc(fmtDateLong(m.ts))+'">'+esc(fmtDate(m.ts))+'</span></div>'+
           '<div style="font-size:12px;color:var(--muted);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">→ '+esc(m.a||'')+(m.txt?' · '+esc(String(m.txt).slice(0,80)):'')+'</div></div>';
       }).join('')+'</div></div>';
   }).join('')||'<div class="vide">'+(q?'Aucun envoi ne correspond à « '+esc(MSG.envQ)+' ».':'Aucun e-mail envoyé pour l\'instant — le journal se remplit à chaque envoi (mail de demande, lien de connexion, code…), et chaque envoi arrive aussi en copie dans contact@teamop.fr.')+'</div>';
