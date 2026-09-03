@@ -2901,6 +2901,7 @@ function techArchiver(id){ const t=db.techniciens.find(x=>x.id===id); if(!t) ret
   return true; }
 function utilisateurNettoyer(u){ if(!u) return;
   (db.boxes||[]).forEach(b=>{ if(b.respUserId===u.id) b.respUserId=''; if((b.userIds||[]).includes(u.id)) b.userIds=b.userIds.filter(x=>x!==u.id); });
+  (db.users||[]).forEach(x=>{ if(x&&x.drId===u.id) x.drId=''; });   // plus de valideur fantôme sur les comptes qu'il suivait
   (db.groupes||[]).forEach(g=>{ if(Array.isArray(g.membres)) g.membres=g.membres.filter(x=>x!==u.id); });
   if(u.techId && !db.users.some(x=>x.id!==u.id && x.techId===u.techId)) techArchiver(u.techId); }
 /* doublons de techniciens (même nom) et leur fusion : une seule fiche gardée, tout lui est rattaché */
@@ -13161,6 +13162,7 @@ function formBox(id){ const b=id?db.boxes.find(x=>x.id===id):{};
     </form>`);
   renderBoxCodes(); renderBoxTechs(); renderBoxFormProds(); renderBoxPhoto();
 }
+let drRattaches=new Set();
 let boxFormStock={};
 function renderBoxFormProds(){ const el=$('box-form-prods'); if(!el)return;
   const ids=Object.keys(boxFormStock).filter(pid=>produit(pid).id);
@@ -15620,6 +15622,9 @@ const USER_CAPS=[
   ['devisIA','Utiliser Devis IA','Peut générer des devis automatiquement — l\'accès de l\'entreprise est activé par TeamOP, aucune clé ni code ne circule'],
 ];
 function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUserNew=!id; window._formUserRole0=u.role||'technicien';
+  // Rattachements vus depuis le DR : avec 65 techniciens, ouvrir 65 fiches n'a pas de sens.
+  // Même donnée que le champ « Directeur régional responsable », lue dans l'autre sens.
+  drRattaches = new Set((db.users||[]).filter(x=>x&&id&&x.drId===id).map(x=>x.id));
   const lt = u.techId ? (db.techniciens||[]).find(x=>x.id===u.techId) : null;
   const isTech = ['technicien','chefEquipe'].includes(u.role||'technicien');
   const roleVal = u.role || 'technicien';
@@ -15652,6 +15657,12 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
       <div class="field"><label>Directeur régional responsable</label>
         <select name="drId">${[`<option value="">— aucun (tous les DR sont prévenus) —</option>`].concat(valideursDR().filter(x=>x.id!==u.id).map(x=>`<option value="${x.id}" ${u.drId===x.id?'selected':''}>${esc(fullName(x))}</option>`)).join('')}</select>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Ses demandes et ses mouvements de box partent à ce DR, et lui seul les voit dans « Validations DR ». Sans DR choisi, tous les valideurs sont prévenus, comme avant.</div></div>
+      ${id&&capOf('validerDR')?`<div class="field"><label>Personnes rattachées à ce valideur</label>
+        <div style="max-height:210px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">${(db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==id).map(x=>`
+          <label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer">
+            <input type="checkbox" ${drRattaches.has(x.id)?'checked':''} onchange="this.checked?drRattaches.add('${x.id}'):drRattaches.delete('${x.id}')" style="width:18px;height:18px;accent-color:var(--acc)">
+            <span>${esc(fullName(x))} <span style="color:var(--t3);font-size:11.5px">· ${esc(ROLE[x.role]||x.role||'')}</span></span></label>`).join('')||'<div style="color:var(--t3);font-size:12px;padding:6px">Aucun autre compte.</div>'}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px">Coche les personnes dont cette personne valide les mouvements. C'est l'autre bout du champ ci-dessus : cocher quelqu'un ici revient à choisir ce valideur dans sa fiche.</div></div>`:''}
       <input type="hidden" name="techId" value="${esc(u.techId||'')}">
       <div id="user-tech" style="display:${isTech?'block':'none'}">
         <div class="form-sec" style="margin:2px 0 10px">Fiche technicien <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--t3)">— créée automatiquement</span></div>
@@ -15797,6 +15808,9 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   const boxCoches=new Set(Object.keys(d).filter(k=>k.indexOf('box_')===0).map(k=>k.slice(4)));
   const boxForm=(currentUser.role==='admin'?(db.boxes||[]):visibleBoxes(db.boxes||[])).filter(b=>b.actif!==false);
   const appliquerBox=(uidU)=>{ if(voirToutForm||d.role==='admin') return; boxForm.forEach(b=>{ if(b.visibleTous||(techId&&(b.techIds||[]).includes(techId))||b.respUserId===uidU) return; userBoxSet(uidU,b.id,boxCoches.has(b.id)); }); };
+  // rattachements pris depuis la fiche du valideur : on pose ou on retire drId sur chaque compte
+  const appliquerRattaches=(cible)=>{ if(!cible) return; (db.users||[]).forEach(x=>{ if(!x||x.id===cible) return;
+    if(drRattaches.has(x.id)) x.drId=cible; else if(x.drId===cible) x.drId=''; }); };
   if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
     appliquerBox(id); if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=ROLE[currentUser.role]||'Technicien'; renderNav(); } toast('Mis à jour'); }
   else{ if(db.users.length>=500){toast('Limite de 500 comptes atteinte');return;}
@@ -19502,6 +19516,23 @@ async function boot(){
     }
   }catch(e){}
   try{ if(adminAnnuaireRetablir()) ch=true; }catch(e){}
+  /* Références mortes. Une personne supprimée disparaît de la liste des comptes, mais son
+     identifiant pouvait rester posé sur une box (« Visible par », « Responsable »), dans un
+     groupe ou comme valideur — et elle réapparaissait donc dans les écrans de choix.
+     On retire ici tout ce qui ne désigne plus personne. Rien n'est supprimé d'autre : les
+     mouvements passés gardent le nom écrit à l'époque. */
+  try{
+    const idsU=new Set((db.users||[]).map(x=>x&&x.id).filter(Boolean));
+    const idsT=new Set((db.techniciens||[]).map(x=>x&&x.id).filter(Boolean));
+    let morts=0;
+    (db.boxes||[]).forEach(b=>{ if(!b) return;
+      if(b.respUserId&&!idsU.has(b.respUserId)){ b.respUserId=''; morts++; }
+      if(Array.isArray(b.userIds)){ const n=b.userIds.length; b.userIds=b.userIds.filter(x=>idsU.has(x)); morts+=n-b.userIds.length; }
+      if(Array.isArray(b.techIds)){ const n=b.techIds.length; b.techIds=b.techIds.filter(x=>idsT.has(x)); morts+=n-b.techIds.length; } });
+    (db.groupes||[]).forEach(g=>{ if(g&&Array.isArray(g.membres)){ const n=g.membres.length; g.membres=g.membres.filter(x=>idsU.has(x)); morts+=n-g.membres.length; } });
+    (db.users||[]).forEach(x=>{ if(x&&x.drId&&!idsU.has(x.drId)){ x.drId=''; morts++; } });
+    if(morts){ ch=true; logEvent('Références nettoyées',morts+' renvoi(s) vers une personne supprimée','crud'); }
+  }catch(e){}
   /* Un espace sans administrateur est bloqué : plus personne ne gère les comptes ni les droits,
      et personne ne peut repromouvoir qui que ce soit. Le correctif ci-dessus empêche que ça se
      reproduise ; celui-ci répare les espaces déjà touchés, sinon ils resteraient bloqués.
