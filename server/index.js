@@ -1193,17 +1193,16 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '554',
-  sujet: '🆕 Du nouveau dans OP GESTION — permissions pour tous les rôles, chacun ne voit que ce qui le concerne',
-  intro: 'Bonjour,<br>votre application OP GESTION vient de recevoir une mise à jour — elle est déjà active, il suffit de rouvrir l\'application (ou de toucher « Mettre à jour » si la bannière apparaît).',
+  version: '555',
+  sujet: '🆕 Du nouveau dans OP GESTION — chacun rattaché à son valideur, et vous décidez qui voit quoi',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['🔐 Les permissions, pour tous les rôles et toutes les catégories', 'Dans Permissions, vous choisissez pour chaque rôle (technicien, chef d\'équipe, commercial, gestion compta, directeur régional) et pour chaque personne <b>ce qu\'il voit et ce qu\'il ne voit pas</b>, catégorie par catégorie — y compris les rubriques réservées (Fournisseurs, Bons de commande, Validations DR, Enveloppes, Comptabilité, Statistiques, Administration…). Un réglage par personne passe devant celui de son rôle.'],
-    ['📦 Les box d\'un DR (ou de n\'importe qui) se choisissent', 'Un compte sans « Tout voir » ne voit que les box qu\'on lui a choisies : dans sa fiche utilisateur (« Box qu\'il voit »), dans Permissions, ou sur la fiche de la box (« Autres personnes autorisées », « Responsable » ouvert à tous les rôles). Le rôle choisi à la création pré-règle vraiment les cases : un DR créé aujourd\'hui voit toutes les box d\'office.'],
-    ['✅ « Valider (DR) » : un droit qui se donne', 'Valider les mouvements de box et les demandes n\'est plus réservé au rôle DR : vous pouvez le donner à un chef d\'équipe (ou le retirer). La personne qui l\'a voit « Validations DR » et reçoit les alertes « à valider ». Idem pour « Voir / gérer la comptabilité ».'],
-    ['👤 Chacun ne voit que ce qui le concerne', 'Sans « Tout voir » : ses box, ses bons de commande, ses demandes, ses mouvements, son véhicule et son historique — dans le menu (fini le « 19 box » quand on n\'en a qu\'une), le tableau de bord, les listes et la cloche.'],
-    ['🔔 Des notifications ciblées', 'Plus d\'alertes des autres services ni des autres box. Validé ou refusé par le DR : <b>seule la personne concernée</b> est prévenue (par qui, motif). Le DR voit ce qui attend sa validation.'],
-    ['📥 Réception d\'un bon via le DR, tout en unités, envoi des bons au choix', 'Pour un utilisateur soumis à la validation DR, la réception d\'un bon attend le DR (refusée = bon de nouveau à réceptionner). Un carton de 10 kg = 1 unité, un seau = 1 unité. « Envoyer les bons prêts… » liste les bons à cocher : seuls les bons cochés partent.'],
-    ['🔐 Mon compte, dans Paramètres', 'Chacun change son mot de passe et son e-mail de récupération, sa photo, sa langue, ses couleurs — et se déconnecte (bouton ⏻ aussi en bas du menu).']
+    ['👥 Chaque personne est rattachée à son valideur', 'Dans la fiche d\'un utilisateur, une section <b>« À qui il est rattaché »</b> : vous y choisissez qui valide ses mouvements de box et ses demandes. Ce valideur est le seul prévenu, et le seul à les voir — fini les alertes pour des box dont on ne s\'occupe pas. Le rattachement se fait dans les deux sens : depuis la fiche de la personne, ou depuis celle du valideur avec une liste à cocher pour en rattacher plusieurs d\'un coup.'],
+    ['✅ Une validation se voit des deux côtés', 'Celui qui valide et celui qui attend voient désormais le même écran. La personne qui a fait la demande sait enfin où elle en est, au lieu de voir son mouvement partir sans nouvelles.'],
+    ['🎛️ Le rôle n\'est plus qu\'un nom — c\'est vous qui décidez', 'Un directeur régional ne voit plus tout <i>parce qu\'il est directeur régional</i>. Chaque droit et chaque rubrique du menu se coche, personne par personne ou rôle par rôle, dans <b>Permissions</b>. <b>Rien ne change aujourd\'hui</b> : les droits que vos équipes avaient ont été recopiés dans les cases. Vous décochez ce que vous voulez, quand vous voulez.'],
+    ['🧹 Les personnes supprimées ne réapparaissent plus', 'Un compte supprimé restait accroché aux box (« Visible par », « Responsable »), aux groupes et aux validations : il ressortait dans les écrans de choix. Tout renvoi vers quelqu\'un qui n\'existe plus est maintenant retiré. Vos mouvements passés gardent le nom écrit à l\'époque.'],
+    ['🔐 Deux correctifs de sécurité', 'Le mot de passe provisoire d\'un administrateur ne sort plus de l\'annuaire, et les codes de confirmation ne sont plus conservés dans le journal des e-mails. Rien à faire de votre côté.'],
+    ['🛡️ Un administrateur ne peut plus être rétrogradé par erreur', 'Créer ou modifier une fiche technicien au nom d\'un administrateur pouvait lui retirer son rôle — et donc l\'accès à Utilisateurs et Permissions. C\'est corrigé, et les comptes concernés sont rétablis automatiquement.']
   ]
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
