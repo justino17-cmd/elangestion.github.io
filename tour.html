@@ -215,7 +215,14 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ ret
 function jsq(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function ini(n){ return (String(n||'?').trim()[0]||'?').toUpperCase(); }
 function hAuth(){ return { 'Content-Type':'application/json', 'Authorization':'Bearer '+TOKEN }; }
-function apiGet(u){ return fetch(API+u,{headers:hAuth()}).then(function(r){ if(r.status===401){ doLogout(); return null; } if(!r.ok) throw new Error('http'); return r.json(); }); }
+/* Le statut voyage avec l'erreur. Sans lui, un 403 « tu n'as pas ce droit » était rapporté
+   comme « Serveur injoignable » : le message envoyait chercher une panne réseau inexistante. */
+function apiGet(u){ return fetch(API+u,{headers:hAuth()}).then(function(r){ if(r.status===401){ doLogout(); return null; }
+  if(!r.ok){ var e=new Error('http'); e.status=r.status; throw e; } return r.json(); }); }
+/* Le message honnête, selon ce qui s'est vraiment passé. */
+function msgErreur(err){ return (err&&err.status===403)
+  ? 'Réservé au patron — ton compte n’a pas cet accès.'
+  : INJOIGNABLE; }
 function apiPost(u,b){ return fetch(API+u,{method:'POST',headers:hAuth(),body:JSON.stringify(b)})
   .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return {ok:r.ok,d:d||{}}; }); }); }
 
@@ -348,7 +355,7 @@ function chargerConnexions(){
     CNX.list=d.espaces||[]; CNX.global=d.global||{}; CNX.loaded=true; CNX.err='';
     if(CNX.sel&&!CNX.list.some(function(x){ return x.t===CNX.sel; })) CNX.sel=null;
     if(TAB==='connexions') render();
-  }).catch(function(){ CNX.err=INJOIGNABLE; CNX.loaded=true; if(TAB==='connexions') render(); });
+  }).catch(function(e){ CNX.err=msgErreur(e); CNX.loaded=true; if(TAB==='connexions') render(); });
 }
 function cnxSel(t){ CNX.sel=t; CNX.det=null; CNX.detErr=''; render();
   var e=CNX.list.filter(function(x){ return x.t===t; })[0]||{};
@@ -433,7 +440,7 @@ function chargerIncidents(){
     INC.list=d.issues||[]; INC.cnt=d.compteurs||{}; INC.nbEnt=d.entreprises||0; INC.loaded=true; INC.err='';
     setBdg('bdg-surv',incOuverts().length);
     if(TAB==='surveillance'||TAB==='accueil') render();
-  }).catch(function(){ INC.err=INJOIGNABLE; INC.loaded=true; if(TAB==='surveillance'||TAB==='accueil') render(); });
+  }).catch(function(e){ INC.err=msgErreur(e); INC.loaded=true; if(TAB==='surveillance'||TAB==='accueil') render(); });
 }
 /* ── ✨ Devis IA : activation entreprise par entreprise (la clé et les codes restent côté serveur) ── */
 var DIA={equipes:{},cle:false,quotaJour:0,utilises:0,loaded:false,err:'',nv:''};
@@ -441,7 +448,7 @@ function chargerDevisIA(){
   apiGet('/api/monitor/devisia').then(function(d){ if(!d) return;
     DIA.equipes=d.equipes||{}; DIA.cle=!!d.cle; DIA.quotaJour=d.quotaJour||0; DIA.utilises=d.utilises||0; DIA.loaded=true; DIA.err='';
     if(TAB==='devisia') render();
-  }).catch(function(){ DIA.err=INJOIGNABLE; DIA.loaded=true; if(TAB==='devisia') render(); });
+  }).catch(function(e){ DIA.err=msgErreur(e); DIA.loaded=true; if(TAB==='devisia') render(); });
 }
 function diaEnvoyer(body){
   fetch(API+'/api/monitor/devisia',{method:'POST',headers:hAuth(),body:JSON.stringify(body)})
@@ -725,7 +732,7 @@ function chargerClients(){
     CLI.list=(d.clients||[]).slice().sort(function(a,b){ return (b.majTs||b.inscrit||0)-(a.majTs||a.inscrit||0); });
     CLI.total=(d.total!=null?d.total:CLI.list.length); CLI.loaded=true; CLI.err='';
     if(TAB==='entreprises'||TAB==='accueil'||TAB==='support') render();
-  }).catch(function(){ CLI.err=INJOIGNABLE; CLI.loaded=true; if(TAB==='entreprises') render(); });
+  }).catch(function(e){ CLI.err=msgErreur(e); CLI.loaded=true; if(TAB==='entreprises') render(); });
 }
 function chargerAbos(){
   setTimeout(chargerEspaces, 400);
@@ -742,14 +749,18 @@ function chargerAbos(){
   });
 }
 function chargerEquipe(){
+  /* Réservé au patron côté serveur : inutile d'appeler pour se faire refuser, et surtout de
+     laisser croire à une panne. */
+  if(MYROLE!=='patron'){ EQ.users=[]; EQ.loaded=true; EQ.err='Réservé au patron — la liste des accès n’est visible que par lui.'; if(TAB==='equipe') render(); return; }
   apiGet('/api/monitor/users').then(function(d){ if(!d) return;
     EQ.users=d.users||[]; EQ.loaded=true; EQ.err=''; if(TAB==='equipe') render();
-  }).catch(function(){ EQ.err=INJOIGNABLE; EQ.loaded=true; if(TAB==='equipe') render(); });
+  }).catch(function(e){ EQ.err=msgErreur(e); EQ.loaded=true; if(TAB==='equipe') render(); });
 }
 function chargerJournal(){
+  if(MYROLE!=='patron'){ JR.cnx=[]; JR.loaded=true; JR.err='Réservé au patron — les connexions à la console ne sont visibles que par lui.'; if(TAB==='journal') render(); return; }
   apiGet('/api/monitor/journal').then(function(d){ if(!d) return;
     JR.cnx=d.journal||[]; JR.loaded=true; JR.err=''; if(TAB==='journal'||TAB==='accueil') render();
-  }).catch(function(){ JR.err=INJOIGNABLE; JR.loaded=true; if(TAB==='journal') render(); });
+  }).catch(function(e){ JR.err=msgErreur(e); JR.loaded=true; if(TAB==='journal') render(); });
   apiGet('/api/monitor/mails').then(function(d){ if(!d) return;
     JR.mails=d.mails||[]; if(TAB==='journal') render();
   }).catch(function(){});
