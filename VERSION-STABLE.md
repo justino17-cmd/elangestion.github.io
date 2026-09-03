@@ -1,6 +1,22 @@
 # Point stable TeamOP
 
-**Version stable : v555** — gravée le 3 septembre 2026.
+**Version stable : v556** — gravée le 3 septembre 2026.
+
+v556 — une demande de commande suit sa commande jusqu'au bout. Jusqu'ici elle
+s'arrêtait à « Validée » : le bon de commande qu'elle engendrait vivait sa vie
+sans qu'elle le sache, et celui qui l'avait faite ne savait jamais si sa commande
+était partie ou arrivée. Les deux sont maintenant reliés, et la demande affiche
+l'avancement réel : En attente → Acceptée · En préparation → · Envoyée → · En
+livraison → Reçue, ou Refusée avec son motif. Sur téléphone, les lignes de
+formulaire ne sont plus coupées — dans Paramètres, « ＋ Abonnement » sortait de
+67 px de l'écran et restait inatteignable. Toucher un libellé place enfin le
+curseur dans son champ, partout : 282 libellés n'étaient reliés à rien, ce qui
+gênait la saisie au doigt et rendait l'application muette pour un lecteur
+d'écran. Correctif : le canal d'essai (bêta) n'avait aucune règle Firestore et ne
+s'était jamais synchronisé depuis sa création — la production n'a jamais été
+concernée. La synchro ne s'éteint plus définitivement au premier refus.
+
+Ancien point : **v555** — gravée le 3 septembre 2026.
 
 v555 — chacun est rattaché à quelqu'un, et le rôle ne décide plus de rien. Un
 technicien, un chef d'équipe, n'importe quel compte peut être rattaché à un
