@@ -1,6 +1,40 @@
 # Point stable TeamOP
 
-**Version stable : v552** — gravée le 2 septembre 2026.
+**Version stable : v554** — gravée le 2 septembre 2026.
+
+v554 — permissions pour tous les rôles et toutes les catégories : le réglage
+« Par rôle » (Permissions) s'applique à tous les modules, rubriques réservées
+comprises, et à tous les rôles (DR et chef d'équipe inclus) ; Permissions montre
+les catégories Tableau de bord et Administration ; un réglage par personne prime
+toujours (modules « mis de côté » compris) ; DR et chef d'équipe voient par
+défaut Validations DR, Carte des box, Commandes… ; la fiche utilisateur
+n'enregistre « à part » que ce qui diffère du rôle (les réglages « Par rôle »
+faits plus tard s'appliquent). Box : un compte sans « Tout voir » voit les box
+choisies pour lui (fiche utilisateur « Box qu'il voit », Permissions, fiche box
+« Autres personnes autorisées », « Responsable » ouvert à tous les rôles) —
+corrige le DR qui ne voyait pas ses box ; à la création d'un compte, le rôle
+choisi pré-règle vraiment les cases (un DR créé a « Tout voir »). Nouveaux droits
+réglables : « Valider les mouvements et demandes (DR) » (validations, alertes « à
+valider », validation DR requise) et « Voir / gérer la comptabilité ».
+
+Ancien point : **v553** — gravée le 2 septembre 2026.
+
+v553 — chacun ne voit que ce qui le concerne : sans le droit « voir tout »
+(technicien par défaut, ou réglé par personne dans Permissions), le menu, le
+tableau de bord, les listes et la cloche ne montrent que ses box, ses bons de
+commande, ses demandes, ses mouvements, son véhicule et son historique (avec les
+validations du DR qui le concernent). Notifications ciblées : plus d'alertes des
+autres services ni des autres box ; validé / refusé par le DR n'est envoyé qu'à
+la personne concernée ; le DR voit ce qui attend sa validation ; « vues » rangées
+par compte. Réception d'un bon soumise à la validation DR (le stock bouge à la
+validation ; refus = bon de nouveau à réceptionner). Tout est compté en unités
+(carton de 10 kg = 1 unité). « Envoyer les bons prêts… » : liste à cocher, seuls
+les bons cochés partent (fini les deux bons envoyés pour un). Paramètres : carte
+« Mon compte » (changer mot de passe, e-mail de récupération) pour tous, outils
+de test réservés à TEAM OP, bouton Déconnexion (aussi en bas du menu), OP
+MESSAGES réservé à TEAM OP tant qu'il est en développement.
+
+Ancien point : **v552** — gravée le 2 septembre 2026.
 
 v552 — une personne supprimée l'est partout : la suppression d'un utilisateur
 archive sa fiche technicien (l'historique garde son nom) et le retire des box,
