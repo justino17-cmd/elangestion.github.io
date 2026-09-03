@@ -15659,8 +15659,12 @@ async function lienLisibleCharger(force){ try{
   const t=localStorage.getItem('elanB_sync_team'), k=localStorage.getItem('elanB_sync_secret'); if(!t||!k) return '';
   const kh=await sha256(k);
   const ts=+(localStorage.getItem('elanB_lien_lisible_ts')||0);
-  // en cache 24 h, pour cet espace ET cette clé d'équipe (une clé changée = un lien à revérifier)
-  if(!force && localStorage.getItem('elanB_lien_lisible_t')===t && localStorage.getItem('elanB_lien_lisible_kh')===kh && Date.now()-ts<86400000) return lienLisible();
+  // en cache 24 h, pour cet espace ET cette clé d'équipe (une clé changée = un lien à revérifier).
+  // Exception : tant qu'on ne connaît pas l'administrateur déclaré de l'espace, on interroge quand
+  // même — sans ça, un appareil dont le lien est déjà en cache ne l'apprendrait jamais, et un patron
+  // rétrogradé resterait bloqué en attendant l'expiration du cache.
+  const _adminConnu=(()=>{ try{ return !!localStorage.getItem('elanB_espace_admin'); }catch(e){ return true; } })();
+  if(!force && _adminConnu && localStorage.getItem('elanB_lien_lisible_t')===t && localStorage.getItem('elanB_lien_lisible_kh')===kh && Date.now()-ts<86400000) return lienLisible();
   const r=await fetch(PUSH_API+'/api/espaces/lien',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t,kh})});
   const j=await r.json().catch(()=>({}));
   if(r.status===429) return lienLisible();   // trop de demandes : on garde ce qu'on a
