@@ -70,15 +70,30 @@ const LOGO_PIECE = { filename: 'teamop.png', path: LOGO_PATH, cid: 'logoteamop' 
 const MAILS_PATH = path.join(DATA_DIR, 'mails-envoyes.json');
 let mailsLog = []; try { mailsLog = JSON.parse(fs.readFileSync(MAILS_PATH, 'utf8')); } catch (e) {}
 function mailsSave() { try { fs.writeFileSync(MAILS_PATH, JSON.stringify(mailsLog)); } catch (e) {} }
+/* Journaux système (journalctl) : ils sont lus par plus de monde que la Tour et gardés plus
+   longtemps. Une adresse entière, un lien de connexion ou un code n'y ont rien à faire —
+   on n'y met qu'une forme masquée, assez pour reconnaître une ligne, pas pour la rejouer. */
+function masqueMail(a) {
+  const s = String(a || '').trim();
+  const i = s.indexOf('@');
+  if (i < 1) return s ? '(adresse)' : '';
+  return s[0] + '***@' + s.slice(i + 1);
+}
+/* Une entrée du journal des e-mails. Un secret n'y entre JAMAIS — ni par le texte, ni par
+   l'OBJET : c'est par l'objet que le code de confirmation était conservé en clair. */
+function mailsJournal(to, sujet, txt, secret, trace) {
+  try {
+    mailsLog.unshift({ ts: Date.now(), a: String(to || ''),
+      sujet: secret ? '(objet confidentiel)' : String(sujet || '').slice(0, 140),
+      txt: secret ? (trace ? String(trace).slice(0, 400) : '(contenu confidentiel — code de sécurité ou mot de passe, jamais conservé)') : String(txt || '').slice(0, 2000) });
+    if (mailsLog.length > 300) mailsLog.length = 300; mailsSave();
+  } catch (e) {}
+}
 function mailerEnvoi(opts) {
   // confidentiel : code de sécurité ou mot de passe → jamais journalisé ni copié
   const secret = opts.confidentiel === true || /code/i.test(String(opts.subject || ''));
-  try {
-    // trace : ce qu'on garde d'un e-mail confidentiel (destinataire, lien envoyé, espace…) — jamais le secret lui-même
-    mailsLog.unshift({ ts: Date.now(), a: String(opts.to || ''), sujet: String(opts.subject || '').slice(0, 140),
-      txt: secret ? (opts.trace ? String(opts.trace).slice(0, 400) : '(contenu confidentiel — code de sécurité ou mot de passe, jamais conservé)') : String(opts.text || '').slice(0, 2000) });
-    if (mailsLog.length > 300) mailsLog.length = 300; mailsSave();
-  } catch (e) {}
+  // trace : ce qu'on garde d'un e-mail confidentiel (destinataire, lien envoyé, espace…) — jamais le secret lui-même
+  mailsJournal(opts.to, opts.subject, opts.text, secret, opts.trace);
   const o2 = Object.assign({}, opts); delete o2.confidentiel; delete o2.trace;
   try {
     const moi = String(config.notifDemandes || (config.smtp && (config.smtp.from || config.smtp.user)) || '').toLowerCase();
@@ -110,8 +125,10 @@ app.post('/api/sendcode', async (req, res) => {
   codes.set(teamId + '|' + (purpose || 'reset'), { code, email, exp: Date.now() + 10 * 60000, tries: 0 });
   try {
     await mailerEnvoi({
+      // le code ne voyage PAS dans l'objet : l'objet est conservé au journal, le corps ne l'est pas
+      confidentiel: true, trace: 'code de confirmation → ' + masqueMail(email) + ' · espace ' + String(teamId).slice(0, 40),
       from: config.smtp.from || config.smtp.user, to: email,
-      subject: 'TeamOP — code de confirmation : ' + code,
+      subject: 'TeamOP — votre code de confirmation',
       text: 'Votre code de confirmation TeamOP : ' + code + '\n\nIl expire dans 10 minutes.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.',
       html: mailTeamOP({ chip: 'Sécurité', chipBg: '#FFF3E0', chipColor: '#B26E12', titre: 'Votre code de confirmation 🔐',
         corpsHtml: 'Bonjour,<br>voici le code demandé dans votre application. Il ne sert qu\'une fois.',
@@ -135,8 +152,11 @@ app.post('/api/sendcode-entreprise', async (req, res) => {
   codes.set(teamId + '|' + (purpose || 'reset'), { code, email: e.email, exp: Date.now() + 10 * 60000, tries: 0 });
   try {
     const loginSafe = monStr(login, 40).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
-      subject: 'TeamOP — code de confirmation : ' + code,
+    await mailerEnvoi({
+      // idem : le code reste dans le corps (jamais journalisé), l'objet n'en porte rien
+      confidentiel: true, trace: 'code de confirmation (équipe) → ' + masqueMail(e.email) + ' · @' + monStr(login, 40),
+      from: config.smtp.from || config.smtp.user, to: e.email,
+      subject: 'TeamOP — un code de confirmation pour votre équipe',
       text: 'Un membre de votre équipe (identifiant « ' + monStr(login, 40) + ' ») a oublié son mot de passe OP GESTION, et son compte n\'a pas d\'adresse e-mail enregistrée.\n\nCode de confirmation à lui transmettre : ' + code + '\n\nIl expire dans 10 minutes. Si personne dans votre équipe n\'est à l\'origine de cette demande, ignorez ce message.',
       html: mailTeamOP({ chip: 'Sécurité', chipBg: '#FFF3E0', chipColor: '#B26E12', titre: 'Un code pour votre équipe 🔐',
         corpsHtml: 'Bonjour,<br>ce code arrive à l\'adresse de l\'entreprise, car le compte concerné n\'a pas d\'adresse e-mail enregistrée.',
@@ -335,12 +355,12 @@ async function importHistorique(b, limit = 60) {
           try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); n++; } catch (_) {}
           if (mid) seenMids.add(mid);
         }
-        console.log('historique importé:', b.email, '(' + n + ' mails)');
+        console.log('historique importé:', masqueMail(b.email), '(' + n + ' mails)');
       }
     } finally { lock.release(); }
     await client.logout();
     if (b.id && mailboxes[b.id]) { mailboxes[b.id].histoDone = true; saveMailboxes(); }   // une seule fois par boîte
-  } catch (e) { console.error('histo', b.email + ':', e.message); try { if (client) client.close(); } catch (_) {} }
+  } catch (e) { console.error('histo', masqueMail(b.email) + ':', e.message); try { if (client) client.close(); } catch (_) {} }
 }
 let boiteBusy = false;
 async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag = {teamId, userId} pour le rattachement
@@ -376,7 +396,7 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
       }
     } finally { lock.release(); }
     await client.logout();
-  } catch (e) { console.error('releve', (cfg.user || '') + ':', e.message); try { if (client) client.close(); } catch (_) {} }
+  } catch (e) { console.error('releve', masqueMail(cfg.user) + ':', e.message); try { if (client) client.close(); } catch (_) {} }
 }
 async function releveBoite() {
   if (boiteBusy) return; boiteBusy = true;
@@ -860,9 +880,48 @@ const ESPACES_PATH = path.join(DATA_DIR, 'espaces.json');
 let espacesReg = {};
 try { espacesReg = JSON.parse(fs.readFileSync(ESPACES_PATH, 'utf8')); } catch (e) {}
 const espSlug = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '');
+/* \u2500\u2500 Le code d'espace ne porte PLUS de mot de passe en clair \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+   Le code est du base64, pas du chiffrement : tout ce qu'il contient est lisible par qui
+   l'obtient \u2014 et /api/espaces/trouver le rend \u00e0 qui conna\u00eet le NOM de l'entreprise, un
+   nom public. Le champ \u00ab m \u00bb y transportait le mot de passe provisoire de
+   l'administrateur EN CLAIR : un nom d'entreprise suffisait donc \u00e0 r\u00e9cup\u00e9rer un
+   identifiant et le mot de passe qui va avec.
+   Le champ ne peut pas simplement dispara\u00eetre : c'est lui qui permet \u00e0 l'application, \u00e0
+   la premi\u00e8re connexion, de reconna\u00eetre le mot de passe provisoire annonc\u00e9 par e-mail.
+   On le remplace donc par \u00ab mh \u00bb, son empreinte SHA-256 \u2014 exactement ce que l'application
+   comparait d\u00e9j\u00e0 (elle hachait \u00ab m \u00bb de son c\u00f4t\u00e9). Le mot de passe lui-m\u00eame ne circule
+   plus que dans l'e-mail adress\u00e9 \u00e0 l'int\u00e9ress\u00e9.
+   NB : \u00ab k \u00bb (cl\u00e9 d'\u00e9quipe) reste dans le code, l'appareil en a besoin pour rejoindre
+   l'espace. C'est une divulgation distincte, \u00e0 traiter par un lien \u00e0 jeton \u2014 voir le
+   rapport. Cette fonction ferme la fuite du mot de passe, pas celle-l\u00e0. */
+const mdpEmpreinte = (p) => crypto.createHash('sha256').update(String(p)).digest('hex');
+function codeMdpHache(code) {
+  try {
+    const o = JSON.parse(Buffer.from(String(code || ''), 'base64').toString('utf8'));
+    if (!o || typeof o !== 'object' || !o.m) return String(code || '');
+    o.mh = mdpEmpreinte(o.m); delete o.m;
+    return Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
+  } catch (e) { return String(code || ''); }
+}
+/* Reprise au d\u00e9marrage : les codes d\u00e9j\u00e0 enregistr\u00e9s portent le mot de passe en clair \u2014
+   corriger le code neuf sans reprendre l'annuaire laisserait la fuite enti\u00e8re sur tous
+   les espaces existants, qui sont pr\u00e9cis\u00e9ment ceux qui ont des donn\u00e9es. */
+(function repriseMdpAnnuaire() {
+  let n = 0;
+  for (const slug of Object.keys(espacesReg)) {
+    const e = espacesReg[slug];
+    if (!e || !e.code) continue;
+    const propre = codeMdpHache(e.code);
+    if (propre !== e.code) { e.code = propre; n++; }
+  }
+  if (n) {
+    try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+    console.log('annuaire : mot de passe remplac\u00e9 par son empreinte dans', n, 'code(s) d\'espace');
+  }
+})();
 app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
   const nom = monStr((req.body || {}).nom, 80).trim();
-  const code = monStr((req.body || {}).code, 4000).trim();
+  const code = codeMdpHache(monStr((req.body || {}).code, 4000).trim());
   const slug = espSlug(nom);
   if (!slug || !code) return res.status(400).json({ error: 'nom et code requis' });
   let t = '';
@@ -1212,7 +1271,7 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
   try {
     await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
       subject: '🔗 Votre lien de connexion — TEAM OP', text: texte, html });
-    console.log('Tour :', req.tourUser.nom, 'a envoyé le lien de', slug, '→', e.email);
+    console.log('Tour :', req.tourUser.nom, 'a envoyé le lien de', slug, '→', masqueMail(e.email));
     // son « Mon espace » passe à Accès activé · OP GESTION active (+ abonnement si formule posée)
     fbMajFicheClient(e.email, Object.assign({ status: 'fourni', apps: ['elan'] },
       e.formule ? { plan: FORMULE_LBL[e.formule] || e.formule, planStatus: 'actif' } : {})).catch(() => {});
@@ -1273,7 +1332,9 @@ function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu, preno
     const cap = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : '';
     ident = (espSlug(prenomC) || 'admin').slice(0, 20);
     mdpProv = (cap(espSlug(nomFamC)) || 'Teamop') + '!!';
-    const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: ident, m: mdpProv, e: email }), 'utf8').toString('base64').replace(/=+$/, '');
+    // « mh », pas « m » : le mot de passe provisoire part par e-mail (mdpProv est rendu à l'appelant),
+    // le code ne porte que son empreinte — de quoi le reconnaître, pas de quoi le lire
+    const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: ident, mh: mdpEmpreinte(mdpProv), e: email }), 'utf8').toString('base64').replace(/=+$/, '');
     e = espacesReg[slug] = { nom, code, t, ts: Date.now(), par: 'auto (demande)', email };
     neuf = true;
   }
@@ -1298,7 +1359,8 @@ app.post('/api/espaces/trouver', (req, res) => {
   try { const t = e.t || String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); const r = espaceParT(t); if (r && r.code) e = r; } catch (err) {}
   // la clé d'équipe a changé depuis l'inscription : ce lien mènerait à un espace illisible
   if (e.clePerimee) return res.status(404).json({ error: 'Ce lien de connexion doit être renouvelé — demande le nouveau lien à ton entreprise', motif: 'cle_changee' });
-  res.json({ ok: true, nom: e.nom, code: e.code });
+  // ceinture et bretelles : cette route est ouverte, aucun mot de passe n'en sort
+  res.json({ ok: true, nom: e.nom, code: codeMdpHache(e.code) });
 });
 /* Le lien LISIBLE d'un espace (teamop.fr/app.html#e=nom), pour l'application de l'entreprise :
    t = identifiant d'équipe, kh = empreinte SHA-256 de la clé d'équipe (jamais la clé elle-même).
@@ -1414,8 +1476,8 @@ async function fbMajFicheClient(email, champs) {
     const mask = Object.keys(champs).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
     const r = await fbAdminFetch(fsBase() + '/teamop_requests/' + uid + '?' + mask,
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) }, tok);
-    if (r.ok) console.log('fiche espace client mise à jour →', email, Object.keys(champs).join(','));
-    else console.error('fiche espace client HTTP', r.status, '→', email);
+    if (r.ok) console.log('fiche espace client mise à jour →', masqueMail(email), Object.keys(champs).join(','));
+    else console.error('fiche espace client HTTP', r.status, '→', masqueMail(email));
     return r.ok;
   } catch (e) { console.error('fiche espace client :', e.message); return false; }
 }
@@ -1434,7 +1496,7 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
         subject: '🗑 Code de confirmation — fermeture de « ' + (clientsData[email].entreprise || email) + ' »',
         text: 'Tu es sur le point de FERMER DÉFINITIVEMENT l\'entreprise « ' + (clientsData[email].entreprise || email) + ' » (' + email + ').\n\nCode de confirmation : ' + code + '\n\nValable 10 minutes. Après validation : plus de nom, plus de lien, plus de formule, et les applications de ses appareils se vident à leur prochain lancement.\nSi ce n\'est pas toi, ignore ce message.' });
     } catch (e) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(e.message).slice(0, 120) }); }
-    console.log('Tour : code de fermeture envoyé pour', email, '→', dest);
+    console.log('Tour : code de fermeture envoyé pour', masqueMail(email), '→', masqueMail(dest));
     return res.json({ ok: true, codeEnvoye: true, dest });
   }
   const c = retraitCodes.get(email);
@@ -1487,7 +1549,7 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: jeton }) }); } catch (e) {} }
   // et le compte créé sur le site (connexion espace client) : supprimé aussi, si la clé admin est là
   const compteSite = await fbSupprimerCompteSite(email);
-  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', email, '— données effacées :', effaces + '/' + espacesAEffacer.length, '· compte du site :', compteSite.motif);
+  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', masqueMail(email), '— données effacées :', effaces + '/' + espacesAEffacer.length, '· compte du site :', compteSite.motif);
   res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces, compteSite });
 });
 
@@ -1520,8 +1582,8 @@ app.post('/api/monitor/status', monAdmin, async (req, res) => {
     for (const d of dests) {
       if (mailer) {
         try { await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: d.email, subject: sujet, text: texte }); mails++; }
-        catch (e) { console.error('monitor mail', d.email + ':', e.message); }
-      } else { mailsSimules++; console.log('monitor mail (simulé, smtp non configuré) →', d.email, '·', sujet); }
+        catch (e) { console.error('monitor mail', masqueMail(d.email) + ':', e.message); }
+      } else { mailsSimules++; console.log('monitor mail (simulé, smtp non configuré) →', masqueMail(d.email), '·', sujet); }
     }
     issue.mailEnvoye = true;
   }
@@ -1707,7 +1769,7 @@ app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
     await tr.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps, html,
       attachments: (LOGO_OK && html.indexOf('cid:logoteamop') >= 0) ? [LOGO_PIECE] : [] });
   } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
-  try { mailsLog.unshift({ ts: Date.now(), a: dest, sujet: obj, txt: corps.slice(0, 2000) }); if (mailsLog.length > 300) mailsLog.length = 300; mailsSave(); } catch (e) {}
+  mailsJournal(dest, obj, corps, false, '');
   supportEnvoyes.unshift({ id: 'e' + crypto.randomBytes(5).toString('hex'), to: dest, subject: obj, text: corps.slice(0, 2000), ts: Date.now(), par: req.tourUser.nom });
   if (supportEnvoyes.length > 100) supportEnvoyes.length = 100;
   supSave();
@@ -1903,7 +1965,7 @@ app.post('/api/clients/sync', async (req, res) => {
         '\n\nTout est visible dans ta Tour de contrôle : https://teamop.fr/tour.html';
       mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
         subject: '📥 Demande traitée automatiquement — ' + (clientsData[email].entreprise || email), text: texte })
-        .then(() => console.log('mail demande envoyé →', dest, '(' + nv.map(d => d.app).join(', ') + ')'))
+        .then(() => console.log('mail demande envoyé →', masqueMail(dest), '(' + nv.map(d => d.app).join(', ') + ')'))
         .catch(e => console.error('mail demande:', e.message));
       // e-mail au client : son lien de connexion, généré automatiquement
       const premiereCo = auto.neuf
@@ -1943,7 +2005,7 @@ app.post('/api/clients/sync', async (req, res) => {
       });
       mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: email,
         subject: '🔗 Votre lien de connexion est prêt — TEAM OP', text: accuse, html: accuseHtml })
-        .then(() => console.log('lien de connexion envoyé →', email, '(' + lien + ')'))
+        .then(() => console.log('lien de connexion envoyé →', masqueMail(email))   /* jamais le lien : il porte la clé d'équipe */)
         .catch(e => console.error('mail lien:', e.message));
       // et son « Mon espace » sur le site passe à : Accès activé · OP GESTION active · abonnement affiché
       const planLbl = promoActif ? promoLib : (dFormule.formule || FORMULE_LBL[auto.formule] || '');
@@ -2412,7 +2474,7 @@ function rappelsEcheances() {
             blocHtml: MAIL_BLOCS.echeance(finFr),
             boutonTxt: 'Choisir mon abonnement', boutonUrl: 'https://teamop.fr/espace.html',
             bouton2Txt: 'Ouvrir mon application', bouton2Url: 'https://teamop.fr/app.html' })
-        }).then(() => console.log('rappel échéance envoyé →', e.email, '(fin ' + eq.finLe + ')'))
+        }).then(() => console.log('rappel échéance envoyé →', masqueMail(e.email), '(fin ' + eq.finLe + ')'))
           .catch(err => console.error('rappel échéance:', err.message));
       }
     }

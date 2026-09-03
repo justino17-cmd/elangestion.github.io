@@ -2715,7 +2715,7 @@ async function teamopLienCheck(){
   localStorage.setItem('elan_sync_secret',o.k);
   localStorage.setItem('elan_sync_on','1');
   try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); lienLisibleOublier(); }catch(e){}
-  try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
+  try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.mh) localStorage.setItem('elan_admin_mdph',o.mh); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   try{ localStorage.setItem('elan_lien_ok','1'); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
   setTimeout(()=>location.reload(),600);
@@ -2733,7 +2733,7 @@ function teamopJoin(code){
   localStorage.setItem('elan_sync_on','1');
   try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); lienLisibleOublier(); }catch(e){}   // repart propre → pas de fuite de données entre espaces
   _ck={}; _syncTs=0;
-  try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
+  try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.mh) localStorage.setItem('elan_admin_mdph',o.mh); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
   setTimeout(()=>location.reload(),700);
 }
@@ -19224,17 +19224,19 @@ async function boot(){
     const _al=localStorage.getItem('elan_admin_login');
     if(_al&&_al!=='admin'){
       const _u=db.users.find(x=>x.login==='admin'&&!x.pwdHash);
-      const _amdp=localStorage.getItem('elan_admin_mdp'), _amail=localStorage.getItem('elan_admin_mail');
+      const _amdp=localStorage.getItem('elan_admin_mdp'), _amdph=localStorage.getItem('elan_admin_mdph'), _amail=localStorage.getItem('elan_admin_mail');
       if(_u&&!db.users.some(x=>(x.login||'').toLowerCase()===_al)){ _u.login=_al;
-        if(_amdp){
+        if(_amdp||_amdph){
           // identifiants donnés à la demande : identifiant = prénom, mot de passe provisoire
           // = nom + caractères spéciaux — l'app fait choisir le vrai mot de passe à la 1re connexion
-          _u.pinHash=await sha256(_amdp); delete _u.sansMdp; delete _u.compteSite;
+          // le lien ne porte plus le mot de passe, seulement son empreinte (_amdph) ;
+          // _amdp reste accepte pour les liens deja partis avant ce correctif
+          _u.pinHash=_amdph||await sha256(_amdp); delete _u.sansMdp; delete _u.compteSite;
           try{ localStorage.setItem('elan_savedLogin',_al); }catch(_e){}
         } else if(_al.indexOf('@')>0){ _u.compteSite=true; delete _u.pinHash; delete _u.sansMdp; try{ localStorage.setItem('elan_savedLogin',_al); }catch(_e){} }
         if(_amail&&!_u.email) _u.email=_amail;   // le « mot de passe oublié » marche dès le premier jour
         ch=true; }
-      localStorage.removeItem('elan_admin_login'); localStorage.removeItem('elan_admin_mdp'); localStorage.removeItem('elan_admin_mail');
+      localStorage.removeItem('elan_admin_login'); localStorage.removeItem('elan_admin_mdp'); localStorage.removeItem('elan_admin_mdph'); localStorage.removeItem('elan_admin_mail');
     }
   }catch(e){}
   if(ch) save();
@@ -19548,7 +19550,7 @@ async function espaceDepuisNom(nomTape,login,suite){
   }catch(e){ return 'Serveur injoignable — vérifie ta connexion internet'; }
   const o=teamopDecode(j.code); if(!o) return 'Réponse du serveur invalide — réessaie';
   localStorage.setItem('elan_entreprise_nom', j.nom||s);
-  try{ if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
+  try{ if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.mh) localStorage.setItem('elan_admin_mdph',o.mh); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   if(syncTeam()===o.t) return '';
   // appareil déjà utilisé avec des données : on prévient avant de repartir propre (comme pour le lien)
   const occupe=(db.clients||[]).length||(db.interventions||[]).length||(db.users||[]).length>2;
