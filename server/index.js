@@ -1193,7 +1193,7 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '556',
+  version: '557',
   sujet: '🆕 Du nouveau dans OP GESTION — vos commandes se suivent, et vous décidez qui voit quoi',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
@@ -1201,7 +1201,7 @@ const ANNONCE = {
     ['👥 Chaque personne est rattachée à son valideur', 'Dans la fiche d\'un utilisateur, une section <b>« À qui il est rattaché »</b> : vous choisissez qui valide ses mouvements de box et ses demandes. Ce valideur est le seul prévenu et le seul à les voir — fini les alertes pour des box dont on ne s\'occupe pas. Le rattachement se fait dans les deux sens : depuis la fiche de la personne, ou depuis celle du valideur avec une liste à cocher.'],
     ['✅ Une validation se voit des deux côtés', 'Celui qui valide et celui qui attend voient le même écran. La personne qui a fait la demande sait enfin où elle en est.'],
     ['🎛️ Le rôle n\'est plus qu\'un nom — c\'est vous qui décidez', 'Un directeur régional ne voit plus tout <i>parce qu\'il est directeur régional</i>. Chaque droit et chaque rubrique du menu se coche, personne par personne ou rôle par rôle, dans <b>Permissions</b>. <b>Rien ne change aujourd\'hui</b> : les droits que vos équipes avaient ont été recopiés dans les cases. Vous décochez ce que vous voulez, quand vous voulez.'],
-    ['📱 Plus lisible sur téléphone', 'Des boutons de Paramètres sortaient de l\'écran et restaient inatteignables au doigt : les lignes passent maintenant à la ligne. Et toucher le libellé d\'un champ place enfin le curseur dedans — partout dans l\'application.'],
+    ['📱 Plus lisible, sur téléphone comme en thème sombre', 'Des boutons de Paramètres sortaient de l\'écran et restaient inatteignables au doigt : les lignes passent maintenant à la ligne. Toucher le libellé d\'un champ place enfin le curseur dedans, partout. Et en thème sombre, les initiales des pastilles s\'adaptent à leur couleur au lieu de rester blanches sur fond clair. Revue menée écran par écran, en téléphone, tablette et bureau.'],
     ['🧹 Les personnes supprimées ne réapparaissent plus', 'Un compte supprimé restait accroché aux box (« Visible par », « Responsable »), aux groupes et aux validations, et ressortait dans les écrans de choix. C\'est nettoyé. Vos mouvements passés gardent le nom écrit à l\'époque.'],
     ['🔐 Sécurité et fiabilité', 'Le mot de passe provisoire d\'un administrateur ne sort plus de l\'annuaire, les codes de confirmation ne sont plus conservés dans le journal des e-mails, et un administrateur ne peut plus être rétrogradé par erreur en créant une fiche technicien à son nom. La synchronisation ne s\'arrête plus définitivement en cas de refus passager au démarrage.']
   ]
