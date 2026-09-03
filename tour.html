@@ -1578,32 +1578,51 @@ function vueEquipe(){
 
 /* ══════════ 7. JOURNAL ══════════ */
 function vueJournal(){
-  var act=(JR.actions||[]).map(function(a){
+  /* Un seul endroit pour les e-mails. Ce journal en affichait une liste plate, pendant que
+     Support → Envoyés montrait la MÊME source groupée par entreprise, avec recherche et
+     lecture. Deux rendus de la même chose : on garde le bon et on renvoie dessus. */
+  var A=JR.actions||[], C=JR.cnx||[];
+  var echecs=C.filter(function(j){ return !j.ok; }).length;
+
+  var ligneDate=function(ts){ return '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0;width:132px" title="'+esc(fmtDateLong(ts))+'">'+esc(fmtDate(ts))+'</span>'; };
+  var vide=function(txt){ return '<div style="color:var(--muted);font-size:13px;padding:14px 2px;line-height:1.6">'+txt+'</div>'; };
+
+  var act=A.map(function(a){
     return '<div style="display:flex;gap:12px;align-items:baseline;padding:10px 0;border-top:1px solid var(--hairline)">'+
-      '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0">'+esc(fmtDate(a.ts))+'</span>'+
-      '<span style="font-size:13px;color:var(--text2)">'+esc(a.tx)+'</span></div>';
-  }).join('')||'<div style="color:var(--muted);font-size:13px;padding-top:10px">Aucune action enregistrée depuis l’ouverture de la console.</div>';
-  var cnx=(JR.cnx||[]).slice(0,40).map(function(j){
+      ligneDate(a.ts)+'<span style="font-size:13px;color:var(--text2)">'+esc(a.tx)+'</span></div>';
+  }).join('')||vide('Aucune action depuis l’ouverture de la console. Tout ce que tu fais ici — attribuer une formule, activer un code, fermer une entreprise — s’inscrit sur cette liste.');
+
+  var cnx=C.slice(0,40).map(function(j){
     var ko=!j.ok;
     return '<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:11px;margin-top:8px;'+
       (ko?'background:rgba(255,107,107,.05);border:1px solid rgba(255,107,107,.25)':'border:1px solid var(--hairline)')+'">'+
-      '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0">'+esc(fmtDate(j.ts))+'</span>'+
+      ligneDate(j.ts)+
       '<span style="flex:1;min-width:0"><span style="font-weight:600;font-size:13px">'+esc(j.qui||'—')+'</span>'+
         '<span style="font-size:12px;color:var(--muted)"> · '+esc(j.appareil||'appareil inconnu')+(j.motif?' · '+esc(j.motif):'')+'</span></span>'+
       '<span class="past '+(ko?'p-rouge':'p-vert')+'">'+(ko?'Échec':'Réussie')+'</span></div>';
-  }).join('')||'<div style="color:var(--muted);font-size:13px;padding-top:10px">Aucune connexion enregistrée.</div>';
+  }).join('')||vide('Aucune connexion enregistrée à la console.');
+
+  var chiffre=function(n,l,rouge){ return '<div style="flex:1;min-width:120px;padding:12px 14px;border:1px solid var(--hairline);border-radius:12px">'+
+      '<div style="font-size:22px;font-weight:800;color:'+(rouge&&n?'#ff6b6b':'var(--strong)')+'">'+n+'</div>'+
+      '<div style="font-size:11.5px;color:var(--muted);margin-top:2px">'+l+'</div></div>'; };
+
   return '<div class="ttl-page">Journal</div><div class="desc">Ce qui a été fait dans la console, et qui s’y est connecté.</div>'+
-    '<div style="height:18px"></div>'+
-    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">'+
-      '<div class="carte"><div class="ttl-carte">Actions sur les incidents</div><div style="margin-top:10px">'+act+'</div></div>'+
+    '<div style="height:14px"></div>'+
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">'+
+      chiffre(A.length,'action'+(A.length>1?'s':'')+' cette session')+
+      chiffre(C.length,'connexion'+(C.length>1?'s':'')+' enregistrée'+(C.length>1?'s':''))+
+      chiffre(echecs,'échec'+(echecs>1?'s':'')+' de connexion',true)+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start">'+
+      '<div class="carte"><div class="ttl-carte">Actions sur les entreprises</div><div style="margin-top:10px">'+act+'</div></div>'+
       '<div class="carte"><div class="ttl-carte">Connexions à la console</div><div style="margin-top:6px">'+(JR.err?'<div class="vide">'+esc(JR.err)+'</div>':cnx)+'</div></div>'+
-      '<div class="carte" style="margin-top:16px"><div class="ttl-carte">📧 E-mails envoyés par TeamOP</div><div style="margin-top:6px">'+
-        ((JR.mails&&JR.mails.length)?JR.mails.slice(0,40).map(function(m){
-          return '<div style="display:flex;gap:12px;align-items:baseline;padding:9px 0;border-top:1px solid var(--hairline)">'+
-            '<span class="mono" style="font-size:11.5px;color:var(--dim);flex-shrink:0">'+esc(fmtDate(m.ts))+'</span>'+
-            '<span style="font-size:13px;color:var(--text2);min-width:0;overflow:hidden;text-overflow:ellipsis">'+esc(m.sujet||'—')+' <span style="color:var(--muted)">→ '+esc(m.a||'—')+'</span></span></div>';
-        }).join(''):'<div style="color:var(--muted);font-size:13px;padding-top:6px">Aucun e-mail envoyé pour l\'instant (journal actif à partir de maintenant). Chaque envoi arrive aussi en copie dans contact@teamop.fr.</div>')+
-      '</div></div>'+
+    '</div>'+
+    '<div class="carte" style="margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:220px">'+
+        '<div class="ttl-carte">📧 Les e-mails envoyés</div>'+
+        '<div style="font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.55">Ils sont dans <b>Support → Envoyés</b>, rangés par entreprise, avec la recherche et le contenu de chaque message. Ils étaient dupliqués ici en liste plate : une seule place vaut mieux que deux.</div>'+
+      '</div>'+
+      '<button class="btn-plein" onclick="setTab(\'support\');envoyesOuvrir()">Ouvrir les envois</button>'+
     '</div>';
 }
 
