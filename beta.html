@@ -16382,7 +16382,7 @@ views.parametres=function(){
       <p style="color:var(--t2);font-size:13.5px;margin-bottom:12px">Reçois les alertes de l'équipe (interventions, arrivages, messages) même quand l'application est fermée.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn sm" onclick="pushSubscribe()">${(typeof Notification!=='undefined'&&Notification.permission==='granted'&&localStorage.getItem('elanB_push_on'))?'✓ Activées sur cet appareil':'Activer sur cet appareil'}</button>
-        <button class="btn sm ghost" onclick="pushTest()">Envoyer un test</button>
+        ${equipeTeamOP()?`<button class="btn sm ghost" onclick="pushTest()">Envoyer un test</button>`:''}
       </div>
     </div>
     ${(()=>{ if(!['admin','dr','commercial','compta'].includes(currentUser.role)) return ''; const b=(currentUser&&currentUser.mailBox)||null; return `<div class="card"><div class="card-head"><h3>💼 Mon e-mail professionnel</h3></div>
@@ -16451,7 +16451,7 @@ views.parametres=function(){
     <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)"></div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--brd)"><p style="color:var(--t2);font-size:14px;margin-bottom:10px">Version installée : <b>v${APP_VERSION}</b>. Si l'app semble figée sur une ancienne version :</p>
     <button class="btn" onclick="forceUpdate()">Forcer la mise à jour (vider le cache)</button></div></div>
-    ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>Assistant IA</h3>${aiHasKey()?'<span class="tag" style="background:color-mix(in srgb,var(--acc) 18%,transparent);color:var(--acc)">Activé</span>':''}</div>
+    ${equipeTeamOP()&&currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>Assistant IA</h3>${aiHasKey()?'<span class="tag" style="background:color-mix(in srgb,var(--acc) 18%,transparent);color:var(--acc)">Activé</span>':''}</div>
       <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:12px">Permet de <b>rédiger les rapports et devis automatiquement</b>. Colle ta clé API Anthropic (commence par <span class="mono">sk-ant-</span>). Elle reste <b>uniquement sur cet appareil</b> et n'est jamais envoyée ailleurs.</p>
       <div class="fgroup"><div class="frow"><input id="ai-key-inp" type="password" placeholder="sk-ant-..." value="${esc(aiKey())}" autocomplete="off"></div></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="aiSaveKey()">Enregistrer la clé</button>${aiHasKey()?'<button class="btn ghost" onclick="aiClearKey()">Supprimer la clé</button> <button class="btn ghost" onclick="aiTestKey()">Tester</button>':''}</div>
@@ -16515,7 +16515,9 @@ views.parametres=function(){
       <div class="form-sec">🧰 Mon métier <span style="font-weight:400;text-transform:none;letter-spacing:0">— l'application s'adapte à ton activité</span></div>
       ${(()=>{ const cur=metierId();
         return `<p style="color:var(--t3);font-size:12px;line-height:1.55;margin-bottom:9px"><b style="color:var(--t2)">Ton métier a été choisi lors de ta demande d'application</b> — il est déjà réglé ici. Il change les <b>catégories d'intervention</b>, la <b>fiche remplie sur le terrain</b> (prestations réalisées et relevés) et les <b>modules affichés</b>. Tes clients, ton planning et tes interventions ne sont jamais touchés.<br>Besoin d'autre chose pour ton métier ? Écris à <a href="mailto:support@teamop.fr?subject=Mon%20m%C3%A9tier%20sur%20TEAM%20OP" style="color:var(--acc);font-weight:700">support@teamop.fr</a> — on ajoute au pack de ton métier, sans toucher aux autres.</p>
-        <div class="met-cards">${METIERS_ORDRE.map(k=>{ const m=METIERS[k]; const on=(k===cur);
+        <!-- une entreprise a choisi son métier à sa demande d'application : elle n'a pas à voir
+             les cinq autres, qui ne la concernent pas et invitent à un changement risqué. -->
+        <div class="met-cards">${(equipeTeamOP()?METIERS_ORDRE:METIERS_ORDRE.filter(k=>k===cur)).map(k=>{ const m=METIERS[k]; const on=(k===cur);
           const nb=m.types?m.types.length:INT_TYPES.length;
           return `<div class="met-card${on?' on':''}" onclick="metierSet('${k}')">
             ${on?'<span class="bd">Actif</span>':''}
@@ -19903,7 +19905,10 @@ function maybeProfilePhoto(){ if(!currentUser||currentUser.photo) return;
     <button class="btn ghost sm" style="width:100%;justify-content:center" onclick="closeModal()">Plus tard</button>`); }
 /* Outils réservés à l'équipe TEAM OP (canal bêta ou espace interne) : démonstrations, mise en production, OP MESSAGES
    tant qu'il est en développement — jamais visibles chez les entreprises */
-function equipeTeamOP(){ try{ return APP_VERSION.indexOf('beta')>=0 || syncTeam()===FB_TEAM; }catch(e){ return false; } }
+/* L'équipe TEAM OP, c'est l'espace par défaut du canal — pas « quiconque ouvre la bêta ».
+   Avec l'ancienne règle, une entreprise invitée à essayer la bêta voyait les outils internes :
+   planning de démonstration, assistant IA, envoi de notification de test. */
+function equipeTeamOP(){ try{ return syncTeam()===FB_TEAM; }catch(e){ return false; } }
 function opMsgDisponible(){ return equipeTeamOP(); }
 /* Barre « SUITE » du menu : une seule règle, réutilisée à la connexion, au changement de forfait et au code promo —
    OP MESSAGES = droit accordé + forfait + application ouverte (encore en développement pour les entreprises) ;
