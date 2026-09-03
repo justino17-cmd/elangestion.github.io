@@ -3157,7 +3157,6 @@ function userSeesModule(u,k){ if(!u) return false; if(planBloque(k)) return fals
   // mouvement partir et plus rien. Le contenu, lui, reste filtré : chacun ne voit que ce qui le
   // concerne (visibleBoxMvts / visibleDemandes).
   if(k==='validations' && (userCap(u,'validerDR')||u.boxValidDR)) return true;
-  if(u.role==='dr' || u.role==='chefEquipe') return !['utilisateurs','permissions'].includes(k);   // défaut DR / chef d'équipe : tout, sauf la gestion des comptes
   const it=NAV.flatMap(s=>s.items).find(x=>x.k===k);
   // défaut des autres rôles : rubriques « admin » fermées, rubriques « mises de côté » fermées tant qu'elles ne sont pas
   // affichées dans le menu (Modules OP) ni réglées — le reste ouvert. Une seule règle pour le menu, Permissions et la fiche.
@@ -3169,7 +3168,7 @@ function canSee(item){ if(!currentUser) return false; return userSeesModule(curr
    commercial : crée interventions & devis, voit tout, mais ne SUPPRIME pas
    technicien : remplit ses rapports, voit SES interventions ; ne crée/annule/supprime pas
    (chaque droit est réglable au cas par cas par utilisateur via l'écran Accès) */
-const CAPS = {
+const CAPS_HERITE = {
   admin:      { supprimer:1, annuler:1, voirTout:1, creerIntervention:1, planifDeplacer:1, planifObligerTravail:1, modifierPlans:1, devisIA:1, validerDR:1, voirCompta:1 },
   dr:         { supprimer:1, annuler:1, voirTout:1, creerIntervention:1, planifDeplacer:1, planifObligerTravail:0, modifierPlans:1, devisIA:0, validerDR:1, voirCompta:1 },
   chefEquipe: { supprimer:1, annuler:1, voirTout:1, creerIntervention:1, planifDeplacer:1, planifObligerTravail:1, modifierPlans:1, devisIA:0, validerDR:0, voirCompta:0 },
@@ -3177,6 +3176,35 @@ const CAPS = {
   compta:     { supprimer:0, annuler:0, voirTout:1, creerIntervention:0, planifDeplacer:0, planifObligerTravail:0, modifierPlans:0, devisIA:0, validerDR:0, voirCompta:1 },
   technicien: { supprimer:0, annuler:0, voirTout:0, creerIntervention:0, planifDeplacer:0, planifObligerTravail:0, modifierPlans:0, devisIA:0, validerDR:0, voirCompta:0 },
 };
+/* Le rôle n'est plus qu'un nom : il ne donne aucun droit de lui-même. Tout vient des cases de
+   Permissions, cochées par la personne qui crée les comptes. CAPS_HERITE ci-dessus garde ce que
+   chaque rôle donnait d'office AVANT ce changement — il ne sert qu'une fois, à la reprise, pour
+   que personne ne perde son accès du jour au lendemain. L'administrateur, lui, garde tout. */
+const CAPS = Object.fromEntries(Object.entries(CAPS_HERITE).map(([r,c])=>[r, r==='admin' ? c : Object.fromEntries(Object.keys(c).map(k=>[k,0]))]));
+/* Ce qu'un rôle voyait d'office avant la bascule — reproduit à l'identique pour la reprise. */
+function moduleHeriteRole(role,k){
+  if(role==='admin') return true;
+  if(role==='dr'||role==='chefEquipe') return !['utilisateurs','permissions'].includes(k);
+  const it=NAV.flatMap(x=>x.items).find(x=>x.k===k);
+  return !(it && (it.admin || (it.aside && !showAside())));
+}
+/* La reprise, une seule fois par espace : on écrit dans les réglages PAR RÔLE ce que chaque rôle
+   avait en implicite. Par rôle et non par personne, pour garder « je change le rôle, ça s'applique
+   à tout le monde ». Ce qui est déjà réglé n'est jamais écrasé. */
+function reprendreDroitsImplicites(){
+  if(db.permsRepris) return false;
+  db.permissions=db.permissions||{};
+  const cles=[...new Set(NAV.flatMap(x=>x.items).map(x=>x.k))];
+  Object.keys(CAPS_HERITE).filter(r=>r!=='admin').forEach(role=>{
+    const p=db.permissions[role]=db.permissions[role]||{};
+    p.caps=p.caps||{};
+    Object.entries(CAPS_HERITE[role]).forEach(([c,v])=>{ if(!Object.prototype.hasOwnProperty.call(p.caps,c)) p.caps[c]=!!v; });
+    cles.forEach(k=>{ if(!Object.prototype.hasOwnProperty.call(p,k)) p[k]=moduleHeriteRole(role,k); });
+  });
+  db.permsRepris=1;
+  logEvent('Droits repris','le rôle ne donne plus rien d\'office — ce qu\'il donnait est désormais coché dans Permissions','crud');
+  return true;
+}
 /* « validerDR » : valider / refuser les mouvements de box et les demandes de commande (le rôle du DR) —
    réglable par rôle ou par personne comme tout autre droit ; les personnes qui l'ont reçoivent les alertes « à valider ». */
 function valideursDR(){ return (db.users||[]).filter(x=>x&&x.actif!==false&&userCap(x,'validerDR')); }
@@ -19516,6 +19544,7 @@ async function boot(){
     }
   }catch(e){}
   try{ if(adminAnnuaireRetablir()) ch=true; }catch(e){}
+  try{ if(reprendreDroitsImplicites()) ch=true; }catch(e){}
   /* Références mortes. Une personne supprimée disparaît de la liste des comptes, mais son
      identifiant pouvait rester posé sur une box (« Visible par », « Responsable »), dans un
      groupe ou comme valideur — et elle réapparaissait donc dans les écrans de choix.
