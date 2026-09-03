@@ -19385,6 +19385,13 @@ function closeNotif(){ notifOpen=false; $('notif-panel').innerHTML=''; }
 document.addEventListener('click',()=>{ if(notifOpen) closeNotif(); });
 
 /* ═══════════════ AUTH — identifiant + mot de passe personnel (SHA-256) ═══════════════ */
+/* Aux temps du code PIN, « pinHash » a pu contenir la valeur EN CLAIR : la comparaison
+   directe (pinHash===pin) existe pour ces comptes jamais migres. Elle ne doit JAMAIS
+   accepter une empreinte SHA-256 comme mot de passe tape — sinon « mh », que le code
+   d'espace porte et que /api/espaces/trouver rend a qui connait le nom de l'entreprise,
+   se tape tel quel en guise de mot de passe. Un PIN d'epoque est court ; une empreinte
+   fait 64 caracteres hexadecimaux. */
+const pinClairHerite=v=>typeof v==='string'&&v.length>0&&!/^[0-9a-f]{64}$/i.test(v);
 async function sha256(str){ try{ if(window.crypto&&crypto.subtle){ const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join(''); } }catch(e){}
   let h=0; for(let i=0;i<str.length;i++) h=(Math.imul(31,h)+str.charCodeAt(i))|0; return 'fb'+(h>>>0).toString(16); }
 function getSession(){ return localStorage.getItem('elan_session')||sessionStorage.getItem('elan_session'); }
@@ -19788,7 +19795,7 @@ async function doLogin(e){ e.preventDefault();
   _cnxVia=localStorage.getItem('elan_lien_ok')?'lien':(_entSaisi?'entreprise':'identifiants');   // par quel chemin on arrive (pour la Tour)
   const trouver=()=>db.users.find(x=> x.login && x.login.toLowerCase()===login.toLowerCase() && x.actif);
   // vrai si le compte peut se connecter avec ce qui a été tapé (mot de passe, ancien PIN, ou 1re connexion libre / compte du site)
-  const valide=x=>!!x && (x.compteSite || x.sansMdp || (x.pwdHash ? x.pwdHash===h : (x.pinHash===h || x.pinHash===pin)));
+  const valide=x=>!!x && (x.compteSite || x.sansMdp || (x.pwdHash ? x.pwdHash===h : (x.pinHash===h || (pinClairHerite(x.pinHash) && x.pinHash===pin))));
   let u=trouver();
   // Appareil neuf (lien de l'entreprise) : les comptes arrivent par la synchro — on l'attend avant de refuser.
   // Un compte déjà présent sur l'appareil est jugé tout de suite, même hors ligne (bon ou mauvais mot de passe).
@@ -19830,7 +19837,7 @@ async function doLogin(e){ e.preventDefault();
     return;
   }
   // mot de passe d'abord ; sinon l'ancien code PIN (comptes pas encore migrés)
-  if(u && (u.pwdHash ? u.pwdHash===h : (u.pinHash===h || u.pinHash===pin))){
+  if(u && (u.pwdHash ? u.pwdHash===h : (u.pinHash===h || (pinClairHerite(u.pinHash) && u.pinHash===pin)))){
     sessionStorage.setItem('elan_session',u.id);
     if(remember){ localStorage.setItem('elan_session',u.id); localStorage.setItem('elan_savedLogin',u.login); }
     else { localStorage.removeItem('elan_session'); localStorage.removeItem('elan_savedLogin'); }
