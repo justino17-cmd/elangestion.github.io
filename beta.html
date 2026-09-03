@@ -2438,6 +2438,36 @@ function setLang(l){ localStorage.setItem('elanB_lang',l); if(currentUser){ rend
 function openLangPicker(){ openModal(`<div class="modal-head"><h3>🌍 ${t('Langue')} / Language / Idioma</h3></div>
   <div style="padding:2px"><p style="color:var(--t2);font-size:14px;margin-bottom:14px">Choisis ta langue · Choose your language · Elige tu idioma</p>
   <div style="display:flex;flex-direction:column;gap:10px">${Object.entries(LANGS).map(([k,v])=>`<button type="button" class="btn ${getLang()===k?'':'ghost'}" style="justify-content:flex-start" onclick="setLang('${k}');closeModal()">${LANG_FLAG[k]} ${v}</button>`).join('')}</div></div>`); }
+/* Relier chaque libellé à son champ.
+   L'application compte 282 <label> et aucun ne portait « for » : toucher le libellé ne
+   plaçait donc pas le curseur dans le champ — un geste naturel sur téléphone — et les
+   lecteurs d'écran n'annonçaient rien. Reprendre 282 emplacements à la main dans du HTML
+   généré serait long et fragile ; on les relie après chaque rendu, ce qui vaut aussi pour
+   les fenêtres modales et pour tout ce qui sera ajouté plus tard.
+   On ne relie que lorsqu'il n'y a AUCUNE ambiguïté : un seul champ dans la boîte. */
+let _lblSeq=0;
+function relierLibelles(racine){
+  try{
+    (racine||document).querySelectorAll('.field > label:not([for]), .frow > .frow-lbl:not([data-lie])').forEach(l=>{
+      const boite=l.closest('.field,.frow'); if(!boite) return;
+      const champs=boite.querySelectorAll('input:not([type=hidden]),select,textarea');
+      if(champs.length!==1) return;
+      const c=champs[0];
+      if(!c.id) c.id='ch'+(++_lblSeq);
+      if(l.tagName==='LABEL'){ l.setAttribute('for',c.id); }
+      else { l.setAttribute('data-lie','1'); if(!l.id) l.id='lb'+(++_lblSeq); c.setAttribute('aria-labelledby',l.id); }
+    });
+  }catch(e){}
+}
+/* Poser « for » ne déclenche pas de nouveau rendu : le sélecteur :not([for]) ne retrouve
+   plus rien au passage suivant, l'observateur se calme de lui-même. Vérifié en navigateur :
+   4 passages pour 4 changements d'écran, aucune boucle. */
+try{
+  let _lblAtt=null;
+  new MutationObserver(()=>{ clearTimeout(_lblAtt); _lblAtt=setTimeout(()=>relierLibelles(),120); })
+    .observe(document.documentElement,{childList:true,subtree:true});
+  relierLibelles();
+}catch(e){}
 const badge = (map,k) => { const o=map[k]||Object.values(map)[0]; return `<span class="st ${o.c}">${o.l}</span>`; };
 
 /* ── Données ── */
