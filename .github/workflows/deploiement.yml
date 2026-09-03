@@ -1,0 +1,88 @@
+# Déploiement du serveur TeamOP sur le VPS.
+#
+# Pourquoi ce fichier existe : le 2 septembre 2026, publier une correction a demandé six
+# tentatives — mot de passe root retapé à chaque fois, une commande collée par erreur dans
+# l'invite « Username for github », deux erreurs 401, et un serveur resté sur l'ancien code
+# sans que ça se voie. Le 3 septembre, une faille de sécurité corrigée est restée ouverte
+# en production plusieurs heures pour la même raison. Ce workflow supprime cette étape
+# manuelle : tout merge sur main qui touche server/ met le VPS à jour tout seul.
+name: Déploiement du serveur
+
+on:
+  push:
+    branches: [main]
+    paths: ['server/**', '.github/workflows/deploiement.yml']
+  workflow_dispatch: {}      # lancement manuel : onglet Actions → « Déploiement du serveur » → Run workflow
+
+concurrency:
+  group: deploiement-vps     # jamais deux déploiements en même temps
+  cancel-in-progress: false  # et on ne coupe pas un déploiement en cours
+
+permissions:
+  contents: read
+
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+
+      # La clé de déploiement vient des secrets du dépôt ; l'empreinte de l'hôte, elle, est
+      # écrite en clair ici — une clé publique d'hôte n'est pas un secret, et la voir dans le
+      # diff est précisément ce qui permet de vérifier qu'elle n'a pas changé en douce.
+      # Empreinte attendue : SHA256:roC/SIeqnxPTGhAe/88vEXbcn7oNWQWC0T26mBDv1vQ
+      - name: Préparer l'accès SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          cat > ~/.ssh/known_hosts <<'EOF'
+          api.teamop.fr ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOx14gh/gaXmkrB1xVioeWjc2MHduIP9T5WRQZntZ+Sn
+          217.154.6.139 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOx14gh/gaXmkrB1xVioeWjc2MHduIP9T5WRQZntZ+Sn
+          EOF
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Mettre à jour et redémarrer
+        run: |
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=15 \
+              root@api.teamop.fr 'bash -euo pipefail -s' <<'DISTANT'
+            cd /opt/teamop/repo
+
+            # Les trois pannes du 2 septembre, neutralisées : adresse de dépôt remise au propre,
+            # identifiant mémorisé ignoré, et aucune invite possible — en cas de souci, la
+            # commande échoue avec un message au lieu de rester suspendue.
+            git remote set-url origin https://github.com/justino17-cmd/elangestion.github.io.git
+            export GIT_TERMINAL_PROMPT=0
+            AVANT=$(git rev-parse HEAD)
+            git -c credential.helper= fetch --prune --quiet origin main
+            # --ff-only : si l'arbre du serveur a divergé, on veut le savoir, pas l'écraser en silence.
+            git -c credential.helper= merge --ff-only --quiet origin/main
+            APRES=$(git rev-parse HEAD)
+            echo "dépôt : ${AVANT:0:8} → ${APRES:0:8}"
+
+            # Dépendances : seulement si le verrou a bougé, sinon on ne perd pas 40 s à chaque fois.
+            if ! git diff --quiet "$AVANT" "$APRES" -- server/package-lock.json server/package.json; then
+              echo "dépendances modifiées → npm ci"
+              cd server && npm ci --omit=dev --no-audit --no-fund && cd ..
+            fi
+
+            systemctl restart teamop-api
+            sleep 3
+            systemctl is-active --quiet teamop-api || { echo "le service n'est pas actif"; journalctl -u teamop-api -n 30 --no-pager; exit 1; }
+            echo "--- /health ---"
+            curl -sf --max-time 10 localhost:8080/health || { echo "health injoignable"; exit 1; }
+            echo
+            echo "--- journal ---"
+            journalctl -u teamop-api -n 15 --no-pager
+          DISTANT
+
+      # Le contrôle qui manquait : le 2 septembre le serveur a redémarré sur l'ancien code sans
+      # que rien ne le signale. On compare la version d'annonce servie à celle du dépôt.
+      - name: Vérifier que le serveur sert bien ce commit
+        run: |
+          ATTENDU=$(grep -m1 -oE "version: '[0-9]+'" server/index.js | grep -oE "[0-9]+")
+          SERVI=$(curl -sf --max-time 10 https://api.teamop.fr/health | grep -oE '"annonce":"[0-9]+"' | grep -oE '[0-9]+')
+          echo "annonce attendue : $ATTENDU · servie : $SERVI"
+          [ -n "$SERVI" ] && [ "$ATTENDU" = "$SERVI" ] || { echo "::error::Le serveur ne sert pas ce commit — déploiement à reprendre à la main."; exit 1; }
+          echo "Le serveur tourne bien sur ce commit."
