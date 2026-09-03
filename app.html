@@ -2504,6 +2504,7 @@ function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catc
 /* Config Firebase intégrée (équipe OP GESTION) — synchro active pour TOUS sans réglage */
 const FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"elan-gestion.firebaseapp.com", projectId:"elan-gestion", storageBucket:"elan-gestion.firebasestorage.app", messagingSenderId:"910528393731", appId:"1:910528393731:web:128d97b6a3269fb6d21436" };
 const FB_TEAM='elan-gestion';
+let _syncEssais=0;
 let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
 function syncDeviceId(){ let d=localStorage.getItem('elan_dev'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('elan_dev',d);} return d; }
 /* Sécurité — chiffrement de bout en bout des données synchronisées (AES-256-GCM).
@@ -2542,6 +2543,10 @@ async function syncAuth(){ try{
     new Promise(res=>setTimeout(()=>res(null),4000))
   ]);
   if(!u) await firebase.auth().signInAnonymously();
+  /* Se connecter ne suffit pas : le jeton doit être posé avant la première lecture, sinon
+     Firestore répond « permission refusée » alors que tout est correct. On attend donc que
+     currentUser existe vraiment, avec une limite pour ne jamais bloquer le démarrage. */
+  for(let i=0; i<20 && !firebase.auth().currentUser; i++) await new Promise(r=>setTimeout(r,100));
 }catch(e){ try{ console.warn('auth sync :', e&&e.message); }catch(_e){} } }
 async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn||_syncDemarre) return; _syncDemarre=true;
   try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); await syncAuth(); const fs=firebase.firestore();
@@ -2576,7 +2581,13 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
         try{ restoreFournisseurEmails(); }catch(e){}
         try{ fixArmosaEmail(); }catch(e){}
       }catch(e){ _syncApplying=false; } },
-      err=>{ console.error('sync',err); _syncOn=false; _syncDemarre=false; try{updateSyncBtn();}catch(e){} });
+      err=>{ console.error('sync',err); _syncOn=false; _syncDemarre=false; try{updateSyncBtn();}catch(e){}
+        /* « permission-denied » au démarrage veut dire que l'authentification n'était pas encore
+           établie — pas que l'appareil n'a pas le droit. Abandonner ici laissait l'application
+           travailler en local pour TOUTE la session, sans jamais se resynchroniser : l'équipe
+           voyait des données périmées sans qu'aucun message ne le signale. On réessaie. */
+        if(err && err.code==='permission-denied' && (_syncEssais=(_syncEssais||0)+1)<=4){
+          setTimeout(()=>{ try{ syncInit(); }catch(e){} }, 1200*_syncEssais); } });
   }catch(e){ console.error('syncInit',e); _syncOn=false; _syncDemarre=false; } }
 /* Décrit les déplacements d'interventions reçus d'un collègue (planning temps réel) */
 function planSyncDiff(oldDb,newDb,by){ try{
