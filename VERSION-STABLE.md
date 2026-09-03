@@ -1,6 +1,20 @@
 # Point stable TeamOP
 
-**Version stable : v556** — gravée le 3 septembre 2026.
+**Version stable : v557** — gravée le 3 septembre 2026.
+
+v557 — revue complète de l'affichage, menée dans un navigateur sur les 16 écrans
+et les 17 formulaires, en largeur téléphone (390 px), tablette (768 px) et
+bureau, en thème clair et sombre, avec des listes longues et des noms à
+rallonge. Trois défauts trouvés et corrigés : des boutons de Paramètres sortaient
+de l'écran sur téléphone et restaient inatteignables ; 282 libellés n'étaient
+reliés à aucun champ, si bien que les toucher ne plaçait pas le curseur dedans et
+qu'un lecteur d'écran n'annonçait rien ; et en thème sombre, les initiales
+blanches des pastilles d'avatar tombaient à 2,2 pour 1 sur les couleurs claires —
+l'encre s'adapte désormais à la couleur de sa pastille. Le reste est sain : aucun
+écran ne plante, aucune erreur JavaScript, et ce qui dépasse au tableau de bord
+et au planning est du défilement horizontal voulu.
+
+Ancien point : **v556** — gravée le 3 septembre 2026.
 
 v556 — une demande de commande suit sa commande jusqu'au bout. Jusqu'ici elle
 s'arrêtait à « Validée » : le bon de commande qu'elle engendrait vivait sa vie
