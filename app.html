@@ -13407,6 +13407,22 @@ function saveEnv(ev,id){ ev.preventDefault(); const f=ev.target; const d=Object.
 
 /* ═══════════════ MES DEMANDES (demande de commande Chef → DR, liée à une Box) ═══════════════ */
 const STATV={ enAttente:{l:'En attente',c:'st-org'}, valide:{l:'Validée',c:'st-green'}, refuse:{l:'Refusée',c:'st-red'}, modifie:{l:'Modifiée',c:'st-blue'}, enCours:{l:'En cours',c:'st-blue'}, envoyee:{l:'Envoyée',c:'st-purple'}, recue:{l:'Reçue',c:'st-green'} };
+/* L'état d'une demande, du besoin jusqu'à la réception. Jusqu'ici elle s'arrêtait à « Validée » :
+   le bon de commande qu'elle engendrait vivait sa vie sans qu'elle le sache, et le chef d'équipe
+   qui l'avait faite ne savait jamais si sa commande était partie, arrivée, ou encore en tiroir.
+   Les deux objets sont maintenant reliés (demande.bonId ↔ bon.demandeId) et la demande affiche
+   l'avancement réel de son bon. */
+function demandeEtat(d){
+  if(!d) return STATV.enAttente;
+  if(d.statut!=='valide') return STATV[d.statut]||STATV.enAttente;
+  const b=d.bonId&&(db.bons||[]).find(x=>x.id===d.bonId);
+  if(!b) return { l:'Acceptée', c:'st-green' };
+  if(b.statut==='livree')  return { l:'Reçue', c:'st-green' };
+  if(b.statut==='annulee') return { l:'Commande annulée', c:'st-red' };
+  const st=STATBC[b.statut];
+  return st ? { l:'Acceptée · '+st.l, c:st.c } : { l:'Acceptée', c:'st-green' };
+}
+const badgeEtat = (o) => `<span class="st ${o.c}">${o.l}</span>`;
 const demTotal=d=>(d.lignes||[]).reduce((s,l)=>s+(l.quantite||0),0);
 const boxLabel=id=>{ const b=db.boxes.find(x=>x.id===id); return b?((b.numero||b.ref||'')+' · '+(b.nom||'')):'—'; };
 function demProduitNom(l){ if(l.produitId){ const p=produit(l.produitId); return p.nom||l.nom||'—'; } return l.nom||'—'; }
@@ -13414,7 +13430,7 @@ views.demandes=function(){
   setHeader('Mes demandes','Demandes de commande au Directeur Régional',`<button class="btn" onclick="formDemande()">＋ Demande</button>`);
   let list=visibleDemandes([...db.demandes]).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   list=visibleDemandes(list);   // les siennes (ou celles de ses box) — tout pour qui « voit tout » ou valide
-  const rows=list.map(d=>`<tr class="row-clk" onclick="ficheDemande('${d.id}')"><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(d.boxNom||boxLabel(d.boxId))}</td><td>${(d.lignes||[]).length} produit(s) · ${demTotal(d)} u.</td><td>${esc(d.chefNom||userName(d.chefId))}</td><td>${fmtShort(d.date)}</td><td>${badge(STATV,d.statut)}</td>
+  const rows=list.map(d=>`<tr class="row-clk" onclick="ficheDemande('${d.id}')"><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(d.boxNom||boxLabel(d.boxId))}</td><td>${(d.lignes||[]).length} produit(s) · ${demTotal(d)} u.</td><td>${esc(d.chefNom||userName(d.chefId))}</td><td>${fmtShort(d.date)}</td><td>${badgeEtat(demandeEtat(d))}</td>
     <td style="text-align:right" onclick="event.stopPropagation()">${((d.statut==='enAttente'&&d.chefId===currentUser.id)||currentUser.role==='admin')?`<button class="btn danger sm" onclick="delItem('demandes','${d.id}')">🗑</button>`:'—'}</td></tr>`).join('');
   $('content').innerHTML=list.length? tableCard(['N°','Box','Produits','Demandeur','Date','Statut',''],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
 };
@@ -13489,7 +13505,9 @@ function validerDemande(id,statut){ if(!currentUser||!can('validerDR')){ toast('
   d.statut=statut; d.dateValidation=todayISO(); d.drNom=fullName(currentUser);
   if(statut==='valide'){
     const num=nextNum('bons','BC','numero');
-    db.bons.push({id:uid(),numero:num,date:todayISO(),fournisseurId:'',boxId:d.boxId||'',statut:'brouillon',faitPar:fullName(currentUser),notes:'Depuis demande '+d.num,lignes:(d.lignes||[]).map(l=>{const p=produit(l.produitId);return {produitId:l.produitId,reference:p.ref||'',designation:p.nom||'',categorie:p.categorie||'',cartons:0,upc:p.qteCarton||0,quantite:l.quantite,prixUnitaireHT:p.prix||0,tvaRate:20,commentaire:''};})});
+    const bonId=uid();
+    d.bonId=bonId;   // le fil ne se coupe plus : la demande suit son bon
+    db.bons.push({id:bonId,demandeId:d.id,numero:num,date:todayISO(),fournisseurId:'',boxId:d.boxId||'',statut:'brouillon',faitPar:fullName(currentUser),notes:'Depuis demande '+d.num,lignes:(d.lignes||[]).map(l=>{const p=produit(l.produitId);return {produitId:l.produitId,reference:p.ref||'',designation:p.nom||'',categorie:p.categorie||'',cartons:0,upc:p.qteCarton||0,quantite:l.quantite,prixUnitaireHT:p.prix||0,tvaRate:20,commentaire:''};})});
     logEvent('Demande validée',`${d.num} → bon de commande ${num}`,'demande',d.chefId); toast('Validée — bon de commande créé');
   } else { logEvent('Demande refusée',`${d.num}`+(d.motifRefus?' — '+d.motifRefus:''),'demande',d.chefId); toast('Demande refusée'); }
   // seule la personne qui a fait la demande est prévenue de la décision
