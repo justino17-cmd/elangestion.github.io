@@ -1376,7 +1376,8 @@ app.post('/api/espaces/lien', (req, res) => {
   const e = espaceParT(t);
   const refus = () => res.status(404).json({ error: 'lien lisible pas encore activé pour cet espace' });
   if (!e || !e.slug || !e.code) return refus();
-  let cleAnn = ''; try { cleAnn = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) {}
+  let cleAnn = '', identAdmin = '';
+  try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); cleAnn = String(o.k || ''); identAdmin = String(o.a || ''); } catch (err) {}
   if (!cleAnn) return refus();
   if (crypto.createHash('sha256').update(cleAnn).digest('hex') !== kh) {
     // l'appareil a une autre clé que l'annuaire : le code de l'annuaire est périmé → le site cesse de le servir
@@ -1384,7 +1385,10 @@ app.post('/api/espaces/lien', (req, res) => {
     return res.status(404).json({ error: 'la clé d\'équipe a changé depuis l\'inscription chez TEAM OP — l\'espace est à réinscrire dans la Tour', motif: 'cle_changee' });
   }
   if (espacesReg[e.slug].clePerimee) { delete espacesReg[e.slug].clePerimee; try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
-  res.json({ ok: true, slug: e.slug, nom: espNomPropre(e), lien: 'https://teamop.fr/app.html#e=' + e.slug, cleOk: true, nomExact: espSlug(e.nom) === e.slug });
+  // identAdmin : l'identifiant déclaré administrateur à la création de l'espace. Il n'est rendu
+  // qu'ici, c'est-à-dire contre une preuve de possession de la clé d'équipe — jamais par une
+  // route ouverte. L'application s'en sert pour qu'un patron ne puisse pas être déclassé.
+  res.json({ ok: true, slug: e.slug, nom: espNomPropre(e), lien: 'https://teamop.fr/app.html#e=' + e.slug, cleOk: true, nomExact: espSlug(e.nom) === e.slug, identAdmin });
 });
 
 // ── Fermeture totale d'une entreprise (patron) : code de confirmation par e-mail,
