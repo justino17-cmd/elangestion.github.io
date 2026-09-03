@@ -2156,6 +2156,22 @@ function entSocietes(){ const cust=((db&&db.societes)||[]).map(s=>String(s).trim
 function entSocUnique(){ const cust=((db&&db.societes)||[]).map(s=>String(s).trim()).filter(Boolean);
   return cust.length===1?cust[0]:''; }
 function intSocDefaut(){ return entSocUnique()||'Modèle générique'; }
+/* Créer une société depuis un bon de commande. Celui qui a le droit de faire des bons n'a pas
+   à passer par Paramètres pour déclarer l'en-tête de l'entreprise qu'il facture. La société
+   rejoint la même liste que celle des Paramètres : couleur et logo se règlent ensuite là-bas. */
+function bonSocietePick(sel){
+  if(!sel||sel.value!=='__creer') return;
+  const v=(prompt('Nom de la société à ajouter (elle servira d\'en-tête sur les bons, devis et factures) :')||'').trim().slice(0,60);
+  if(!v){ sel.value=''; return; }
+  db.societes=db.societes||[];
+  const deja=db.societes.find(x=>String(x).trim().toLowerCase()===v.toLowerCase());
+  if(!deja){ db.societes.push(v); logEvent('Société ajoutée',v+' — depuis un bon de commande','crud'); save(); }
+  const nom=deja||v;
+  const opt=document.createElement('option'); opt.value=nom; opt.textContent=nom;
+  sel.insertBefore(opt, sel.options[sel.options.length-1]);
+  sel.value=nom;
+  toast(deja?('🏢 « '+nom+' » existait déjà — sélectionnée'):('🏢 Société « '+nom+' » ajoutée'));
+}
 function entSocAdd(){ const inp=$('ent-soc-new'); const v=((inp&&inp.value)||'').trim().slice(0,60); if(!v){ toast('Tape le nom de la société'); return; }
   db.societes=db.societes||[]; if(db.societes.some(s=>s.toLowerCase()===v.toLowerCase())){ toast('Cette société existe déjà'); return; }
   db.societes.push(v); save(); toast('🏢 Société « '+v+' » ajoutée'); views.parametres(); }
@@ -13921,9 +13937,10 @@ function formBon(id){ const b=id?db.bons.find(x=>x.id===id):{}; _bonEditId=id||'
         <div class="frow"><span class="frow-lbl mono" style="color:var(--acc)">N°</span><input name="numero" required class="mono" style="text-align:right" value="${esc(bonNum(b)==='—'?'':bonNum(b))||(nextNum('bons','BC','numero'))}"></div>
         <div class="frow"><span class="frow-lbl">Date</span><div class="frow-val"><input type="date" name="date" value="${b.date||todayISO()}" style="width:auto"></div></div>
         ${(()=>{ const socs=((db.societes||[]).map(s=>String(s).trim()).filter(Boolean)); const cur=id?(b.societe||''):(entSocUnique()||'');
-          if(!socs.length) return '';
-          if(socs.length===1&&!id) return `<input type="hidden" name="societe" value="${esc(cur)}">`;   // une seule société : appliquée d'office
-          return `<div class="frow"><span class="frow-lbl">Société (en-tête)</span><div class="frow-val"><select name="societe"><option value="">${esc(bcEntete())} — en-tête par défaut</option>${socs.map(s=>`<option value="${esc(s)}" ${cur===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div></div>`; })()}
+          /* Le sélecteur reste affiché même sans aucune société : c'est ici qu'on en crée une, sans
+             repasser par Paramètres. Une société unique reste pré-sélectionnée, donc appliquée
+             d'office comme avant — on peut juste en ajouter une autre depuis le bon. */
+          return `<div class="frow"><span class="frow-lbl">Société (en-tête)</span><div class="frow-val"><select name="societe" onchange="bonSocietePick(this)"><option value="">${esc(bcEntete())} — en-tête par défaut</option>${socs.map(s=>`<option value="${esc(s)}" ${cur===s?'selected':''}>${esc(s)}</option>`).join('')}<option value="__creer">＋ Nouvelle société…</option></select></div></div>`; })()}
         <div class="frow"><span class="frow-lbl">Fournisseur</span><div class="frow-val" style="display:flex;gap:6px;align-items:center"><select name="fournisseurId" style="flex:1;min-width:0" onchange="bonTotRefresh()"><option value="">— Auto (selon les produits) —</option>${db.fournisseurs.map(f=>`<option value="${f.id}" ${f.id===b.fournisseurId?'selected':''}>${esc(f.nom)}</option>`).join('')}</select><button type="button" class="btn ghost sm" title="Modifier les infos du fournisseur (e-mail…)" onclick="bonFourEdit()">✎</button><button type="button" class="btn ghost sm" title="Créer un nouveau fournisseur" onclick="bonFourNew()">＋</button></div></div>
         <div class="frow"><span class="frow-lbl">Box concernée</span><div class="frow-val"><select name="boxId" onchange="bonBoxPick(this.value)"><option value="">— Aucune —</option>${visibleBoxes(db.boxes).filter(x=>x.actif!==false).map(x=>`<option value="${x.id}" ${x.id===b.boxId?'selected':''}>${esc(x.numero||'')}${x.numero&&x.nom?' — ':''}${esc(x.nom||'')}</option>`).join('')}</select></div></div>
         <div class="frow"><span class="frow-lbl">Statut</span><div class="frow-val"><select name="statut">${Object.entries(STATBC).map(([k,v])=>`<option value="${k}" ${(b.statut||'prete')===k?'selected':''}>${v.l}</option>`).join('')}</select></div></div>
