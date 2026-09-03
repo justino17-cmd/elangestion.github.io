@@ -744,11 +744,27 @@ app.post('/api/monitor/report', express.text({ type: 'text/plain', limit: '200kb
          vrais problèmes clients, au point que l'écran d'accueil annonçait « tout est à jour ».
          La règle est volontairement objective : aucune interprétation, juste une durée
          physiquement impossible. Tout le reste continue d'arriver comme avant. */
+      /* ── LE TRIEUR ────────────────────────────────────────────────────────────────────
+         Trois règles mécaniques, sans jugement, appliquées avant que l'incident atteigne la
+         Tour. Rien n'est supprimé : tout est enregistré, simplement classé hors de « à
+         traiter » pour que les vrais problèmes clients ne soient plus noyés. Chaque classement
+         est consultable dans la Surveillance, filtre par statut — un tri qu'on ne peut pas
+         relire est un tri auquel on ne peut pas se fier. */
       const gel = /fig[ée]e? pendant (\d+)\s*ms/i.exec(message);
-      const veille = gel && parseInt(gel[1], 10) > 60000;
+      // 1. Un « gel » de plus d'une minute est une mise en veille de l'appareil, pas un blocage.
+      const veille = !!(gel && parseInt(gel[1], 10) > 60000);
+      // 2. Ce que rapporte l'équipe en développant n'est pas un problème client. La liste vient
+      //    de config.json (interneEmails / interneEspaces) : aucune adresse n'est devinée ici.
+      const internes = (config.interneEmails || []).map(x => String(x).toLowerCase());
+      const espacesInternes = (config.interneEspaces || []).map(x => String(x).toLowerCase());
+      const interne = (!!entEmail && internes.indexOf(entEmail) >= 0)
+        || espacesInternes.indexOf(String(monStr(r.espace, 80) || '').toLowerCase()) >= 0;
+      // 3. Transitoires connus : ils se résolvent seuls au rechargement suivant.
+      const transitoire = /Failed to update a ServiceWorker|ServiceWorker.*(register|update).*(fail|error)|NetworkError when attempting to fetch|Load failed/i.test(message);
+      const triage = veille ? 'veille' : (interne ? 'interne' : (transitoire ? 'transitoire' : ''));
       let issue = monIssues.find(i => i.signature === signature);
       if (!issue) {
-        issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: appName, version: monStr(r.version, 12), categorie: monStr(r.categorie, 40) || 'Général', type, message, stack: monStr(r.stack, 600), src: monStr(r.src, 200), line: parseInt(r.line, 10) || 0, entreprises: [], appareils: {}, count: 0, firstTs: now, lastTs: now, statut: veille ? 'veille' : 'nouveau', veille: veille || undefined, notes: '', mailEnvoye: false };
+        issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: appName, version: monStr(r.version, 12), categorie: monStr(r.categorie, 40) || 'Général', type, message, stack: monStr(r.stack, 600), src: monStr(r.src, 200), line: parseInt(r.line, 10) || 0, entreprises: [], appareils: {}, count: 0, firstTs: now, lastTs: now, statut: triage || 'nouveau', triage: triage || undefined, notes: '', mailEnvoye: false };
         monIssues.push(issue);
       }
       issue.count += count; issue.lastTs = now;
