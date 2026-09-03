@@ -238,6 +238,16 @@ function fmtDate(ts){ if(!ts) return '—'; var d=new Date(ts);
 function fmtDateLong(ts){ if(!ts) return '—'; var d=new Date(ts);
   return d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
 function fmtHeure(ts){ if(!ts) return ''; return new Date(ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
+/* Dans une liste de messages, l'heure seule ment : « 12:52 » peut dater d'hier ou du mois
+   dernier. On garde l'heure pour aujourd'hui — c'est ce qu'on lit le plus — et on ajoute la
+   date dès que le message n'est plus du jour. */
+function fmtCourt(ts){ if(!ts) return '';
+  var d=new Date(ts), n=new Date();
+  var memeJour=d.getDate()===n.getDate()&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();
+  var h=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  if(memeJour) return h;
+  var memeAnnee=d.getFullYear()===n.getFullYear();
+  return d.toLocaleDateString('fr-FR',memeAnnee?{day:'numeric',month:'short'}:{day:'2-digit',month:'2-digit',year:'numeric'})+' · '+h; }
 function fmtAgo(ts){ if(!ts) return '—'; var m=Math.round((Date.now()-ts)/60000);
   if(m<1) return "à l'instant"; if(m<60) return 'il y a '+m+' min';
   var h=Math.round(m/60); if(h<24) return 'il y a '+h+' h'; return 'il y a '+Math.round(h/24)+' j'; }
@@ -1282,7 +1292,7 @@ function vueSupport(){
       '<div style="display:flex;align-items:center;gap:10px">'+
         '<span class="pt" style="background:'+(m.lu?'var(--ghost)':'#4f7cff')+'"></span>'+
         '<span style="flex:1;min-width:0;font-size:13.5px;font-weight:700;color:'+(m.lu?'var(--text2)':'var(--strong)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.deNom||m.de||'expéditeur inconnu')+'</span>'+
-        '<span class="mono" style="font-size:11.5px;color:var(--dim)">'+esc(fmtHeure(m.ts))+'</span></div>'+
+        '<span class="mono" style="font-size:11.5px;color:var(--dim)" title="'+esc(fmtDateLong(m.ts))+'">'+esc(fmtCourt(m.ts))+'</span></div>'+
       '<div style="font-size:13px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.objet||'(sans objet)')+'</div>'+
       '<div style="font-size:12px;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.de||'')+'</div></div>';
   }).join('')||'<div class="vide">'+(MSG.err?esc(MSG.err):(MSG.boites.length?'Aucun message dans ce dossier.':'Aucune boîte reliée pour le moment.'))+'</div>';

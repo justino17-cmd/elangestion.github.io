@@ -94,10 +94,14 @@ function mailerEnvoi(opts) {
   const secret = opts.confidentiel === true || /code/i.test(String(opts.subject || ''));
   // trace : ce qu'on garde d'un e-mail confidentiel (destinataire, lien envoyé, espace…) — jamais le secret lui-même
   mailsJournal(opts.to, opts.subject, opts.text, secret, opts.trace);
-  const o2 = Object.assign({}, opts); delete o2.confidentiel; delete o2.trace;
+  const o2 = Object.assign({}, opts); delete o2.confidentiel; delete o2.trace; delete o2.diffusion;
   try {
     const moi = String(config.notifDemandes || (config.smtp && (config.smtp.from || config.smtp.user)) || '').toLowerCase();
-    if (moi && !secret && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
+    /* La copie à soi-même est utile pour un envoi unitaire — on garde une trace de ce qu'on a
+       écrit à un client. Elle devient nuisible sur une diffusion : l'annonce revient UNE FOIS PAR
+       ENTREPRISE dans la boîte support. Avec deux entreprises c'est déjà deux copies ; avec
+       cinquante, les vrais messages clients sont noyés. */
+    if (moi && !secret && !opts.diffusion && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
   } catch (e) {}
   if (LOGO_OK && o2.html && String(o2.html).indexOf('cid:logoteamop') >= 0)
     o2.attachments = (o2.attachments || []).concat([LOGO_PIECE]);
@@ -1234,7 +1238,7 @@ app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
   let envoyes = 0, refus = 0;
   for (const [ad, nom] of parMail) {
     try {
-      await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: ad,
+      await mailerEnvoi({ diffusion: true, from: config.smtp.from || config.smtp.user, to: ad,
         subject: ANNONCE.sujet, text: texte,
         html: mailTeamOP({ chip: 'Mise à jour', chipBg: '#E7F0FE', chipColor: '#1D4ED8',
           titre: 'Du nouveau dans votre application 🆕',
