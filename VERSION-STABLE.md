@@ -1,6 +1,24 @@
 # Point stable TeamOP
 
-**Version stable : v554** — gravée le 2 septembre 2026.
+**Version stable : v555** — gravée le 3 septembre 2026.
+
+v555 — chacun est rattaché à quelqu'un, et le rôle ne décide plus de rien. Un
+technicien, un chef d'équipe, n'importe quel compte peut être rattaché à un
+valideur : ses mouvements de box et ses demandes partent à CE valideur, et lui
+seul les voit. Le rattachement se fait dans les deux sens — depuis la fiche de la
+personne (« À qui il est rattaché ») ou depuis celle du valideur, avec une liste à
+cocher pour en rattacher plusieurs d'un coup. Une validation se voit désormais des
+deux côtés : celui qui valide et celui qui attend. Le rôle n'est plus qu'un nom :
+il ne donne plus aucun droit de lui-même, tout vient des cases de Permissions,
+posées par la personne qui crée les comptes — et les droits d'hier ont été
+recopiés dans ces cases, donc rien ne change tant que personne ne décoche.
+Correctif : une personne supprimée ne réapparaît plus dans les listes de choix
+(box, groupes, valideurs), et un administrateur ne peut plus être rétrogradé par
+une fiche technicien. Sécurité : le mot de passe provisoire ne sort plus de
+l'annuaire, et les codes de confirmation ne sont plus conservés dans le journal
+des e-mails.
+
+Ancien point : **v554** — gravée le 2 septembre 2026.
 
 v554 — permissions pour tous les rôles et toutes les catégories : le réglage
 « Par rôle » (Permissions) s'applique à tous les modules, rubriques réservées
