@@ -15514,14 +15514,16 @@ async function saveTech(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     chef:d.chef||''};
   const role = d.metier==="Chef d'équipe" ? 'chefEquipe' : 'technicien';
   if(id){ const ix=db.techniciens.findIndex(x=>x.id===id); db.techniciens[ix]={...db.techniciens[ix],...obj};
-    const u=db.users.find(x=>x.techId===id); if(u){ u.role=role; } // garde le rôle du compte aligné
+    // Le rôle du compte suit la fiche — SAUF pour un administrateur : « Chef d'équipe » sur une
+    // fiche technicien ne doit pas rétrograder le patron, qui perdrait Utilisateurs et Permissions.
+    const u=db.users.find(x=>x.techId===id); if(u&&u.role!=='admin'){ u.role=role; }
     save(); closeModal(); toast('Technicien mis à jour'); views.techniciens(); return; }
   // Création : technicien + compte de connexion — sans doublon
   if(db.techniciens.some(x=>nomNorm(x.nom)===nomNorm(d.nom))){ toast('Un technicien porte déjà ce nom — modifie sa fiche plutôt que d\'en créer une deuxième'); return; }
   const tid=uid(); db.techniciens.push({id:tid,...obj});
   const parts=(d.nom||'').trim().split(/\s+/); const prenom=parts[0]||''; const nom=parts.slice(1).join(' ')||'';
   const dejaU=db.users.find(u=>!u.techId && nomNorm((u.prenom||'')+' '+(u.nom||''))===nomNorm(d.nom));
-  if(dejaU){ dejaU.techId=tid; dejaU.role=role; logEvent('Technicien créé (relié au compte existant)',d.nom+' (@'+dejaU.login+')','crud'); save(); closeModal(); views.techniciens(); toast('Fiche technicien créée et reliée au compte existant @'+dejaU.login); return; }
+  if(dejaU){ dejaU.techId=tid; if(dejaU.role!=='admin') dejaU.role=role; /* jamais rétrograder un administrateur */ logEvent('Technicien créé (relié au compte existant)',d.nom+' (@'+dejaU.login+')','crud'); save(); closeModal(); views.techniciens(); toast('Fiche technicien créée et reliée au compte existant @'+dejaU.login); return; }
   let base=(prenom||nom||'tech').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')||'tech';
   let login=base, k=1; while(db.users.some(u=>u.login&&u.login.toLowerCase()===login)){ login=base+(++k); }
   // même circuit que Utilisateurs → Nouvel utilisateur : mot de passe provisoire, e-mail d'accès avec le lien de l'entreprise, fiche à transmettre
@@ -19439,6 +19441,17 @@ async function boot(){
         if(_amail&&!_u.email) _u.email=_amail;   // le « mot de passe oublié » marche dès le premier jour
         ch=true; }
       localStorage.removeItem('elan_admin_login'); localStorage.removeItem('elan_admin_mdp'); localStorage.removeItem('elan_admin_mdph'); localStorage.removeItem('elan_admin_mail');
+    }
+  }catch(e){}
+  /* Un espace sans administrateur est bloqué : plus personne ne gère les comptes ni les droits,
+     et personne ne peut repromouvoir qui que ce soit. Le correctif ci-dessus empêche que ça se
+     reproduise ; celui-ci répare les espaces déjà touchés, sinon ils resteraient bloqués.
+     Le compte rétabli est le premier de la liste : celui créé avec l'espace. */
+  try{
+    if((db.users||[]).length && !db.users.some(u=>u.role==='admin'&&u.actif!==false)){
+      const _patron=db.users.find(u=>u.actif!==false)||db.users[0];
+      if(_patron){ _patron.role='admin'; ch=true;
+        logEvent('Administrateur rétabli','@'+(_patron.login||'')+' — aucun administrateur ne subsistait','crud'); }
     }
   }catch(e){}
   if(ch) save();
