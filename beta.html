@@ -3151,7 +3151,11 @@ function moduleReglage(u,k){ if(!u) return null;
   return null; }
 function userSeesModule(u,k){ if(!u) return false; if(planBloque(k)) return false; if(metierBloque(k)) return false; if(u.role==='admin') return true;
   const r=moduleReglage(u,k); if(r) return r.v;                                                   // réglé par l'entreprise : par personne, sinon par rôle
-  if(k==='validations' && userCap(u,'validerDR')) return true;                                     // qui a le droit de valider voit « Validations DR » (sauf réglage contraire)
+  // Une validation se voit des DEUX côtés : celui qui valide, et celui qui attend d'être validé.
+  // Sans ça, la personne qui a fait la demande ne sait jamais où elle en est — elle voit son
+  // mouvement partir et plus rien. Le contenu, lui, reste filtré : chacun ne voit que ce qui le
+  // concerne (visibleBoxMvts / visibleDemandes).
+  if(k==='validations' && (userCap(u,'validerDR')||u.boxValidDR)) return true;
   if(u.role==='dr' || u.role==='chefEquipe') return !['utilisateurs','permissions'].includes(k);   // défaut DR / chef d'équipe : tout, sauf la gestion des comptes
   const it=NAV.flatMap(s=>s.items).find(x=>x.k===k);
   // défaut des autres rôles : rubriques « admin » fermées, rubriques « mises de côté » fermées tant qu'elles ne sont pas
