@@ -3175,6 +3175,23 @@ const CAPS = {
 /* « validerDR » : valider / refuser les mouvements de box et les demandes de commande (le rôle du DR) —
    réglable par rôle ou par personne comme tout autre droit ; les personnes qui l'ont reçoivent les alertes « à valider ». */
 function valideursDR(){ return (db.users||[]).filter(x=>x&&x.actif!==false&&userCap(x,'validerDR')); }
+/* À QUI une validation est adressée. Jusqu'ici : à tous les DR de l'entreprise, donc chacun
+   recevait les mouvements de box dont il ne s'occupe pas. Désormais au DR assigné à la personne
+   qui agit (champ drId de sa fiche), plus au responsable de la box concernée s'il y en a un.
+   Sans aucune assignation, on retombe sur tous les valideurs : une demande qui n'atteint
+   personne serait pire que trop de monde prévenu. */
+function valideursPour(box){
+  const tous=valideursDR(), moi=currentUser&&currentUser.id;
+  const ids=new Set();
+  const dr=currentUser&&currentUser.drId;
+  if(dr&&tous.some(x=>x.id===dr)) ids.add(dr);
+  if(box&&box.respUserId&&tous.some(x=>x.id===box.respUserId)) ids.add(box.respUserId);
+  ids.delete(moi);
+  if(ids.size) return [...ids];
+  return tous.filter(x=>x.id!==moi).map(x=>x.id);
+}
+/* Les personnes dont ce compte est le DR. */
+function drPerimetre(u){ const id=u&&u.id; return new Set((db.users||[]).filter(x=>x&&x.drId===id).map(x=>x.id)); }
 function userCap(u,cap){ if(!u) return false; if(u.role==='admin') return true;
   const ov=u.acces&&u.acces.caps; if(ov && Object.prototype.hasOwnProperty.call(ov,cap)) return !!ov[cap];
   const rp=db.permissions&&db.permissions[u.role]&&db.permissions[u.role].caps; if(rp && Object.prototype.hasOwnProperty.call(rp,cap)) return !!rp[cap];
@@ -3230,8 +3247,19 @@ function userBoxIds(userId){ return (db.boxes||[]).filter(b=>(b.userIds||[]).inc
 function mesBoxIds(){ return new Set(visibleBoxes(db.boxes||[]).map(b=>b.id)); }
 function visibleBons(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(b=>(b.boxId&&ids.has(b.boxId))||(b.faitPar&&b.faitPar===me)); }
 /* demandes et mouvements en attente : celui qui a le droit de VALIDER (DR, admin, droit accordé) voit tout ce qu'il y a à valider, même sans « Tout voir » */
-function visibleDemandes(list){ if(!currentUser) return []; if(currentUser.role==='admin'||can('validerDR')) return list||[]; const me=currentUser.id; return (list||[]).filter(d=>d.chefId===me); }   // sinon : SES demandes (même règle pour « Mes demandes », l'historique et le tableau de bord)
-function visibleBoxMvts(list){ if(can('voirTout')||can('validerDR')) return list||[]; if(!currentUser) return []; const me=currentUser.id; return (list||[]).filter(m=>m.parId===me); }
+function visibleDemandes(list){ if(!currentUser) return [];
+  if(currentUser.role==='admin') return list||[];
+  const me=currentUser.id;
+  if(can('validerDR')){ const p=drPerimetre(currentUser); if(!p.size) return list||[];   // aucun assigné : comportement d'avant
+    return (list||[]).filter(d=>d.chefId===me||p.has(d.chefId)); }
+  return (list||[]).filter(d=>d.chefId===me); }   // sinon : SES demandes (même règle pour « Mes demandes », l'historique et le tableau de bord)
+function visibleBoxMvts(list){ if(!currentUser) return []; if(currentUser.role==='admin') return list||[];
+  const me=currentUser.id;
+  if(can('validerDR')){ const p=drPerimetre(currentUser); if(!p.size) return list||[];   // aucun assigné : comportement d'avant
+    const mesBox=new Set((db.boxes||[]).filter(b=>b.respUserId===me).map(b=>b.id));
+    return (list||[]).filter(m=>m.parId===me||p.has(m.parId)||(m.boxId&&mesBox.has(m.boxId))); }
+  if(can('voirTout')) return list||[];
+  return (list||[]).filter(m=>m.parId===me); }
 function visibleMouvements(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(m=>(m.boxId&&ids.has(m.boxId))||(m.technicien&&m.technicien===me)); }
 function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const tid=myTechId(); return (list||[]).filter(v=>!!tid&&(v.techId===tid||v.conducteurTechnicienId===tid)); }
 function visibleJournal(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const me=currentUser.id; return (list||[]).filter(j=>j.userId===me||(j.cibleUserId&&j.cibleUserId===me)); }
@@ -9796,7 +9824,7 @@ function intStockDeduire(i){ if(!i||i.stockDeduit) return; const lines=i.produit
     n++; });
   if(n) intHisto(i,'Stock déduit à la clôture : '+n+' produit(s)'+(_intBoxAttente?' — dont '+_intBoxAttente+' pris en box, en attente de validation DR':''));
   if(_intBoxAttente){
-    try{ const dest=valideursDR().map(x=>x.id);
+    try{ const dest=valideursPour(null);
       if(dest.length) pushNotify('🔒 À valider — produits pris en box','Intervention '+(i.num||i.titre||'')+' : '+_intBoxAttente+' produit(s) · par '+((currentUser&&fullName(currentUser))||''),'/app.html#v=validations',dest); }catch(e){}
     toast('📨 Produits pris en box envoyés au DR pour validation'); }
   if(manques.length) toast('⚠️ Stock insuffisant : '+manques.join(', ')); }
@@ -12458,7 +12486,7 @@ function notifyDrBoxLow(b,pid,prevU){ try{
   const u=((b.stock||{})[pid]||{}).u||0; if(u>=(prevU||0)) return;
   const now=boxEtat(u).k; if(now==='enStock'||now===boxEtat(prevU||0).k) return;
   const p=produit(pid); if(!p.id) return;
-  const dest=valideursDR().map(x=>x.id);
+  const dest=valideursPour(b);
   if(!dest.length) return;
   const bn=b.nom||b.numero||'Box';
   if(now==='epuise') pushNotify('🟥 Produit épuisé — '+bn, p.nom+' : plus aucune unité dans cette box. Réapprovisionnement nécessaire.','/app.html#v=boxes',dest);
@@ -12475,7 +12503,7 @@ function notifyDrBoxMove(b,pid,type,qte,unit){ try{
   e.qte+=qte; clearTimeout(e.t);
   e.t=setTimeout(()=>{ try{ delete _bxMovePend[key];
     const p=produit(pid); if(!p.id) return;
-    const dest=valideursDR().map(x=>x.id);
+    const dest=valideursPour(b);
     if(!dest.length) return;
     const bn=b.nom||b.numero||'Box'; const who=(currentUser&&fullName(currentUser))||'Quelqu\'un';
     const un=(unit==='ctn')?' carton'+(e.qte>1?'s':''):' ×';
@@ -12545,7 +12573,7 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
     // pas DR : chaque ajout part en file de validation, une notification pour le tout
     bulkBoxes.forEach(id=>{ const b=db.boxes.find(x=>x.id===id); if(!b)return;
       boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:pid,du:u,dc:0,note:'Ajout produit'},true); });
-    try{ const dest=valideursDR().map(x=>x.id);
+    try{ const dest=valideursPour(null);
       if(dest.length) pushNotify('🔒 À valider — ajouts en box',p.nom+' +'+u+' u → '+bulkBoxes.size+' box · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){}
     closeModal(); toast('📨 Ajout envoyé au DR pour validation ('+bulkBoxes.size+' box)'); views.boxes(); return; }
   bulkBoxes.forEach(id=>{ const b=db.boxes.find(x=>x.id===id); if(!b)return; b.stock=b.stock||{}; const cur=b.stock[pid]||{ctn:0,u:0}; b.stock[pid]={ctn:cur.ctn||0,u:(cur.u||0)+u};
@@ -12847,7 +12875,7 @@ function boxMvtEnvoyer(m,silencieux){ db.boxMvtAttente=db.boxMvtAttente||[];
   m.id=uid(); m.ts=Date.now(); m.statut='enAttente'; m.par=fullName(currentUser); m.parId=currentUser&&currentUser.id;
   db.boxMvtAttente.unshift(m); if(db.boxMvtAttente.length>80) db.boxMvtAttente.length=80;
   logEvent('Mouvement box → validation DR',boxMvtLibelle(m),'stock');
-  if(!silencieux) try{ const dest=valideursDR().map(x=>x.id);
+  if(!silencieux) try{ const dest=valideursPour((db.boxes||[]).find(x=>x.id===m.boxId)||null);
     if(dest.length) pushNotify('🔒 À valider — mouvement de box',boxMvtLibelle(m)+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){}
   save(); return m; }
 /* refus d'un mouvement en attente (motif du DR, box introuvable, bon déjà réceptionné…) : une seule remise en état —
@@ -13419,7 +13447,7 @@ function validerDemande(id,statut){ if(!currentUser||!can('validerDR')){ toast('
   save(); if(current==='validations') views.validations(); else go(current);
 }
 /* une nouvelle demande de commande prévient les DR / admin (comme un mouvement de box à valider) */
-function demandeNotifDR(d){ try{ if(!d||!currentUser) return; const dest=valideursDR().filter(x=>x.id!==currentUser.id).map(x=>x.id);
+function demandeNotifDR(d){ try{ if(!d||!currentUser) return; const dest=valideursPour((db.boxes||[]).find(x=>x.id===d.boxId)||null);
   if(dest.length) pushNotify('🔒 À valider — demande de commande',(d.num||'')+' · '+(d.boxNom||boxLabel(d.boxId)||'')+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){} }
 
 /* ═══════════════ BONS DE COMMANDE ═══════════════ */
@@ -15617,6 +15645,9 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
       <div class="field"><label style="display:flex;align-items:center;justify-content:space-between;gap:10px">🔒 Ses mouvements de box passent par la validation DR
         <input type="checkbox" name="boxValidDR" ${u.boxValidDR?'checked':''} style="width:40px;height:24px;accent-color:var(--acc)"></label>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Coché : ses arrivages, réceptions, prises ＋/−, retraits de box et produits pris en intervention attendent le « Valider » du DR. Sans effet pour les comptes qui ont le droit « Valider les mouvements de box et les demandes » (administrateur et DR par défaut).</div></div>
+      <div class="field"><label>Directeur régional responsable</label>
+        <select name="drId">${[`<option value="">— aucun (tous les DR sont prévenus) —</option>`].concat(valideursDR().filter(x=>x.id!==u.id).map(x=>`<option value="${x.id}" ${u.drId===x.id?'selected':''}>${esc(fullName(x))}</option>`)).join('')}</select>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px">Ses demandes et ses mouvements de box partent à ce DR, et lui seul les voit dans « Validations DR ». Sans DR choisi, tous les valideurs sont prévenus, comme avant.</div></div>
       <input type="hidden" name="techId" value="${esc(u.techId||'')}">
       <div id="user-tech" style="display:${isTech?'block':'none'}">
         <div class="form-sec" style="margin:2px 0 10px">Fiche technicien <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--t3)">— créée automatiquement</span></div>
@@ -15762,7 +15793,7 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   const boxCoches=new Set(Object.keys(d).filter(k=>k.indexOf('box_')===0).map(k=>k.slice(4)));
   const boxForm=(currentUser.role==='admin'?(db.boxes||[]):visibleBoxes(db.boxes||[])).filter(b=>b.actif!==false);
   const appliquerBox=(uidU)=>{ if(voirToutForm||d.role==='admin') return; boxForm.forEach(b=>{ if(b.visibleTous||(techId&&(b.techIds||[]).includes(techId))||b.respUserId===uidU) return; userBoxSet(uidU,b.id,boxCoches.has(b.id)); }); };
-  if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
+  if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
     appliquerBox(id); if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=ROLE[currentUser.role]||'Technicien'; renderNav(); } toast('Mis à jour'); }
   else{ if(db.users.length>=500){toast('Limite de 500 comptes atteinte');return;}
     if((d.pwd||'').length>0 && (d.pwd||'').length<8){ toast('Mot de passe provisoire : 8 caractères minimum (ou laisse-le vide)'); return; }
@@ -15776,7 +15807,7 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
       const en=(d.entNom||'').trim(); if(!en){ toast('Indique le nom de ton entreprise : il va dans le lien de connexion'); return; }
       db.entreprise={...(db.entreprise||{}),nom:en}; try{ localStorage.setItem('elanB_entreprise_nom',en); }catch(_e){}
     }
-    const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
+    const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
     db.users.push(nu); appliquerBox(nu.id);
     logEvent('Utilisateur créé',`@${loginNorm}`,'auth');
     save(); closeModal(); views.utilisateurs();
