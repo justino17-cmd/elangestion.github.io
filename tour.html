@@ -829,17 +829,27 @@ function paieOk(p){ var s=String(p.statut||'').toLowerCase(); return s==='reussi
 /* ══════════ 1. ACCUEIL ══════════ */
 function vueAccueil(){
   var jour=new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  /* Les priorités ne regardaient QUE les incidents de gravité haute. Résultat : l'accueil
+     annonçait « Rien à traiter — tout est à jour » pendant que le compteur du même écran
+     affichait « 9 nouveau(x) », c'est-à-dire neuf problèmes clients dont personne ne s'était
+     occupé. Un incident neuf est à traiter, quelle que soit sa gravité. */
   var hautes=incOuverts().filter(function(i){ return gravite(i)==='haute'; });
+  var neufs=incOuverts().filter(function(i){ return i.statut==='nouveau' && gravite(i)!=='haute'; });
   var nonLus=(MSG.messages||[]).filter(function(m){ return !m.lu; }).slice(0,4);
   var impayes=(ABO.paiements||[]).filter(function(p){ return !paieOk(p); }).slice(0,3);
-  var n=hautes.length+nonLus.length+impayes.length;
+  var n=hautes.length+neufs.length+nonLus.length+impayes.length;
   var prio='';
   hautes.slice(0,4).forEach(function(i){ prio+=ligneP('surveillance','var(--red)','rgba(255,107,107,.12)',esc(incTitre(i)),
     esc(entNom(i))+' · '+esc(APP_L[i.app]||i.app||'—')+' · ×'+(i.count||1),'INCIDENT','p-rouge',"allerIncident('"+jsq(i.id)+"')"); });
+  neufs.slice(0,4).forEach(function(i){ prio+=ligneP('surveillance','var(--amber)','rgba(255,180,84,.12)',esc(incTitre(i)),
+    esc(entNom(i))+' · '+esc(APP_L[i.app]||i.app||'—')+' · ×'+(i.count||1),'À PRENDRE','p-ambre',"allerIncident('"+jsq(i.id)+"')"); });
   nonLus.forEach(function(m){ prio+=ligneP('support','var(--link)','rgba(79,124,255,.14)',esc(m.objet||'(sans objet)'),
     esc(m.deNom||m.de||'expéditeur inconnu'),'SUPPORT','p-bleu',"allerMessage('"+jsq(m.boite)+"','"+jsq(m.dossier)+"',"+m.uid+")"); });
   impayes.forEach(function(p){ prio+=ligneP('cb','var(--amber)','rgba(255,180,84,.12)',esc(p.clientNom||p.clientEmail||'Client'),
     esc(fmtEur(p.montant))+' · '+esc(fmtJour(p.date)),'IMPAYÉ','p-ambre',"allerImpayes()"); });
+  /* Et si plus de quatre incidents neufs attendent, on le dit plutôt que de n'en montrer que
+     quatre en laissant croire que c'est tout. */
+  if(neufs.length>4) prio+='<div style="font-size:12.5px;color:var(--muted);padding:8px 2px">…et '+(neufs.length-4)+' autre'+(neufs.length-4>1?'s':'')+' à prendre — <a onclick="setTab(\'surveillance\')" style="cursor:pointer;text-decoration:underline">voir la surveillance</a></div>';
   if(!prio) prio='<div class="vide">Rien à traiter pour le moment — tout est à jour.</div>';
 
   var act=(JR.cnx||[]).slice(0,6).map(function(j){
