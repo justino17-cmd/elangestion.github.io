@@ -733,9 +733,18 @@ app.post('/api/monitor/report', express.text({ type: 'text/plain', limit: '200kb
       const appareil = monStr(r.appareil, 60) || '?';
       const count = Math.min(500, Math.max(1, parseInt(r.count, 10) || 1));
       const now = Date.now();
+      /* Tri à l'entrée : un « gel » de plus d'une minute n'est pas un gel.
+         Sur les 9 incidents ouverts du 3 septembre, l'un annonçait « Interface figée pendant
+         1 633 855 ms » — 27 minutes. Un navigateur ne gèle pas 27 minutes : l'appareil a été
+         mis en veille, et le compteur a continué de tourner. Ces faux positifs noyaient les
+         vrais problèmes clients, au point que l'écran d'accueil annonçait « tout est à jour ».
+         La règle est volontairement objective : aucune interprétation, juste une durée
+         physiquement impossible. Tout le reste continue d'arriver comme avant. */
+      const gel = /fig[ée]e? pendant (\d+)\s*ms/i.exec(message);
+      const veille = gel && parseInt(gel[1], 10) > 60000;
       let issue = monIssues.find(i => i.signature === signature);
       if (!issue) {
-        issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: appName, version: monStr(r.version, 12), categorie: monStr(r.categorie, 40) || 'Général', type, message, stack: monStr(r.stack, 600), src: monStr(r.src, 200), line: parseInt(r.line, 10) || 0, entreprises: [], appareils: {}, count: 0, firstTs: now, lastTs: now, statut: 'nouveau', notes: '', mailEnvoye: false };
+        issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: appName, version: monStr(r.version, 12), categorie: monStr(r.categorie, 40) || 'Général', type, message, stack: monStr(r.stack, 600), src: monStr(r.src, 200), line: parseInt(r.line, 10) || 0, entreprises: [], appareils: {}, count: 0, firstTs: now, lastTs: now, statut: veille ? 'veille' : 'nouveau', veille: veille || undefined, notes: '', mailEnvoye: false };
         monIssues.push(issue);
       }
       issue.count += count; issue.lastTs = now;
