@@ -15665,6 +15665,9 @@ async function lienLisibleCharger(force){ try{
   const j=await r.json().catch(()=>({}));
   if(r.status===429) return lienLisible();   // trop de demandes : on garde ce qu'on a
   const lien=(r.ok&&j.ok&&j.cleOk&&j.lien)?String(j.lien):'';
+  // l'annuaire dit qui est l'administrateur de cet espace : on le retient, et on rétablit tout de suite
+  try{ if(j.identAdmin) localStorage.setItem('elanB_espace_admin',String(j.identAdmin)); }catch(e){}
+  try{ if(adminAnnuaireRetablir()) save(); }catch(e){}
   localStorage.setItem('elanB_lien_lisible',lien); localStorage.setItem('elanB_lien_lisible_t',t); localStorage.setItem('elanB_lien_lisible_kh',kh); localStorage.setItem('elanB_lien_lisible_ts',String(Date.now())); localStorage.setItem('elanB_lien_lisible_nom',lien?String(j.nom||''):''); localStorage.setItem('elanB_lien_lisible_motif',lien?'':String(j.motif||''));
   if(lien&&j.nom&&!entrepriseNom()){ try{ localStorage.setItem('elanB_entreprise_nom',String(j.nom)); }catch(e){} }
   return lien; }catch(e){ return lienLisible(); } }
@@ -19387,6 +19390,22 @@ function closeNotif(){ notifOpen=false; $('notif-panel').innerHTML=''; }
 document.addEventListener('click',()=>{ if(notifOpen) closeNotif(); });
 
 /* ═══════════════ AUTH — identifiant + mot de passe personnel (SHA-256) ═══════════════ */
+/* L'annuaire TeamOP retient, pour chaque espace, l'identifiant declare administrateur a sa
+   creation. Ce compte-la EST administrateur : ni une fiche technicien, ni un changement de
+   role malencontreux ne doivent pouvoir le declasser — sinon l'entreprise perd la gestion de
+   ses comptes sans que personne ne puisse la lui rendre. L'identifiant vient de
+   /api/espaces/lien, qui ne le rend que contre une preuve de possession de la cle d'equipe. */
+function adminAnnuaireRetablir(){
+  try{
+    const ident=(localStorage.getItem('elanB_espace_admin')||'').trim().toLowerCase();
+    if(!ident) return false;
+    const u=(db.users||[]).find(x=>x&&x.actif!==false&&(x.login||'').toLowerCase()===ident);
+    if(!u||u.role==='admin') return false;
+    u.role='admin';
+    logEvent('Administrateur retabli','@'+(u.login||'')+" \u2014 identifiant declare a la creation de l'espace",'crud');
+    return true;
+  }catch(e){ return false; }
+}
 /* Aux temps du code PIN, « pinHash » a pu contenir la valeur EN CLAIR : la comparaison
    directe (pinHash===pin) existe pour ces comptes jamais migres. Elle ne doit JAMAIS
    accepter une empreinte SHA-256 comme mot de passe tape — sinon « mh », que le code
@@ -19443,6 +19462,7 @@ async function boot(){
       localStorage.removeItem('elanB_admin_login'); localStorage.removeItem('elanB_admin_mdp'); localStorage.removeItem('elanB_admin_mdph'); localStorage.removeItem('elanB_admin_mail');
     }
   }catch(e){}
+  try{ if(adminAnnuaireRetablir()) ch=true; }catch(e){}
   /* Un espace sans administrateur est bloqué : plus personne ne gère les comptes ni les droits,
      et personne ne peut repromouvoir qui que ce soit. Le correctif ci-dessus empêche que ça se
      reproduise ; celui-ci répare les espaces déjà touchés, sinon ils resteraient bloqués.
