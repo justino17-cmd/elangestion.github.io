@@ -2191,11 +2191,19 @@
     return new TextDecoder().decode(pt);
   }
   async function _toSha(sv){ const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sv)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+  /* Le lien de connexion de l'entreprise porte lui-même t et k : on le lit ici, sans rien
+     demander au serveur. C'est le point : TEAM OP ne rend plus la clé d'un espace contre le
+     NOM de l'entreprise — un nom se lit sur un camion, il ne doit ouvrir aucune donnée. */
+  function teamopCode(x){
+    const s=String(x||'').trim(); if(!s) return null;
+    const m=s.match(/#entreprise=([A-Za-z0-9+/=_-]{8,})/);
+    const brut=m?m[1]:(/^[A-Za-z0-9+/=_-]{16,}$/.test(s)?s:'');
+    if(!brut) return null;
+    try{ const o=JSON.parse(decodeURIComponent(escape(atob(brut)))); return (o&&o.t&&o.k)?o:null; }catch(e){ return null; }
+  }
   async function teamopVerifie(lien,ident,mdp){
-    let r,j; try{ r=await fetch(TEAMOP_API+'/api/espaces/trouver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:lien})}); j=await r.json(); }catch(e){ return {err:'Connexion internet requise.'}; }
-    if(!r.ok||!j.code) return {err:(j&&j.error)||'Entreprise inconnue — vérifie le lien.'};
-    let o=null; try{ o=JSON.parse(decodeURIComponent(escape(atob(j.code)))); }catch(e){}
-    if(!o||!o.t||!o.k) return {err:'Lien invalide.'};
+    const o=teamopCode(lien);
+    if(!o) return {err:'Colle le lien de connexion de ton entreprise (celui que TEAM OP lui a envoyé, teamop.fr/app.html#entreprise=…) — le nom seul ne suffit plus.'};
     let j2={}; try{ const r2=await fetch(TEAMOP_API+'/api/espaces/etat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:o.t})}); j2=await r2.json(); }catch(e){ return {err:'Connexion internet requise.'}; }
     if(j2&&j2.ferme) return {err:'Cette entreprise a été fermée par TEAM OP.'};
     if(!(j2&&j2.formule==='premium'&&j2.paye)) return {err:'Cette entreprise n\'est pas en Business Premium payé — la messagerie d\'équipe n\'est pas incluse.'};
@@ -2248,6 +2256,9 @@
   async function teamopReverif(){
     let m=null; try{ m=JSON.parse(localStorage.getItem('opmsg_teamop')||'null'); }catch(e){}
     if(!m||!m.lien||!USER||!USER.companyId) return;
+    /* Réglage hérité : « lien » était le NOM de l'entreprise. Il ne prouve plus rien —
+       on redemande le vrai lien de connexion plutôt que de continuer sur cette base. */
+    if(!teamopCode(m.lien)) return teamopDetache(false,'le mode équipe se rattache désormais au lien de connexion de l\'entreprise — réactive-le avec ce lien');
     if(m.checkTs&&Date.now()-m.checkTs<12*3600000) return;   // au plus deux contrôles par jour
     try{
       const v=await teamopVerifie(m.lien,m.login,undefined);
@@ -11696,8 +11707,8 @@
       ${(function(){ let m=null; try{ m=JSON.parse(localStorage.getItem('opmsg_teamop')||'null'); }catch(e){}
         if(USER&&USER.companyId&&m) return `<div class="row" style="cursor:default;flex-wrap:wrap;gap:8px"><div class="info"><div class="nm">🏢 Entreprise TEAM OP</div><div class="ds">Relié à <b>${esc(m.nom||m.lien)}</b> — mode équipe Premium actif ⭐</div></div><button class="btn sm" onclick="if(confirm('Se détacher de l\\'entreprise ? Ton compte perso reste.'))teamopDetache(true,'')">Se détacher</button></div>`;
         if(USER&&USER.companyId) return '';
-        return `<div class="row" style="cursor:default;flex-direction:column;align-items:stretch;gap:8px"><div class="info"><div class="nm">🏢 Entreprise TEAM OP</div><div class="ds">Ton entreprise est en Business Premium ? Active le mode équipe avec ton compte OP GESTION — rien à créer.</div></div>
-          <input id="to-lien" placeholder="Lien de l'entreprise (ex : teamopteste)" autocapitalize="off" style="background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.3);border-radius:10px;padding:10px 12px;font-size:13px;color:inherit;width:100%">
+        return `<div class="row" style="cursor:default;flex-direction:column;align-items:stretch;gap:8px"><div class="info"><div class="nm">🏢 Entreprise TEAM OP</div><div class="ds">Ton entreprise est en Business Premium ? Active le mode équipe avec son lien de connexion et ton compte OP GESTION — rien à créer.</div></div>
+          <input id="to-lien" placeholder="Lien de connexion de l'entreprise (teamop.fr/app.html#entreprise=…)" autocapitalize="off" style="background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.3);border-radius:10px;padding:10px 12px;font-size:13px;color:inherit;width:100%">
           <input id="to-ident" placeholder="Ton identifiant OP GESTION" autocapitalize="off" style="background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.3);border-radius:10px;padding:10px 12px;font-size:13px;color:inherit;width:100%">
           <input id="to-mdp" type="password" placeholder="Ton mot de passe OP GESTION" style="background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.3);border-radius:10px;padding:10px 12px;font-size:13px;color:inherit;width:100%">
           <div id="to-info" class="ds" style="min-height:16px"></div>

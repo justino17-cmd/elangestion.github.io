@@ -564,7 +564,11 @@ function vueDevisIA(){
    Le lien met l'appareil de l'entreprise sur SON espace isolé (app.html#entreprise=CODE) ;
    sa 1re connexion : admin / 1234 → l'app fait créer mot de passe + e-mail. Un lien
    généré est mémorisé sur cet appareil (tour_liens) : re-cliquer redonne le même. */
-function tourEspaceDe(email,nom,ident,mdp,neuf){
+async function tourSha256(x){
+  const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(x)));
+  return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+async function tourEspaceDe(email,nom,ident,mdp,neuf){
   var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
   var sp=reg[email];
   if(neuf){ try{ delete reg[email]; localStorage.setItem('tour_liens',JSON.stringify(reg)); }catch(e){} sp=null; }
@@ -590,8 +594,14 @@ function tourEspaceDe(email,nom,ident,mdp,neuf){
     reg[email]=sp; localStorage.setItem('tour_liens',JSON.stringify(reg));
   }
   var code=btoa(unescape(encodeURIComponent(JSON.stringify(sp)))).replace(/=+$/,'');
-  var slug=(nom||email).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
-  var lien='https://teamop.fr/app.html#e='+slug;   // lisible : le nom de l'entreprise est dans le lien
+  /* Le lien porte le CODE, jamais le nom : un nom d'entreprise est public — il se lit sur
+     un camion — et il ne doit ouvrir aucun espace. Le mot de passe provisoire n'y entre pas
+     non plus, seulement son empreinte, que l'application compare déjà ; le mot de passe,
+     lui, ne circule que dans l'e-mail adressé à l'intéressé. */
+  var spLien={t:sp.t,k:sp.k,n:sp.n,a:sp.a,e:sp.e};
+  if(sp.m) spLien.mh=await tourSha256(sp.m);
+  var codeLien=btoa(unescape(encodeURIComponent(JSON.stringify(spLien)))).replace(/=+$/,'');
+  var lien='https://teamop.fr/app.html#entreprise='+codeLien;
   // enregistre nom + e-mail dans l'annuaire serveur (connexion par nom, et vérification Stripe par e-mail)
   apiPost('/api/monitor/espaces',{nom:(nom||email),code:code,email:email}).then(function(r){
     if(!(r&&r.ok)) toast('Attention : nom non enregistré côté serveur ('+((r&&r.d&&r.d.error)||'?')+') — le lien, lui, marche');
@@ -652,18 +662,18 @@ function tourRepartirNeuf(email,nom){
     setTimeout(function(){ tourLienEntreprise(email,nom,true); },250);
   }).catch(function(){ toast('Serveur injoignable'); });
 }
-function tourLienEntreprise(email,nom,neuf){
+async function tourLienEntreprise(email,nom,neuf){
   var ident=prompt('Identifiant de départ (son prénom — il pourra le changer à sa première connexion) :',tourIdentDefaut(email));
   if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
   var mdp=tourMdpDefaut(email);
-  var e=tourEspaceDe(email,nom,ident,mdp,neuf);
+  var e=await tourEspaceDe(email,nom,ident,mdp,neuf);
   var mdpAff=e.mdp||mdp;
   var debut=neuf?'Bonjour,\n\nPour des questions de sécurité et une mise à jour exceptionnelle, ton espace OP GESTION a été RÉINITIALISÉ : tu repars sur une version toute propre, stable et finie. Tout est à recréer (utilisateurs, clients…), mais sur une base saine — et clique le nouveau lien sur CHAQUE appareil de l\'équipe.\n\n':'Bienvenue sur OP GESTION !\n\n';
   var txt=debut+'Clique ton lien de connexion (garde-le précieusement) :\n'+e.lien+'\n\nL\'écran affichera « ✅ Ton lien de connexion est bon » — puis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nÀ ta première connexion, l\'app te fait choisir TON vrai mot de passe — ensuite ce sont tes identifiants pour toujours.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte avec le même lien + son identifiant + son mot de passe.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
   tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🔗 Lien de connexion — '+esc(e.nom)+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Tout est prêt. Vérifie, puis envoie-lui l\'e-mail en un clic.</div>'+
     '<div class="sec">CE QUI RENTRE DANS LE LIEN</div>'+
-    '<div style="margin:6px 0 14px;font-size:15px"><b>'+esc(e.nom)+'</b> <span style="color:var(--muted);font-size:12.5px">— le nom à taper sur la page de connexion</span></div>'+
+    '<div style="margin:6px 0 14px;font-size:15px"><b>'+esc(e.nom)+'</b> <span style="color:var(--muted);font-size:12.5px">— le nom de l\'espace. C\'est le lien qui connecte ; taper ce nom sur teamop.fr fait seulement renvoyer le lien à l\'adresse de l\'entreprise.</span></div>'+
     '<div class="sec">LE LIEN</div>'+
     '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="lg-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'lg-lien\',this)">Copier</button></div>'+
     '<div class="sec">SES IDENTIFIANTS DE DÉPART</div>'+
@@ -688,7 +698,7 @@ function tourPanneau(html){
 }
 function tourCopie(id,btn){ var el=document.getElementById(id); if(!el) return;
   try{ navigator.clipboard.writeText(el.value!==undefined?el.value:el.textContent); var o=btn.textContent; btn.textContent='Copié !'; setTimeout(function(){ btn.textContent=o; },1500); }catch(e){ toast('Copie impossible'); } }
-function tourAccepterDemande(email,nom){
+async function tourAccepterDemande(email,nom){
   var c=(CLI.list||[]).find(function(x){ return x.email===email; })||{};
   var dm=(c.demandes||[]).slice().sort(function(a,b){ return (b.date||0)-(a.date||0); })[0]||{};
   var F={'business premium':'premium','premium':'premium','business':'business','pro':'pro','gratuit':'gratuit'};
@@ -697,19 +707,19 @@ function tourAccepterDemande(email,nom){
   var ident=prompt('Identifiant de départ (son prénom — il pourra le changer à sa première connexion) :',tourIdentDefaut(email));
   if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
   var mdp=tourMdpDefaut(email);
-  var e=tourEspaceDe(email,nom,ident,mdp);
+  var e=await tourEspaceDe(email,nom,ident,mdp);
   var mdpAff=e.mdp||mdp;
   apiPost('/api/monitor/espaces/formule',{nom:e.nom,formule:formule,quantite:q}).then(function(r){
     if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Formule non attribuée'); return; }
     tourPackPrefill(e.nom);
-    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi : teamop.fr/connexion.html → écris le nom de ton entreprise : « '+e.nom+' » (ou clique ton lien direct : '+e.lien+' )\n2. Première connexion : identifiant '+ident+' — mot de passe provisoire '+mdpAff+'. L\'app te fait choisir TON vrai mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs : chacun se connecte pareil (nom de l\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi en cliquant ton lien (garde-le précieusement) : '+e.lien+'\n   (lien perdu ? sur teamop.fr/connexion.html, écris « '+e.nom+' » : il repart à ton adresse e-mail)\n2. Première connexion : identifiant '+ident+' — mot de passe provisoire '+mdpAff+'. L\'app te fait choisir TON vrai mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs : chacun se connecte pareil (nom de l\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
     var F2={gratuit:'Gratuit',pro:'Pro',business:'Business',premium:'Business Premium'};
     tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">✅ Demande acceptée — '+esc(e.nom)+'</div>'+
       '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">L\'espace est prêt et activé. Il ne te reste qu\'à envoyer le message ci-dessous.</div>'+
       '<div class="sec">FORMULE RÉSERVÉE</div><div style="margin:6px 0 14px;font-size:15px"><b>'+(F2[formule]||formule)+(q>1?' ×'+q:'')+'</b> <span class="past p-orange">💳 en attente de paiement</span></div>'+
-      '<div class="sec">LIEN DE CONNEXION (le nom de l\'entreprise est dedans)</div>'+
+      '<div class="sec">LIEN DE CONNEXION (à garder — c\'est lui qui connecte)</div>'+
       '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="acc-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'acc-lien\',this)">Copier</button></div>'+
-      '<div class="sec">OU SUR LA PAGE DE CONNEXION</div><div style="margin:6px 0 14px;font-size:13.5px;color:var(--muted)">teamop.fr/connexion.html → entreprise : <b style="color:inherit">'+esc(e.nom)+'</b> · première connexion : <b>'+esc(ident)+'</b> / <b>'+esc(mdpAff)+'</b> (modifiables à sa première connexion)</div>'+
+      '<div class="sec">LIEN PERDU ?</div><div style="margin:6px 0 14px;font-size:13.5px;color:var(--muted)">teamop.fr/connexion.html → écrire <b style="color:inherit">'+esc(e.nom)+'</b> : le lien repart à l\'adresse e-mail de l\'entreprise · première connexion : <b>'+esc(ident)+'</b> / <b>'+esc(mdpAff)+'</b> (modifiables à sa première connexion)</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px"><button class="btn-plein" onclick="tourMailAcces(\''+jsq(e.nom)+'\',this)">📧 Envoyer par e-mail au client</button></div>'+
       '<div class="sec">MESSAGE DE BIENVENUE À ENVOYER</div>'+
       '<textarea id="acc-msg" rows="9" style="width:100%;margin-top:6px;background:#0d1526;border:1px solid var(--line);border-radius:10px;color:inherit;font-size:12.5px;line-height:1.55;padding:10px"></textarea>'+
