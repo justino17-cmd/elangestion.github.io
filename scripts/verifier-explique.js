@@ -74,7 +74,9 @@ fs.writeFileSync(path.join(TMP, 'config.json'), JSON.stringify({
   vapidPublicKey: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkFbx3gJHtLoRlqPZ6dcMYNqK5AqQwqPDbmXjqSlP8kfxLZlHDvfNbo',
   vapidPrivateKey: 'UUxI4O8-FbRouAevSmBQ6o18hgE4nSG3qwvJTfKc-ls'
 }));
-const PORT = 8795;
+/* Un port fixe se heurte à ce qui tourne déjà sur la machine, et deux suites lancées à la
+   suite se marchent dessus. Le numéro du processus donne un port propre à chaque exécution. */
+const PORT = 20000 + (process.pid % 20000);
 const serveur = spawn(process.execPath, ['server/index.js'], {
   cwd: RACINE,
   env: Object.assign({}, process.env, { TEAMOP_CONFIG: path.join(TMP, 'config.json'), TEAMOP_DATA: DATA, PORT: String(PORT) }),

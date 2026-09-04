@@ -3292,6 +3292,10 @@ function reprendreDroitsImplicites(){
 /* « validerDR » : valider / refuser les mouvements de box et les demandes de commande (le rôle du DR) —
    réglable par rôle ou par personne comme tout autre droit ; les personnes qui l'ont reçoivent les alertes « à valider ». */
 function valideursDR(){ return (db.users||[]).filter(x=>x&&x.actif!==false&&userCap(x,'validerDR')); }
+/* Qui peut être le chef de quelqu'un : un chef d'équipe, un DR ou un administrateur —
+   jamais soi-même, sinon on se rattache à sa propre équipe et le périmètre n'a plus de sens. */
+function chefsPossibles(sauf){ return (db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==sauf
+  &&['chefEquipe','dr','admin'].includes(x.role)); }
 /* À QUI une validation est adressée. Jusqu'ici : à tous les DR de l'entreprise, donc chacun
    recevait les mouvements de box dont il ne s'occupe pas. Désormais au DR assigné à la personne
    qui agit (champ drId de sa fiche), plus au responsable de la box concernée s'il y en a un.
@@ -3345,8 +3349,35 @@ function permGarde(grp,droit,quoi){
 /* Technicien connecté → son enregistrement technicien (par lien explicite, sinon par nom) */
 function myTechId(){ if(!currentUser) return null; if(currentUser.techId) return currentUser.techId;
   const fn=fullName(currentUser).toLowerCase().trim(); const t=(db.techniciens||[]).find(x=>(x.nom||'').toLowerCase().trim()===fn); return t?t.id:null; }
-/* Interventions visibles selon le rôle : tout, ou seulement les siennes pour un technicien */
-function visibleInts(list){ if(can('voirTout')) return list||[]; const tid=myTechId(); return (list||[]).filter(i=>intTechIds(i).includes(tid)); }
+/* ── LE PÉRIMÈTRE : de qui une personne répond ─────────────────────────────────────────
+   « Tout voir » voulait dire tout l'espace. Dans une entreprise à deux équipes, cela met
+   sous les yeux d'un chef le travail de l'autre équipe, et l'oblige à trier à la main ce
+   qui le concerne.
+   Un chef d'équipe — ou un DR — a désormais un périmètre : les personnes rattachées à lui
+   (chefId / drId sur leur fiche), et lui-même. Tant que PERSONNE ne lui est rattaché, il
+   n'y a pas de périmètre et rien ne change. On ne retire jamais un accès en silence :
+   c'est le rattachement, fait à la main dans la fiche, qui le restreint. */
+function equipeDe(u){ if(!u) return [];
+  return (db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==u.id&&(x.chefId===u.id||x.drId===u.id)); }
+/* Les identifiants « technicien » du périmètre. null = aucun périmètre (on voit tout). */
+function perimetreTechIds(u){ u=u||currentUser; if(!u) return new Set();
+  if(u.role==='admin') return null;
+  const membres=equipeDe(u); if(!membres.length) return null;
+  const ids=new Set();
+  const ajoute=p=>{ if(!p) return; if(p.techId) ids.add(p.techId);
+    const fn=fullName(p).toLowerCase().trim();
+    const t=(db.techniciens||[]).find(x=>(x.nom||'').toLowerCase().trim()===fn); if(t) ids.add(t.id); };
+  membres.forEach(ajoute); ajoute(u);
+  return ids; }
+/* Les identifiants d'utilisateurs du périmètre. null = aucun périmètre. */
+function perimetreUserIds(u){ u=u||currentUser; if(!u) return new Set();
+  if(u.role==='admin') return null;
+  const membres=equipeDe(u); if(!membres.length) return null;
+  return new Set(membres.map(x=>x.id).concat([u.id])); }
+/* Interventions visibles : tout l'espace, le périmètre de son équipe, ou les siennes */
+function visibleInts(list){
+  if(can('voirTout')){ const p=perimetreTechIds(); return p?(list||[]).filter(i=>intTechIds(i).some(t=>p.has(t))):(list||[]); }
+  const tid=myTechId(); return (list||[]).filter(i=>intTechIds(i).includes(tid)); }
 /* Box visibles selon le rôle : tout (admin/chef/DR/commercial/compta = « voir tout »), ou seulement
    les box assignés au technicien connecté. Même logique que les interventions → séparation par technicien. */
 function visibleBoxes(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const tid=myTechId(), me=currentUser.id;
@@ -3380,6 +3411,27 @@ function visibleBoxMvts(list){ if(!currentUser) return []; if(currentUser.role==
 function visibleMouvements(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(m=>(m.boxId&&ids.has(m.boxId))||(m.technicien&&m.technicien===me)); }
 function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const tid=myTechId(); return (list||[]).filter(v=>!!tid&&(v.techId===tid||v.conducteurTechnicienId===tid)); }
 function visibleJournal(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const me=currentUser.id; return (list||[]).filter(j=>j.userId===me||(j.cibleUserId&&j.cibleUserId===me)); }
+/* ── Les rubriques qui n'avaient AUCUN filtre ──────────────────────────────────────────
+   Un technicien ne voit déjà que ses interventions — mais il voyait TOUS les clients de
+   l'entreprise, tous les devis, toutes les factures, tous les contrats. Le fil qui relie
+   tout cela est l'intervention : on connaît un client chez qui on est allé, et les papiers
+   de ce client. Ce qu'on a créé soi-même reste à soi, toujours.
+   Qui a « Tout voir » sans périmètre ne perd rien : les listes lui reviennent entières. */
+function mesClientIds(){ return new Set(visibleInts(db.interventions||[]).map(i=>i.clientId).filter(Boolean)); }
+function creeParMoi(x){ const moi=currentUser&&currentUser.id;
+  return !!(moi&&x&&(x.creePar===moi||x.parId===moi||x.userId===moi)); }
+function visibleClients(list){
+  if(can('voirTout')&&!perimetreUserIds()) return list||[];
+  const ids=mesClientIds();
+  return (list||[]).filter(c=>ids.has(c.id)||creeParMoi(c)); }
+/* Devis, factures, contrats : rattachés au client, donc au même périmètre que lui. */
+function visibleDocs(list){
+  if(can('voirTout')&&!perimetreUserIds()) return list||[];
+  const ids=mesClientIds();
+  return (list||[]).filter(d=>(d.clientId&&ids.has(d.clientId))||creeParMoi(d)); }
+function visiblePointages(list){
+  if(can('voirTout')){ const p=perimetreTechIds(); return p?(list||[]).filter(x=>p.has(x.techId)):(list||[]); }
+  const tid=myTechId(); return (list||[]).filter(x=>x.techId===tid); }
 /* Formule impayée : les rubriques de la formule réservée restent VISIBLES dans le
    menu, mais grisées avec un cadenas — on voit ce qu'on récupère en payant. */
 function verrouFormule(item){
@@ -11256,9 +11308,10 @@ function printRegistre(cid){ const c=db.clients.find(x=>x.id===cid)||{}; const i
 
 /* ═══════════════ CLIENTS ═══════════════ */
 views.clients=function(){
-  setHeader('Clients',`${db.clients.length} client(s)`,`${can('voirTout')?`<button class="btn ghost" onclick="exportClientsCsv()">CSV</button> `:''}<button class="btn" onclick="formClient()">＋ Client</button>`);
+  const _tous=visibleClients(db.clients);
+  setHeader('Clients',`${_tous.length} client(s)`,`${can('voirTout')?`<button class="btn ghost" onclick="exportClientsCsv()">CSV</button> `:''}<button class="btn" onclick="formClient()">＋ Client</button>`);
   const _tags=allTags();
-  let _clis=db.clients; if(cliTagFilter) _clis=_clis.filter(c=>(c.tags||[]).includes(cliTagFilter));
+  let _clis=_tous; if(cliTagFilter) _clis=_clis.filter(c=>(c.tags||[]).includes(cliTagFilter));
   const rows=_clis.map(c=>{ const n=db.interventions.filter(i=>i.clientId===c.id).length; const pro=cliIsPro(c);
     return `<div class="card" onclick="ficheClient('${c.id}')" style="cursor:pointer;padding:13px 16px;margin-bottom:10px">
       <div style="display:flex;gap:13px;align-items:center">
@@ -11354,15 +11407,20 @@ function saveClientForm(e,id){ e.preventDefault(); if(!permGarde('crm',id?'modif
   ['pp_creneau','pp_heureFixe','pp_techId','pp_prevenir48','pp_appelerAvant'].forEach(k=>delete d[k]);
   d.prefPassage=prefPassage;
   if(id){ const ix=db.clients.findIndex(x=>x.id===id); if(ix<0) return; db.clients[ix]={...db.clients[ix],...d}; toast('Mis à jour'); }
-  else { d.x=10+Math.random()*80; d.y=10+Math.random()*80; db.clients.push({id:uid(),...d}); logEvent('Création',`clients : ${d.nom||''}`,'crud'); toast('Créé'); }
+  else { d.x=10+Math.random()*80; d.y=10+Math.random()*80;
+    /* qui l'a créé : sans cela, un technicien qui ajoute un client le perdrait de vue
+       à la seconde suivante, tant qu'aucune intervention ne l'y rattache */
+    d.creePar=currentUser&&currentUser.id;
+    db.clients.push({id:uid(),...d}); logEvent('Création',`clients : ${d.nom||''}`,'crud'); toast('Créé'); }
   save(); closeModal(); go(current);
 }
 
 /* ═══════════════ RAPPORTS ═══════════════ */
 views.rapports=function(){
   setHeader('Rapports',"Comptes-rendus d'intervention");
-  const done=db.interventions.filter(i=>i.statut==='terminee');
-  const pend=db.interventions.filter(i=>i.statut!=='terminee'&&i.statut!=='annulee');
+  const _mesInts=visibleInts(db.interventions);
+  const done=_mesInts.filter(i=>i.statut==='terminee');
+  const pend=_mesInts.filter(i=>i.statut!=='terminee'&&i.statut!=='annulee');
   $('content').innerHTML=`<div class="card"><div class="card-head"><h3>Terminées</h3></div>
     ${done.length? done.map(i=>`<div class="pl-row" onclick="formRapport('${i.id}')"><div class="pl-info"><div class="pl-title">${esc(i.titre)} ${i.compteRendu?'<span class="st st-green">Rédigé</span>':'<span class="st st-org">À compléter</span>'}${i.compteRendu?(i.rapportEnvoye?'<span class="st st-green">✉ Envoyé</span>':'<span class="st st-org">Non envoyé</span>'):''}</div><div class="pl-meta">${fmtShort(i.date)} · ${esc(clientName(i.clientId))}${i.rapportEnvoye?' · envoyé le '+fmtShort(new Date(i.rapportEnvoye.ts).toISOString().slice(0,10)):''}</div></div><button class="btn ghost sm">${i.compteRendu?'Voir':'Rédiger'}</button></div>`).join('') : emptyState('📄','Aucune intervention terminée.','','')}
   </div><div class="card"><div class="card-head"><h3>En attente de clôture</h3></div>
@@ -12980,9 +13038,25 @@ function traceBox(b,pid,delta,unit,motif,par,validePar,donneA){ if(!b||!pid||!de
    par quelqu'un d'autre que le DR ou l'administrateur — arrivage, ajustement de
    quantité, tap ＋/−, retrait de produit — part d'abord en file de validation :
    le stock ne bouge qu'après le « Valider » du DR (écran Validations DR). */
-/* Permission PAR UTILISATEUR : l'admin coche « validation DR » sur la fiche de
-   l'utilisateur (Utilisateurs → ✎). Les rôles admin et DR ne sont jamais concernés. */
-function boxValidRequis(){ return !!(currentUser && currentUser.boxValidDR && !can('validerDR')); }
+/* Deux niveaux, dans cet ordre :
+   — un interrupteur d'entreprise (Paramètres → « Toute sortie de stock passe par le DR »).
+     Sans lui, la validation se cochait fiche par fiche : il suffisait d'oublier une case à
+     la création d'un compte pour qu'un mouvement passe sans contrôle, et personne ne s'en
+     apercevait — un contrôle qu'on peut oublier n'est pas un contrôle ;
+   — sinon, la case de la fiche de l'utilisateur (Utilisateurs → ✎).
+   Les comptes qui ont le droit de valider ne sont jamais concernés : ils se valideraient
+   eux-mêmes. */
+function boxValidRequis(){ if(!currentUser||can('validerDR')) return false;
+  if(db.validDRTous) return true;
+  return !!currentUser.boxValidDR; }
+/* L'interrupteur d'entreprise (Paramètres). Il est tracé dans l'historique : couper un
+   contrôle doit se voir, et se savoir attribuable. */
+function validDRTousSet(on){
+  db.validDRTous=!!on;
+  logEvent(on?'Validation DR rendue obligatoire':'Validation DR remise au cas par cas',
+    on?'toute sortie de stock passe désormais par le DR':'la validation redevient réglable fiche par fiche','stock');
+  save(); toast(on?'✔ Toute sortie de stock passe par le DR':'Validation DR réglée fiche par fiche');
+  if(current==='parametres') views.parametres(); }
 function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
   if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); const bcN=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||{}).numero:''; return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn+(bcN?' · bon '+bcN:''); }
   if(m.type==='retrait'){ const p=produit(m.produitId); return 'Retrait de '+(p.nom||'produit')+' — '+bn; }
@@ -15769,6 +15843,9 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
       <div class="field"><label style="display:flex;align-items:center;justify-content:space-between;gap:10px">🔒 Ses mouvements de box passent par la validation DR
         <input type="checkbox" name="boxValidDR" ${u.boxValidDR?'checked':''} style="width:40px;height:24px;accent-color:var(--acc)"></label>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Coché : ses arrivages, réceptions, prises ＋/−, retraits de box et produits pris en intervention attendent le « Valider » du DR. Sans effet pour les comptes qui ont le droit « Valider les mouvements de box et les demandes » (administrateur et DR par défaut).</div></div>
+      <div class="field"><label>Chef d'équipe</label>
+        <select name="chefId">${[`<option value="">— aucun —</option>`].concat(chefsPossibles(u.id).map(x=>`<option value="${x.id}" ${u.chefId===x.id?'selected':''}>${esc(fullName(x))}</option>`)).join('')}</select>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px">Dès qu'au moins une personne lui est rattachée, ce chef ne voit plus que SON équipe : leurs interventions, leurs clients, leurs devis, leurs pointages. Tant que personne ne l'est, il continue de tout voir — rien n'est retiré sans qu'on l'ait décidé.</div></div>
       <div class="field"><label>Directeur régional responsable</label>
         <select name="drId">${[`<option value="">— aucun (tous les DR sont prévenus) —</option>`].concat(valideursDR().filter(x=>x.id!==u.id).map(x=>`<option value="${x.id}" ${u.drId===x.id?'selected':''}>${esc(fullName(x))}</option>`)).join('')}</select>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Ses demandes et ses mouvements de box partent à ce DR, et lui seul les voit dans « Validations DR ». Sans DR choisi, tous les valideurs sont prévenus, comme avant.</div></div>
@@ -15947,7 +16024,7 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   // rattachements pris depuis la fiche du valideur : on pose ou on retire drId sur chaque compte
   const appliquerRattaches=(cible)=>{ if(!cible) return; (db.users||[]).forEach(x=>{ if(!x||x.id===cible) return;
     if(drRattaches.has(x.id)) x.drId=cible; else if(x.drId===cible) x.drId=''; }); };
-  if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
+  if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),chefId:(d.chefId||''),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
     appliquerBox(id); if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=ROLE[currentUser.role]||'Technicien'; renderNav(); } toast('Mis à jour'); }
   else{ if(db.users.length>=500){toast('Limite de 500 comptes atteinte');return;}
     if((d.pwd||'').length>0 && (d.pwd||'').length<8){ toast('Mot de passe provisoire : 8 caractères minimum (ou laisse-le vide)'); return; }
@@ -15961,7 +16038,7 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
       const en=(d.entNom||'').trim(); if(!en){ toast('Indique le nom de ton entreprise : il va dans le lien de connexion'); return; }
       db.entreprise={...(db.entreprise||{}),nom:en}; try{ localStorage.setItem('elan_entreprise_nom',en); }catch(_e){}
     }
-    const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
+    const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),chefId:(d.chefId||''),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
     db.users.push(nu); appliquerBox(nu.id);
     logEvent('Utilisateur créé',`@${loginNorm}`,'auth');
     save(); closeModal(); views.utilisateurs();
@@ -16367,6 +16444,12 @@ views.parametres=function(){
         ${_demo.ints||_demo.clients||_demo.techs?`<button class="btn sm ghost" style="color:var(--red)" onclick="demoRetirer()">🧹 Retirer la démonstration</button>`:''}
       </div>
       <p style="color:var(--t3);font-size:11.5px;margin-top:9px">Tout ce qui est créé est marqué « démonstration » : le bouton de retrait n'efface que ça, jamais tes vraies données. (Visible uniquement par l'équipe TEAM OP.)</p>
+    </div>`:''}
+    ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>🔒 Contrôle des mouvements de stock</h3></div>
+      <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:12px">Jusqu'ici, la validation du DR se cochait <b>fiche par fiche</b>. Il suffisait d'oublier la case en créant un compte pour qu'un mouvement de stock parte sans contrôle — et personne ne s'en apercevait. Un contrôle qu'on peut oublier n'est pas un contrôle.</p>
+      <label class="frow" style="cursor:pointer"><span class="frow-lbl">Toute sortie de stock passe par le DR</span>
+        <span class="frow-val"><label class="switch"><input type="checkbox" ${db.validDRTous?'checked':''} onchange="validDRTousSet(this.checked)"><span class="track"></span><span class="knob"></span></label></span></label>
+      <p style="color:var(--t3);font-size:11.5px;margin-top:9px;line-height:1.55">Activé : arrivages, réceptions, prises ＋/−, retraits de box et produits pris en intervention attendent le « Valider » du DR, <b>pour tout le monde</b> — la case des fiches n'a plus à être pensée. Les comptes qui ont le droit de valider ne sont jamais concernés : ils se valideraient eux-mêmes.</p>
     </div>`:''}
     <div class="card"><div class="card-head"><h3>🔐 Mon compte</h3></div>
       <div class="detail-grid" style="margin-bottom:12px">
@@ -17145,7 +17228,7 @@ async function aiGenDevisXylo(e){ e.preventDefault(); const f=Object.fromEntries
   logEvent('Devis xylophage',clientName(f.clientId),'commercial'); save(); closeModal(); toast('Devis généré — relis et ajuste les prix'); formDoc('devis',id);
 }
 function docListView(kind,xyloOnly){
-  const cfg=DOC[kind]; let list=[...db[cfg.coll]].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const cfg=DOC[kind]; let list=[...visibleDocs(db[cfg.coll])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   if(kind==='devis') list = xyloOnly ? list.filter(d=>d.xylo) : list.filter(d=>!d.xylo);
   const total=list.reduce((s,d)=>s+docTot(d).ttc,0);
   const titre = xyloOnly ? 'Devis xylophage' : (/s$/i.test(cfg.titre)?cfg.titre:cfg.titre+'s');   /* « Devis » est invariable */
@@ -17200,14 +17283,14 @@ function delFacture(id){ if(!can('supprimer')){toast('Suppression non autorisée
 views.factures=function(){
   const canDel=can('supprimer');
   const ttc=f=>docTot(f).ttc;
-  const all=[...(db.factures||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const all=[...visibleDocs(db.factures||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const emis=all.filter(f=>f.statut!=='brouillon');
   const totFact=emis.reduce((s,f)=>s+ttc(f),0);
   const totPaid=all.filter(f=>f.statut==='payee').reduce((s,f)=>s+ttc(f),0);
   const dueList=all.filter(f=>f.statut==='envoyee'); const totDue=dueList.reduce((s,f)=>s+ttc(f),0);
   const lateList=dueList.filter(factIsLate); const totLate=lateList.reduce((s,f)=>s+ttc(f),0);
-  const devisAcc=(db.devis||[]).filter(d=>d.statut==='accepte'&&!(db.factures||[]).some(f=>f.devisId===d.id));
-  const intsAfact=(db.interventions||[]).filter(i=>i.statut==='terminee'&&!(db.factures||[]).some(f=>f.interventionId===i.id));
+  const devisAcc=visibleDocs(db.devis||[]).filter(d=>d.statut==='accepte'&&!(db.factures||[]).some(f=>f.devisId===d.id));
+  const intsAfact=visibleInts(db.interventions||[]).filter(i=>i.statut==='terminee'&&!(db.factures||[]).some(f=>f.interventionId===i.id));
   setHeader('Factures','Facturation',`<button class="btn ghost" onclick="exportComptaTout()" title="Export Excel">Excel</button> <button class="btn" onclick="formDoc('factures')">＋ Nouvelle facture</button>`);
   const filters=[['tous','Toutes',all.length],['brouillon','En attente',all.filter(f=>f.statut==='brouillon').length],['envoyee','À encaisser',dueList.length],['retard','En retard',lateList.length],['payee','Payées',all.filter(f=>f.statut==='payee').length]];
   let list = factFilter==='retard' ? lateList : (factFilter==='tous'? all : all.filter(f=>f.statut===factFilter));
@@ -19046,8 +19129,9 @@ function minutes(deb,fin){ if(!deb||!fin) return 0; const [h1,m1]=deb.split(':')
 function dureeStr(min){ const h=Math.floor(min/60),m=min%60; return `${h}h${String(m).padStart(2,'0')}`; }
 views.pointage=function(){
   setHeader('Pointage','Feuilles de temps des techniciens',`<button class="btn" onclick="formPointage()">＋ Pointage</button>`);
-  let list=[...db.pointages].sort((a,b)=>(b.date+b.debut).localeCompare(a.date+a.debut));
-  if(currentUser.role!=='admin' && currentUser.role!=='dr') list=list.filter(p=>p.techId===currentUser.id);
+  /* Le filtre d'avant comparait un identifiant TECHNICIEN à un identifiant de COMPTE : il
+     ne retenait donc jamais rien, et un chef d'équipe voyait tout le monde. */
+  let list=[...visiblePointages(db.pointages)].sort((a,b)=>(b.date+b.debut).localeCompare(a.date+a.debut));
   const totMin=list.reduce((s,p)=>s+Math.max(0,minutes(p.debut,p.fin)-(p.pause||0)),0);
   const rows=list.map(p=>{ const net=Math.max(0,minutes(p.debut,p.fin)-(p.pause||0));
     return `<tr><td>${fmtShort(p.date)}</td><td class="strong">${esc(techName(p.techId))}</td><td>${p.debut} → ${p.fin}</td><td>${p.pause||0} min</td><td class="strong">${dureeStr(net)}</td><td>${esc(p.note)||'—'}${p.lat?` <a href="https://maps.google.com/?q=${p.lat},${p.lng}" target="_blank" title="Position au pointage">📍</a>`:''}</td>

@@ -11,7 +11,9 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const PORT = 8793;
+/* Un port fixe se heurte à ce qui tourne déjà sur la machine, et deux suites lancées à la
+   suite se marchent dessus. Le numéro du processus donne un port propre à chaque exécution. */
+const PORT = 20000 + (process.pid % 20000);
 const BASE = 'http://127.0.0.1:' + PORT;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'teamop-essai-'));
 const DATA = path.join(TMP, 'data');
