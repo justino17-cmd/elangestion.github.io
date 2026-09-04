@@ -563,11 +563,13 @@ app.post('/api/compte/identifiants', async (req, res) => {
     if (m) { try { const o = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8')); if (o && o.t === t) { lienApp = l; cleApp = String(o.k || ''); } } catch (e) {} }
     else if (!/#e=/.test(l)) lienApp = l;   // connexion.html / app.html sans espace
   }
-  // Espace de l'annuaire → lien lisible (teamop.fr/app.html#e=gci)… sauf si la clé d'équipe a changé depuis
+  // Espace de l'annuaire → lien de connexion (teamop.fr/app.html#entreprise=CODE)… sauf si la clé a changé depuis
   // l'inscription : le code de l'annuaire serait périmé, le lien de l'app (clé actuelle) fait foi.
   let cleAnn = ''; try { if (esp && esp.code) cleAnn = String(JSON.parse(Buffer.from(esp.code, 'base64').toString('utf8')).k || ''); } catch (e) {}
-  const annuaireOk = !!(esp && esp.slug) && (!cleApp || !cleAnn || cleApp === cleAnn);
-  const url = annuaireOk ? 'https://teamop.fr/app.html#e=' + esp.slug : (lienApp || 'https://teamop.fr/connexion.html');
+  const annuaireOk = !!(esp && esp.slug && esp.code) && (!cleApp || !cleAnn || cleApp === cleAnn);
+  /* Le lien porte le CODE de l'espace, jamais son nom : un nom se devine (il est sur le
+     camion et sur les factures), un code non. Voir /api/espaces/relance. */
+  const url = annuaireOk ? lienEspaceCode(esp) : (lienApp || 'https://teamop.fr/connexion.html');
   const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const entTxt = ent ? ' « ' + ent + ' »' : '';
   // ce que l'écran de connexion affichera vraiment : le nom porté par le lien (annuaire si #e=…, sinon celui de l'app)
@@ -577,8 +579,8 @@ app.post('/api/compte/identifiants', async (req, res) => {
   const explique = lienEspace
     ? 'Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « Vous allez vous connecter à l\'entreprise' + ecranTxt + ' ». Entrez alors votre identifiant et votre mot de passe provisoire.'
     : 'Ouvrez l\'application avec ce lien, puis entrez votre identifiant et votre mot de passe provisoire.';
-  // « tapez le nom » n'est vrai que si le nom retombe exactement sur ce lien (pas sur un homonyme inscrit avant)
-  const sansLien = (annuaireOk && espSlug(esp.nom) === esp.slug) ? '(Sans le lien : sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + ecranTxt + '.)' : '';
+  // Taper le nom ne connecte plus : il fait RENVOYER ce lien à l'adresse de l'entreprise.
+  const sansLien = annuaireOk ? '(Lien perdu ? Sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + ecranTxt + ' : le lien est renvoyé à son adresse e-mail.)' : '';
   try {
     await mailerEnvoi({ confidentiel: true, trace: 'accès @' + id + ' → ' + url + ' · espace ' + t + (qui ? ' · par ' + qui : ''), from: config.smtp.from || config.smtp.user, to,
       subject: 'Vos accès OP GESTION' + (ent ? ' — ' + ent : ''),
@@ -911,8 +913,7 @@ try { espacesReg = JSON.parse(fs.readFileSync(ESPACES_PATH, 'utf8')); } catch (e
 const espSlug = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '');
 /* \u2500\u2500 Le code d'espace ne porte PLUS de mot de passe en clair \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
    Le code est du base64, pas du chiffrement : tout ce qu'il contient est lisible par qui
-   l'obtient \u2014 et /api/espaces/trouver le rend \u00e0 qui conna\u00eet le NOM de l'entreprise, un
-   nom public. Le champ \u00ab m \u00bb y transportait le mot de passe provisoire de
+   l'obtient. Le champ \u00ab m \u00bb y transportait le mot de passe provisoire de
    l'administrateur EN CLAIR : un nom d'entreprise suffisait donc \u00e0 r\u00e9cup\u00e9rer un
    identifiant et le mot de passe qui va avec.
    Le champ ne peut pas simplement dispara\u00eetre : c'est lui qui permet \u00e0 l'application, \u00e0
@@ -1274,20 +1275,21 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
   const e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
   if (!e.email) return res.status(400).json({ error: 'aucun e-mail enregistré pour cette entreprise' });
+  if (!e.code) return res.status(400).json({ error: 'cet espace n\'a pas de code de connexion — régénère son lien' });
   let a = '', m = '';
   try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); a = String(o.a || ''); m = String(o.m || ''); } catch (err) {}
-  const lien = 'https://teamop.fr/app.html#e=' + slug;
+  const lien = lienEspaceCode(e);
   const co = (a && m)
     ? '• Identifiant : ' + a + ' (votre prénom)\n• Mot de passe provisoire : ' + m + ' (votre nom + « !! »)\nÀ votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.\n'
     : 'Connectez-vous avec vos identifiants habituels.\n';
-  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\nVotre lien de connexion :\n' + lien + '\n(ou tapez « ' + e.nom + ' » sur teamop.fr → Se connecter)\n\n' + co + '\n— L\'équipe TEAM OP · teamop.fr';
+  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\nVotre lien de connexion :\n' + lien + '\n(Lien perdu ? Sur teamop.fr → Se connecter, tapez « ' + e.nom + ' » : il vous est renvoyé à cette adresse.)\n\n' + co + '\n— L\'équipe TEAM OP · teamop.fr';
   const coHtml = (a && m)
     ? MAIL_BLOCS.ident(a, m) + '<br>'
     : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br>';
   const html = mailTeamOP({
     chip: 'Accès prêt',
     titre: 'Votre lien de connexion 🔗',
-    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><span style="color:#8fa3c8;font-size:13px">(ou tapez « <b>' + e.nom + '</b> » sur teamop.fr → Se connecter)</span><br><br>' + coHtml,
+    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><span style="color:#8fa3c8;font-size:13px">(Lien perdu ? Sur teamop.fr → Se connecter, tapez « <b>' + e.nom + '</b> » : il vous est renvoyé à cette adresse.)</span><br><br>' + coHtml,
     frise: [
       { titre: 'Lien généré', sous: 'par TEAM OP', fait: true },
       { titre: 'Connectez-vous', sous: 'avec le lien', fait: false },
@@ -1378,19 +1380,97 @@ function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu, preno
 }
 /* nom d'entreprise présentable (jamais une adresse e-mail mise là faute de mieux) */
 function espNomPropre(e) { const n = String((e && e.nom) || '').trim(); return (n && !/@/.test(n) && n.toLowerCase() !== String((e && e.email) || '').toLowerCase()) ? n : ''; }
-app.post('/api/espaces/trouver', (req, res) => {
+/* ── Le nom d'une entreprise ne rend plus sa clé d'équipe ──────────────────────────────
+   /api/espaces/trouver rendait le code d'espace — donc « k », la clé qui ouvre les
+   données de l'entreprise — à qui tapait son NOM. Un nom se lit sur un camion, une
+   facture, un devis : ce n'est pas un secret, et il ne doit pas en garder un.
+   La route est retirée. Trois routes la remplacent, chacune ne rendant que le strict
+   nécessaire à ce qu'elle sert :
+     • /relance     — renvoie le lien de connexion à l'adresse DÉJÀ enregistrée pour
+                      l'entreprise. Il faut donc sa boîte aux lettres, plus seulement
+                      son nom. La réponse est la même que l'entreprise existe ou non :
+                      sinon la route deviendrait l'annuaire des clients de TEAM OP.
+     • /libre       — un oui/non de disponibilité, pour le formulaire d'inscription.
+     • /verifie-nom — « ce nom est-il celui de l'équipe t ? », demandé par un appareil
+                      qui est DÉJÀ dans l'espace t. Rien n'en sort que ce booléen. */
+const relanceQuota = new Map();
+function quotaOk(map, cle, max, fenetre) {
+  const q = map.get(cle) || { n: 0, reset: Date.now() + fenetre };
+  if (Date.now() > q.reset) { q.n = 0; q.reset = Date.now() + fenetre; }
+  q.n++; map.set(cle, q);
+  return q.n <= max;
+}
+/* Plusieurs inscriptions peuvent porter le même espace : la plus récente fait foi. */
+function espaceAJour(slug) {
+  let e = espacesReg[slug]; if (!e) return null;
+  try { const t = e.t || String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); const r = espaceParT(t); if (r && r.code) e = r; } catch (err) {}
+  return e;
+}
+/* Identifiant d'équipe porté par un espace de l'annuaire. */
+function espaceT(e) {
+  if (!e) return '';
+  if (e.t) return String(e.t);
+  try { return String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) { return ''; }
+}
+/* Le lien de connexion d'un espace porte le CODE (#entreprise=…), jamais le nom
+   (#e=nom) : un nom se devine, un code non. Le mot de passe provisoire n'y figure
+   pas — codeMdpHache l'a remplacé par son empreinte. */
+function lienEspaceCode(e) { return 'https://teamop.fr/app.html#entreprise=' + codeMdpHache(e.code); }
+app.post('/api/espaces/relance', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
   if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
-  let e = espacesReg[slug];
-  if (!e) return res.status(404).json({ error: 'Entreprise inconnue — vérifie l\'orthographe, ou demande ton lien de connexion' });
-  // plusieurs inscriptions pour le même espace : la plus récente fait foi
-  try { const t = e.t || String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); const r = espaceParT(t); if (r && r.code) e = r; } catch (err) {}
-  // la clé d'équipe a changé depuis l'inscription : ce lien mènerait à un espace illisible
-  if (e.clePerimee) return res.status(404).json({ error: 'Ce lien de connexion doit être renouvelé — demande le nouveau lien à ton entreprise', motif: 'cle_changee' });
-  // ceinture et bretelles : cette route est ouverte, aucun mot de passe n'en sort
-  res.json({ ok: true, nom: e.nom, code: codeMdpHache(e.code) });
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
+  if (!quotaOk(relanceQuota, 'ip:' + String(ip).split(',')[0].trim(), 10, 3600000))
+    return res.status(429).json({ error: 'Trop de demandes — réessaie dans une heure' });
+  /* La réponse part AVANT l'envoi : ni le texte ni le délai ne doivent laisser deviner
+     si l'entreprise est cliente de TEAM OP. */
+  res.json({ ok: true, envoye: true });
+  const e = espaceAJour(slug);
+  if (!e || !e.email || !e.code || e.clePerimee || !mailer) return;
+  if (!quotaOk(relanceQuota, 'esp:' + slug, 5, 3600000)) return;
+  const lien = lienEspaceCode(e);
+  const nom = espNomPropre(e) || e.nom || '';
+  const entTxt = nom ? ' « ' + nom + ' »' : '';
+  const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  mailerEnvoi({
+    confidentiel: true, trace: 'relance du lien de connexion · espace ' + slug,
+    from: config.smtp.from || config.smtp.user, to: e.email,
+    subject: '🔗 Votre lien de connexion — TEAM OP',
+    text: 'Bonjour,\n\nQuelqu\'un vient de demander le lien de connexion de votre entreprise'
+      + entTxt + ' sur teamop.fr.\n\nVotre lien :\n' + lien + '\n\n'
+      + 'Ouvrez-le sur l\'appareil à connecter, puis entrez votre identifiant et votre mot de passe.\n'
+      + 'Ce lien donne accès aux données de l\'entreprise : ne le transmettez qu\'à vos employés.\n\n'
+      + 'Si vous n\'êtes à l\'origine d\'aucune demande, ignorez ce message — rien n\'a changé.\n\n— TEAM OP · teamop.fr',
+    html: mailTeamOP({
+      chip: 'Lien de connexion',
+      titre: 'Votre lien de connexion 🔗',
+      corpsHtml: 'Bonjour,<br>quelqu\'un vient de demander le lien de connexion de votre entreprise'
+        + x(entTxt) + ' sur teamop.fr.<br><br><b>Votre lien :</b><br>'
+        + '<a href="' + x(lien) + '" style="color:#34A97E;word-break:break-all">' + x(lien.replace('https://', '')) + '</a><br><br>'
+        + '<span style="font-size:13px">Ouvrez-le sur l\'appareil à connecter, puis entrez votre identifiant et votre mot de passe.<br>'
+        + 'Ce lien donne accès aux données de l\'entreprise : <b>ne le transmettez qu\'à vos employés</b>.</span><br><br>'
+        + '<span style="color:#8fa3c8;font-size:13px">Si vous n\'êtes à l\'origine d\'aucune demande, ignorez ce message — rien n\'a changé.</span>',
+      boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+      bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
+    })
+  }).catch((err) => console.error('relance lien', slug, ':', String(err && err.message || err).slice(0, 120)));
 });
-/* Le lien LISIBLE d'un espace (teamop.fr/app.html#e=nom), pour l'application de l'entreprise :
+/* Disponibilité d'un nom de lien, pour le formulaire d'inscription : un oui/non, rien d'autre. */
+app.post('/api/espaces/libre', (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  if (!slug) return res.status(400).json({ error: 'Indique un nom' });
+  res.json({ ok: true, libre: !espacesReg[slug] });
+});
+/* « Ce nom est-il celui de l'équipe t ? » — pour un appareil déjà dans l'espace t, qui
+   fait confirmer à son porteur qu'il tape bien le nom de SON entreprise. Le booléen ne
+   révèle rien : il faut déjà connaître t, et t seul ne mène à aucun nom. */
+app.post('/api/espaces/verifie-nom', (req, res) => {
+  const t = monStr((req.body || {}).t, 80), slug = espSlug((req.body || {}).nom);
+  if (!t || !slug) return res.status(400).json({ error: 't et nom requis' });
+  const tEsp = espaceT(espaceAJour(slug));
+  res.json({ ok: true, correspond: !!tEsp && tEsp === t });
+});
+/* Le lien de connexion d'un espace (teamop.fr/app.html#entreprise=CODE), pour l'application de l'entreprise :
    t = identifiant d'équipe, kh = empreinte SHA-256 de la clé d'équipe (jamais la clé elle-même).
    Le nom et le lien ne sont rendus QUE si l'empreinte est celle de la clé de l'annuaire : sans
    preuve de clé, rien n'est révélé (un identifiant d'équipe seul ne doit mener à aucun nom). */
@@ -1417,7 +1497,9 @@ app.post('/api/espaces/lien', (req, res) => {
   // identAdmin : l'identifiant déclaré administrateur à la création de l'espace. Il n'est rendu
   // qu'ici, c'est-à-dire contre une preuve de possession de la clé d'équipe — jamais par une
   // route ouverte. L'application s'en sert pour qu'un patron ne puisse pas être déclassé.
-  res.json({ ok: true, slug: e.slug, nom: espNomPropre(e), lien: 'https://teamop.fr/app.html#e=' + e.slug, cleOk: true, nomExact: espSlug(e.nom) === e.slug, identAdmin });
+  /* Le lien rendu porte le code, pas le nom : celui qui le reçoit a prouvé qu'il détient
+     la clé d'équipe, mais le lien qu'il ira coller ne doit se deviner par personne. */
+  res.json({ ok: true, slug: e.slug, nom: espNomPropre(e), lien: lienEspaceCode(e), cleOk: true, nomExact: espSlug(e.nom) === e.slug, identAdmin });
 });
 
 // ── Fermeture totale d'une entreprise (patron) : code de confirmation par e-mail,
@@ -1621,6 +1703,322 @@ app.post('/api/monitor/status', monAdmin, async (req, res) => {
   }
   monSave();
   res.json({ ok: true, issue, mails, mailsSimules });
+});
+
+
+/* ══════════ EXPLIQUE — d'un incident à sa cause, en français ══════════
+   Un incident dit CE QUI a cassé. Il ne dit pas pourquoi, et c'est tout le travail :
+   « Interface figée », « Cannot read properties of undefined » — il faut ensuite ouvrir
+   le fichier, trouver la ligne, comprendre. Cette route fait ce chemin-là.
+
+   Deux règles la tiennent :
+     • L'extrait de code vient du DÉPÔT, lu ici, jamais du modèle. On lui donne le code
+       à lire ; il ne l'invente pas. Quand la trace ne désigne aucun fichier du dépôt,
+       la route le dit au lieu de fabriquer un emplacement plausible.
+     • Elle n'écrit rien dans l'application. Elle pose une explication à côté de
+       l'incident, dans la console — et cette explication est datée, signée du
+       collaborateur qui l'a demandée, et relisible. Une explication qu'on ne peut pas
+       relire est une explication à laquelle on ne peut pas se fier. */
+const DEPOT = path.resolve(__dirname, '..');
+/* Le fichier désigné par une trace de sentinelle : un seul nom, à la racine du dépôt,
+   et rien d'autre — pas de chemin, pas de remontée, pas d'autre extension. */
+function monSource(src, ligne) {
+  const n = parseInt(ligne, 10) || 0;
+  let f = String(src || '').trim();
+  try { if (/^https?:\/\//i.test(f)) f = new URL(f).pathname; } catch (e) {}
+  f = f.replace(/^\/+/, '').split('?')[0].split('#')[0];
+  if (!/^[a-z0-9._-]+\.(html|js)$/i.test(f)) return null;
+  const p = path.join(DEPOT, f);
+  if (p !== path.join(DEPOT, path.basename(p)) || !fs.existsSync(p)) return null;
+  let lignes;
+  try { lignes = fs.readFileSync(p, 'utf8').split('\n'); } catch (e) { return null; }
+  if (!n || n > lignes.length) return { fichier: f, ligne: 0, extrait: '' };
+  const d = Math.max(1, n - 12), fin = Math.min(lignes.length, n + 12);
+  const extrait = lignes.slice(d - 1, fin)
+    .map((l, i) => String(d + i).padStart(6) + (d + i === n ? ' ▶ ' : ' │ ') + l.slice(0, 300)).join('\n');
+  return { fichier: f, ligne: n, extrait };
+}
+const EXPLIQUE_SCHEMA = {
+  type: 'object',
+  properties: {
+    cause: { type: 'string' },
+    ou: { type: 'string' },
+    verifier: { type: 'string' },
+    confiance: { type: 'string', enum: ['haute', 'moyenne', 'faible'] }
+  },
+  required: ['cause', 'ou', 'verifier', 'confiance'],
+  additionalProperties: false
+};
+const EXPLIQUE_QUOTA_PATH = path.join(DATA_DIR, 'explique-quota.json');
+let expliqueQuota = { jour: '', n: 0 };
+try { expliqueQuota = JSON.parse(fs.readFileSync(EXPLIQUE_QUOTA_PATH, 'utf8')); } catch (e) {}
+function expliqueUtilises() {
+  const auj = new Date().toISOString().slice(0, 10);
+  if (expliqueQuota.jour !== auj) expliqueQuota = { jour: auj, n: 0 };
+  return expliqueQuota.n;
+}
+function expliqueCompte() { expliqueUtilises(); expliqueQuota.n++; try { fs.writeFileSync(EXPLIQUE_QUOTA_PATH, JSON.stringify(expliqueQuota)); } catch (e) {} }
+const EXPLIQUE_MAX = 40;
+app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
+  try {
+    if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
+    const issue = monIssues.find(i => i.id === (req.body || {}).id);
+    if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    if (issue.explication && !(req.body || {}).refaire) return res.json({ ok: true, explication: issue.explication, deja: true });
+    if (expliqueUtilises() >= EXPLIQUE_MAX) return res.status(429).json({ error: 'Quota du jour atteint (' + EXPLIQUE_MAX + ' explications) — réessaie demain' });
+
+    const s = monSource(issue.src, issue.line);
+    const sys = "Tu expliques la cause d'un incident survenu dans une application web de gestion d'interventions, à un artisan qui n'est pas développeur mais qui lit du code quand on le lui montre. Réponds en français, sobrement, sans jargon inutile.\n"
+      + "« cause » : deux ou trois phrases qui disent POURQUOI cela s'est produit. Pas de reformulation du message d'erreur — la cause.\n"
+      + "« ou » : le fichier et la ligne, repris EXACTEMENT de l'extrait fourni. Si aucun extrait n'est fourni, ou si l'extrait ne montre pas la cause, écris « emplacement non déterminé » — n'invente jamais un fichier ni un numéro de ligne.\n"
+      + "« verifier » : ce qu'un humain doit regarder ou reproduire pour confirmer, en une phrase.\n"
+      + "« confiance » : « haute » seulement si l'extrait montre la cause noir sur blanc ; « faible » si tu raisonnes sans voir le code fautif. Une explication plausible mais invérifiable est de confiance faible, dis-le.";
+    const contexte = 'Incident\n'
+      + '- application : ' + (issue.app || '?') + (issue.version ? ' v' + issue.version : '') + '\n'
+      + '- type : ' + (issue.type || '?') + ' · rubrique : ' + (issue.categorie || '?') + '\n'
+      + '- message : ' + (issue.message || '') + '\n'
+      + '- vu ' + (issue.count || 1) + ' fois, sur ' + Object.keys(issue.appareils || {}).length + ' appareil(s)\n'
+      + (issue.stack ? '- trace :\n' + issue.stack + '\n' : '')
+      + (s && s.extrait
+        ? '\nCode du dépôt autour de ' + s.fichier + ':' + s.ligne + ' (▶ = la ligne désignée) :\n' + s.extrait + '\n'
+        : '\nAucun extrait de code : la trace ne désigne pas un fichier du dépôt' + (issue.src ? ' (elle indique « ' + String(issue.src).slice(0, 120) + ' »)' : '') + '.\n');
+
+    const msg = await getAnthropic().messages.create({
+      model: 'claude-opus-5', max_tokens: 2000, system: sys,
+      output_config: { format: { type: 'json_schema', schema: EXPLIQUE_SCHEMA } },
+      messages: [{ role: 'user', content: contexte }]
+    });
+    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Explication refusée' });
+    const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
+    let e; try { e = JSON.parse(txt); } catch (err) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+    expliqueCompte();
+    issue.explication = {
+      cause: monStr(e.cause, 900), ou: monStr(e.ou, 200), verifier: monStr(e.verifier, 400),
+      confiance: ['haute', 'moyenne', 'faible'].includes(e.confiance) ? e.confiance : 'faible',
+      /* le fichier et la ligne réellement OUVERTS ici — c'est cela qui fait foi, pas ce
+         que le modèle en a redit */
+      fichier: s ? s.fichier : '', ligne: s ? s.ligne : 0, codeLu: !!(s && s.extrait),
+      ts: Date.now(), par: req.tourUser.nom
+    };
+    issue.historique = (issue.historique || []).concat([{ ts: Date.now(), par: req.tourUser.nom, action: 'Cause expliquée', note: issue.explication.ou }]).slice(-30);
+    monSave();
+    console.log('Tour :', req.tourUser.nom, 'a demandé la cause de', issue.id, '→', issue.explication.confiance, issue.explication.ou);
+    res.json({ ok: true, explication: issue.explication, restants: Math.max(0, EXPLIQUE_MAX - expliqueUtilises()) });
+  } catch (err) {
+    const st = err && err.status;
+    if (st === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur' });
+    if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    console.error('expliquer :', err && err.message);
+    res.status(500).json({ error: 'Erreur du serveur' });
+  }
+});
+
+
+/* ══════════ PROPOSE — d'une cause à une correction, soumise au patron ══════════
+   EXPLIQUE dit pourquoi. PROPOSE écrit le correctif et ouvre une proposition sur
+   GitHub. Elle ne fusionne rien : ce fichier n'appelle nulle part la fusion, et
+   la proposition part en brouillon. Rien ne va en production sans une main humaine.
+
+   Quatre verrous, dans cet ordre :
+     1. Il faut une cause déjà établie, et le code doit avoir été RÉELLEMENT LU pour
+        l'établir. Corriger sur une intuition, c'est corriger au hasard.
+     2. L'ancre du remplacement doit se trouver UNE SEULE FOIS dans le fichier. Zéro,
+        le modèle a inventé du code qui n'existe pas ; deux, on ne sait pas laquelle
+        il visait. Dans les deux cas on s'arrête.
+     3. Le fichier corrigé doit encore s'analyser. C'est la panne du 3 septembre 2026 :
+        un « // » au milieu d'une ligne avait avalé une accolade, app.html avait cessé
+        de parser, et la page est restée blanche chez toutes les entreprises. Un
+        correctif qui casse le fichier ne doit jamais atteindre une proposition.
+     4. app.html commande beta.html : on régénère la bêta avec le générateur livré
+        (beta-build.js, exécuté tel quel), sinon la vérification d'intégration
+        signalerait à juste titre une bêta désynchronisée.
+
+   La clé GitHub vit UNIQUEMENT dans /opt/teamop/config.json → "github" :
+     "github": { "token": "…", "depot": "compte/TeamOP" }
+   Sans elle, la route se tait proprement : PROPOSE reste inerte. */
+const PROPOSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    titre: { type: 'string' },
+    pourquoi: { type: 'string' },
+    fichier: { type: 'string' },
+    avant: { type: 'string' },
+    apres: { type: 'string' },
+    verifier: { type: 'string' },
+    risque: { type: 'string', enum: ['faible', 'moyen', 'eleve'] }
+  },
+  required: ['titre', 'pourquoi', 'fichier', 'avant', 'apres', 'verifier', 'risque'],
+  additionalProperties: false
+};
+function ghConf() { return config.github || {}; }
+function ghActif() { return !!(ghConf().token && ghConf().depot); }
+async function gh(chemin, options) {
+  const r = await fetch('https://api.github.com/repos/' + ghConf().depot + chemin, Object.assign({
+    headers: {
+      'Authorization': 'Bearer ' + ghConf().token,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'teamop-propose',
+      'Content-Type': 'application/json'
+    }
+  }, options || {}));
+  const txt = await r.text();
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  if (!r.ok) { const e = new Error('GitHub ' + r.status + ' : ' + ((j && j.message) || txt.slice(0, 200))); e.statutGh = r.status; throw e; }
+  return j;
+}
+/* Chaque bloc <script> d'une page doit rester analysable — même contrôle que
+   scripts/verifier-syntaxe.js, qui existe précisément à cause de la page blanche.
+   new Function COMPILE le code sans jamais l'exécuter : c'est ce qu'on veut ici, savoir
+   si le navigateur saura lire la page, sans faire tourner une ligne du correctif. */
+function pageAnalysable(html) {
+  const BLOC = /<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+  let m, n = 0;
+  while ((m = BLOC.exec(html))) {
+    n++;
+    try { new Function(m[1]); }
+    catch (e) {
+      try { new Function('return (async () => {' + m[1] + '})'); }
+      catch (e2) { return 'bloc <script> n°' + n + ' : ' + e2.message; }
+    }
+  }
+  return '';
+}
+/* beta.html est GÉNÉRÉE depuis app.html. On ne réécrit pas ses règles ici : on exécute
+   le générateur livré, en lui donnant l'app corrigée à lire et en captant ce qu'il écrit.
+   Ses propres refus (isolation du stockage, de l'espace de synchro) restent actifs. */
+function betaDepuis(appHtml) {
+  const src = fs.readFileSync(path.join(DEPOT, 'beta-build.js'), 'utf8');
+  let sortie = null;
+  const fauxFs = {
+    readFileSync: (f, e) => (String(f).endsWith('app.html') ? appHtml : fs.readFileSync(f, e)),
+    writeFileSync: (f, d) => { if (String(f).endsWith('beta.html')) sortie = d; }
+  };
+  new Function('require', 'console', 'process', src)(
+    (n) => (n === 'fs' ? fauxFs : require(n)),
+    { log: () => {}, error: (m) => { throw new Error(String(m)); } },
+    { exit: (c) => { if (c) throw new Error('beta-build.js a refusé la génération'); } }
+  );
+  if (!sortie) throw new Error('beta-build.js n\'a rien produit');
+  return sortie;
+}
+app.post('/api/monitor/proposer', monPatronStrict, async (req, res) => {
+  try {
+    if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
+    if (!ghActif()) return res.status(503).json({ error: 'Dépôt GitHub non configuré sur le serveur (config.json → github.token et github.depot)' });
+    const issue = monIssues.find(i => i.id === (req.body || {}).id);
+    if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    const e = issue.explication;
+    if (!e) return res.status(400).json({ error: 'Cherche d\'abord la cause : on ne corrige pas un incident qu\'on n\'a pas compris' });
+    if (!e.codeLu || !e.fichier) return res.status(400).json({ error: 'La cause a été établie sans lire le code — pas de correctif automatique là-dessus' });
+    if (issue.proposition && !(req.body || {}).refaire) return res.json({ ok: true, proposition: issue.proposition, deja: true });
+
+    const s = monSource(e.fichier, e.ligne);
+    if (!s || !s.extrait) return res.status(400).json({ error: 'Le fichier de la cause n\'est plus lisible dans le dépôt' });
+    const lignes = fs.readFileSync(path.join(DEPOT, s.fichier), 'utf8').split('\n');
+    const d = Math.max(1, s.ligne - 40), fin = Math.min(lignes.length, s.ligne + 40);
+    const large = lignes.slice(d - 1, fin).map((l, i) => String(d + i) + ' │ ' + l).join('\n');
+
+    const sys = "Tu corriges un défaut dans une application web française (JavaScript dans des pages HTML d'un seul fichier, sans build ni framework). Le style existant fait loi : mêmes conventions, mêmes noms en français, mêmes commentaires expliquant le POURQUOI. Pas de refactorisation, pas d'amélioration au passage — la plus petite correction qui traite la cause, et rien d'autre.\n"
+      + "« avant » : le fragment EXACT à remplacer, copié caractère pour caractère depuis le code fourni (sans les numéros de ligne ni la barre verticale). Il doit être assez long pour n'apparaître QU'UNE FOIS dans le fichier, et assez court pour ne rien emporter d'inutile.\n"
+      + "« apres » : ce fragment corrigé. Il doit rester du JavaScript valide au même endroit.\n"
+      + "« pourquoi » : deux ou trois phrases expliquant ce que le correctif change et pourquoi cela traite la cause.\n"
+      + "« verifier » : comment un humain confirme que c'est réglé, concrètement.\n"
+      + "« risque » : « faible » si le correctif ne touche qu'un chemin d'exécution étroit ; « eleve » s'il touche du code partagé ou une donnée persistée.\n"
+      + "Si le code fourni ne suffit pas pour corriger sûrement, renvoie « avant » et « apres » identiques : c'est la façon de dire que tu ne corriges pas à l'aveugle.";
+    const contexte = 'Incident : ' + (issue.message || '') + '\n'
+      + 'Cause établie : ' + (e.cause || '') + '\n'
+      + 'Emplacement : ' + s.fichier + ' ligne ' + s.ligne + '\n'
+      + (issue.stack ? 'Trace :\n' + issue.stack + '\n' : '')
+      + '\nCode du dépôt (' + s.fichier + ', lignes ' + d + ' à ' + fin + ') :\n' + large;
+
+    const msg = await getAnthropic().messages.create({
+      model: 'claude-opus-5', max_tokens: 8000, system: sys,
+      output_config: { format: { type: 'json_schema', schema: PROPOSE_SCHEMA } },
+      messages: [{ role: 'user', content: contexte }]
+    });
+    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Correctif refusé' });
+    const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
+    let p; try { p = JSON.parse(txt); } catch (err) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+
+    // ── verrou 2 : l'ancre, une fois et une seule ──
+    if (!p.avant || p.avant === p.apres) return res.status(422).json({ error: 'Aucun correctif sûr à partir de ce code — la cause reste à traiter à la main' });
+    if (p.avant.length > 4000) return res.status(422).json({ error: 'Correctif trop large pour être proposé automatiquement' });
+    const avantFichier = fs.readFileSync(path.join(DEPOT, s.fichier), 'utf8');
+    const occurrences = avantFichier.split(p.avant).length - 1;
+    if (occurrences !== 1) return res.status(422).json({
+      error: occurrences === 0
+        ? 'Le fragment à remplacer ne se trouve pas dans le fichier — correctif écarté'
+        : 'Le fragment à remplacer apparaît ' + occurrences + ' fois — on ne sait pas lequel viser, correctif écarté'
+    });
+    const apresFichier = avantFichier.replace(p.avant, p.apres);
+
+    // ── verrou 3 : le fichier corrigé s'analyse encore ──
+    const fichiers = {};
+    if (/\.html$/i.test(s.fichier)) {
+      const casse = pageAnalysable(apresFichier);
+      if (casse) return res.status(422).json({ error: 'Correctif écarté : il rend ' + s.fichier + ' inanalysable (' + casse + ')' });
+    } else {
+      try { new (require('vm').Script)(apresFichier, { filename: s.fichier }); }
+      catch (err) { return res.status(422).json({ error: 'Correctif écarté : il rend ' + s.fichier + ' inanalysable (' + err.message + ')' }); }
+    }
+    fichiers[s.fichier] = apresFichier;
+    // ── verrou 4 : la bêta suit l'app ──
+    if (s.fichier === 'app.html') {
+      try { fichiers['beta.html'] = betaDepuis(apresFichier); }
+      catch (err) { return res.status(422).json({ error: 'Correctif écarté : la bêta ne se régénère pas (' + err.message + ')' }); }
+    }
+
+    // ── la proposition, en brouillon ──
+    const branche = 'propose/' + issue.id + '-' + Date.now().toString(36);
+    const base = await gh('/git/ref/heads/main');
+    await gh('/git/refs', { method: 'POST', body: JSON.stringify({ ref: 'refs/heads/' + branche, sha: base.object.sha }) });
+    for (const nomF of Object.keys(fichiers)) {
+      const actuel = await gh('/contents/' + encodeURIComponent(nomF) + '?ref=main');
+      await gh('/contents/' + encodeURIComponent(nomF), {
+        method: 'PUT',
+        body: JSON.stringify({
+          message: monStr(p.titre, 120) + '\n\nIncident #' + String(issue.id).slice(-6) + ' — proposition ouverte depuis la Tour par ' + req.tourUser.nom + '.',
+          content: Buffer.from(fichiers[nomF], 'utf8').toString('base64'),
+          branch: branche, sha: actuel.sha
+        })
+      });
+    }
+    const corps = '## Ce qui ne va pas\n\n' + (issue.message || '') + '\n\n'
+      + '_Incident #' + String(issue.id).slice(-6) + ' · vu ' + (issue.count || 1) + ' fois sur '
+      + Object.keys(issue.appareils || {}).length + ' appareil(s) · ' + (issue.categorie || '') + '_\n\n'
+      + '## La cause\n\n' + (e.cause || '') + '\n\n`' + s.fichier + '` ligne ' + s.ligne + '\n\n'
+      + '## Ce que change ce correctif\n\n' + (p.pourquoi || '') + '\n\n'
+      + '## À vérifier avant de fusionner\n\n' + (p.verifier || '') + '\n\n'
+      + '```\nnode scripts/verifier-syntaxe.js\nnode scripts/verifier-lien-jeton.js\nnode scripts/verifier-explique.js\n```\n\n'
+      + '## Ce que cette proposition n\'a pas fait\n\n'
+      + '- Elle n\'est **pas** fusionnée, et rien dans le serveur ne peut la fusionner.\n'
+      + '- Le correctif a été écrit par Claude à partir du code du dépôt ; il a été vérifié analysable, pas vérifié juste. Risque annoncé : **' + (p.risque || '?') + '**.\n'
+      + '- Personne n\'a exécuté l\'application avec ce correctif.\n\n'
+      + '---\nProposition ouverte depuis la Tour de contrôle par **' + req.tourUser.nom + '** le '
+      + new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) + '.\n';
+    const pr = await gh('/pulls', {
+      method: 'POST',
+      body: JSON.stringify({ title: monStr(p.titre, 120), head: branche, base: 'main', body: corps, draft: true })
+    });
+
+    issue.proposition = {
+      url: pr.html_url, numero: pr.number, branche: branche,
+      titre: monStr(p.titre, 120), pourquoi: monStr(p.pourquoi, 900), verifier: monStr(p.verifier, 400),
+      risque: ['faible', 'moyen', 'eleve'].includes(p.risque) ? p.risque : 'moyen',
+      fichiers: Object.keys(fichiers), ts: Date.now(), par: req.tourUser.nom
+    };
+    issue.historique = (issue.historique || []).concat([{ ts: Date.now(), par: req.tourUser.nom, action: 'Correction proposée', note: '#' + pr.number + ' ' + monStr(p.titre, 120) }]).slice(-30);
+    monSave();
+    console.log('Tour :', req.tourUser.nom, 'a proposé une correction pour', issue.id, '→', pr.html_url);
+    res.json({ ok: true, proposition: issue.proposition });
+  } catch (err) {
+    const st = err && err.status;
+    if (st === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur' });
+    if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    if (err && err.statutGh) return res.status(502).json({ error: err.message });
+    console.error('proposer :', err && err.message);
+    res.status(500).json({ error: 'Erreur du serveur' });
+  }
 });
 
 // santé globale (admin) : reprend /health + uptime + répartition des problèmes
@@ -1956,7 +2354,9 @@ app.post('/api/clients/sync', async (req, res) => {
       const nomFamC = cli.nomFam || String(cli.nom || '').trim().split(/\s+/).slice(1).join(' ') || '';
       const auto = espaceAutoPour(email, cli.entreprise || cli.nom || '',
         promoDef ? promoDef.formule : dFormule.formule, dUsers.users, dLien.lien, prenomC, nomFamC);
-      const lien = 'https://teamop.fr/app.html#e=' + auto.slug;
+      // lien de bienvenue : il porte le code de l'espace, pas son nom (voir /api/espaces/relance)
+      const eAuto = espacesReg[auto.slug];
+      const lien = (eAuto && eAuto.code) ? lienEspaceCode(eAuto) : 'https://teamop.fr/connexion.html';
       // activation du code pour cet espace : la formule est offerte, sans carte bancaire
       let promoActif = null;
       if (promoDef) { const eEsp = espacesReg[auto.slug];

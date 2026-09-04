@@ -724,8 +724,9 @@
       </body></html>`);
     w.document.close(); }
 
-  /* Nom du lien de connexion : vérifié EN DIRECT auprès de l'annuaire TeamOP —
-     « disponible » ou « déjà pris », avec l'aperçu du lien final. */
+  /* Nom du lien de connexion : vérifié EN DIRECT auprès de l'annuaire TeamOP — « disponible »
+     ou « déjà pris ». On ne montre plus d'aperçu d'adresse : le lien de connexion porte le
+     code de l'espace, pas son nom, et il est envoyé par e-mail à l'entreprise. */
   let _lienTimer=null, _lienEtat=null;
   function lienSlug(s){ return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,''); }
   function verifLienDemande(){
@@ -738,9 +739,11 @@
     msg.innerHTML='<span class="muted">Vérification…</span>';
     _lienTimer=setTimeout(async ()=>{
       try{
-        const r=await fetch('https://api.teamop.fr/api/espaces/trouver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom})});
-        if(r.ok){ _lienEtat={nom,slug,libre:false}; msg.innerHTML='<span style="color:#f87171">❌ « '+esc(nom)+' » est déjà pris — choisis une variante (ajoute la ville, par exemple).</span>'; }
-        else { _lienEtat={nom,slug,libre:true}; msg.innerHTML='<span style="color:#34d399">✅ Disponible</span> <span class="muted">— ton lien sera : teamop.fr/app.html#e='+esc(slug)+'</span>'; }
+        const r=await fetch('https://api.teamop.fr/api/espaces/libre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom})});
+        const j=await r.json().catch(()=>({}));
+        if(r.ok&&j.libre===false){ _lienEtat={nom,slug,libre:false}; msg.innerHTML='<span style="color:#f87171">❌ « '+esc(nom)+' » est déjà pris — choisis une variante (ajoute la ville, par exemple).</span>'; }
+        else if(r.ok&&j.libre===true){ _lienEtat={nom,slug,libre:true}; msg.innerHTML='<span style="color:#34d399">✅ Disponible</span>'; }
+        else { _lienEtat=null; msg.innerHTML='<span style="color:#f87171">Vérification impossible — réessaie.</span>'; }
       }catch(e){ msg.innerHTML='<span style="color:#f87171">Vérification impossible — réessaie.</span>'; }
     },450);
   }
@@ -783,8 +786,9 @@
     if(!/^[0-9+][0-9 .()\/-]{8,19}$/.test(tel)){ $('req-msg').innerHTML='<div class="err">⚠️ Numéro de téléphone invalide (ex. 06 12 34 56 78).</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
     // le nom du lien doit être DISPONIBLE — revérifié au moment de l'envoi
     try{
-      const rl=await fetch('https://api.teamop.fr/api/espaces/trouver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:lienNom})});
-      if(rl.ok){ $('req-msg').innerHTML='<div class="err">⚠️ Le nom de lien « '+esc(lienNom)+' » est déjà pris — choisis une variante (ajoute la ville, par exemple).</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
+      const rl=await fetch('https://api.teamop.fr/api/espaces/libre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:lienNom})});
+      const jl=await rl.json().catch(()=>({}));
+      if(rl.ok&&jl.libre===false){ $('req-msg').innerHTML='<div class="err">⚠️ Le nom de lien « '+esc(lienNom)+' » est déjà pris — choisis une variante (ajoute la ville, par exemple).</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
     }catch(e){}   // annuaire injoignable : on laisse passer, le serveur choisira une variante si besoin
     try{
       const d=_meDoc||{}; const liste=Array.isArray(d.demandes)?d.demandes.slice():[];

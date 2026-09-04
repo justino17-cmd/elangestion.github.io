@@ -285,8 +285,8 @@ function apiPost(u,b){ return fetch(API+u,{method:'POST',headers:hAuth(),body:JS
   .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return {ok:r.ok,d:d||{}}; }); }); }
 
 var _tt=null;
-function toast(t){ var e=$('toast'); e.textContent=t; e.style.display='block';
-  clearTimeout(_tt); _tt=setTimeout(function(){ e.style.display='none'; },2600); }
+function toast(t,ms){ var e=$('toast'); e.textContent=t; e.style.display='block';
+  clearTimeout(_tt); _tt=setTimeout(function(){ e.style.display='none'; },ms||2600); }
 
 /* Une date sans année est ambiguë dès qu'on relit un journal de plus de douze mois — et
    « il y a 3 h » ne dit pas QUAND. Partout dans la Tour : jour, mois, année, heure. */
@@ -564,7 +564,11 @@ function vueDevisIA(){
    Le lien met l'appareil de l'entreprise sur SON espace isolé (app.html#entreprise=CODE) ;
    sa 1re connexion : admin / 1234 → l'app fait créer mot de passe + e-mail. Un lien
    généré est mémorisé sur cet appareil (tour_liens) : re-cliquer redonne le même. */
-function tourEspaceDe(email,nom,ident,mdp,neuf){
+async function tourSha256(x){
+  const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(x)));
+  return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+async function tourEspaceDe(email,nom,ident,mdp,neuf){
   var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
   var sp=reg[email];
   if(neuf){ try{ delete reg[email]; localStorage.setItem('tour_liens',JSON.stringify(reg)); }catch(e){} sp=null; }
@@ -590,8 +594,14 @@ function tourEspaceDe(email,nom,ident,mdp,neuf){
     reg[email]=sp; localStorage.setItem('tour_liens',JSON.stringify(reg));
   }
   var code=btoa(unescape(encodeURIComponent(JSON.stringify(sp)))).replace(/=+$/,'');
-  var slug=(nom||email).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
-  var lien='https://teamop.fr/app.html#e='+slug;   // lisible : le nom de l'entreprise est dans le lien
+  /* Le lien porte le CODE, jamais le nom : un nom d'entreprise est public — il se lit sur
+     un camion — et il ne doit ouvrir aucun espace. Le mot de passe provisoire n'y entre pas
+     non plus, seulement son empreinte, que l'application compare déjà ; le mot de passe,
+     lui, ne circule que dans l'e-mail adressé à l'intéressé. */
+  var spLien={t:sp.t,k:sp.k,n:sp.n,a:sp.a,e:sp.e};
+  if(sp.m) spLien.mh=await tourSha256(sp.m);
+  var codeLien=btoa(unescape(encodeURIComponent(JSON.stringify(spLien)))).replace(/=+$/,'');
+  var lien='https://teamop.fr/app.html#entreprise='+codeLien;
   // enregistre nom + e-mail dans l'annuaire serveur (connexion par nom, et vérification Stripe par e-mail)
   apiPost('/api/monitor/espaces',{nom:(nom||email),code:code,email:email}).then(function(r){
     if(!(r&&r.ok)) toast('Attention : nom non enregistré côté serveur ('+((r&&r.d&&r.d.error)||'?')+') — le lien, lui, marche');
@@ -652,18 +662,18 @@ function tourRepartirNeuf(email,nom){
     setTimeout(function(){ tourLienEntreprise(email,nom,true); },250);
   }).catch(function(){ toast('Serveur injoignable'); });
 }
-function tourLienEntreprise(email,nom,neuf){
+async function tourLienEntreprise(email,nom,neuf){
   var ident=prompt('Identifiant de départ (son prénom — il pourra le changer à sa première connexion) :',tourIdentDefaut(email));
   if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
   var mdp=tourMdpDefaut(email);
-  var e=tourEspaceDe(email,nom,ident,mdp,neuf);
+  var e=await tourEspaceDe(email,nom,ident,mdp,neuf);
   var mdpAff=e.mdp||mdp;
   var debut=neuf?'Bonjour,\n\nPour des questions de sécurité et une mise à jour exceptionnelle, ton espace OP GESTION a été RÉINITIALISÉ : tu repars sur une version toute propre, stable et finie. Tout est à recréer (utilisateurs, clients…), mais sur une base saine — et clique le nouveau lien sur CHAQUE appareil de l\'équipe.\n\n':'Bienvenue sur OP GESTION !\n\n';
   var txt=debut+'Clique ton lien de connexion (garde-le précieusement) :\n'+e.lien+'\n\nL\'écran affichera « ✅ Ton lien de connexion est bon » — puis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nÀ ta première connexion, l\'app te fait choisir TON vrai mot de passe — ensuite ce sont tes identifiants pour toujours.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte avec le même lien + son identifiant + son mot de passe.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
   tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🔗 Lien de connexion — '+esc(e.nom)+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Tout est prêt. Vérifie, puis envoie-lui l\'e-mail en un clic.</div>'+
     '<div class="sec">CE QUI RENTRE DANS LE LIEN</div>'+
-    '<div style="margin:6px 0 14px;font-size:15px"><b>'+esc(e.nom)+'</b> <span style="color:var(--muted);font-size:12.5px">— le nom à taper sur la page de connexion</span></div>'+
+    '<div style="margin:6px 0 14px;font-size:15px"><b>'+esc(e.nom)+'</b> <span style="color:var(--muted);font-size:12.5px">— le nom de l\'espace. C\'est le lien qui connecte ; taper ce nom sur teamop.fr fait seulement renvoyer le lien à l\'adresse de l\'entreprise.</span></div>'+
     '<div class="sec">LE LIEN</div>'+
     '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="lg-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'lg-lien\',this)">Copier</button></div>'+
     '<div class="sec">SES IDENTIFIANTS DE DÉPART</div>'+
@@ -688,7 +698,7 @@ function tourPanneau(html){
 }
 function tourCopie(id,btn){ var el=document.getElementById(id); if(!el) return;
   try{ navigator.clipboard.writeText(el.value!==undefined?el.value:el.textContent); var o=btn.textContent; btn.textContent='Copié !'; setTimeout(function(){ btn.textContent=o; },1500); }catch(e){ toast('Copie impossible'); } }
-function tourAccepterDemande(email,nom){
+async function tourAccepterDemande(email,nom){
   var c=(CLI.list||[]).find(function(x){ return x.email===email; })||{};
   var dm=(c.demandes||[]).slice().sort(function(a,b){ return (b.date||0)-(a.date||0); })[0]||{};
   var F={'business premium':'premium','premium':'premium','business':'business','pro':'pro','gratuit':'gratuit'};
@@ -697,19 +707,19 @@ function tourAccepterDemande(email,nom){
   var ident=prompt('Identifiant de départ (son prénom — il pourra le changer à sa première connexion) :',tourIdentDefaut(email));
   if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
   var mdp=tourMdpDefaut(email);
-  var e=tourEspaceDe(email,nom,ident,mdp);
+  var e=await tourEspaceDe(email,nom,ident,mdp);
   var mdpAff=e.mdp||mdp;
   apiPost('/api/monitor/espaces/formule',{nom:e.nom,formule:formule,quantite:q}).then(function(r){
     if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Formule non attribuée'); return; }
     tourPackPrefill(e.nom);
-    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi : teamop.fr/connexion.html → écris le nom de ton entreprise : « '+e.nom+' » (ou clique ton lien direct : '+e.lien+' )\n2. Première connexion : identifiant '+ident+' — mot de passe provisoire '+mdpAff+'. L\'app te fait choisir TON vrai mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs : chacun se connecte pareil (nom de l\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi en cliquant ton lien (garde-le précieusement) : '+e.lien+'\n   (lien perdu ? sur teamop.fr/connexion.html, écris « '+e.nom+' » : il repart à ton adresse e-mail)\n2. Première connexion : identifiant '+ident+' — mot de passe provisoire '+mdpAff+'. L\'app te fait choisir TON vrai mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs : chacun se connecte pareil (nom de l\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
     var F2={gratuit:'Gratuit',pro:'Pro',business:'Business',premium:'Business Premium'};
     tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">✅ Demande acceptée — '+esc(e.nom)+'</div>'+
       '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">L\'espace est prêt et activé. Il ne te reste qu\'à envoyer le message ci-dessous.</div>'+
       '<div class="sec">FORMULE RÉSERVÉE</div><div style="margin:6px 0 14px;font-size:15px"><b>'+(F2[formule]||formule)+(q>1?' ×'+q:'')+'</b> <span class="past p-orange">💳 en attente de paiement</span></div>'+
-      '<div class="sec">LIEN DE CONNEXION (le nom de l\'entreprise est dedans)</div>'+
+      '<div class="sec">LIEN DE CONNEXION (à garder — c\'est lui qui connecte)</div>'+
       '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="acc-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'acc-lien\',this)">Copier</button></div>'+
-      '<div class="sec">OU SUR LA PAGE DE CONNEXION</div><div style="margin:6px 0 14px;font-size:13.5px;color:var(--muted)">teamop.fr/connexion.html → entreprise : <b style="color:inherit">'+esc(e.nom)+'</b> · première connexion : <b>'+esc(ident)+'</b> / <b>'+esc(mdpAff)+'</b> (modifiables à sa première connexion)</div>'+
+      '<div class="sec">LIEN PERDU ?</div><div style="margin:6px 0 14px;font-size:13.5px;color:var(--muted)">teamop.fr/connexion.html → écrire <b style="color:inherit">'+esc(e.nom)+'</b> : le lien repart à l\'adresse e-mail de l\'entreprise · première connexion : <b>'+esc(ident)+'</b> / <b>'+esc(mdpAff)+'</b> (modifiables à sa première connexion)</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px"><button class="btn-plein" onclick="tourMailAcces(\''+jsq(e.nom)+'\',this)">📧 Envoyer par e-mail au client</button></div>'+
       '<div class="sec">MESSAGE DE BIENVENUE À ENVOYER</div>'+
       '<textarea id="acc-msg" rows="9" style="width:100%;margin-top:6px;background:#0d1526;border:1px solid var(--line);border-radius:10px;color:inherit;font-size:12.5px;line-height:1.55;padding:10px"></textarea>'+
@@ -1235,9 +1245,13 @@ function vueIncident(i){
         (st!=='encours'?'<button class="pill-act amb" onclick="incStatut(\''+jsq(i.id)+'\',\'encours\')">Je m\u2019en occupe</button>':'')+
         (st!=='corrige'?'<button class="pill-act vrt" onclick="incStatut(\''+jsq(i.id)+'\',\'corrige\')">Marquer corrig\u00e9</button>':'')+
         (st!=='ignore'?'<button class="pill-act gri" onclick="incStatut(\''+jsq(i.id)+'\',\'ignore\')">Ignorer</button>':'')+
+        '<button class="pill-act" onclick="incCause(\''+jsq(i.id)+'\')">\ud83d\udd0e '+(i.explication?'Refaire la recherche de cause':'Chercher la cause')+'</button>'+
+        (i.explication&&i.explication.codeLu&&MYROLE==='patron'?'<button class="pill-act" onclick="incProposer(\''+jsq(i.id)+'\')">\ud83d\udee0 '+(i.proposition?'Refaire la proposition':'Proposer une correction')+'</button>':'')+
         '<button class="pill-act" onclick="incCopier(\''+jsq(i.id)+'\')">\ud83d\udccb Copier le dossier complet</button></div>'+
       (st!=='corrige'&&nbMail?'<div style="font-size:12px;color:var(--dim);margin-top:10px;line-height:1.5">\u00ab Marquer corrig\u00e9 \u00bb enverra automatiquement l\u2019e-mail \u00ab Votre application a \u00e9t\u00e9 am\u00e9lior\u00e9e \u2705 \u00bb aux '+nbMail+' entreprise(s) touch\u00e9e(s) ayant un e-mail.</div>':'')+
     '</div>'+
+    incCarteCause(i)+
+    incCarteProposition(i)+
     '<div class="fiche-grille">'+
       carte('O\u00d9 ET QUAND',ctx+freq)+
       carte('ENTREPRISES TOUCH\u00c9ES',entHtml,'Les clients chez qui ce probl\u00e8me est apparu, et combien de fois chacun.')+
@@ -1250,6 +1264,71 @@ function vueIncident(i){
       '<div class="code" style="margin-top:10px;white-space:pre-wrap;word-break:break-word">'+esc(i.stack)+'</div></div>':'');
 }
 
+/* La cause probable d'un incident, cherchée par Claude sur le code du dépôt.
+   On montre toujours QUI l'a demandée, QUAND, et si le code fautif a pu être ouvert :
+   une explication tirée d'un raisonnement sans le code ne vaut pas celle qui l'a lu, et
+   la personne qui décide doit voir la différence. */
+var CONF_P={haute:'p-vert',moyenne:'p-ambre',faible:'p-gris'};
+var CONF_L={haute:'Confiance haute',moyenne:'Confiance moyenne',faible:'Confiance faible'};
+function incCarteCause(i){
+  var e=i.explication;
+  if(!e) return '<div class="carte" style="margin-top:16px"><div class="sec">LA CAUSE</div>'+
+    '<div style="font-size:13px;color:var(--muted);margin-top:8px;line-height:1.6">Pas encore cherchée. \u00ab Chercher la cause \u00bb ouvre le fichier d\u00e9sign\u00e9 par la trace dans le d\u00e9p\u00f4t et en tire une explication en fran\u00e7ais, avec le fichier et la ligne. Rien n\u2019est modifi\u00e9 : c\u2019est une lecture.</div></div>';
+  return '<div class="carte" style="margin-top:16px">'+
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div class="sec" style="margin:0">LA CAUSE PROBABLE</div>'+
+      '<span class="past '+(CONF_P[e.confiance]||'p-gris')+'">'+(CONF_L[e.confiance]||'Confiance inconnue')+'</span></div>'+
+    '<div style="font-size:14px;line-height:1.7;color:var(--text);margin-top:12px;white-space:pre-wrap">'+esc(e.cause||'')+'</div>'+
+    (e.ou?'<div style="margin-top:12px"><span style="font-size:12px;color:var(--muted)">O\u00f9 : </span><span class="mono" style="font-size:12.5px;color:var(--link)">'+esc(e.ou)+'</span></div>':'')+
+    (e.verifier?'<div style="margin-top:10px;font-size:13px;color:var(--text2);line-height:1.6"><b style="color:var(--muted);font-weight:600">\u00c0 v\u00e9rifier :</b> '+esc(e.verifier)+'</div>':'')+
+    '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline);font-size:12px;color:var(--dim);line-height:1.6">'+
+      esc(e.codeLu?('Code lu dans le d\u00e9p\u00f4t : '+(e.fichier||'?')+(e.ligne?' ligne '+e.ligne:'')):'Aucun fichier du d\u00e9p\u00f4t n\u2019a pu \u00eatre ouvert \u2014 explication tir\u00e9e du seul message d\u2019erreur, \u00e0 confirmer \u00e0 la main.')+
+      ' \u00b7 cherch\u00e9e par '+esc(e.par||'?')+' le '+fmtDateLong(e.ts)+'</div>'+
+    '</div>';
+}
+function incCause(id){
+  var i=INC.list.filter(function(y){ return y.id===id; })[0];
+  var refaire=!!(i&&i.explication);
+  toast('\ud83d\udd0e Lecture du code et recherche de la cause\u2026',8000);
+  apiPost('/api/monitor/expliquer',{id:id,refaire:refaire}).then(function(x){
+    if(!x.ok){ toast('\u26a0\ufe0f '+(x.d.error||'refus\u00e9'),6000); return; }
+    if(i) i.explication=x.d.explication;
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a cherch\u00e9 la cause de l\u2019incident #'+String(id).slice(-6)});
+    render();
+    toast(x.d.deja?'Cause d\u00e9j\u00e0 \u00e9tablie \u2014 affich\u00e9e':'\u2713 Cause \u00e9tablie ('+(CONF_L[x.d.explication.confiance]||'').toLowerCase()+')',5000);
+  });
+}
+/* La correction proposée : un brouillon de fusion sur GitHub, qui attend une main humaine.
+   La carte dit ce que la proposition N'A PAS fait — vérifié analysable n'est pas vérifié
+   juste, et personne n'a fait tourner l'application avec ce correctif. */
+var RISQ_P={faible:'p-vert',moyen:'p-ambre',eleve:'p-rouge'};
+var RISQ_L={faible:'Risque faible',moyen:'Risque moyen',eleve:'Risque \u00e9lev\u00e9'};
+function incCarteProposition(i){
+  var p=i.proposition; if(!p) return '';
+  return '<div class="carte" style="margin-top:16px">'+
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div class="sec" style="margin:0">LA CORRECTION PROPOS\u00c9E</div>'+
+      '<span class="past '+(RISQ_P[p.risque]||'p-ambre')+'">'+(RISQ_L[p.risque]||'Risque inconnu')+'</span>'+
+      '<span class="past p-gris">En attente de ta validation</span></div>'+
+    '<div style="font-size:15px;font-weight:700;margin-top:12px">'+esc(p.titre||'')+'</div>'+
+    '<div style="font-size:13.5px;line-height:1.7;color:var(--text2);margin-top:8px;white-space:pre-wrap">'+esc(p.pourquoi||'')+'</div>'+
+    (p.verifier?'<div style="margin-top:10px;font-size:13px;color:var(--text2);line-height:1.6"><b style="color:var(--muted);font-weight:600">\u00c0 v\u00e9rifier :</b> '+esc(p.verifier)+'</div>':'')+
+    '<div style="margin-top:14px"><a class="btn-plein" style="text-decoration:none;display:inline-block" href="'+esc(p.url||'#')+'" target="_blank" rel="noopener">Ouvrir la proposition #'+esc(String(p.numero||''))+' sur GitHub</a></div>'+
+    '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline);font-size:12px;color:var(--dim);line-height:1.7">'+
+      'Fichier(s) : '+esc((p.fichiers||[]).join(', ')||'?')+' \u00b7 propos\u00e9e par '+esc(p.par||'?')+' le '+fmtDateLong(p.ts)+'<br>'+
+      'Elle n\u2019est pas fusionn\u00e9e, et rien dans le serveur ne peut la fusionner. Le correctif a \u00e9t\u00e9 v\u00e9rifi\u00e9 <b>analysable</b>, pas v\u00e9rifi\u00e9 <b>juste</b> \u2014 personne n\u2019a fait tourner l\u2019application avec.</div>'+
+    '</div>';
+}
+function incProposer(id){
+  var i=INC.list.filter(function(y){ return y.id===id; })[0];
+  if(!confirm('Demander une correction pour cet incident ?\n\nClaude \u00e9crira le correctif \u00e0 partir du code du d\u00e9p\u00f4t et ouvrira une proposition EN BROUILLON sur GitHub.\nRien ne part en production : c\u2019est toi qui fusionnes, ou pas.')) return;
+  toast('\ud83d\udee0 \u00c9criture du correctif et ouverture de la proposition\u2026',15000);
+  apiPost('/api/monitor/proposer',{id:id,refaire:!!(i&&i.proposition)}).then(function(x){
+    if(!x.ok){ toast('\u26a0\ufe0f '+(x.d.error||'refus\u00e9'),9000); return; }
+    if(i) i.proposition=x.d.proposition;
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a propos\u00e9 une correction pour l\u2019incident #'+String(id).slice(-6)});
+    render();
+    toast(x.d.deja?'Proposition d\u00e9j\u00e0 ouverte \u2014 affich\u00e9e':'\u2713 Proposition #'+x.d.proposition.numero+' ouverte, en attente de ta validation',7000);
+  });
+}
 function incStatut(id,st,note){
   var i=INC.list.filter(function(y){ return y.id===id; })[0];
   if(st==='corrige'&&i&&!i.mailEnvoye&&(i.entreprises||[]).some(function(e){ return e.email; })&&
@@ -1286,6 +1365,11 @@ function incCopier(id){
   if((i.entreprises||[]).length){ d.push(''); d.push('ENTREPRISES TOUCH\u00c9ES :');
     (i.entreprises||[]).forEach(function(e){ d.push('  \u00b7 '+(e.nom||e.entreprise||'\u2014')+(e.email?' <'+e.email+'>':'')+' \u2014 '+(e.count||0)+'\u00d7'); }); }
   if(i.stack){ d.push(''); d.push('TRACE TECHNIQUE :'); d.push(i.stack); }
+  if(i.explication){ var e=i.explication; d.push(''); d.push('CAUSE PROBABLE ('+(CONF_L[e.confiance]||'confiance inconnue').toLowerCase()+', cherch\u00e9e le '+fmtDate(e.ts)+') :');
+    d.push(e.cause||''); if(e.ou) d.push('O\u00f9 : '+e.ou); if(e.verifier) d.push('\u00c0 v\u00e9rifier : '+e.verifier);
+    d.push(e.codeLu?('Code effectivement lu dans le d\u00e9p\u00f4t : '+(e.fichier||'?')+(e.ligne?' ligne '+e.ligne:'')):'Aucun fichier du d\u00e9p\u00f4t ouvert \u2014 \u00e0 confirmer \u00e0 la main.'); }
+  if(i.proposition){ var pr=i.proposition; d.push(''); d.push('CORRECTION PROPOS\u00c9E (en attente de validation) :');
+    d.push('#'+pr.numero+' \u2014 '+(pr.titre||'')); d.push(pr.url||''); d.push((RISQ_L[pr.risque]||'risque inconnu')); }
   if(i.notes){ d.push(''); d.push('NOTES DE L\u2019\u00c9QUIPE :'); d.push(i.notes); }
   d.push(''); d.push('CE QUE JE VEUX : corrige ce bug, v\u00e9rifie que rien d\u2019autre ne casse, d\u00e9ploie, puis dis-moi ce qui a chang\u00e9.');
   var txt=d.join('\n');
