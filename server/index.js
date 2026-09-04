@@ -1705,6 +1705,322 @@ app.post('/api/monitor/status', monAdmin, async (req, res) => {
   res.json({ ok: true, issue, mails, mailsSimules });
 });
 
+
+/* ══════════ EXPLIQUE — d'un incident à sa cause, en français ══════════
+   Un incident dit CE QUI a cassé. Il ne dit pas pourquoi, et c'est tout le travail :
+   « Interface figée », « Cannot read properties of undefined » — il faut ensuite ouvrir
+   le fichier, trouver la ligne, comprendre. Cette route fait ce chemin-là.
+
+   Deux règles la tiennent :
+     • L'extrait de code vient du DÉPÔT, lu ici, jamais du modèle. On lui donne le code
+       à lire ; il ne l'invente pas. Quand la trace ne désigne aucun fichier du dépôt,
+       la route le dit au lieu de fabriquer un emplacement plausible.
+     • Elle n'écrit rien dans l'application. Elle pose une explication à côté de
+       l'incident, dans la console — et cette explication est datée, signée du
+       collaborateur qui l'a demandée, et relisible. Une explication qu'on ne peut pas
+       relire est une explication à laquelle on ne peut pas se fier. */
+const DEPOT = path.resolve(__dirname, '..');
+/* Le fichier désigné par une trace de sentinelle : un seul nom, à la racine du dépôt,
+   et rien d'autre — pas de chemin, pas de remontée, pas d'autre extension. */
+function monSource(src, ligne) {
+  const n = parseInt(ligne, 10) || 0;
+  let f = String(src || '').trim();
+  try { if (/^https?:\/\//i.test(f)) f = new URL(f).pathname; } catch (e) {}
+  f = f.replace(/^\/+/, '').split('?')[0].split('#')[0];
+  if (!/^[a-z0-9._-]+\.(html|js)$/i.test(f)) return null;
+  const p = path.join(DEPOT, f);
+  if (p !== path.join(DEPOT, path.basename(p)) || !fs.existsSync(p)) return null;
+  let lignes;
+  try { lignes = fs.readFileSync(p, 'utf8').split('\n'); } catch (e) { return null; }
+  if (!n || n > lignes.length) return { fichier: f, ligne: 0, extrait: '' };
+  const d = Math.max(1, n - 12), fin = Math.min(lignes.length, n + 12);
+  const extrait = lignes.slice(d - 1, fin)
+    .map((l, i) => String(d + i).padStart(6) + (d + i === n ? ' ▶ ' : ' │ ') + l.slice(0, 300)).join('\n');
+  return { fichier: f, ligne: n, extrait };
+}
+const EXPLIQUE_SCHEMA = {
+  type: 'object',
+  properties: {
+    cause: { type: 'string' },
+    ou: { type: 'string' },
+    verifier: { type: 'string' },
+    confiance: { type: 'string', enum: ['haute', 'moyenne', 'faible'] }
+  },
+  required: ['cause', 'ou', 'verifier', 'confiance'],
+  additionalProperties: false
+};
+const EXPLIQUE_QUOTA_PATH = path.join(DATA_DIR, 'explique-quota.json');
+let expliqueQuota = { jour: '', n: 0 };
+try { expliqueQuota = JSON.parse(fs.readFileSync(EXPLIQUE_QUOTA_PATH, 'utf8')); } catch (e) {}
+function expliqueUtilises() {
+  const auj = new Date().toISOString().slice(0, 10);
+  if (expliqueQuota.jour !== auj) expliqueQuota = { jour: auj, n: 0 };
+  return expliqueQuota.n;
+}
+function expliqueCompte() { expliqueUtilises(); expliqueQuota.n++; try { fs.writeFileSync(EXPLIQUE_QUOTA_PATH, JSON.stringify(expliqueQuota)); } catch (e) {} }
+const EXPLIQUE_MAX = 40;
+app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
+  try {
+    if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
+    const issue = monIssues.find(i => i.id === (req.body || {}).id);
+    if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    if (issue.explication && !(req.body || {}).refaire) return res.json({ ok: true, explication: issue.explication, deja: true });
+    if (expliqueUtilises() >= EXPLIQUE_MAX) return res.status(429).json({ error: 'Quota du jour atteint (' + EXPLIQUE_MAX + ' explications) — réessaie demain' });
+
+    const s = monSource(issue.src, issue.line);
+    const sys = "Tu expliques la cause d'un incident survenu dans une application web de gestion d'interventions, à un artisan qui n'est pas développeur mais qui lit du code quand on le lui montre. Réponds en français, sobrement, sans jargon inutile.\n"
+      + "« cause » : deux ou trois phrases qui disent POURQUOI cela s'est produit. Pas de reformulation du message d'erreur — la cause.\n"
+      + "« ou » : le fichier et la ligne, repris EXACTEMENT de l'extrait fourni. Si aucun extrait n'est fourni, ou si l'extrait ne montre pas la cause, écris « emplacement non déterminé » — n'invente jamais un fichier ni un numéro de ligne.\n"
+      + "« verifier » : ce qu'un humain doit regarder ou reproduire pour confirmer, en une phrase.\n"
+      + "« confiance » : « haute » seulement si l'extrait montre la cause noir sur blanc ; « faible » si tu raisonnes sans voir le code fautif. Une explication plausible mais invérifiable est de confiance faible, dis-le.";
+    const contexte = 'Incident\n'
+      + '- application : ' + (issue.app || '?') + (issue.version ? ' v' + issue.version : '') + '\n'
+      + '- type : ' + (issue.type || '?') + ' · rubrique : ' + (issue.categorie || '?') + '\n'
+      + '- message : ' + (issue.message || '') + '\n'
+      + '- vu ' + (issue.count || 1) + ' fois, sur ' + Object.keys(issue.appareils || {}).length + ' appareil(s)\n'
+      + (issue.stack ? '- trace :\n' + issue.stack + '\n' : '')
+      + (s && s.extrait
+        ? '\nCode du dépôt autour de ' + s.fichier + ':' + s.ligne + ' (▶ = la ligne désignée) :\n' + s.extrait + '\n'
+        : '\nAucun extrait de code : la trace ne désigne pas un fichier du dépôt' + (issue.src ? ' (elle indique « ' + String(issue.src).slice(0, 120) + ' »)' : '') + '.\n');
+
+    const msg = await getAnthropic().messages.create({
+      model: 'claude-opus-5', max_tokens: 2000, system: sys,
+      output_config: { format: { type: 'json_schema', schema: EXPLIQUE_SCHEMA } },
+      messages: [{ role: 'user', content: contexte }]
+    });
+    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Explication refusée' });
+    const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
+    let e; try { e = JSON.parse(txt); } catch (err) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+    expliqueCompte();
+    issue.explication = {
+      cause: monStr(e.cause, 900), ou: monStr(e.ou, 200), verifier: monStr(e.verifier, 400),
+      confiance: ['haute', 'moyenne', 'faible'].includes(e.confiance) ? e.confiance : 'faible',
+      /* le fichier et la ligne réellement OUVERTS ici — c'est cela qui fait foi, pas ce
+         que le modèle en a redit */
+      fichier: s ? s.fichier : '', ligne: s ? s.ligne : 0, codeLu: !!(s && s.extrait),
+      ts: Date.now(), par: req.tourUser.nom
+    };
+    issue.historique = (issue.historique || []).concat([{ ts: Date.now(), par: req.tourUser.nom, action: 'Cause expliquée', note: issue.explication.ou }]).slice(-30);
+    monSave();
+    console.log('Tour :', req.tourUser.nom, 'a demandé la cause de', issue.id, '→', issue.explication.confiance, issue.explication.ou);
+    res.json({ ok: true, explication: issue.explication, restants: Math.max(0, EXPLIQUE_MAX - expliqueUtilises()) });
+  } catch (err) {
+    const st = err && err.status;
+    if (st === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur' });
+    if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    console.error('expliquer :', err && err.message);
+    res.status(500).json({ error: 'Erreur du serveur' });
+  }
+});
+
+
+/* ══════════ PROPOSE — d'une cause à une correction, soumise au patron ══════════
+   EXPLIQUE dit pourquoi. PROPOSE écrit le correctif et ouvre une proposition sur
+   GitHub. Elle ne fusionne rien : ce fichier n'appelle nulle part la fusion, et
+   la proposition part en brouillon. Rien ne va en production sans une main humaine.
+
+   Quatre verrous, dans cet ordre :
+     1. Il faut une cause déjà établie, et le code doit avoir été RÉELLEMENT LU pour
+        l'établir. Corriger sur une intuition, c'est corriger au hasard.
+     2. L'ancre du remplacement doit se trouver UNE SEULE FOIS dans le fichier. Zéro,
+        le modèle a inventé du code qui n'existe pas ; deux, on ne sait pas laquelle
+        il visait. Dans les deux cas on s'arrête.
+     3. Le fichier corrigé doit encore s'analyser. C'est la panne du 3 septembre 2026 :
+        un « // » au milieu d'une ligne avait avalé une accolade, app.html avait cessé
+        de parser, et la page est restée blanche chez toutes les entreprises. Un
+        correctif qui casse le fichier ne doit jamais atteindre une proposition.
+     4. app.html commande beta.html : on régénère la bêta avec le générateur livré
+        (beta-build.js, exécuté tel quel), sinon la vérification d'intégration
+        signalerait à juste titre une bêta désynchronisée.
+
+   La clé GitHub vit UNIQUEMENT dans /opt/teamop/config.json → "github" :
+     "github": { "token": "…", "depot": "compte/TeamOP" }
+   Sans elle, la route se tait proprement : PROPOSE reste inerte. */
+const PROPOSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    titre: { type: 'string' },
+    pourquoi: { type: 'string' },
+    fichier: { type: 'string' },
+    avant: { type: 'string' },
+    apres: { type: 'string' },
+    verifier: { type: 'string' },
+    risque: { type: 'string', enum: ['faible', 'moyen', 'eleve'] }
+  },
+  required: ['titre', 'pourquoi', 'fichier', 'avant', 'apres', 'verifier', 'risque'],
+  additionalProperties: false
+};
+function ghConf() { return config.github || {}; }
+function ghActif() { return !!(ghConf().token && ghConf().depot); }
+async function gh(chemin, options) {
+  const r = await fetch('https://api.github.com/repos/' + ghConf().depot + chemin, Object.assign({
+    headers: {
+      'Authorization': 'Bearer ' + ghConf().token,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'teamop-propose',
+      'Content-Type': 'application/json'
+    }
+  }, options || {}));
+  const txt = await r.text();
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  if (!r.ok) { const e = new Error('GitHub ' + r.status + ' : ' + ((j && j.message) || txt.slice(0, 200))); e.statutGh = r.status; throw e; }
+  return j;
+}
+/* Chaque bloc <script> d'une page doit rester analysable — même contrôle que
+   scripts/verifier-syntaxe.js, qui existe précisément à cause de la page blanche.
+   new Function COMPILE le code sans jamais l'exécuter : c'est ce qu'on veut ici, savoir
+   si le navigateur saura lire la page, sans faire tourner une ligne du correctif. */
+function pageAnalysable(html) {
+  const BLOC = /<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+  let m, n = 0;
+  while ((m = BLOC.exec(html))) {
+    n++;
+    try { new Function(m[1]); }
+    catch (e) {
+      try { new Function('return (async () => {' + m[1] + '})'); }
+      catch (e2) { return 'bloc <script> n°' + n + ' : ' + e2.message; }
+    }
+  }
+  return '';
+}
+/* beta.html est GÉNÉRÉE depuis app.html. On ne réécrit pas ses règles ici : on exécute
+   le générateur livré, en lui donnant l'app corrigée à lire et en captant ce qu'il écrit.
+   Ses propres refus (isolation du stockage, de l'espace de synchro) restent actifs. */
+function betaDepuis(appHtml) {
+  const src = fs.readFileSync(path.join(DEPOT, 'beta-build.js'), 'utf8');
+  let sortie = null;
+  const fauxFs = {
+    readFileSync: (f, e) => (String(f).endsWith('app.html') ? appHtml : fs.readFileSync(f, e)),
+    writeFileSync: (f, d) => { if (String(f).endsWith('beta.html')) sortie = d; }
+  };
+  new Function('require', 'console', 'process', src)(
+    (n) => (n === 'fs' ? fauxFs : require(n)),
+    { log: () => {}, error: (m) => { throw new Error(String(m)); } },
+    { exit: (c) => { if (c) throw new Error('beta-build.js a refusé la génération'); } }
+  );
+  if (!sortie) throw new Error('beta-build.js n\'a rien produit');
+  return sortie;
+}
+app.post('/api/monitor/proposer', monPatronStrict, async (req, res) => {
+  try {
+    if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
+    if (!ghActif()) return res.status(503).json({ error: 'Dépôt GitHub non configuré sur le serveur (config.json → github.token et github.depot)' });
+    const issue = monIssues.find(i => i.id === (req.body || {}).id);
+    if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    const e = issue.explication;
+    if (!e) return res.status(400).json({ error: 'Cherche d\'abord la cause : on ne corrige pas un incident qu\'on n\'a pas compris' });
+    if (!e.codeLu || !e.fichier) return res.status(400).json({ error: 'La cause a été établie sans lire le code — pas de correctif automatique là-dessus' });
+    if (issue.proposition && !(req.body || {}).refaire) return res.json({ ok: true, proposition: issue.proposition, deja: true });
+
+    const s = monSource(e.fichier, e.ligne);
+    if (!s || !s.extrait) return res.status(400).json({ error: 'Le fichier de la cause n\'est plus lisible dans le dépôt' });
+    const lignes = fs.readFileSync(path.join(DEPOT, s.fichier), 'utf8').split('\n');
+    const d = Math.max(1, s.ligne - 40), fin = Math.min(lignes.length, s.ligne + 40);
+    const large = lignes.slice(d - 1, fin).map((l, i) => String(d + i) + ' │ ' + l).join('\n');
+
+    const sys = "Tu corriges un défaut dans une application web française (JavaScript dans des pages HTML d'un seul fichier, sans build ni framework). Le style existant fait loi : mêmes conventions, mêmes noms en français, mêmes commentaires expliquant le POURQUOI. Pas de refactorisation, pas d'amélioration au passage — la plus petite correction qui traite la cause, et rien d'autre.\n"
+      + "« avant » : le fragment EXACT à remplacer, copié caractère pour caractère depuis le code fourni (sans les numéros de ligne ni la barre verticale). Il doit être assez long pour n'apparaître QU'UNE FOIS dans le fichier, et assez court pour ne rien emporter d'inutile.\n"
+      + "« apres » : ce fragment corrigé. Il doit rester du JavaScript valide au même endroit.\n"
+      + "« pourquoi » : deux ou trois phrases expliquant ce que le correctif change et pourquoi cela traite la cause.\n"
+      + "« verifier » : comment un humain confirme que c'est réglé, concrètement.\n"
+      + "« risque » : « faible » si le correctif ne touche qu'un chemin d'exécution étroit ; « eleve » s'il touche du code partagé ou une donnée persistée.\n"
+      + "Si le code fourni ne suffit pas pour corriger sûrement, renvoie « avant » et « apres » identiques : c'est la façon de dire que tu ne corriges pas à l'aveugle.";
+    const contexte = 'Incident : ' + (issue.message || '') + '\n'
+      + 'Cause établie : ' + (e.cause || '') + '\n'
+      + 'Emplacement : ' + s.fichier + ' ligne ' + s.ligne + '\n'
+      + (issue.stack ? 'Trace :\n' + issue.stack + '\n' : '')
+      + '\nCode du dépôt (' + s.fichier + ', lignes ' + d + ' à ' + fin + ') :\n' + large;
+
+    const msg = await getAnthropic().messages.create({
+      model: 'claude-opus-5', max_tokens: 8000, system: sys,
+      output_config: { format: { type: 'json_schema', schema: PROPOSE_SCHEMA } },
+      messages: [{ role: 'user', content: contexte }]
+    });
+    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Correctif refusé' });
+    const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
+    let p; try { p = JSON.parse(txt); } catch (err) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+
+    // ── verrou 2 : l'ancre, une fois et une seule ──
+    if (!p.avant || p.avant === p.apres) return res.status(422).json({ error: 'Aucun correctif sûr à partir de ce code — la cause reste à traiter à la main' });
+    if (p.avant.length > 4000) return res.status(422).json({ error: 'Correctif trop large pour être proposé automatiquement' });
+    const avantFichier = fs.readFileSync(path.join(DEPOT, s.fichier), 'utf8');
+    const occurrences = avantFichier.split(p.avant).length - 1;
+    if (occurrences !== 1) return res.status(422).json({
+      error: occurrences === 0
+        ? 'Le fragment à remplacer ne se trouve pas dans le fichier — correctif écarté'
+        : 'Le fragment à remplacer apparaît ' + occurrences + ' fois — on ne sait pas lequel viser, correctif écarté'
+    });
+    const apresFichier = avantFichier.replace(p.avant, p.apres);
+
+    // ── verrou 3 : le fichier corrigé s'analyse encore ──
+    const fichiers = {};
+    if (/\.html$/i.test(s.fichier)) {
+      const casse = pageAnalysable(apresFichier);
+      if (casse) return res.status(422).json({ error: 'Correctif écarté : il rend ' + s.fichier + ' inanalysable (' + casse + ')' });
+    } else {
+      try { new (require('vm').Script)(apresFichier, { filename: s.fichier }); }
+      catch (err) { return res.status(422).json({ error: 'Correctif écarté : il rend ' + s.fichier + ' inanalysable (' + err.message + ')' }); }
+    }
+    fichiers[s.fichier] = apresFichier;
+    // ── verrou 4 : la bêta suit l'app ──
+    if (s.fichier === 'app.html') {
+      try { fichiers['beta.html'] = betaDepuis(apresFichier); }
+      catch (err) { return res.status(422).json({ error: 'Correctif écarté : la bêta ne se régénère pas (' + err.message + ')' }); }
+    }
+
+    // ── la proposition, en brouillon ──
+    const branche = 'propose/' + issue.id + '-' + Date.now().toString(36);
+    const base = await gh('/git/ref/heads/main');
+    await gh('/git/refs', { method: 'POST', body: JSON.stringify({ ref: 'refs/heads/' + branche, sha: base.object.sha }) });
+    for (const nomF of Object.keys(fichiers)) {
+      const actuel = await gh('/contents/' + encodeURIComponent(nomF) + '?ref=main');
+      await gh('/contents/' + encodeURIComponent(nomF), {
+        method: 'PUT',
+        body: JSON.stringify({
+          message: monStr(p.titre, 120) + '\n\nIncident #' + String(issue.id).slice(-6) + ' — proposition ouverte depuis la Tour par ' + req.tourUser.nom + '.',
+          content: Buffer.from(fichiers[nomF], 'utf8').toString('base64'),
+          branch: branche, sha: actuel.sha
+        })
+      });
+    }
+    const corps = '## Ce qui ne va pas\n\n' + (issue.message || '') + '\n\n'
+      + '_Incident #' + String(issue.id).slice(-6) + ' · vu ' + (issue.count || 1) + ' fois sur '
+      + Object.keys(issue.appareils || {}).length + ' appareil(s) · ' + (issue.categorie || '') + '_\n\n'
+      + '## La cause\n\n' + (e.cause || '') + '\n\n`' + s.fichier + '` ligne ' + s.ligne + '\n\n'
+      + '## Ce que change ce correctif\n\n' + (p.pourquoi || '') + '\n\n'
+      + '## À vérifier avant de fusionner\n\n' + (p.verifier || '') + '\n\n'
+      + '```\nnode scripts/verifier-syntaxe.js\nnode scripts/verifier-lien-jeton.js\nnode scripts/verifier-explique.js\n```\n\n'
+      + '## Ce que cette proposition n\'a pas fait\n\n'
+      + '- Elle n\'est **pas** fusionnée, et rien dans le serveur ne peut la fusionner.\n'
+      + '- Le correctif a été écrit par Claude à partir du code du dépôt ; il a été vérifié analysable, pas vérifié juste. Risque annoncé : **' + (p.risque || '?') + '**.\n'
+      + '- Personne n\'a exécuté l\'application avec ce correctif.\n\n'
+      + '---\nProposition ouverte depuis la Tour de contrôle par **' + req.tourUser.nom + '** le '
+      + new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) + '.\n';
+    const pr = await gh('/pulls', {
+      method: 'POST',
+      body: JSON.stringify({ title: monStr(p.titre, 120), head: branche, base: 'main', body: corps, draft: true })
+    });
+
+    issue.proposition = {
+      url: pr.html_url, numero: pr.number, branche: branche,
+      titre: monStr(p.titre, 120), pourquoi: monStr(p.pourquoi, 900), verifier: monStr(p.verifier, 400),
+      risque: ['faible', 'moyen', 'eleve'].includes(p.risque) ? p.risque : 'moyen',
+      fichiers: Object.keys(fichiers), ts: Date.now(), par: req.tourUser.nom
+    };
+    issue.historique = (issue.historique || []).concat([{ ts: Date.now(), par: req.tourUser.nom, action: 'Correction proposée', note: '#' + pr.number + ' ' + monStr(p.titre, 120) }]).slice(-30);
+    monSave();
+    console.log('Tour :', req.tourUser.nom, 'a proposé une correction pour', issue.id, '→', pr.html_url);
+    res.json({ ok: true, proposition: issue.proposition });
+  } catch (err) {
+    const st = err && err.status;
+    if (st === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur' });
+    if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    if (err && err.statutGh) return res.status(502).json({ error: err.message });
+    console.error('proposer :', err && err.message);
+    res.status(500).json({ error: 'Erreur du serveur' });
+  }
+});
+
 // santé globale (admin) : reprend /health + uptime + répartition des problèmes
 app.get('/api/monitor/sante', monAdmin, (req, res) => {
   const compteurs = { nouveau: 0, encours: 0, corrige: 0, ignore: 0 };
