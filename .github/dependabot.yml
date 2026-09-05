@@ -1,0 +1,41 @@
+# Dependabot ouvre une pull request quand une dépendance sort une version.
+# Complément, et non remplacement, des alertes de sécurité GitHub : celles-ci
+# arrivent immédiatement en cas de faille, ceci maintient le reste à jour.
+#
+# Sept failles dormaient dans le serveur avant qu'on ne lance `npm audit` à la
+# main — dont quatre de sévérité haute sur la chaîne d'envoi de courriels.
+
+version: 2
+
+updates:
+  # Le serveur : seul endroit du dépôt avec des dépendances.
+  # Il est exposé sur Internet et manipule Stripe, l'IMAP et le SMTP.
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - dépendances
+      - sécurité
+    # Les changements majeurs cassent parfois la production sans prévenir :
+    # on les traite à la main, après lecture des notes de version.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+
+  # Les actions utilisées par les workflows vieillissent aussi, et une action
+  # obsolète est une porte d'entrée dans la chaîne de construction.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dépendances
