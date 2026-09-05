@@ -465,13 +465,13 @@ body.jour #tour-panneau{background:var(--scrim)!important}          /* l'inline 
 /* ══ ARRIVÉE DU CONTENU ═══ les cartes et les lignes se posent, elles n'apparaissent pas ══════════════════
    Un décalage de 18 ms entre les six premières : assez pour lire un ordre, trop court pour attendre.
    Au-delà de six, tout arrive ensemble — on ne fait pas patienter devant une liste de trente. */
-#vue .carte,#vue .item,#vue .kpi,#vue .tbl,#vue .mail{animation:posee var(--d-3) var(--e-sortie) both}
-#vue .carte:nth-child(1),#vue .item:nth-child(1),#vue .kpi:nth-child(1){animation-delay:0ms}
-#vue .carte:nth-child(2),#vue .item:nth-child(2),#vue .kpi:nth-child(2){animation-delay:18ms}
-#vue .carte:nth-child(3),#vue .item:nth-child(3),#vue .kpi:nth-child(3){animation-delay:36ms}
-#vue .carte:nth-child(4),#vue .item:nth-child(4),#vue .kpi:nth-child(4){animation-delay:54ms}
-#vue .carte:nth-child(5),#vue .item:nth-child(5),#vue .kpi:nth-child(5){animation-delay:72ms}
-#vue .carte:nth-child(6),#vue .item:nth-child(6),#vue .kpi:nth-child(6){animation-delay:90ms}
+#vue.entre .carte,#vue.entre .item,#vue.entre .kpi,#vue.entre .tbl,#vue.entre .mail{animation:posee var(--d-3) var(--e-sortie) both}
+#vue.entre .carte:nth-child(1),#vue.entre .item:nth-child(1),#vue.entre .kpi:nth-child(1){animation-delay:0ms}
+#vue.entre .carte:nth-child(2),#vue.entre .item:nth-child(2),#vue.entre .kpi:nth-child(2){animation-delay:18ms}
+#vue.entre .carte:nth-child(3),#vue.entre .item:nth-child(3),#vue.entre .kpi:nth-child(3){animation-delay:36ms}
+#vue.entre .carte:nth-child(4),#vue.entre .item:nth-child(4),#vue.entre .kpi:nth-child(4){animation-delay:54ms}
+#vue.entre .carte:nth-child(5),#vue.entre .item:nth-child(5),#vue.entre .kpi:nth-child(5){animation-delay:72ms}
+#vue.entre .carte:nth-child(6),#vue.entre .item:nth-child(6),#vue.entre .kpi:nth-child(6){animation-delay:90ms}
 @keyframes posee{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
 /* ══ MATIÈRE ET PROFONDEUR ════════════════════════════════════════════════════════════════════════════════
@@ -515,7 +515,7 @@ body,.bandeau,.carte,.item,.kpi,.tbl,.mail,.mail-doss,.inp,.sel-f,.rech,.code,.l
   .kpi .bars i{transition:none!important}
   /* les vues ne se croisent plus, le contenu ne se pose plus : tout est déjà là */
   ::view-transition-old(root),::view-transition-new(root){animation:none!important}
-  #vue .carte,#vue .item,#vue .kpi,#vue .tbl,#vue .mail{animation:none!important}
+  #vue.entre .carte,#vue.entre .item,#vue.entre .kpi,#vue.entre .tbl,#vue.entre .mail{animation:none!important}
   /* voile, feuille, toast : un fondu de 200 ms, sans translation ni échelle, sans flou animé */
   #tour-panneau{animation:fonduSimple var(--d-2) ease-out}
   #tour-panneau>div{animation:fonduSimple var(--d-2) ease-out}
@@ -742,7 +742,7 @@ function renderTabs(){
 function setTab(t){
   TAB=t; try{ if(location.hash!=='#'+t) location.hash=t; }catch(e){}
   [].forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('on',b.getAttribute('data-t')===t); });
-  render();
+  renderAnime();
   if(t==='support'&&!MSG.loaded) chargerMail();
   if(t==='entreprises'&&!CLI.loaded) chargerClients();
   if(t==='connexions') chargerConnexions();
@@ -780,7 +780,19 @@ function cnxSel(t){ CNX.sel=t; CNX.det=null; CNX.detErr=''; render();
     render();
   }).catch(function(){ if(CNX.sel===t){ CNX.detErr=INJOIGNABLE; render(); } });
 }
-function cnxQ(v){ CNX.q=v; render(); }
+/* Le champ de recherche est détruit à chaque render() (innerHTML est remplacé) : sans
+   ce rappel, le curseur saute au bout d'une lettre. On redonne le focus et la position. */
+function rendreEnGardantLeFocus(){
+  var a=document.activeElement, id=a&&a.id, deb=a&&a.selectionStart, fin=a&&a.selectionEnd;
+  render();
+  if(!id) return;
+  var n=document.getElementById(id); if(!n) return;
+  n.focus({preventScroll:true});
+  try{ if(deb!=null&&n.setSelectionRange) n.setSelectionRange(deb,fin); }catch(e){}
+}
+var _rq=null;
+function rendreDifféré(){ clearTimeout(_rq); _rq=setTimeout(rendreEnGardantLeFocus,110); }
+function cnxQ(v){ CNX.q=v; rendreDifféré(); }
 function cnxF(v){ CNX.f=v; render(); }
 var CNX_VIA={lien:'par le lien',entreprise:'nom d\'entreprise',session:'session gardée',identifiants:'identifiants',code:'code espace'};
 var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion']};
@@ -1260,13 +1272,19 @@ function chargerMessages(){
    L'API de transition de vue du navigateur croise les deux états — c'est elle qui fait le
    fondu, sans qu'on ait à dupliquer le DOM. Là où elle manque (ou si l'utilisateur a
    demandé moins d'animation), on rend directement : rien ne casse. */
-function render(){
+/* Règle : on anime un changement que l'utilisateur a DÉCIDÉ — changer d'onglet, ouvrir
+   une fiche — jamais un rafraîchissement. Sans cette distinction, taper une lettre dans
+   la recherche rejouait toute la transition et toutes les entrées de cartes : l'écran
+   avait l'air de bugger. render() ne bouge donc plus ; seul renderAnime() croise les vues. */
+function render(){ var v=$('vue'); if(v) renderVue(v); }
+function renderAnime(){
   var v=$('vue'); if(!v) return;
   var sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(document.startViewTransition && !sobre){ document.startViewTransition(function(){ renderVue(v); }); return; }
-  renderVue(v);
+  if(!document.startViewTransition || sobre){ v.classList.remove('entre'); renderVue(v); return; }
+  document.startViewTransition(function(){ v.classList.add('entre'); renderVue(v); });
 }
 function renderVue(v){
+  if(v.classList.contains('entre')) setTimeout(function(){ v.classList.remove('entre'); },420);
   if(TAB==='accueil') v.innerHTML=vueAccueil();
   else if(TAB==='surveillance') v.innerHTML=vueSurveillance();
   else if(TAB==='support') v.innerHTML=vueSupport();
@@ -1924,7 +1942,7 @@ function envoyesOuvrir(){
     if(TAB==='support'&&mailEnvoyes()) render();
   }).catch(function(){ MSG.envErr='Serveur injoignable — ou serveur à mettre à jour (git pull + restart).'; if(TAB==='support') render(); });
 }
-function envoyesQ(v){ MSG.envQ=String(v||''); render(); }
+function envoyesQ(v){ MSG.envQ=String(v||''); rendreDifféré(); }
 function vueEnvoyes(){ return mailListeEnvoyee(); }
 
 /* ── L'écran complet ────────────────────────────────────────────────────────────────── */
@@ -1994,7 +2012,7 @@ function voirClient(email){ var c=CLI.list.filter(function(x){ return x.email===
 function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); render();
   if(CLI.sel){ var c=(CLI.list||[]).find(function(x){ return x.email===CLI.sel; })||{};
     setTimeout(function(){ tourPackPrefill(c.entreprise||c.nom||c.email); },150); } }
-function cliQ(v){ CLI.q=v||''; render(); }
+function cliQ(v){ CLI.q=v||''; rendreDifféré(); }
 function cliStatut(c){
   var p=String(c.planStatus||'').toLowerCase();
   if(p==='active'||p==='actif') return ['Actif','p-vert'];
