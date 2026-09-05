@@ -2972,6 +2972,17 @@ app.post('/api/devis/generer', async (req, res) => {
    celui qu'utilise l'application n'est pas forcément celui qu'il croit. */
 function espacesConnus() {
   const out = []; const vus = new Set();
+  /* Les espaces qui se connectent vraiment. cnxData est indexé par code
+     d'équipe et se remplit à chaque connexion d'application : c'est la seule
+     source réellement peuplée. espacesReg, lui, n'est alimenté que par une
+     inscription manuelle que personne ne fait — d'où la liste vide. */
+  for (const tc of Object.keys(cnxData)) {
+    if (!tc || vus.has(tc)) continue;
+    vus.add(tc);
+    let e = null; try { e = espaceParT(tc); } catch (err) {}
+    let vu = null; try { vu = (cnxResume(tc) || {}).dernier || null; } catch (err) {}
+    out.push({ t: tc, nom: (e && espNomPropre(e)) || '', vu: vu });
+  }
   for (const slug of Object.keys(espacesReg)) {
     let e = null;
     try { e = espaceAJour(slug) || espacesReg[slug]; } catch (err) { e = espacesReg[slug]; }
@@ -2980,7 +2991,15 @@ function espacesConnus() {
     vus.add(t);
     out.push({ t: t, nom: espNomPropre(e) || slug });
   }
-  out.sort(function (a, b) { return a.nom.localeCompare(b.nom, 'fr'); });
+  /* Une entreprise déjà activée doit rester visible même si elle ne s'est
+     jamais connectée depuis. */
+  for (const tc of Object.keys(devisAcces)) {
+    if (vus.has(tc)) continue;
+    vus.add(tc);
+    let e = null; try { e = espaceParT(tc); } catch (err) {}
+    out.push({ t: tc, nom: (e && espNomPropre(e)) || '', vu: null });
+  }
+  out.sort(function (a, b) { return (a.nom || a.t).localeCompare(b.nom || b.t, 'fr'); });
   return out;
 }
 function nomsDesEspaces(codes) {
