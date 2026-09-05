@@ -98,3 +98,29 @@ Ce dépôt est cloné deux fois sur cette machine :
 
 Son `server/index.js` fait 308 lignes contre 1 300 ici. Toute correction du serveur
 va dans cette copie-ci. Vérifier la branche avant d'écrire quoi que ce soit.
+
+## Devis
+
+`devisPdfStr()` dans `app.html` produit un vrai fichier PDF, sans bibliothèque —
+même fabrique que `bonPdfStr()` pour les bons de commande. L'en-tête vient de la
+société choisie sur le devis : `bcEntete()` pour le nom, `bcCouleur()` pour la
+couleur, `socStyle().logo` pour le logo, converti en JPEG par un canvas parce que
+le PDF ne lit pas le PNG.
+
+Le générateur `devisIAModal()` enchaîne : dictée au micro → génération → aperçu du
+PDF → client (choisi ou saisi) → envoi par `envoiDoc()`. Le moteur dépend de
+l'offre de l'entreprise, décidée côté serveur : Haiku inclus, Sonnet en supplément,
+ou les deux au choix de l'utilisateur.
+
+## Pièges rencontrés — à ne pas refaire
+
+- **Ne jamais figer les données d'un client dans le code.** `REPORT_TEMPLATES`
+  portait les ~90 agences d'un seul client et les servait à tous les autres.
+  Vidée le 5 septembre 2026.
+- **Deux routes de même chemin : la première enregistrée gagne.** `/api/devis/etat`
+  était déclarée dans `agent-devis.js` (monté ligne 232) et dans `index.js`
+  (ligne 2842) ; la seconde, plus riche, n'a jamais répondu. Panne silencieuse.
+- **Vérifier qu'un registre est peuplé avant de bâtir dessus.** `espacesReg` n'est
+  alimenté que par une inscription manuelle ; `cnxData` se remplit tout seul à
+  chaque connexion. C'est le second qui sert de source de vérité.
+- **Le champ de configuration s'appelle `anthropic.cleApi`**, pas `apiKey`.
