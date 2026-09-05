@@ -37,9 +37,31 @@ if [ -z "$DEPOT" ] && [ -z "$TOKEN" ]; then
   exit 0
 fi
 
-python3 - "$DEPOT" "$TOKEN" <<'PYEOF'
-import json, sys
+if ! python3 - "$DEPOT" "$TOKEN" <<'PYEOF'
+import json, re, sys
 depot, token = sys.argv[1].strip(), sys.argv[2].strip()
+
+# Le champ « dépôt » n'est pas masqué : ce qu'on y tape s'affiche en clair, reste dans
+# l'historique du terminal et part dans la moindre capture d'écran. Un jeton collé là est
+# un jeton brûlé. On refuse donc tout ce qui n'a pas la forme « compte/depot », et on ne
+# réaffiche JAMAIS la valeur refusée — la rappeler à l'écran l'exposerait une fois de plus.
+if depot:
+    ressemble_a_un_secret = depot.startswith(('github_pat_', 'ghp_', 'gho_', 'ghs_', 'ghu_', 'ghr_'))
+    forme_attendue = re.fullmatch(r'[A-Za-z0-9._-]{1,100}/[A-Za-z0-9._-]{1,100}', depot)
+    if ressemble_a_un_secret or not forme_attendue:
+        if ressemble_a_un_secret:
+            print("\n\u274c C'est un JETON que tu viens de coller dans le champ « dépôt ».")
+            print("   Ce champ n'est pas masqué : le jeton s'est affiché en clair, il est")
+            print("   maintenant dans ton historique de terminal. Il est brûlé.")
+            print("\n   1. Supprime-le : github.com/settings/personal-access-tokens")
+            print("   2. Fabriques-en un autre")
+            print("   3. Relance ce script — le jeton se colle à la QUATRIÈME question,")
+            print("      celle qui dit « Jeton GitHub (rien ne s'affiche) ».")
+        else:
+            print("\n\u274c « dépôt » attend la forme compte/depot (ex. justino17-cmd/mon-depot).")
+        print("\nRien n'a été écrit dans la configuration.\n")
+        sys.exit(2)
+
 with open('/opt/teamop/config.json') as f:
     c = json.load(f)
 g = c.get('github') or {}
@@ -56,10 +78,15 @@ print('github.token =', str(len(g.get('token') or '')), 'caractères')
 # ce que la route exige vraiment : les DEUX. Le script le lit ici pour ne pas l'affirmer à tort.
 open('/tmp/teamop-propose-arme', 'w').write('1' if (g.get('depot') and g.get('token')) else '0')
 PYEOF
+then
+  echo "Le serveur n'a pas été redémarré."
+  exit 1
+fi
 
 chmod 600 "$CONFIG"
 systemctl restart teamop-api
 sleep 2
+
 ARME=$(cat /tmp/teamop-propose-arme 2>/dev/null || echo 0)
 rm -f /tmp/teamop-propose-arme
 
