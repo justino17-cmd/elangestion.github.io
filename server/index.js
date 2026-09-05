@@ -191,7 +191,10 @@ app.post('/api/mdp/lien', async (req, res) => {
       console.error('mdp/lien :', msg.slice(0, 120));
       return res.status(500).json({ error: 'echec' });
     }
-    oob = new URL(String(j.oobLink || '')).searchParams.get('oobCode');
+    // compte inconnu : Google répond 200 sans lien — sa propre protection contre
+    // l'énumération. On répond comme pour un succès, sans rien envoyer.
+    if (!j.oobLink) return res.json({ ok: true });
+    oob = new URL(String(j.oobLink)).searchParams.get('oobCode');
   } catch (e) {
     console.error('mdp/lien :', String((e && e.message) || e).slice(0, 120));
     return res.status(500).json({ error: 'echec' });
