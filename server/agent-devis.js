@@ -214,7 +214,11 @@ function memeSecret(a, b) {
 // ══════════════════════════════════════════════════════════════════════════
 function monterAgentDevis(app, config, dataDir) {
   const conf = (config && config.anthropic) || {};
-  const apiKey = conf.apiKey || process.env.ANTHROPIC_API_KEY || '';
+  // `cleApi` d'abord : c'est le nom qu'écrit set-claude.sh et que lit index.js
+  // pour EXPLIQUE et PROPOSE. `apiKey` reste accepté pour les configurations
+  // d'avant l'harmonisation — sans ce repli, une clé posée par le script était
+  // invisible ici, et l'assistant devis restait muet sans dire pourquoi.
+  const apiKey = conf.cleApi || conf.apiKey || process.env.ANTHROPIC_API_KEY || '';
   const secret = conf.secretDevis || process.env.TEAMOP_SECRET_DEVIS || '';
   const plafond = parseInt(conf.quotaJour, 10) > 0 ? parseInt(conf.quotaJour, 10) : 100;
   const quota = faireQuota(dataDir, plafond);
