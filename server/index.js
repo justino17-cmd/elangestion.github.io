@@ -114,27 +114,6 @@ function mailerEnvoi(opts) {
   return mailer.sendMail(o2);
 }
 
-// ── Firebase Admin : uniquement pour fabriquer le lien de réinitialisation ──
-//
-//  Pourquoi passer par nous plutôt que par l'e-mail de Firebase : Firebase
-//  n'accepte une URL d'action personnalisée que sur un domaine servi par
-//  Firebase Hosting. teamop.fr est sur GitHub Pages, donc la console refuse et
-//  le lien resterait sur elan-gestion.firebaseapp.com. On génère donc le lien
-//  ici, on en extrait le code à usage unique, et on envoie notre propre e-mail.
-//
-//  Sans clé de compte de service dans la config, tout ceci reste inerte et
-//  l'application retombe sur l'envoi Firebase d'origine.
-let fbAdmin = null;
-try {
-  const cheminCle = config.firebase && config.firebase.compteService;
-  if (cheminCle) {
-    const admin = require('firebase-admin');
-    admin.initializeApp({ credential: admin.credential.cert(JSON.parse(fs.readFileSync(cheminCle, 'utf8'))) });
-    fbAdmin = admin;
-    console.log('Firebase Admin : prêt');
-  }
-} catch (e) { console.error('Firebase Admin indisponible :', e.message); }
-
 // ── Anti-abus : deux paliers ────────────────────────────────────────────────
 //
 //  Palier large pour toute l'API, palier strict pour ce qui coûte cher ou
@@ -188,22 +167,33 @@ const codes = new Map();
 app.post('/api/mdp/lien', async (req, res) => {
   const email = String((req.body || {}).email || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 200) return res.status(400).json({ error: 'email_invalide' });
-  if (!fbAdmin) return res.status(503).json({ error: 'firebase_off' });
+  if (!fbAdminCle) return res.status(503).json({ error: 'firebase_off' });
   if (!mailer) return res.status(503).json({ error: 'email_off' });
 
   // la page de retour ne peut être que chez nous
   const brut = String((req.body || {}).suite || '');
   const suite = /^https:\/\/(www\.)?teamop\.fr\/[A-Za-z0-9._~\-\/]{0,120}$/.test(brut) ? brut : 'https://teamop.fr/espace.html';
 
+  // On demande le lien à l'Identity Toolkit sans qu'il envoie l'e-mail lui-même
+  // (returnOobLink), avec la clé de service que le serveur utilise déjà ailleurs.
   let oob = null;
   try {
-    const lienFirebase = await fbAdmin.auth().generatePasswordResetLink(email);
-    oob = new URL(lienFirebase).searchParams.get('oobCode');
+    const tok = await fbAdminJeton();
+    if (!tok) return res.status(503).json({ error: 'firebase_off' });
+    const r = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:sendOobCode',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestType: 'PASSWORD_RESET', email: email, returnOobLink: true }) }, tok);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const msg = String((j.error && j.error.message) || r.status);
+      // compte inconnu : on répond comme pour un succès, sans rien envoyer
+      if (/EMAIL_NOT_FOUND/i.test(msg)) return res.json({ ok: true });
+      console.error('mdp/lien :', msg.slice(0, 120));
+      return res.status(500).json({ error: 'echec' });
+    }
+    oob = new URL(String(j.oobLink || '')).searchParams.get('oobCode');
   } catch (e) {
-    const c = String((e && e.code) || (e && e.message) || '');
-    // compte inconnu : on répond comme pour un succès, sans rien envoyer
-    if (/user-not-found|email-not-found/i.test(c)) return res.json({ ok: true });
-    console.error('mdp/lien :', c.slice(0, 120));
+    console.error('mdp/lien :', String((e && e.message) || e).slice(0, 120));
     return res.status(500).json({ error: 'echec' });
   }
   if (!oob) return res.status(500).json({ error: 'echec' });
