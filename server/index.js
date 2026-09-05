@@ -38,6 +38,12 @@ if (config.smtp && config.smtp.host) {
 }
 
 const app = express();
+
+// Le serveur n'écoute que sur 127.0.0.1, derrière un proxy : sans ceci, toutes
+// les requêtes auraient la même IP (celle du proxy) et l'anti-abus plus bas
+// serait inopérant. « 1 » = un seul intermédiaire de confiance devant nous.
+app.set('trust proxy', 1);
+
 app.use(express.json({ limit: '6mb' })); // large : les e-mails peuvent porter un PDF en pièce jointe (base64)
 
 // CORS — uniquement le site TeamOP
@@ -61,14 +67,48 @@ app.use((req, res, next) => {
 //    Cela évite aussi de laisser des données privées de clients dans le cache disque.
 app.use('/api/monitor', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
-// anti-abus très simple : 120 requêtes / minute / IP
-const hits = new Map();
-setInterval(() => hits.clear(), 60000).unref();
+// ── Anti-abus : deux paliers ────────────────────────────────────────────────
+//
+//  Palier large pour toute l'API, palier strict pour ce qui coûte cher ou
+//  engage de l'argent : paiement, envoi de code par courriel, assistant IA.
+//
+//  Le palier strict reste à 20/min et non plus bas : nos clients sont des
+//  entreprises dont plusieurs salariés partagent une seule IP publique.
+const PLAFOND_GLOBAL = 120;    // requêtes / minute / IP
+const PLAFOND_STRICT = 20;     // idem, sur les routes sensibles
+const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
+
+const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode)/;
+
+let compteurs = new Map();
+setInterval(() => { compteurs = new Map(); }, 60000).unref();
+
+function tropDeRequetes(res) {
+  res.setHeader('Retry-After', '60');
+  return res.status(429).json({ error: 'trop de requêtes' });
+}
+
 app.use((req, res, next) => {
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
-  const n = (hits.get(ip) || 0) + 1;
-  hits.set(ip, n);
-  if (n > 120) return res.status(429).json({ error: 'trop de requêtes' });
+  // Sous attaque, l'adversaire fait varier son identité : sans borne, la table
+  // grossit jusqu'à saturer la mémoire du serveur. On repart de zéro plutôt.
+  if (compteurs.size > MAX_IP_SUIVIES) compteurs = new Map();
+
+  // req.ip, et non l'en-tête brut : X-Forwarded-For est fourni par le client,
+  // qui peut le préfixer à volonté pour obtenir une clé neuve à chaque requête
+  // et ne jamais atteindre la limite. Avec « trust proxy », Express ne retient
+  // que la valeur ajoutée par notre propre proxy.
+  const ip = req.ip || '?';
+
+  const global = (compteurs.get('g:' + ip) || 0) + 1;
+  compteurs.set('g:' + ip, global);
+  if (global > PLAFOND_GLOBAL) return tropDeRequetes(res);
+
+  if (ROUTES_SENSIBLES.test(req.path)) {
+    const strict = (compteurs.get('s:' + ip) || 0) + 1;
+    compteurs.set('s:' + ip, strict);
+    if (strict > PLAFOND_STRICT) return tropDeRequetes(res);
+  }
+
   next();
 });
 
