@@ -114,6 +114,27 @@ function mailerEnvoi(opts) {
   return mailer.sendMail(o2);
 }
 
+// ── Firebase Admin : uniquement pour fabriquer le lien de réinitialisation ──
+//
+//  Pourquoi passer par nous plutôt que par l'e-mail de Firebase : Firebase
+//  n'accepte une URL d'action personnalisée que sur un domaine servi par
+//  Firebase Hosting. teamop.fr est sur GitHub Pages, donc la console refuse et
+//  le lien resterait sur elan-gestion.firebaseapp.com. On génère donc le lien
+//  ici, on en extrait le code à usage unique, et on envoie notre propre e-mail.
+//
+//  Sans clé de compte de service dans la config, tout ceci reste inerte et
+//  l'application retombe sur l'envoi Firebase d'origine.
+let fbAdmin = null;
+try {
+  const cheminCle = config.firebase && config.firebase.compteService;
+  if (cheminCle) {
+    const admin = require('firebase-admin');
+    admin.initializeApp({ credential: admin.credential.cert(JSON.parse(fs.readFileSync(cheminCle, 'utf8'))) });
+    fbAdmin = admin;
+    console.log('Firebase Admin : prêt');
+  }
+} catch (e) { console.error('Firebase Admin indisponible :', e.message); }
+
 // ── Anti-abus : deux paliers ────────────────────────────────────────────────
 //
 //  Palier large pour toute l'API, palier strict pour ce qui coûte cher ou
@@ -125,7 +146,7 @@ const PLAFOND_GLOBAL = 120;    // requêtes / minute / IP
 const PLAFOND_STRICT = 20;     // idem, sur les routes sensibles
 const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
 
-const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode)/;
+const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp)/;
 
 let compteurs = new Map();
 setInterval(() => { compteurs = new Map(); }, 60000).unref();
@@ -161,6 +182,51 @@ app.use((req, res, next) => {
 
 // ── codes de sécurité (actions sensibles : remise à zéro, etc.) ──
 const codes = new Map();
+// Mot de passe oublié : nous fabriquons le lien et nous envoyons l'e-mail.
+// La réponse est TOUJOURS la même, compte existant ou non — sinon cette route
+// deviendrait un moyen de savoir qui travaille dans quelle entreprise.
+app.post('/api/mdp/lien', async (req, res) => {
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 200) return res.status(400).json({ error: 'email_invalide' });
+  if (!fbAdmin) return res.status(503).json({ error: 'firebase_off' });
+  if (!mailer) return res.status(503).json({ error: 'email_off' });
+
+  // la page de retour ne peut être que chez nous
+  const brut = String((req.body || {}).suite || '');
+  const suite = /^https:\/\/(www\.)?teamop\.fr\/[A-Za-z0-9._~\-\/]{0,120}$/.test(brut) ? brut : 'https://teamop.fr/espace.html';
+
+  let oob = null;
+  try {
+    const lienFirebase = await fbAdmin.auth().generatePasswordResetLink(email);
+    oob = new URL(lienFirebase).searchParams.get('oobCode');
+  } catch (e) {
+    const c = String((e && e.code) || (e && e.message) || '');
+    // compte inconnu : on répond comme pour un succès, sans rien envoyer
+    if (/user-not-found|email-not-found/i.test(c)) return res.json({ ok: true });
+    console.error('mdp/lien :', c.slice(0, 120));
+    return res.status(500).json({ error: 'echec' });
+  }
+  if (!oob) return res.status(500).json({ error: 'echec' });
+
+  const lien = 'https://teamop.fr/reinit.html?mode=resetPassword&oobCode=' + encodeURIComponent(oob) +
+               '&continueUrl=' + encodeURIComponent(suite);
+  try {
+    await mailerEnvoi({
+      // le lien vaut le mot de passe : il ne va ni au journal, ni en copie
+      confidentiel: true, trace: 'lien de réinitialisation → ' + masqueMail(email),
+      from: config.smtp.from || config.smtp.user, to: email,
+      subject: 'TEAM OP — réinitialisez votre mot de passe',
+      text: 'Bonjour,\n\nvous avez demandé à réinitialiser votre mot de passe TEAM OP.\n\n' + lien +
+            '\n\nCe lien ne sert qu\'une fois et expire dans une heure.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message : votre mot de passe reste inchangé.\n\n— L\'équipe TEAM OP · teamop.fr',
+      html: mailTeamOP({ chip: 'Sécurité', chipBg: '#FFF3E0', chipColor: '#B26E12',
+        titre: 'Réinitialisez votre mot de passe 🔑',
+        corpsHtml: 'Bonjour,<br>vous avez demandé un nouveau mot de passe. Le bouton ci-dessous vous mène à la page où le choisir.',
+        blocHtml: '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F7FB;border:1px solid #E3E8F1;border-radius:12px"><tr><td style="padding:14px 18px;font-size:13px;line-height:1.7;color:#4A5A7A">Ce lien ne sert <b>qu\'une fois</b> et expire dans <b>une heure</b>. Si vous n\'êtes pas à l\'origine de cette demande, ignorez cet e-mail : votre mot de passe reste inchangé.</td></tr></table>',
+        boutonTxt: 'Choisir mon mot de passe', boutonUrl: lien })
+    });
+  } catch (e) { console.error('mdp/lien envoi :', String(e.message || e).slice(0, 120)); return res.status(500).json({ error: 'echec' }); }
+  res.json({ ok: true });
+});
 app.post('/api/sendcode', async (req, res) => {
   const { teamId, email, purpose } = req.body || {};
   if (!teamId || !email) return res.status(400).json({ error: 'teamId et email requis' });

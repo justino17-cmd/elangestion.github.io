@@ -337,16 +337,26 @@
   /* Mot de passe oublié : Firebase envoie l'email de réinitialisation.
      On répond la même chose que le compte existe ou non — pas d'indice
      donné à un curieux qui testerait des adresses. */
+  /* Mot de passe oublié : l'e-mail part de NOTRE serveur, avec notre gabarit et un
+     lien sur teamop.fr. Firebase n'accepte une URL d'action personnalisée que sur un
+     domaine servi par Firebase Hosting, et teamop.fr est sur GitHub Pages — d'où ce
+     détour. Si le serveur ne peut pas répondre, on retombe sur l'envoi Firebase :
+     gabarit brut et lien firebaseapp.com, mais l'utilisateur n'est jamais bloqué. */
+  async function mdpLien(email, suite){
+    try{
+      const r = await fetch('https://api.teamop.fr/api/mdp/lien',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,suite:suite})});
+      if(r.ok) return;
+      if(r.status===400){ const e=new Error('adresse invalide'); e.code='auth/invalid-email'; throw e; }
+    }catch(e){ if(e && e.code==='auth/invalid-email') throw e; }
+    auth.languageCode='fr';
+    await auth.sendPasswordResetEmail(email,{url:suite});
+  }
   async function motDePasseOublie(){
     const email=($('a-email').value||'').trim();
     const box=$('auth-err');
     if(!email){ box.innerHTML='<div class="err">Écris d\'abord ton e-mail dans le champ ci-dessus, puis reclique.</div>'; return; }
     box.innerHTML='<div class="muted" style="padding:8px 2px">Envoi en cours…</div>';
-    /* Sans cette ligne, Firebase envoie le gabarit dans la langue par défaut du
-       projet — en anglais. Elle force le gabarit français, quel que soit le
-       réglage de la console. */
-    auth.languageCode='fr';
-    try{ await auth.sendPasswordResetEmail(email,{url:'https://teamop.fr/espace.html'}); }
+    try{ await mdpLien(email,'https://teamop.fr/espace.html'); }
     catch(e){ if((e&&e.code)==='auth/invalid-email'){ box.innerHTML='<div class="err">E-mail invalide.</div>'; return; } }
     box.innerHTML='<div class="ok">📬 Si un compte existe pour <b>'+esc(email)+'</b>, un e-mail de réinitialisation vient de partir. Regarde aussi les indésirables.</div>';
   }
