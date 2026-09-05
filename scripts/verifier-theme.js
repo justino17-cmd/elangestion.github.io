@@ -13,8 +13,16 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const TEXTES = ['--t1', '--t2', '--t3', '--text', '--text2', '--muted', '--dim', '--code', '--strong', '--link', '--side-ink', '--side-mut', '--on-acc'];
-const FONDS = ['--bg', '--bg1', '--bg2', '--bg3', '--surface', '--inset', '--card', '--card2', '--hover', '--sel', '--chip', '--side', '--acc'];
+// Les couples qui existent vraiment à l'écran — et seulement eux, sinon l'outil
+// crie sur du texte de barre latérale posé sur le fond de page, ce qui n'arrive jamais.
+const SURFACES = ['--bg', '--bg1', '--bg2', '--bg3', '--surface', '--inset', '--card', '--card2', '--hover', '--sel', '--chip'];
+const COUPLES = [
+  { textes: ['--t1', '--t2', '--text', '--text2', '--code', '--strong', '--link'], fonds: SURFACES, seuil: 4.5 },
+  { textes: ['--t3', '--muted', '--dim'], fonds: SURFACES, seuil: 3.0 },          // secondaires : au moins le seuil UI
+  { textes: ['--side-ink'], fonds: ['--side', '--side-active'], seuil: 4.5 },
+  { textes: ['--side-mut'], fonds: ['--side', '--side-active'], seuil: 3.0 },
+  { textes: ['--on-acc'], fonds: ['--acc'], seuil: 4.5 },                          // le texte des boutons pleins
+];
 
 function lireCouleur(v) {
   v = v.trim();
@@ -96,15 +104,12 @@ function verifierContrastes(html) {
     const base = c['--bg'] || c['--surface'] || c['--card'];
     if (!base) continue;
     const faibles = [];
-    for (const t of TEXTES) {
+    for (const { textes, fonds, seuil } of COUPLES) for (const t of textes) {
       if (!c[t]) continue;
-      for (const f of FONDS) {
-        if (!c[f] || f === t) continue;
-        if (t === '--on-acc' && f !== '--acc') continue;
-        if (t !== '--on-acc' && f === '--acc') continue;
+      for (const f of fonds) {
+        if (!c[f]) continue;
         const fond = surFond(c[f], base), texte = surFond(c[t], fond);
         const r = contraste(texte, fond);
-        const seuil = (t === '--t3' || t === '--muted' || t === '--dim' || t === '--side-mut') ? 3.0 : 4.5; // textes secondaires : au moins le seuil UI
         if (r < seuil) faibles.push(`${t} sur ${f} = ${r.toFixed(2)}:1 (< ${seuil})`);
       }
     }
