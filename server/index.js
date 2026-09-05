@@ -2730,6 +2730,49 @@ let devisQuota = { jour: '', n: 0 };
 try { devisQuota = JSON.parse(fs.readFileSync(DEVIS_QUOTA_PATH, 'utf8')); } catch (e) {}
 function devisConf() { return config.anthropic || {}; }
 function devisActif() { return !!devisConf().cleApi; }
+/* ── Le Devis IA tourne sur Gemini, pas sur Claude ────────────────────────────────
+   Deux raisons. La première est le prix : Google offre un palier gratuit, et un devis
+   n'a pas besoin du modèle le plus cher du marché — c'est de la rédaction structurée à
+   partir de prix qu'on lui donne, pas du raisonnement difficile.
+   La seconde suit de la première : sur ce palier gratuit, Google se réserve le droit
+   d'exploiter ce qu'on lui envoie. On lui envoie donc le strict nécessaire pour
+   chiffrer — la prestation — et RIEN qui identifie le client. Ni son nom, ni son
+   adresse : ils ne servent pas à faire un prix, et ils ne sont pas à nous.
+   La clé vit UNIQUEMENT dans /opt/teamop/config.json → "gemini" :
+     "gemini": { "cleApi": "…", "modele": "gemini-3.7-flash" }
+   Elle se pose avec server/set-gemini.sh, qui la vérifie avant de l'écrire. */
+function geminiConf() { return config.gemini || {}; }
+function geminiActif() { return !!geminiConf().cleApi; }
+function geminiModele() { return String(geminiConf().modele || 'gemini-3.7-flash'); }
+async function geminiGenere(sys, texte, schema) {
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/'
+    + encodeURIComponent(geminiModele()) + ':generateContent?key=' + encodeURIComponent(geminiConf().cleApi);
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: texte }] }],
+      systemInstruction: { parts: [{ text: sys }] },
+      generationConfig: { responseMimeType: 'application/json', responseSchema: schema }
+    })
+  });
+  const txt = await r.text();
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  if (!r.ok) {
+    /* Google répond 400 pour une clé invalide, pas 401 : on lit le motif plutôt que le
+       code, sinon « clé morte » et « requête malformée » se confondent. */
+    const motif = (j && j.error && (j.error.status || j.error.message)) || ('HTTP ' + r.status);
+    const e = new Error(String(motif).slice(0, 200));
+    e.geminiCle = /API_KEY_INVALID|API key not valid/i.test(txt);
+    e.geminiQuota = r.status === 429 || /RESOURCE_EXHAUSTED/i.test(txt);
+    e.geminiModele = r.status === 404 || /NOT_FOUND/i.test(txt);
+    throw e;
+  }
+  const part = j && j.candidates && j.candidates[0] && j.candidates[0].content
+    && j.candidates[0].content.parts && j.candidates[0].content.parts[0];
+  const sortie = part && part.text;
+  if (!sortie) throw new Error('réponse vide');
+  return JSON.parse(sortie);
+}
 /* ── Accès par entreprise : activé depuis la Tour de contrôle — aucun code ni clé ne
    circule chez les clients. data/devis-acces.json : { "<espace>": { actif, depuis, n, dernier } }
    L'ancien code partagé (secretDevis) reste accepté en dépannage tant qu'il est configuré. */
@@ -2748,8 +2791,8 @@ function devisCompte() { devisUtilises(); devisQuota.n++; try { fs.writeFileSync
 
 app.get('/api/devis/etat', (req, res) => {
   const team = String(req.query.team || '').trim().slice(0, 80);
-  const rep = { ok: true, actif: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
-  if (team) rep.equipe = devisActif() && devisTeamOk(team);
+  const rep = { ok: true, actif: geminiActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
+  if (team) rep.equipe = geminiActif() && devisTeamOk(team);
   res.json(rep);
 });
 
@@ -2785,8 +2828,11 @@ const DEVIS_SCHEMA = {
 
 app.post('/api/devis/generer', async (req, res) => {
   try {
-    if (!devisActif()) return res.status(503).json({ error: "Devis IA non configuré sur le serveur (config.json → anthropic)" });
-    const { code, team, demande, client: cli, contexte } = req.body || {};
+    if (!geminiActif()) return res.status(503).json({ error: 'Devis IA non configuré sur le serveur — sur le serveur : bash server/set-gemini.sh' });
+    /* « client » n'est plus lu : le nom et l'adresse d'un client ne servent pas à faire
+       un prix, et n'ont donc rien à faire chez un tiers. Le champ reste accepté dans le
+       corps pour ne pas casser les applications déjà déployées ; il est ignoré. */
+    const { code, team, demande, contexte } = req.body || {};
     const teamKey = String(team || '').trim().slice(0, 80);
     const okEquipe = devisTeamOk(teamKey);
     const okCode = !!(code && devisConf().secretDevis && String(code) === String(devisConf().secretDevis));
@@ -2795,28 +2841,18 @@ app.post('/api/devis/generer', async (req, res) => {
     if (devisUtilises() >= devisQuotaJour()) return res.status(429).json({ error: 'Quota du jour atteint (' + devisQuotaJour() + ' devis) — réessaie demain' });
 
     const sys = "Tu prépares des devis pour une entreprise française de gestion de nuisibles (dératisation, désinsectisation, désinfection, dépigeonnage) et petits travaux associés. À partir de la demande, produis un devis réaliste et sobre : des lignes claires (désignation précise, quantité, prix unitaire HT en euros, cohérent avec le marché français), la main d'œuvre et le déplacement en lignes séparées quand c'est pertinent, TVA 20 par défaut (10 seulement pour des travaux d'amélioration d'un logement de plus de 2 ans). « remarque » : 1 ou 2 phrases utiles pour le client (garantie, nombre de passages, conditions). Pas de lignes de remplissage.";
-    const msg = await getAnthropic().messages.create({
-      model: 'claude-opus-5',
-      max_tokens: 16000,
-      system: sys,
-      output_config: { format: { type: 'json_schema', schema: DEVIS_SCHEMA } },
-      messages: [{
-        role: 'user',
-        content: 'Demande : ' + String(demande).slice(0, 2000)
-          + (cli ? '\nClient : ' + String(cli).slice(0, 300) : '')
-          + (contexte ? '\nContexte : ' + String(contexte).slice(0, 1000) : '')
-      }]
-    });
-    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Génération refusée — reformule la demande' });
-    const texte = (msg.content.find(b => b.type === 'text') || {}).text || '';
-    let devis; try { devis = JSON.parse(texte); } catch (e) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+    const devis = await geminiGenere(sys,
+      'Demande : ' + String(demande).slice(0, 2000)
+        + (contexte ? '\nContexte : ' + String(contexte).slice(0, 1000) : ''),
+      DEVIS_SCHEMA);
+    if (!devis || !Array.isArray(devis.lignes) || !devis.lignes.length) return res.status(502).json({ error: 'Réponse illisible, réessaie' });
     devisCompte();
     if (okEquipe) { const t = devisAcces[teamKey]; t.n = (t.n || 0) + 1; t.dernier = new Date().toISOString().slice(0, 10); saveDevisAcces(); }
     res.json({ ok: true, devis, restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
   } catch (e) {
-    const status = e && e.status;
-    if (status === 401) return res.status(502).json({ error: 'Clé Claude refusée par Anthropic — expirée ou incomplète. Sur le serveur : bash server/set-claude.sh' });
-    if (status === 429 || status === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    if (e && e.geminiCle) return res.status(502).json({ error: 'Clé Gemini refusée par Google — expirée ou incomplète. Sur le serveur : bash server/set-gemini.sh' });
+    if (e && e.geminiModele) return res.status(502).json({ error: 'Modèle Gemini introuvable — relance server/set-gemini.sh pour en choisir un disponible' });
+    if (e && e.geminiQuota) return res.status(503).json({ error: 'Palier gratuit Gemini saturé pour le moment — réessaie dans quelques minutes' });
     console.error('devis IA:', e && e.message);
     res.status(500).json({ error: 'Erreur du serveur de devis' });
   }
