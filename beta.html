@@ -3058,6 +3058,7 @@ const NAV = [
   ]},
   {g:'Ventes', items:[
     {k:'devis',ic:'💰',l:'Devis',b:'dev'},
+    {k:'assistantDevis',ic:'🤖',l:'Assistant devis'},
     {k:'factures',ic:'🧾',l:'Factures',b:'fac'},
     {k:'contrats',ic:'📑',l:'Contrats',b:'ctr'},
     {k:'comptabilite',ic:'📊',l:'Comptabilité',admin:true},
@@ -14742,6 +14743,181 @@ function bonPdfStr(b){
   out+='trailer\n<< /Size '+objs.length+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF';
   return out;
 }
+/* ══ Devis en PDF ═══════════════════════════════════════════════════════════
+   Même fabrique que le bon de commande : aucune bibliothèque, on écrit les
+   octets du PDF. L'en-tête reprend la société choisie sur le devis — son nom,
+   sa couleur — comme les bons, plus l'adresse légale de l'entreprise.
+   Un devis part chez un client : il porte donc ce qu'un devis doit porter —
+   validité, mention de TVA, place pour la signature. */
+/* Le logo de la société, converti en JPEG par le navigateur : le PDF sait lire
+   le JPEG nativement (DCTDecode), pas le PNG. Passer par un canvas accepte donc
+   tous les formats que l'utilisateur a pu déposer, sans bibliothèque. */
+function devisLogoJpeg(src){
+  return new Promise(res=>{
+    if(!src){ res(null); return; }
+    const im=new Image();
+    im.onload=()=>{ try{
+      const H=90, W=Math.max(1,Math.round(im.width*(H/im.height)));
+      const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+      const cx=cv.getContext('2d');
+      cx.fillStyle='#fff'; cx.fillRect(0,0,W,H);   // le JPEG ignore la transparence
+      cx.drawImage(im,0,0,W,H);
+      const b64=cv.toDataURL('image/jpeg',0.92).split(',')[1];
+      res({b64:b64,w:W,h:H});
+    }catch(e){ res(null); } };
+    im.onerror=()=>res(null);
+    im.src=src;
+  });
+}
+function devisPdfStr(d,logo){
+  const cli=db.clients.find(x=>x.id===d.clientId)||{};
+  const soc={societe:d.rapportModele||''};
+  const ent=bcEntete(soc);
+  const hx=bcCouleur(soc), rgb=[1,3,5].map(i=>parseInt(hx.slice(i,i+2),16)/255);
+  const GREEN=rgb.map(v=>v.toFixed(3)).join(' '), GREENLT=rgb.map(v=>(0.93+v*0.07).toFixed(3)).join(' ');
+  const GREY='0.42 0.46 0.52', DARK='0.10 0.12 0.16', LINE='0.85 0.88 0.91';
+  const W=595,H=842,M=42,RGT=W-M;
+  const pages=[]; let ops=[]; let y;
+  const T=(x,yy,sz,txt,bold,col)=>ops.push((col||DARK)+' rg','BT','/F'+(bold?'2':'1')+' '+sz+' Tf',x.toFixed(1)+' '+yy.toFixed(1)+' Td','('+_pdfTxt(txt)+') Tj','ET');
+  const TR=(xr,yy,sz,txt,bold,col)=>T(xr-String(txt).length*sz*0.545,yy,sz,txt,bold,col);
+  const R=(x,yy,w,h,col)=>ops.push(col+' rg',x.toFixed(1)+' '+yy.toFixed(1)+' '+w.toFixed(1)+' '+h.toFixed(1)+' re f');
+  const cut=(s,n)=>{ s=String(s||''); return s.length>n? s.slice(0,n-1)+'…':s; };
+  const eur=n=>Number(n||0).toFixed(2).replace('.',',')+' EUR';
+  const dateFr=x=>{ try{ return new Date((x||todayISO())+'T00:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'}); }catch(e){ return x||''; } };
+
+  const tableHead=()=>{ R(M,y-6,W-2*M,22,GREEN);
+    T(M+8,y,9,'DÉSIGNATION',1,'1 1 1');
+    TR(RGT-232,y,9,'QTÉ',1,'1 1 1'); TR(RGT-120,y,9,'P.U. HT',1,'1 1 1'); TR(RGT-8,y,9,'TOTAL HT',1,'1 1 1');
+    y-=24; };
+  const newPage=()=>{ pages.push(ops.join('\n')); ops=[]; R(0,H-6,W,6,GREEN); y=H-M-14; tableHead(); };
+
+  R(0,H-6,W,6,GREEN);
+  y=H-M-16;
+  /* Logo à gauche quand la société en a un : le nom se décale d'autant. */
+  let nx=M;
+  if(logo && logo.b64){ const lh=34, lw=Math.round(logo.w*(lh/logo.h));
+    ops.push('q',lw+' 0 0 '+lh+' '+M.toFixed(1)+' '+(y-9).toFixed(1)+' cm','/I1 Do','Q');
+    nx=M+lw+12; }
+  T(nx,y,21,cut(ent,logo&&logo.b64?20:28),1,GREEN);
+  TR(RGT,y+3,16,'DEVIS',1,DARK);
+  TR(RGT,y-13,10,'N° '+(d.num||''),1,GREY);
+  TR(RGT,y-25,9,dateFr(d.date),0,GREY);
+  const EI=db.entreprise||{}; let ey=y-14;
+  const eL=[[EI.adresse,[EI.cp,EI.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+            [EI.tel?'Tél. '+EI.tel:'',EI.siret?'SIRET '+EI.siret:'',EI.tvaIntra?'TVA '+EI.tvaIntra:''].filter(Boolean).join('  ·  ')].filter(Boolean);
+  eL.forEach(t2=>{ T(M,ey,8.5,cut(t2,58),0,GREY); ey-=11; });
+  y=Math.min(y-32,ey-8); R(M,y,W-2*M,1.6,GREEN); y-=16;
+
+  const cl=[cli.nom||'', cli.adresse||'', [cli.cp,cli.ville].filter(Boolean).join(' '),
+            [cli.tel?'Tél. '+cli.tel:'', cli.email||''].filter(Boolean).join('  ·  ')].filter(Boolean);
+  const ph=20+cl.length*13;
+  R(M,y-ph+10,W-2*M,ph,GREENLT);
+  T(M+10,y-4,8,'CLIENT',1,GREEN);
+  cl.forEach((t2,i)=>{ T(M+10,y-18-i*13,i===0?10.5:8.8,cut(t2,i===0?52:70),i===0?1:0,i===0?DARK:GREY); });
+  y-=ph+14;
+
+  tableHead();
+
+  let totHT=0;
+  (d.lignes||[]).forEach((l,i)=>{
+    if(y<150) newPage();
+    const q=Number(l.qte)||0, pu=Number(l.pu)||0, tot=q*pu; totHT+=tot;
+    if(i%2===1) R(M,y-6,W-2*M,17,'0.962 0.97 0.976');
+    T(M+8,y,9.2,cut(l.designation||'',48),0,DARK);
+    TR(RGT-232,y,9.2,String(q).replace('.',','),0,DARK);
+    TR(RGT-120,y,9.2,eur(pu),0,DARK);
+    TR(RGT-8,y,9.2,eur(tot),1,DARK);
+    y-=17;
+  });
+  R(M,y+11,W-2*M,0.8,LINE);
+
+  if(y<200) newPage();
+  const tx=Number(d.tva)||0, mtva=totHT*tx/100, ttc=totHT+mtva;
+  y-=18; const bw=210;
+  T(RGT-bw+10,y,9.5,'Total HT',0,GREY); TR(RGT-8,y,9.5,eur(totHT),0,DARK); y-=15;
+  T(RGT-bw+10,y,9.5,'TVA '+String(tx).replace('.',',')+' %',0,GREY); TR(RGT-8,y,9.5,eur(mtva),0,DARK); y-=8;
+  R(RGT-bw,y-20,bw,26,GREEN);
+  T(RGT-bw+10,y-12,11,'TOTAL TTC',1,'1 1 1'); TR(RGT-8,y-12,11,eur(ttc),1,'1 1 1');
+  y-=34;
+
+  if(d.notes){ const nl=String(d.notes).split(/\n/).slice(0,6); const nh=22+nl.length*12;
+    y-=14; if(y-nh<140) newPage();
+    R(M,y-nh+8,W-2*M,nh,GREENLT);
+    T(M+9,y-6,8,'DÉTAIL',1,GREEN);
+    nl.forEach((line,i)=>{ T(M+9,y-19-i*12,8.8,cut(line,100),0,DARK); });
+    y-=nh+6; }
+
+  if(y<160) newPage();
+  y-=14;
+  [ 'Devis valable 30 jours à compter de sa date d\'émission.',
+    tx===0?'TVA non applicable, article 293 B du CGI.':'Prix en euros, TVA au taux indiqué ci-dessus.',
+    'Bon pour accord : date, signature et mention « Bon pour accord ».'
+  ].forEach(t2=>{ T(M,y,8,cut(t2,110),0,GREY); y-=11; });
+  y-=10;
+  R(RGT-210,y-52,210,54,'0.98 0.985 0.99');
+  T(RGT-200,y-14,8.5,'Bon pour accord',1,DARK);
+  T(RGT-200,y-28,7.5,'Date et signature du client',0,GREY);
+  y-=64;
+
+  pages.push(ops.join('\n'));
+
+  const iban=(EI.iban?'IBAN '+EI.iban:'')+(EI.bic?'  ·  BIC '+EI.bic:'');
+  const foot=(i,n)=>['0.85 0.88 0.91 rg',M+' 56 '+(W-2*M)+' 0.8 re f',
+    GREY+' rg','BT','/F1 7.5 Tf',M+' 44 Td','('+_pdfTxt(ent+(iban?' — '+iban:''))+') Tj','ET',
+    GREY+' rg','BT','/F1 7.5 Tf',(RGT-40)+' 44 Td','('+_pdfTxt('Page '+i+'/'+n)+') Tj','ET'].join('\n');
+  for(let i=0;i<pages.length;i++) pages[i]+='\n'+foot(i+1,pages.length);
+
+  const objs=[]; objs[1]='<< /Type /Catalog /Pages 2 0 R >>';
+  objs[3]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  objs[4]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  let n=5, xobj='';
+  /* Le logo devient un objet image du PDF, en JPEG brut (DCTDecode). */
+  if(logo && logo.b64){
+    const bin=atob(logo.b64); const io=n++;
+    objs[io]={s:bin, dict:'<< /Type /XObject /Subtype /Image /Width '+logo.w+' /Height '+logo.h+
+      ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+bin.length+' >>'};
+    xobj=' /XObject << /I1 '+io+' 0 R >>';
+  }
+  const kids=[];
+  pages.forEach(c=>{ const pg=n++, ct=n++; kids.push(pg+' 0 R');
+    objs[pg]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>'+xobj+' >> /Contents '+ct+' 0 R >>';
+    objs[ct]={s:c}; });
+  objs[2]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+pages.length+' >>';
+  let out='%PDF-1.4\n'; const offs=[];
+  for(let i=1;i<objs.length;i++){ offs[i]=out.length; const o=objs[i];
+    /* Un objet à flux porte son propre dictionnaire quand il en a un (l'image) ;
+       sinon la longueur suffit (les pages de texte). */
+    out+= (o&&o.s!==undefined)
+      ? i+' 0 obj\n'+(o.dict||('<< /Length '+o.s.length+' >>'))+'\nstream\n'+o.s+'\nendstream\nendobj\n'
+      : i+' 0 obj\n'+o+'\nendobj\n'; }
+  const xr=out.length;
+  out+='xref\n0 '+objs.length+'\n0000000000 65535 f \n';
+  for(let i=1;i<objs.length;i++) out+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
+  out+='trailer\n<< /Size '+objs.length+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF';
+  return out;
+}
+/* Le logo doit être chargé avant d'écrire le PDF : la fabrique devient donc
+   asynchrone. Sans logo, ou si son chargement échoue, le devis sort quand même
+   — le nom et la couleur de la société portent déjà la marque. */
+async function devisPdfBlob(d){
+  const st=(typeof socStyle==='function')?socStyle(d.rapportModele||''):{};
+  const src=st.logo||((db.entreprise||{}).logo)||'';
+  let logo=null; try{ logo=await devisLogoJpeg(src); }catch(e){}
+  const s=devisPdfStr(d,logo); const bytes=new Uint8Array(s.length);
+  for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i)&255;
+  return new Blob([bytes],{type:'application/pdf'}); }
+async function devisPdfOpen(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  try{ const u=URL.createObjectURL(await devisPdfBlob(d));
+    const w=window.open(u,'_blank'); if(!w) toast('Autorise les pop-ups pour voir le PDF');
+    setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },120000);
+  }catch(e){ console.error(e); toast('Aperçu PDF impossible'); } }
+async function devisPdfDownload(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  try{ const u=URL.createObjectURL(await devisPdfBlob(d));
+    const a=document.createElement('a'); a.href=u; a.download=('devis-'+(d.num||'')).replace(/[^\w-]/g,'_')+'.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },60000);
+  }catch(e){ console.error(e); toast('Téléchargement impossible'); } }
+
 function bonPdfOpen(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
   try{ const s=bonPdfStr(b); const bytes=new Uint8Array(s.length); for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i)&255;
     const blob=new Blob([bytes],{type:'application/pdf'}); const u=URL.createObjectURL(blob);
@@ -16949,21 +17125,36 @@ function devisIAModal(){
     <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Décris la prestation avec tes mots — l'IA propose un devis chiffré ligne par ligne, que tu relis et ajustes avant de l'envoyer.</p>
     <p style="color:var(--t3);font-size:11.5px;line-height:1.55;margin:-6px 0 12px">Seule ta description part au générateur. Le <b>nom et l'adresse du client ne sortent pas de cet appareil</b> — ils ne servent pas à faire un prix.</p>
     <div class="field"><label>Client</label><select id="dia-client"><option value="">— Sans client —</option>${db.clients.map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join('')}</select></div>
-    <div class="field"><label>La prestation à chiffrer *</label><textarea id="dia-demande" rows="4" placeholder="Ex : dératisation d'un restaurant de 120 m² avec cave, 8 postes d'appâtage, 3 passages sur 2 mois, à Strasbourg" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-family:inherit"></textarea></div>
+    <!-- La société choisie donne son nom, sa couleur et son logo à l'en-tête du
+         devis — même mécanisme que les bons de commande. -->
+    <div class="field"><label>Société (en-tête du devis)</label><select id="dia-societe">${entSocietes().map(t=>`<option ${(entSocUnique()||'Modèle générique')===t?'selected':''}>${esc(t)}</option>`).join('')}</select>
+      <div style="font-size:11px;color:var(--t3);margin-top:4px">Son nom, sa couleur et son logo apparaîtront en tête du PDF (Paramètres → Mes sociétés).</div></div>
+    <div class="field"><label>La prestation à chiffrer *</label><textarea id="dia-demande" rows="4" placeholder="Ex : dératisation d'un restaurant de 120 m² avec cave, 8 postes d'appâtage, 3 passages sur 2 mois, à Strasbourg" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-family:inherit"></textarea>
+      <!-- Dictée : sur un chantier on a les mains prises. La reconnaissance vocale
+           du navigateur écrit dans le même champ — rien ne part ailleurs, tout se
+           passe sur l'appareil. -->
+      <button type="button" id="dia-mic" class="btn ghost sm" style="margin-top:6px" onclick="devisIAMic()">🎤 Dicter la prestation</button>
+      <span id="dia-mic-etat" style="font-size:11px;color:var(--t3);margin-left:8px"></span></div>
     <div id="dia-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
-    <button id="dia-go" class="btn" style="width:100%;justify-content:center;padding:13px" onclick="devisIAGo()">✨ Générer le devis</button>
+    <button id="dia-go" class="btn" style="width:100%;justify-content:center;padding:13px" onclick="devisIAGo(false)">✨ Devis rapide</button>
+    <!-- Le devis approfondi n'apparaît que si TeamOP l'a ouvert à cette entreprise.
+         Le serveur tranche : il annonce « approfondi » et ignore la demande si
+         l'offre ne le prévoit pas — masquer le bouton ne suffirait pas. -->
+    <button id="dia-go2" class="btn" style="width:100%;justify-content:center;padding:13px;margin-top:8px;display:none" onclick="devisIAGo(true)">📐 Devis approfondi</button>
     <div id="dia-etat" style="font-size:11px;color:var(--t3);margin-top:8px;text-align:center"></div>`);
   // état en direct : le serveur dit si l'entreprise est activée et combien il reste de devis aujourd'hui
   fetch(PUSH_API+'/api/devis/etat?team='+encodeURIComponent(syncTeam())).then(r=>r.json()).then(j=>{
     const el=$('dia-etat'); if(!el||!j) return;
-    if(j.equipe===false&&!devisIACode()){ el.innerHTML='⚠ <b>Devis IA n\'est pas encore activé pour ton entreprise.</b> Demande l\'activation à TeamOP (contact@teamop.fr) — c\'est immédiat et sans manipulation.'; el.style.color='var(--org)'; const b=$('dia-go'); if(b) b.disabled=true; }
+    if(j.approfondi){ const b2=$('dia-go2'); if(b2) b2.style.display=''; }
+    if(j.equipe===false&&!devisIACode()){ el.innerHTML='⚠ <b>Devis IA n\'est pas encore activé pour ton entreprise.</b> Demande l\'activation à TeamOP (contact@teamop.fr) — c\'est immédiat et sans manipulation.'; el.style.color='var(--org)'; const b=$('dia-go'); if(b) b.disabled=true; const b2=$('dia-go2'); if(b2) b2.disabled=true; }
     else if(j.restants!=null) el.textContent='✓ Actif · '+j.restants+' génération(s) restante(s) aujourd\'hui';
   }).catch(()=>{});
 }
-async function devisIAGo(){
+async function devisIAGo(profond){
   const demande=($('dia-demande')||{}).value||'', code=devisIACode(), clientId=($('dia-client')||{}).value||'';
   const err=$('dia-err'); const show=m=>{ if(err){ err.textContent='⚠ '+m; err.style.display='block'; } };
-  const btn=$('dia-go'); const rearme=()=>{ if(btn){ btn.disabled=false; btn.textContent='✨ Générer le devis'; } };
+  const btn=$(profond?'dia-go2':'dia-go'); const libelle=profond?'📐 Devis approfondi':'✨ Devis rapide';
+  const rearme=()=>{ if(btn){ btn.disabled=false; btn.textContent=libelle; } };
   if(demande.trim().length<5){ show('Décris la prestation d\'abord.'); return; }
   if(btn){ btn.disabled=true; btn.textContent='⏳ Génération en cours… (jusqu\'à une minute)'; }
   try{
@@ -16971,17 +17162,116 @@ async function devisIAGo(){
        adresse ne quittent pas l'appareil. Le générateur ne reçoit que la prestation —
        il n'a besoin de rien d'autre pour chiffrer, et ce qui ne part pas ne fuit pas. */
     const r=await fetch(PUSH_API+'/api/devis/generer',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({team:syncTeam(),code:code||undefined,demande})});
+      body:JSON.stringify({team:syncTeam(),code:code||undefined,demande,profond:!!profond})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){ show(j.error||('Erreur '+r.status)); rearme(); return; }
     const d=j.devis||{}; const id=uid();
     db.devis.push({id,num:docNum('devis'),clientId,date:todayISO(),statut:'brouillon',tva:Number(d.tva)||20,
+      rapportModele:($('dia-societe')||{}).value||'',
       notes:((d.titre?d.titre+'. ':'')+(d.remarque||'')).trim(),
       lignes:(d.lignes||[]).map(l=>({designation:String(l.designation||'').slice(0,200),qte:Number(l.qte)||1,pu:Number(l.pu)||0}))});
     logEvent('Devis généré par IA',demande.slice(0,60),'crud');
-    save(); closeModal(); toast('✨ Devis proposé — relis et ajuste avant d\'envoyer'+(j.restants!=null?' · '+j.restants+' génération(s) restante(s) aujourd\'hui':''));
-    go('devis'); setTimeout(()=>{ try{ formDoc('devis',id); }catch(e){} },150);
+    save();
+    if(j.restants!=null) toast('✨ Devis proposé · '+j.restants+' génération(s) restante(s) aujourd\'hui');
+    devisIAApercu(id);
   }catch(e){ show('Le serveur ne répond pas — vérifie ta connexion.'); rearme(); }
+}
+
+/* ── Dictée de la prestation ────────────────────────────────────────────────
+   Sur un chantier, on a les mains prises. La reconnaissance vocale du
+   navigateur écrit dans le champ ; rien ne part ailleurs. Safari et Chrome la
+   proposent sous un nom différent, d'où les deux constructeurs testés. */
+let _diaRec=null;
+function devisIAMic(){
+  const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const et=$('dia-mic-etat'), bt=$('dia-mic');
+  if(!Rec){ if(et) et.textContent='Dictée non disponible sur ce navigateur'; return; }
+  if(_diaRec){ try{ _diaRec.stop(); }catch(e){} _diaRec=null; return; }
+  const r=new Rec(); _diaRec=r;
+  r.lang='fr-FR'; r.continuous=true; r.interimResults=false;
+  if(bt) bt.textContent='⏹ Arrêter la dictée';
+  if(et) et.textContent='À l\'écoute…';
+  r.onresult=e=>{ const ta=$('dia-demande'); if(!ta) return;
+    let txt=''; for(let i=e.resultIndex;i<e.results.length;i++) if(e.results[i].isFinal) txt+=e.results[i][0].transcript;
+    if(txt) ta.value=(ta.value?ta.value.replace(/\s*$/,' '):'')+txt.trim(); };
+  r.onerror=e=>{ if(et) et.textContent = e.error==='not-allowed' ? 'Micro refusé — autorise-le dans le navigateur' : 'Dictée interrompue'; };
+  r.onend=()=>{ _diaRec=null; if(bt) bt.textContent='🎤 Dicter la prestation'; if(et&&et.textContent==='À l\'écoute…') et.textContent=''; };
+  try{ r.start(); }catch(e){ if(et) et.textContent='Dictée impossible à démarrer'; _diaRec=null; }
+}
+
+/* ── Aperçu du devis produit, puis envoi ────────────────────────────────────
+   On montre le PDF tel qu'il partira, on complète le client si besoin, puis on
+   envoie. Le client peut être choisi dans la fiche existante ou saisi ici même :
+   sans lui, un devis n'a personne à qui aller. */
+function devisIAApercu(id){
+  const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  const c=db.clients.find(x=>x.id===d.clientId)||{};
+  openModal(`<div class="modal-head"><h3>📄 Devis ${esc(d.num||'')}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div id="dia-pdf-box" style="border:1px solid var(--brd2);border-radius:10px;overflow:hidden;background:#fff;height:46vh;min-height:280px"></div>
+    <div class="form-sec" style="margin-top:14px">À qui l'envoyer</div>
+    <div class="field"><label>Client enregistré</label>
+      <select id="dia-ap-client" onchange="devisIAApClient()">
+        <option value="">— Nouveau client, à saisir ci-dessous —</option>
+        ${db.clients.map(x=>`<option value="${x.id}" ${x.id===d.clientId?'selected':''}>${esc(x.nom)}</option>`).join('')}
+      </select></div>
+    <div id="dia-ap-neuf" style="display:${d.clientId?'none':'block'}">
+      <div class="field-row"><div class="field"><label>Nom *</label><input id="dia-c-nom" value="${esc(c.nom||'')}"></div>
+        <div class="field"><label>Téléphone</label><input id="dia-c-tel" value="${esc(c.tel||'')}"></div></div>
+      <div class="field"><label>E-mail</label><input id="dia-c-email" type="email" value="${esc(c.email||'')}"></div>
+      <div class="field"><label>Adresse</label><input id="dia-c-adresse" value="${esc(c.adresse||'')}"></div>
+      <div class="field-row"><div class="field"><label>Code postal</label><input id="dia-c-cp" value="${esc(c.cp||'')}"></div>
+        <div class="field"><label>Ville</label><input id="dia-c-ville" value="${esc(c.ville||'')}"></div></div>
+    </div>
+    <div id="dia-ap-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" style="flex:1;min-width:150px;justify-content:center" onclick="devisIAEnvoyer('${id}','mail')">📧 Envoyer par e-mail</button>
+      <button class="btn ghost" style="flex:1;min-width:150px;justify-content:center" onclick="devisIAEnvoyer('${id}','sms')">💬 Envoyer par SMS</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn ghost sm" onclick="devisPdfDownload('${id}')">⬇️ Télécharger le PDF</button>
+      <button class="btn ghost sm" onclick="devisIAAppliquer('${id}');closeModal();go('devis');setTimeout(()=>{try{formDoc('devis','${id}')}catch(e){}},150)">✎ Ajuster les lignes</button>
+    </div>`);
+  devisIAApRendu(id);
+}
+/* Le PDF affiché doit refléter le client courant : on le régénère à chaque
+   changement plutôt que de montrer une version périmée. */
+async function devisIAApRendu(id){
+  const box=$('dia-pdf-box'), d=db.devis.find(x=>x.id===id); if(!box||!d) return;
+  try{ const u=URL.createObjectURL(await devisPdfBlob(d));
+    box.innerHTML='<iframe src="'+u+'#toolbar=0" style="width:100%;height:100%;border:0"></iframe>';
+    setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },120000);
+  }catch(e){ box.innerHTML='<div style="padding:16px;color:#666;font-size:13px">Aperçu indisponible — le PDF reste téléchargeable.</div>'; }
+}
+function devisIAApClient(){
+  const sel=($('dia-ap-client')||{}).value||'', bloc=$('dia-ap-neuf');
+  if(bloc) bloc.style.display = sel ? 'none' : 'block';
+}
+/* Applique le client (choisi ou saisi) au devis, en créant la fiche si besoin. */
+function devisIAAppliquer(id){
+  const d=db.devis.find(x=>x.id===id); if(!d) return null;
+  const sel=($('dia-ap-client')||{}).value||'';
+  if(sel){ d.clientId=sel; save(); devisIAApRendu(id); return db.clients.find(x=>x.id===sel)||null; }
+  const nom=(($('dia-c-nom')||{}).value||'').trim();
+  if(!nom) return null;
+  let c=db.clients.find(x=>(x.nom||'').toLowerCase()===nom.toLowerCase());
+  if(!c){ c={id:uid(),nom:nom}; db.clients.push(c); }
+  c.tel=(($('dia-c-tel')||{}).value||'').trim();
+  c.email=(($('dia-c-email')||{}).value||'').trim();
+  c.adresse=(($('dia-c-adresse')||{}).value||'').trim();
+  c.cp=(($('dia-c-cp')||{}).value||'').trim();
+  c.ville=(($('dia-c-ville')||{}).value||'').trim();
+  d.clientId=c.id; save(); devisIAApRendu(id);
+  return c;
+}
+function devisIAEnvoyer(id,mode){
+  const err=$('dia-ap-err'); const show=m=>{ if(err){ err.textContent='⚠ '+m; err.style.display='block'; } };
+  const c=devisIAAppliquer(id);
+  if(!c){ show('Choisis un client enregistré, ou saisis au moins son nom.'); return; }
+  if(mode==='mail' && !c.email){ show('Ce client n\'a pas d\'e-mail — renseigne-le ci-dessus.'); return; }
+  if(mode==='sms' && !c.tel){ show('Ce client n\'a pas de téléphone — renseigne-le ci-dessus.'); return; }
+  closeModal();
+  try{ envoiDoc('devis',id,mode); }
+  catch(e){ toast('Envoi impossible — ouvre le devis et réessaie'); }
 }
 
 let formLignes=[];
@@ -17243,6 +17533,8 @@ function docListView(kind,xyloOnly){
       <button class="btn sm" onclick="envoiDoc('${kind}','${d.id}','mail')" title="Envoyer par email">📧</button>
       <button class="btn ghost sm" onclick="envoiDoc('${kind}','${d.id}','sms')" title="Envoyer par SMS (exception)">💬</button>
       <button class="btn ghost sm" onclick="printDoc('${kind}','${d.id}')" title="Aperçu">👁</button>
+      ${kind==='devis'?`<button class="btn ghost sm" onclick="devisPdfOpen('${d.id}')" title="Voir le PDF">📄</button>
+      <button class="btn ghost sm" onclick="devisPdfDownload('${d.id}')" title="Télécharger le PDF">⬇️</button> `:''}
       ${kind==='devis'&&d.statut==='accepte'?`<button class="btn sm" onclick="devisToFacture('${d.id}')" title="Convertir en facture">→🧾</button> `:''}
       <button class="btn ghost sm" onclick="formDoc('${kind}','${d.id}')">✎</button>
       <button class="btn danger sm" onclick="delItem('${cfg.coll}','${d.id}')">🗑</button></td></tr>`;}).join('');
@@ -19372,6 +19664,128 @@ function msgInputChange(){ const inp=$('msg-input'), pop=$('mention-pop'); if(!i
 function mentionPick(handle){ const inp=$('msg-input'); if(!inp) return; const caret=inp.selectionStart;
   const upto=inp.value.slice(0,caret).replace(/@([\wÀ-ÿ]*)$/,'@'+handle+' '); const rest=inp.value.slice(caret);
   inp.value=upto+rest; inp.focus(); inp.setSelectionRange(upto.length,upto.length); const pop=$('mention-pop'); if(pop) pop.style.display='none'; }
+
+/* ══ Assistant devis ══════════════════════════════════════════════════════
+   On décrit le chantier en langage courant, l'assistant compose le devis.
+   Le serveur ne fait que parler à Claude : le devis est créé ICI, dans
+   db.devis, avec la numérotation habituelle, et son PDF sort par printDoc()
+   comme n'importe quel autre devis. Le code d'accès d'équipe est demandé une
+   fois par appareil et reste dans le navigateur — jamais dans le dépôt. */
+const AD_CODE_KEY='elanB_devis_code';
+let adFil=[];        // [{role, content, devisId?}] — la conversation en cours
+let adBusy=false;
+
+const adCode = () => (localStorage.getItem(AD_CODE_KEY)||'').trim();
+function adDemanderCode(){
+  openModal(`<div class="modal-head"><h3>Code d'accès de l'assistant</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p style="font-size:13px;color:var(--t2);line-height:1.6;margin:0 0 12px">L'assistant devis fait appel à un service payant. Saisis le code d'équipe une seule fois : il reste sur cet appareil.</p>
+    <input id="ad-code" type="password" class="search-inp" placeholder="Code d'équipe" autocomplete="off" style="margin-bottom:0">
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" onclick="adEnregistrerCode()">Valider</button><button class="btn ghost" onclick="closeModal()">Annuler</button></div>`);
+  setTimeout(()=>{ const i=$('ad-code'); if(i) i.focus(); },60);
+}
+function adEnregistrerCode(){
+  const v=(($('ad-code')||{}).value||'').trim();
+  if(!v){ toast('Tape le code'); return; }
+  localStorage.setItem(AD_CODE_KEY,v); closeModal(); toast('🔑 Code enregistré'); views.assistantDevis();
+}
+function adOublierCode(){ localStorage.removeItem(AD_CODE_KEY); toast('Code effacé de cet appareil'); views.assistantDevis(); }
+
+views.assistantDevis=function(){
+  setHeader('Assistant devis','Décris le chantier, il compose le devis',
+    adCode()?`<button class="btn ghost sm" onclick="adOublierCode()">Oublier le code</button>`:'');
+  if(!adCode()){
+    $('content').innerHTML=`<div class="card"><div class="card-head"><h3>🔒 Code d'accès requis</h3></div>
+      <p style="font-size:13px;color:var(--t2);line-height:1.6">L'assistant devis est réservé à l'équipe. Demande le code au responsable, puis saisis-le une fois sur cet appareil.</p>
+      <button class="btn" style="margin-top:12px" onclick="adDemanderCode()">Saisir le code</button></div>`;
+    return;
+  }
+  const bulles = adFil.length ? adFil.map((m,i)=>{
+    const mine = m.role==='user';
+    const carte = m.devisId ? adCarteDevis(m.devisId) : '';
+    return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};margin-bottom:12px">
+      <div style="font-size:11px;color:var(--t3);margin-bottom:3px">${mine?'Vous':'🤖 Assistant'}</div>
+      <div class="msg ${mine?'user':'bot'}" style="max-width:80%;white-space:pre-wrap">${esc(m.content)}</div>
+      ${carte}</div>`;
+  }).join('') : `<div style="text-align:center;color:var(--t3);font-size:13px;padding:26px 10px;line-height:1.7">
+      Exemples :<br><b style="color:var(--t2)">« Dératisation chez Mme Martin, 12 rue des Lilas à Rochefort, 280 € TTC »</b><br>
+      <b style="color:var(--t2)">« Punaises de lit, appartement 60 m², La Rochelle, à 650 »</b></div>`;
+  $('content').innerHTML=`
+    <div class="card" style="height:calc(100dvh - 300px);min-height:300px;max-height:66vh;overflow-y:auto" id="ad-list">${bulles}
+      ${adBusy?`<div style="display:flex;align-items:center;gap:8px;color:var(--t3);font-size:12px;padding:4px 2px">⏳ L'assistant réfléchit…</div>`:''}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="ad-input" class="search-inp" style="flex:1;margin-bottom:0" placeholder="Décris le chantier…" ${adBusy?'disabled':''} onkeydown="if(event.key==='Enter'){event.preventDefault();adEnvoyer();}">
+      <button class="btn" onclick="adEnvoyer()" ${adBusy?'disabled':''}>Envoyer</button>
+      ${adFil.length?`<button class="btn ghost" onclick="adFil=[];views.assistantDevis()" title="Nouvelle conversation">🗑</button>`:''}
+    </div>`;
+  const l=$('ad-list'); if(l) l.scrollTop=l.scrollHeight;
+  const i=$('ad-input'); if(i&&!adBusy) i.focus();
+};
+
+/* La carte qui suit le devis créé : mêmes actions que depuis la liste des devis */
+function adCarteDevis(id){
+  const d=(db.devis||[]).find(x=>x.id===id); if(!d) return '';
+  const t=docTot(d);
+  return `<div class="card" style="margin-top:8px;max-width:80%;padding:12px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:2px">💰 ${esc(d.num)}</div>
+    <div style="font-size:12px;color:var(--t2);margin-bottom:8px">${esc(clientName(d.clientId))} · ${eur(t.ttc)} TTC</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" onclick="printDoc('devis','${d.id}')">Ouvrir le PDF</button>
+      <button class="btn ghost sm" onclick="go('devis');setTimeout(()=>{try{formDoc('devis','${d.id}')}catch(e){}},80)">Modifier</button>
+    </div></div>`;
+}
+
+/* Création du devis dans la base de l'app : même chemin qu'une saisie manuelle */
+function adCreerDevis(p){
+  const nom=(p.clientNom||'').trim();
+  let cli=(db.clients||[]).find(c=>(c.nom||'').trim().toLowerCase()===nom.toLowerCase());
+  if(!cli){ cli={id:uid(),nom:nom||'Client',adresse:(p.clientAdresse||'').trim(),x:10+Math.random()*80,y:10+Math.random()*80};
+    db.clients.push(cli); logEvent('Client créé',cli.nom,'crud'); }
+  else if(!cli.adresse && p.clientAdresse) cli.adresse=String(p.clientAdresse).trim();
+  const lignes=(p.lignes||[]).map(l=>({designation:String(l.designation||''),qte:Number(l.qte)||0,pu:Number(l.pu_ht)||0}));
+  const soc=(p.societe||'').trim();
+  const d={ id:uid(), num:docNum('devis'), clientId:cli.id,
+    rapportModele: soc && (db.societes||[]).some(s=>s.toLowerCase()===soc.toLowerCase()) ? soc : (intSocDefaut()||'Modèle générique'),
+    date:todayISO(), statut:'brouillon', tva:Number(p.tvaTaux)||10,
+    notes:[p.objet,p.notes].filter(Boolean).join('\n'), lignes };
+  db.devis.push(d);
+  logEvent('Création','devis : '+d.num+' (assistant)','crud');
+  save();
+  return d.id;
+}
+
+async function adEnvoyer(){
+  if(adBusy) return;
+  const inp=$('ad-input'); const v=inp?inp.value.trim():'';
+  if(!v) return;
+  adFil.push({role:'user',content:v});
+  adBusy=true; views.assistantDevis();
+  try{
+    const r=await fetch(PUSH_API+'/api/devis/agent',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Teamop-Devis':adCode()},
+      body:JSON.stringify({
+        messages: adFil.map(m=>({role:m.role,content:m.content})),
+        contexte:{
+          societes:(db.societes||[]),
+          clients:(db.clients||[]).slice(0,60).map(c=>({nom:c.nom,adresse:c.adresse,ville:c.ville}))
+        }
+      })
+    });
+    if(r.status===403){ adBusy=false; adFil.pop(); localStorage.removeItem(AD_CODE_KEY);
+      toast('Code d’accès refusé'); views.assistantDevis(); adDemanderCode(); return; }
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ adBusy=false; adFil.push({role:'assistant',content:j.error||'Le serveur n’a pas répondu.'}); views.assistantDevis(); return; }
+    const msg={role:'assistant',content:j.reply||'…'};
+    if(j.devis){ try{ msg.devisId=adCreerDevis(j.devis); }catch(e){ console.error('création devis assistant',e); msg.content+='\n\n(le devis n’a pas pu être enregistré)'; } }
+    adFil.push(msg); adBusy=false; views.assistantDevis();
+    if(msg.devisId) toast('💰 Devis créé');
+  }catch(e){
+    adBusy=false;
+    adFil.push({role:'assistant',content:'Serveur injoignable. Vérifie la connexion et réessaie.'});
+    views.assistantDevis();
+  }
+}
+
 views.messagerie=function(){
   db.groupes=db.groupes||[];
   const isMgr=currentUser&&['admin','dr','chefEquipe','commercial'].includes(currentUser.role);
