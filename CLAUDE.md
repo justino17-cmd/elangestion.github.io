@@ -57,14 +57,20 @@ Le fichier de configuration doit contenir au minimum `vapidPublicKey` et
 
 ## Déploiement
 
-`server/install.sh` s'exécute **sur le VPS** : clone dans `/opt/teamop/repo`,
-configuration dans `/opt/teamop/config.json` (chmod 600), données dans
-`/opt/teamop/data`, service systemd `teamop`.
+### Accès
 
 ```bash
-systemctl status teamop          # état
-journalctl -u teamop -f          # journaux en direct
-journalctl -u teamop | grep '^devis '   # appels d'outil de l'assistant devis
+ssh root@api.teamop.fr    # Ubuntu 24.04, Node v22.23.1
+```
+
+`server/install.sh` s'exécute **sur le VPS** : clone dans `/opt/teamop/repo`,
+configuration dans `/opt/teamop/config.json` (chmod 600), données dans
+`/opt/teamop/data`, service systemd `teamop-api`.
+
+```bash
+systemctl status teamop-api          # état
+journalctl -u teamop-api -f          # journaux en direct
+journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devis
 ```
 
 ## Conventions
