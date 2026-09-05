@@ -542,22 +542,37 @@ function vueDevisIA(){
     'Activez la génération de devis par IA, entreprise par entreprise. La clé et les accès restent sur le serveur : l’entreprise ne reçoit ni clé ni code — la fonction se met simplement à marcher chez elle.');
   if(!DIA.loaded) return tete+'<div class="vide">Chargement…</div>';
   if(DIA.err) return tete+'<div class="vide">'+esc(DIA.err)+'</div>';
-  var ids=Object.keys(DIA.equipes);
-  var liste=ids.map(function(t){ var e=DIA.equipes[t]||{};
+  /* Toutes les entreprises connues du serveur, plus celles activées à la main
+     dont l'espace n'existe plus. Aucun code à retaper : on clique sur la ligne
+     de l'entreprise, un point c'est tout. */
+  var vus={}, lignes=[];
+  (DIA.entreprises||[]).forEach(function(x){ vus[x.t]=1; lignes.push({t:x.t,nom:x.nom}); });
+  Object.keys(DIA.equipes).forEach(function(t){ if(!vus[t]) lignes.push({t:t,nom:DIA.noms[t]||''}); });
+
+  var liste=lignes.map(function(x){ var t=x.t, e=DIA.equipes[t]||{}, on=!!e.actif;
+    var offre=(e.moteur==='sonnet'||e.moteur==='deux')?e.moteur:'haiku';
     return '<div class="item" style="cursor:default"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-      /* Le nom de l'entreprise d'abord : c'est ainsi qu'on pense à elle. Le code
-         d'espace passe en dessous — il sert au dépannage, pas à la reconnaître.
-         Sans nom connu (espace supprimé, code saisi à la main), le code reprend
-         la première ligne plutôt que de laisser un vide. */
-      '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(DIA.noms[t]||t)+'</div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+(DIA.noms[t]?'<span class="mono">'+esc(t)+'</span> · ':'')+(e.depuis?'Activé le '+esc(e.depuis)+' · ':'')+(e.n||0)+' devis généré(s)'+(e.dernier?' · dernier le '+esc(e.dernier):'')+'</div></div>'+
-      '<span class="past '+(e.actif?'p-vert':'p-gris')+'">'+(e.actif?'Actif':'Coupé')+'</span>'+
-      '<span class="past '+(e.moteur==='sonnet'?'p-vert':'p-gris')+'">'+(e.moteur==='sonnet'?'Sonnet 5 · supplément':'Haiku 4.5 · inclus')+'</span>'+
-      '<button class="pill-act" onclick="diaMoteur(\''+jsq(t)+'\',\''+(e.moteur==='sonnet'?'haiku':'sonnet')+'\')">'+(e.moteur==='sonnet'?'Repasser en inclus':'Passer au supplément')+'</button>'+
-      '<span style="display:flex;gap:7px">'+
-        '<button class="pill-act" onclick="diaToggle(\''+jsq(t)+'\','+(e.actif?'false':'true')+')">'+(e.actif?'Couper':'Réactiver')+'</button>'+
-        '<button class="pill-act" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="diaRetirer(\''+jsq(t)+'\')">Retirer</button></span>'+
-    '</div></div>'; }).join('')||'<div class="vide">Aucune entreprise activée pour l’instant.</div>';
+      /* Le nom d'abord : c'est ainsi qu'on pense à une entreprise. Le code passe
+         en dessous — il sert au dépannage, pas à la reconnaître. */
+      '<div style="flex:1 1 240px;min-width:240px"><div style="font-size:13.5px;font-weight:600">'+esc(x.nom||t)+'</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:2px"><span class="mono">'+esc(t)+'</span>'+
+        (on?' · Activé le '+esc(e.depuis||'')+' · '+(e.n||0)+' devis généré(s)'+(e.dernier?' · dernier le '+esc(e.dernier):''):' · non activé')+'</div></div>'+
+      (on
+        ? '<span class="past p-vert">Actif</span>'+
+          /* Trois offres, trois boutons — celui en cours est mis en avant.
+             « Les deux » donne le choix à l'entreprise, devis par devis. */
+          '<span style="display:flex;gap:7px;flex-wrap:wrap">'+
+            ['haiku','sonnet','deux'].map(function(o){
+              var lib = o==='haiku' ? 'Inclus' : (o==='sonnet' ? 'Supplément' : 'Les deux');
+              var actuel = offre===o;
+              return '<button class="pill-act"'+(actuel?' style="border-color:var(--vert);color:var(--vert);font-weight:700"':'')+
+                ' onclick="diaMoteur(\''+jsq(t)+'\',\''+o+'\')">'+(actuel?'● ':'')+lib+'</button>';
+            }).join('')+
+            '<button class="pill-act" onclick="diaToggle(\''+jsq(t)+'\',false)">Couper</button>'+
+          '</span>'
+        : '<span class="past p-gris">Non activé</span>'+
+          '<button class="pill-act" onclick="diaToggle(\''+jsq(t)+'\',true)">✨ Activer le Devis IA</button>')+
+    '</div></div>'; }).join('')||'<div class="vide">Aucune entreprise connue pour l’instant.</div>';
   var form='<div class="carte"><div class="ttl-carte">Activer une entreprise</div>'+
     '<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">'+
       '<div><div class="lbl">CODE D’ESPACE DE L’ENTREPRISE</div><input class="inp mono" value="'+esc(DIA.nv)+'" oninput="DIA.nv=this.value" placeholder="ex. brigade-anti-nuisible"></div>'+

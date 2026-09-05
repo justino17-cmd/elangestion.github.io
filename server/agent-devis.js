@@ -224,9 +224,12 @@ function monterAgentDevis(app, config, dataDir) {
   const quota = faireQuota(dataDir, plafond);
   let client = null;   // construit au premier appel : pas de clé = pas de client
 
-  app.get('/api/devis/etat', (req, res) => {
-    res.json({ pret: !!apiKey && !!secret, resteAujourdhui: quota.reste() });
-  });
+  /* Pas de route /api/devis/etat ici : ce module est monté bien avant index.js,
+     et Express garde la PREMIÈRE route enregistrée. Celle qui vivait ici masquait
+     donc la version riche d'index.js — l'application lit `equipe` et `restants`,
+     que cette réponse ne contenait pas. Résultat silencieux : ni l'avertissement
+     « non activé », ni le compteur de devis restants ne s'affichaient jamais.
+     Une seule route sert désormais l'état, celle d'index.js. */
 
   app.post('/api/devis/agent', async (req, res) => {
     if (!apiKey || !secret) {

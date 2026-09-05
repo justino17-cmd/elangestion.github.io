@@ -2844,7 +2844,7 @@ app.get('/api/devis/etat', (req, res) => {
   const rep = { ok: true, actif: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
   if (team) rep.equipe = devisActif() && devisTeamOk(team);
   /* L'application n'affiche le second bouton que si l'entreprise y a droit. */
-  if (team) rep.approfondi = devisActif() && devisTeamOk(team) && devisMoteur(team) === 'sonnet';
+  if (team) { rep.offre = devisOffre(team); rep.approfondi = devisActif() && devisTeamOk(team) && rep.offre === 'deux'; }
   res.json(rep);
 });
 
@@ -2870,13 +2870,26 @@ const DEVIS_MOTEURS = {
   sonnet: { modele: 'claude-sonnet-5',           libelle: 'Sonnet 5 · supplément' },
 };
 const DEVIS_MOTEUR_DEFAUT = 'haiku';
+/* Trois offres possibles par entreprise :
+     haiku  — inclus seulement
+     sonnet — supplément seulement
+     deux   — les deux, l'utilisateur choisit devis par devis */
+const DEVIS_OFFRES = { haiku: 1, sonnet: 1, deux: 1 };
+function devisOffre(team) {
+  const x = devisAcces[String(team || '').trim().slice(0, 80)];
+  const m = (x && x.moteur) || DEVIS_MOTEUR_DEFAUT;
+  return DEVIS_OFFRES[m] ? m : DEVIS_MOTEUR_DEFAUT;
+}
 /* Deux étages de décision :
      — le patron ouvre (ou non) le supplément à une entreprise ;
      — l'utilisateur choisit ensuite, devis par devis, rapide ou approfondi.
    Sans supplément, « approfondi » est simplement ignoré : personne ne peut
    s'octroyer Sonnet en modifiant sa requête. */
 function devisMoteurChoisi(team, profond) {
-  return (profond && devisMoteur(team) === 'sonnet') ? 'sonnet' : DEVIS_MOTEUR_DEFAUT;
+  const o = devisOffre(team);
+  if (o === 'sonnet') return 'sonnet';
+  if (o === 'deux') return profond ? 'sonnet' : DEVIS_MOTEUR_DEFAUT;
+  return DEVIS_MOTEUR_DEFAUT;
 }
 function devisMoteur(team) {
   const t = devisAcces[String(team || '').trim().slice(0, 80)];
@@ -2954,6 +2967,22 @@ app.post('/api/devis/generer', async (req, res) => {
 /* Le patron pense en entreprises, pas en codes d'espace : on joint le nom à
    chaque code pour que la Tour de contrôle affiche « teamop teste » et non
    « justin ». Le code reste montré en second — il sert au dépannage. */
+/* Toutes les entreprises connues, code d'espace et nom. Sans cette liste, le
+   patron devait retrouver et retaper un code à la main — et se tromper, puisque
+   celui qu'utilise l'application n'est pas forcément celui qu'il croit. */
+function espacesConnus() {
+  const out = []; const vus = new Set();
+  for (const slug of Object.keys(espacesReg)) {
+    let e = null;
+    try { e = espaceAJour(slug) || espacesReg[slug]; } catch (err) { e = espacesReg[slug]; }
+    let t = ''; try { t = espaceT(e); } catch (err) {}
+    if (!t || vus.has(t)) continue;
+    vus.add(t);
+    out.push({ t: t, nom: espNomPropre(e) || slug });
+  }
+  out.sort(function (a, b) { return a.nom.localeCompare(b.nom, 'fr'); });
+  return out;
+}
 function nomsDesEspaces(codes) {
   const noms = {};
   for (const t of codes) {
@@ -2964,7 +2993,7 @@ function nomsDesEspaces(codes) {
   return noms;
 }
 app.get('/api/monitor/devisia', monAdmin, (req, res) => {
-  res.json({ ok: true, cle: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), equipes: devisAcces, noms: nomsDesEspaces(Object.keys(devisAcces)) });
+  res.json({ ok: true, cle: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), equipes: devisAcces, noms: nomsDesEspaces(Object.keys(devisAcces)), entreprises: espacesConnus() });
 });
 app.post('/api/monitor/devisia', monAdmin, (req, res) => {
   const b = req.body || {};
@@ -2973,7 +3002,7 @@ app.post('/api/monitor/devisia', monAdmin, (req, res) => {
   if (b.supprimer) delete devisAcces[team];
   else if (b.actif) devisAcces[team] = { ...(devisAcces[team] || {}), actif: true, depuis: (devisAcces[team] || {}).depuis || new Date().toISOString().slice(0, 10) };
   else if (devisAcces[team]) devisAcces[team].actif = false;
-  if (b.moteur && DEVIS_MOTEURS[b.moteur] && devisAcces[team]) devisAcces[team].moteur = b.moteur;
+  if (b.moteur && DEVIS_OFFRES[b.moteur] && devisAcces[team]) devisAcces[team].moteur = b.moteur;
   saveDevisAcces();
   res.json({ ok: true, equipes: devisAcces, noms: nomsDesEspaces(Object.keys(devisAcces)) });
 });
