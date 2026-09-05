@@ -251,7 +251,11 @@
   /* MODAL */
   .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:300;display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;}
   .overlay.open{display:flex;}
-  .modal{background:var(--bg1);border:1px solid var(--brd);border-radius:20px;width:100%;max-width:560px;padding:26px;animation:pop .2s ease;}
+  .modal{background:var(--bg1);border:1px solid var(--brd);border-radius:20px;width:100%;max-width:560px;padding:26px;
+    transform-origin:50% 40%;animation:feuilleArrive var(--d-4,.4s) var(--ressort,cubic-bezier(.2,0,0,1)) both;}
+  .overlay.open{animation:voileArrive var(--d-2,.2s) cubic-bezier(.2,0,0,1) both;}
+  @keyframes voileArrive{from{opacity:0}to{opacity:1}}
+  @keyframes feuilleArrive{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
   .modal.wide{max-width:1000px;}
   .overlay.full{padding:0;align-items:flex-start;}
   @media(min-width:781px){ .overlay.full{left:262px;} }
@@ -446,6 +450,9 @@
 
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(120px);background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:13px 22px;border-radius:12px;z-index:320;transition:transform .3s;box-shadow:0 10px 30px rgba(0,0,0,.4);}
   .toast.show{transform:translateX(-50%) translateY(0);}
+  /* Il monte du bas — d'où il vit — sur un ressort amorti, et redescend par le même chemin. */
+  .toast{transition:transform var(--d-4,.4s) var(--ressort,cubic-bezier(.2,0,0,1)),opacity var(--d-2,.2s) ease;opacity:0;box-shadow:var(--ombre-3,0 24px 64px rgba(0,0,0,.45));}
+  .toast.show{opacity:1;}
 
   /* ASSISTANT */
   .fab{position:fixed;right:24px;bottom:24px;width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#1A7A3E,#176030);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 12px 30px rgba(0,0,0,.5),0 0 0 1px rgba(74,222,128,.25);z-index:46;transition:transform .15s;}
@@ -1840,6 +1847,62 @@ body.plan-plein .app{ background:var(--bg); }
 .plg-typechips .tchip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--t2);border:1px solid var(--brd);border-radius:100px;padding:3px 9px;cursor:pointer}
 .plg-typechips .tchip.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent);color:var(--t1)}
 .plg-typechips .tchip .sw{width:8px;height:8px;border-radius:3px;flex-shrink:0}
+
+/* ══ JETONS DE MOUVEMENT ══ les mêmes que la Tour, pour que les deux applications bougent
+   de la même façon. Amortissement 1,0 : aucun rebond, rien ici n'est lancé par un geste. */
+:root{
+  --d-0:60ms; --d-1:120ms; --d-2:200ms; --d-3:280ms; --d-4:400ms;
+  --e-sortie:cubic-bezier(.2,0,0,1);
+  --e-entree:cubic-bezier(1,0,.8,1);
+  --ressort:linear(0,.097,.282,.466,.619,.736,.821,.881,.921,.949,.967,.979,.986,.991,.995,.997,1);
+  --ressort-vif:linear(0,.106,.301,.491,.645,.76,.841,.897,.934,.958,.973,.983,.99,.994,.996,.998,1);
+  --ombre-3:0 24px 64px rgba(0,0,0,.45);
+}
+
+/* ══ TRANSITION DE VUE ══ le navigateur croise les deux écrans. La barre latérale et la
+   barre du haut en sont exclues : ce qui reste ne doit pas clignoter. */
+::view-transition-old(root){animation:opSort 160ms var(--e-entree) both}
+::view-transition-new(root){animation:opEntre var(--d-3) var(--e-sortie) both}
+@keyframes opSort{to{opacity:0;transform:translateY(-6px)}}
+@keyframes opEntre{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.sidebar{view-transition-name:barrelat}
+.topbar{view-transition-name:barrehaut}
+::view-transition-group(barrelat),::view-transition-group(barrehaut){animation:none}
+::view-transition-old(barrelat),::view-transition-new(barrelat),
+::view-transition-old(barrehaut),::view-transition-new(barrehaut){animation:none}
+
+/* ══ ARRIVÉE DU CONTENU ══ les cartes se posent, elles n'apparaissent pas. Uniquement sur
+   .entre, posée par rendreVueAnimee : jamais sur un rafraîchissement automatique. */
+.content.entre > .card,.content.entre > .kpis > .kpi,.content.entre > .tbl,.content.entre > table{
+  animation:opPosee var(--d-3) var(--e-sortie) both}
+.content.entre > .card:nth-child(1),.content.entre > .kpis > .kpi:nth-child(1){animation-delay:0ms}
+.content.entre > .card:nth-child(2),.content.entre > .kpis > .kpi:nth-child(2){animation-delay:18ms}
+.content.entre > .card:nth-child(3),.content.entre > .kpis > .kpi:nth-child(3){animation-delay:36ms}
+.content.entre > .card:nth-child(4),.content.entre > .kpis > .kpi:nth-child(4){animation-delay:54ms}
+.content.entre > .card:nth-child(5),.content.entre > .kpis > .kpi:nth-child(5){animation-delay:72ms}
+.content.entre > .card:nth-child(6),.content.entre > .kpis > .kpi:nth-child(6){animation-delay:90ms}
+@keyframes opPosee{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ══ MATIÈRE ══ le bord haut d'une surface attrape la lumière : c'est ce qui la fait
+   paraître matière et non aplat. La barre du haut est posée SUR le contenu. */
+.card,.kpi,.modal{position:relative}
+.card::before,.kpi::before,.modal::before{
+  content:"";position:absolute;inset:0 0 auto;height:1px;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.10) 22%,rgba(255,255,255,.10) 78%,transparent)}
+html[data-theme="light"] .card::before,html[data-theme="light"] .kpi::before,html[data-theme="light"] .modal::before{
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.9) 22%,rgba(255,255,255,.9) 78%,transparent)}
+.topbar{-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%)}
+
+/* ══ TYPOGRAPHIE ══ un titre grandit ET se resserre. */
+.topbar h1{font-size:clamp(19px,1.9vw,23px);letter-spacing:-.022em}
+.card-head h3{font-size:17px;line-height:1.3;letter-spacing:-.014em}
+
+@media (prefers-reduced-motion: reduce){
+  ::view-transition-old(root),::view-transition-new(root){animation:none!important}
+  .content.entre > .card,.content.entre > .kpis > .kpi,.content.entre > .tbl,.content.entre > table{animation:none!important}
+  .modal,.overlay.open{animation:none!important}
+  .toast{transition:opacity var(--d-1) ease!important}
+}
 
 /* ══ RÉPONSE À LA PRESSION ═══════════════════════════════════════════════════════
    Le retour visuel part au doigt qui se pose, pas au doigt qui se lève : c'est la
@@ -3566,6 +3629,15 @@ function usageEnvoi(){ try{
 }catch(e){} }
 try{ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') usageEnvoi(); }); }catch(e){}
 function planPleinQuitteSiBesoin(v){ try{ if(v!=='planning'&&planPleinPageOn()) planPleinPage(false); }catch(e){} }
+/* Croise l'ancien écran et le nouveau. La classe .entre déclenche l'arrivée du contenu ;
+   elle se retire seule, sinon le rafraîchissement suivant la rejouerait. */
+function rendreVueAnimee(view){
+  const c=$('content');
+  const sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const poser=()=>{ views[view](); if(c){ c.classList.add('entre'); setTimeout(()=>c.classList.remove('entre'),460); } };
+  if(!document.startViewTransition||sobre){ views[view](); return; }
+  document.startViewTransition(poser);
+}
 function go(view){
   if(!views[view]) view='dashboard';
   try{ usageNote(view); }catch(e){}
@@ -3589,7 +3661,10 @@ function go(view){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===view));
   $('topbar-actions').innerHTML='';
   $('content').classList.toggle('content-map', view==='carteBox'||view==='carteInt');
-  try{ views[view](); }
+  /* On anime le changement de vue — c'est une décision de l'utilisateur — mais JAMAIS le
+     rafraîchissement automatique (views[current]() rappelé toutes les quelques secondes) :
+     sinon l'écran rejouerait son entrée tout seul et donnerait l'impression de bugger. */
+  try{ rendreVueAnimee(view); }
   catch(e){ console.error('Vue '+view+' :',e); $('content').innerHTML=`<div class="card"><div class="card-head"><h3>Affichage indisponible</h3></div><p style="color:var(--t2);font-size:13px;line-height:1.6">Une erreur est survenue sur cette page.<br><span style="color:var(--t3)">${esc(e&&e.message||e)}</span></p><button class="btn ghost sm" style="margin-top:10px" onclick="go('dashboard')">← Retour au tableau de bord</button></div>`; }
   updateBell();
 }
