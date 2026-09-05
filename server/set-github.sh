@@ -53,13 +53,26 @@ with open('/opt/teamop/config.json', 'w') as f:
 # Le jeton n'est jamais réaffiché : on ne dit que sa longueur.
 print('github.depot =', g.get('depot', ''))
 print('github.token =', str(len(g.get('token') or '')), 'caractères')
+# ce que la route exige vraiment : les DEUX. Le script le lit ici pour ne pas l'affirmer à tort.
+open('/tmp/teamop-propose-arme', 'w').write('1' if (g.get('depot') and g.get('token')) else '0')
 PYEOF
 
 chmod 600 "$CONFIG"
 systemctl restart teamop-api
 sleep 2
-if curl -s http://127.0.0.1:8080/health | grep -q '"ok":true'; then
+ARME=$(cat /tmp/teamop-propose-arme 2>/dev/null || echo 0)
+rm -f /tmp/teamop-propose-arme
+
+if ! curl -s http://127.0.0.1:8080/health | grep -q '"ok":true'; then
+  echo "❌ Le serveur ne répond pas — montre cette sortie à Claude"
+  exit 1
+fi
+
+# PROPOSE exige le dépôt ET le jeton. Annoncer un succès quand il en manque un, c'est
+# laisser croire l'agent armé alors qu'il refusera à la première demande.
+if [ "$ARME" = "1" ]; then
   echo "✅ Serveur redémarré — PROPOSE peut ouvrir des propositions (en brouillon, jamais fusionnées)."
 else
-  echo "❌ Le serveur ne répond pas — montre cette sortie à Claude"
+  echo "⚠️  Serveur redémarré, mais PROPOSE reste INERTE : il faut le dépôt ET le jeton."
+  echo "    Relance ce script et colle le jeton (rien ne s'affiche pendant la saisie)."
 fi
