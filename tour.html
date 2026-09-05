@@ -9,142 +9,352 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-/* ══ LES COULEURS ══ mode nuit par défaut, mode jour en surcharge ══ */
-body{--bg:#0D1624;--surface:#16203A;--inset:#0F1830;--hover:#1B2542;--sel:#1B2C46;--border:rgba(160,180,220,.16);--line:rgba(234,238,247,.10);--hairline:rgba(234,238,247,.06);--inpBorder:#243154;--borderHover:#2EB872;--ghost:#243154;--chip:#1B2542;--avatar:#1D4A33;--avatarBorder:#2C5C42;--text:#EAEEF7;--text2:#B6C2D9;--muted:#8B9AB8;--dim:#8090B0;--code:#A8B6D6;--strong:#FFFFFF;--link:#4FD196;--blueSoft:#7FE0B4;--red:#E0524D;--redText:#F08A85;--amber:#E79A3C;--green:#2EB872;--gray:#8B9AB8;--headerBg:rgba(13,22,36,.92);--acc:#2EB872;--accBg:rgba(46,184,114,.13);--accBrd:rgba(46,184,114,.38);--on-acc:#06231A}
-body.jour{--bg:#EEF2F9;--surface:#FFFFFF;--inset:#F4F7FC;--hover:#E9EEF8;--sel:#E3F5EB;--border:#DBE3F2;--line:#E6EBF5;--hairline:#EEF1F8;--inpBorder:#C6D2EA;--borderHover:#1E7A4E;--ghost:#C6D2EA;--chip:#E8EEF9;--avatar:#DCF0E5;--avatarBorder:#A9D9C0;--text:#16203A;--text2:#33415F;--muted:#55637F;--dim:#5F6E8C;--code:#3D4C6E;--strong:#0C1428;--link:#1B6B45;--blueSoft:#125234;--red:#D43A3A;--redText:#C53535;--amber:#8A5600;--green:#0C7A50;--gray:#5E6C8B;--headerBg:rgba(248,250,254,.92);--acc:#1B6B45;--accBg:rgba(27,107,69,.10);--accBrd:rgba(27,107,69,.32);--on-acc:#FFFFFF;color-scheme:light}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',system-ui,sans-serif;color-scheme:dark;-webkit-font-smoothing:antialiased}
-*{box-sizing:border-box}
-a{color:var(--link);text-decoration:none}
-a:hover{color:var(--blueSoft);text-decoration:underline}
-::selection{background:var(--accBrd)}
-input::placeholder,textarea::placeholder{color:var(--dim)}
-@keyframes toastIn{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
-.mono{font-family:'IBM Plex Mono',monospace}
+/* ══ JETONS ══ nuit par défaut (= la maquette courrier-1280.png), jour en surcharge sur body.jour ══════════
+   Ratios WCAG calculés (luminance relative sRGB). Lecture : « 5,7 » = 5,7:1. Seuils : texte 4,5 · composant/indicateur 3.
+   Fonds de référence nuit : bg #0D1624 · surface #16203A · inset #0F1830 · hover #1B2542 · sel #1B2C46.
+   Quand un fond n'est pas nommé, c'est --surface ; le pire cas (souvent --sel, la ligne sélectionnée) est toujours donné.
+   Bords de cartes et séparateurs (--border, --line, --hairline) sont décoratifs : exempts de 1.4.11, ils restent fins comme sur la maquette. */
+body{
+  color-scheme:dark;
+  /* ── surfaces ─────────────────────────────────────────────── */
+  --bg:#0D1624;                    /* la page */
+  --surface:#16203A;               /* cartes, colonne liste, lecteur */
+  --inset:#0F1830;                 /* en creux : champs, colonne dossiers, blocs code */
+  --eleve:#1B2542;                 /* posé au-dessus : toast, menus */
+  --hover:#1B2542;                 /* survol d'une ligne */
+  --sel:#1B2C46;                   /* ligne ou carte sélectionnée */
+  --chip:#1B2542;
+  --fond2:var(--inset);            /* ← MANQUAIT (7 usages inline L462, L721, L1715-1725) : champs d'abonnement, code promo, tuiles connexions */
+  --headerBg:rgba(13,22,36,.80);   /* matériau du bandeau, flouté par-dessous ; rendu opaque si transparence réduite */
+  --scrim:rgba(4,8,18,.72);        /* voile de la modale : on assombrit pour concentrer */
+  /* ── traits ───────────────────────────────────────────────── */
+  --border:rgba(160,180,220,.16);  /* bord fin des cartes (≈ #242F41) — décoratif */
+  --line:rgba(234,238,247,.10);    /* séparateurs */
+  --hairline:rgba(234,238,247,.06);
+  --trait-ui:#66779C;              /* bordure de champ, sélecteur, bouton fantôme, bouton icône : 3,60 sur surface · 3,37 sur hover/eleve · 3,13 sur sel · 4,05 sur bg ✓ */
+  --inpBorder:var(--trait-ui);     /* alias hérité */
+  --ghost:var(--trait-ui);         /* alias hérité */
+  --borderHover:var(--acc);        /* alias hérité : survol et focus passent au vert */
+  /* ── encres ───────────────────────────────────────────────── */
+  --text:#EAEEF7;                  /* 13,9 · 12,1 sur sel */
+  --strong:#FFFFFF;                /* 16,1 · 14,0 sur sel */
+  --text2:#B6C2D9;                 /* 9,0 · 7,8 sur sel */
+  --muted:#8B9AB8;                 /* 5,7 · 4,96 sur sel · 4,52 sur les pastilles ✓ */
+  --dim:#8494B4;                   /* 5,3 · 4,95 sur hover · 4,60 sur sel ✓ (l'ancien #8090B0 tombait à 4,37 sur sel) — jamais dans une pastille */
+  --code:#A8B6D6;                  /* 8,7 sur inset */
+  /* ── le vert, unique ──────────────────────────────────────── */
+  --marque:#2EB872;                /* pastille « OP » blanc sur vert : logotype, exempt (2,56) ; la même en jour et en nuit */
+  --acc:#2EB872;                   /* remplissage, soulignement d'onglet, liseré, point non lu : UI 7,1 sur bg · 6,3 sur surface · 5,5 sur sel ✓ — en texte : 5,0 minimum (pastille verte) ✓ */
+  --acc-hover:#38C27C;
+  --acc-press:#27A566;
+  /* le vert vif reste celui de la maquette pour la pastille, les liserés et le texte */
+  --acc-fill:#1E8450;              /* le vert QUAND IL REMPLIT (bouton, toast, badge plein) : assez profond pour porter du blanc — 4,70 ✓ */
+  --acc-fill-hover:#22945A;         /* 4,08 en blanc : survol, donc transitoire — le repos tient 4,70 */
+  --acc-fill-press:#1A7145;         /* 5,55 ✓ */
+  --on-acc:#FFFFFF;                /* le blanc de la maquette, conservé : 4,70 sur --acc-fill ✓ */
+  --accBg:rgba(46,184,114,.13);    /* fond teinté : dossier actif, badge CONTRÔLE, chip.acc, p-bleu (≈ #132D39 sur inset, #193441 sur surface) */
+  --accBrd:rgba(46,184,114,.38);
+  --acc-txt:var(--acc);            /* le vert quand il est écrit */
+  --link:#4FD196;                  /* liens, compteurs, badge CONTRÔLE : 8,4 sur surface · 7,5 sur accBg ✓ */
+  --blueSoft:#7FE0B4;              /* alias hérité (a:hover, bdg-b, avatar J) : 6,4 sur avatar · 10+ sur surface ✓ */
+  --vert:var(--acc);               /* ← MANQUAIT (2 usages L571 : offre Devis IA en cours) */
+  --green:var(--acc);              /* état « ok » = le même vert : 12 usages texte ✓ */
+  --avatar:#1D4A33;--avatarBorder:#2C5C42;
+  /* ── états ────────────────────────────────────────────────── */
+  --amber:#E79A3C;                 /* 7,0 · 6,1 sur sel · 5,5 sur pastille ambre ✓ */
+  --red:#F07470;                   /* points de gravité, icônes, bordures : UI 5,7 ; sûr en texte aussi (4,51 sur pastille rouge) ✓ */
+  --redText:#F08A85;               /* 6,7 · 5,8 sur sel · 5,3 sur pastille rouge · 6,1 sur badge d'onglet ✓ */
+  --on-red:#1A0606;                /* encre sur rouge plein (.btn-plein.danger) : 6,9 sur --red ✓ */
+  --gray:#8B9AB8;                  /* 5,7 · 4,56 sur pastille grise ✓ */
+  --vertBg:rgba(46,184,114,.14);   /* pastilles : fonds teintés (≈ #193542, #33313A, #352F44, #26314C sur surface) */
+  --ambreBg:rgba(231,154,60,.14);
+  --rougeBg:rgba(240,138,133,.14);
+  --grisBg:rgba(139,154,184,.14);
+  /* ── ombres (la nuit sépare par les bords ; l'ombre n'est que pour ce qui flotte) ── */
+  --ombre-1:0 1px 0 rgba(0,0,0,.25);
+  --ombre-2:0 8px 24px rgba(0,0,0,.35);
+  --ombre-3:0 24px 64px rgba(0,0,0,.55),0 0 0 1px rgba(160,180,220,.10);
+  --anneau:0 0 0 2px var(--bg),0 0 0 4px var(--acc);   /* focus clavier : double anneau, ≥ 3 sur toute surface dans les deux modes */
+  --anneau-int:inset 0 0 0 2px var(--acc);             /* même anneau, vers l'intérieur : onglets et lignes dans un conteneur qui rogne */
+  --focus-champ:0 0 0 3px var(--accBg);
+  --chevron:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238B9AB8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  /* ── typographie (IBM Plex conservée : choix de marque) ───── */
+  --fs:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+  --fm:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --suivi-titre:-.012em;           /* les titres se resserrent en grandissant */
+  --suivi-corps:0;
+  --suivi-mono:.16em;              /* les étiquettes mono capitales s'aèrent */
+  --suivi-mono-large:.18em;
+  /* ── espacements (base 4) ────────────────────────────────── */
+  --e-1:4px;--e-2:8px;--e-3:12px;--e-4:16px;--e-5:20px;--e-6:24px;--e-8:32px;
+  /* ── rayons (ceux de la maquette : pastille 9, bouton 9-10, carte 14) ── */
+  --r-1:6px;--r-2:9px;--r-3:12px;--r-4:14px;--r-5:18px;--r-pill:999px;
+  /* ── mouvement ───────────────────────────────────────────── */
+  --d-0:60ms;                      /* la pression : quasi instantanée */
+  --d-1:120ms;                     /* couleur, bordure, survol */
+  --d-2:200ms;                     /* fondu simple */
+  --d-3:280ms;                     /* ressort vif (retour de pression, soulignement) */
+  --d-4:400ms;                     /* ressort standard (feuille, toast) */
+  --e-sortie:cubic-bezier(.2,0,0,1);      /* arrivée : part vite, se pose doucement */
+  --e-entree:cubic-bezier(1,0,.8,1);      /* départ : miroir exact de --e-sortie (chemin symétrique) */
+  /* Ressorts d'Apple traduits en linear() — amortissement 1,0 = aucun rebond. À jouer sur --d-3 / --d-4. */
+  --ressort:linear(0, 0.097, 0.282, 0.466, 0.619, 0.736, 0.821, 0.881, 0.921, 0.949, 0.967, 0.979, 0.986, 0.991, 0.995, 0.997, 1);          /* ζ 1,0 · réponse 0,30 s · 400 ms */
+  --ressort-vif:linear(0, 0.106, 0.301, 0.491, 0.645, 0.760, 0.841, 0.897, 0.934, 0.958, 0.973, 0.983, 0.990, 0.994, 0.996, 0.998, 1);      /* ζ 1,0 · réponse 0,20 s · 280 ms */
+  --ressort-rebond:linear(0, 0.103, 0.311, 0.526, 0.705, 0.836, 0.922, 0.974, 1.001, 1.012, 1.015, 1.014, 1.010, 1.007, 1.004, 1.002, 1.001, 1, 1, 1, 1); /* ζ 0,8 · 500 ms · RÉSERVÉ aux gestes avec élan (aucun aujourd'hui) */
+}
 
-/* ══ CONNEXION ══ */
-#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(900px 480px at 50% -10%, var(--accBg), transparent 65%)}
-.lg-col{width:100%;max-width:420px}
-.lg-marque{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:26px}
-.lg-logo{width:44px;height:44px;border-radius:12px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:#fff}
-.lg-nom{font-weight:700;font-size:19px;letter-spacing:.08em}
-.lg-sous{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--link);letter-spacing:.22em;margin-top:2px}
-.lg-carte{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px 28px}
-.lg-t{font-size:20px;font-weight:700;letter-spacing:-.01em}
-.lg-st{color:var(--muted);font-size:13.5px;margin-top:6px;line-height:1.5}
-.lg-champs{display:flex;flex-direction:column;gap:16px;margin-top:26px}
-.lbl{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.12em;margin-bottom:7px}
-.inp{width:100%;background:var(--inset);border:1px solid var(--inpBorder);border-radius:10px;color:var(--text);padding:11px 13px;font-size:14px;font-family:inherit;outline:none}
-.inp:focus{border-color:var(--borderHover)}
-textarea.inp{line-height:1.55;resize:vertical}
-.btn-plein{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--acc);color:var(--on-acc);border:none;border-radius:10px;padding:12px 16px;font-weight:600;font-size:14.5px;font-family:inherit;cursor:pointer}
-.btn-plein:hover{background:#6b91ff}
-.btn-plein.large{width:100%;margin-top:4px}
-.encart{display:flex;gap:12px;align-items:flex-start;background:var(--accBg);border:1px solid var(--accBg);border-radius:12px;padding:14px 16px;margin-top:16px}
+/* ══ JOUR ══ déduit de la maquette : même charpente, valeurs inversées, un seul vert plus profond ═══════════
+   Fonds de référence : bg #EEF2F9 · surface #FFFFFF · inset #F4F7FC · hover #EDF1F8 · sel #E3E9F5. */
+body.jour{
+  color-scheme:light;
+  --bg:#EEF2F9;--surface:#FFFFFF;--inset:#F4F7FC;--eleve:#FFFFFF;--hover:#EDF1F8;--sel:#E3E9F5;--chip:#E8EEF9;
+  --headerBg:rgba(248,250,254,.82);
+  --scrim:rgba(22,32,58,.45);
+  --border:#DBE3F2;--line:#E6EBF5;--hairline:#EEF1F8;
+  --trait-ui:#7684A2;              /* 3,76 sur surface · 3,35 sur bg · 3,28 sur inset · 3,10 sur hover · 3,09 sur sel ✓ */
+  --text:#16203A;                  /* 16,1 · 14,2 sur sel */
+  --strong:#0C1428;                /* 18,3 */
+  --text2:#33415F;                 /* 10,2 · 8,4 sur sel */
+  --muted:#55637F;                 /* 6,0 · 5,3 sur hover · 4,96 sur sel · 4,79 sur accBg/inset ✓ */
+  --dim:#57668A;                   /* 5,7 · 5,05 sur hover · 4,69 sur sel · 4,53 sur accBg/inset ✓ (l'ancien #5F6E8C tombait à 4,41 sur hover) */
+  --code:#3D4C6E;                  /* 8,0 sur inset */
+  --acc:#0F6B41;                   /* UI 5,9 sur bg · 6,6 sur surface · 5,4 sur sel ✓ — texte : 5,1 sur accBg/inset (dossier actif), 5,4 sur bandeau ✓ (#147A4C tombait à 4,25) */
+  --acc-hover:#0C5E39;
+  --acc-press:#0A5131;
+  --on-acc:#FFFFFF;                /* 6,56 sur acc · 7,85 sur acc-hover · 9,40 sur acc-press ✓ */
+  --acc-fill:var(--acc);--acc-fill-hover:var(--acc-hover);--acc-fill-press:var(--acc-press);  /* le jour n'a pas besoin d'un second vert */
+  --accBg:rgba(15,107,65,.10);--accBrd:rgba(15,107,65,.32);
+  --link:#0F6B41;                  /* 6,6 sur surface · 5,7 sur accBg ✓ */
+  --blueSoft:#125234;              /* 7,7 sur avatar · 12+ sur surface ✓ */
+  --avatar:#DCF0E5;--avatarBorder:#A9D9C0;
+  --amber:#8A5600;                 /* 6,2 · 5,4 sur sel · 5,2 sur pastille ambre ✓ */
+  --red:#C53535;                   /* UI 4,7 ; en texte 4,75 sur bg ✓ */
+  --redText:#B32E2E;               /* 6,3 · 5,35 sur pastille rouge · 4,94 sur badge d'onglet ✓ (#C53535 tombait à 4,22 sur le badge) */
+  --on-red:#FFFFFF;                /* 5,34 sur --red ✓ */
+  --gray:#57658A;                  /* 5,8 · 4,93 sur pastille grise ✓ (#5E6C8B tombait à 4,49) */
+  --vertBg:rgba(15,107,65,.12);--ambreBg:rgba(138,86,0,.12);--rougeBg:rgba(179,46,46,.10);--grisBg:rgba(87,101,138,.12);
+  --ombre-1:0 1px 2px rgba(22,32,58,.06);
+  --ombre-2:0 8px 24px rgba(22,32,58,.12);
+  --ombre-3:0 24px 64px rgba(22,32,58,.22),0 0 0 1px rgba(22,32,58,.06);
+  --chevron:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2355637F' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  /* --marque, --fond2, --vert, --green, --acc-txt, --inpBorder, --ghost, --borderHover, --anneau, --anneau-int, --focus-champ : alias, ils suivent tout seuls */
+}
+/* Le jour ne se décide pas dans le HTML : la barre de défilement de la racine suit body */
+html{margin:0;padding:0;color-scheme:dark}
+html:has(body.jour){color-scheme:light}
+
+/* ══ SOCLE ═══════════════════════════════════════════════════════════════════════════════ */
+body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--fs);font-size:14px;line-height:1.45;letter-spacing:var(--suivi-corps);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+*{box-sizing:border-box}
+a{color:var(--link);text-decoration:none;text-underline-offset:2px;transition:color var(--d-1) var(--e-sortie)}
+a:hover{color:var(--blueSoft);text-decoration:underline}
+a:focus-visible{outline:none;border-radius:3px;box-shadow:var(--anneau)}
+::selection{background:var(--accBrd)}
+input::placeholder,textarea::placeholder{color:var(--dim);opacity:1}
+input[type=checkbox],input[type=radio]{accent-color:var(--acc)}
+.mono{font-family:var(--fm)}
+/* Les nombres s'alignent en colonne : chiffres tabulaires partout où l'on compare */
+.mono,.kpi .n,.m-h,.lec-h,.dos .n,.tbl .rw,td,.past,.bdg-r,.bdg-b{font-variant-numeric:tabular-nums}
+/* Barres de défilement fines, dans le ton */
+.mail-rows,.mail-lect,.tbl .scroll,nav.tabs,.code,.carte,#tour-panneau>div{scrollbar-width:thin;scrollbar-color:var(--trait-ui) transparent}
+/* Focus clavier : un seul langage pour tout ce qui se pilote au clavier */
+button:focus-visible,[role=button]:focus-visible,.inp:focus-visible,.sel-f:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:none;box-shadow:var(--anneau)}
+
+/* ══ BOUTONS ═══ trois variantes : plein (une seule action par écran), fantôme (le reste), discret (.pill-act, actions de ligne) ══
+   Réponse à la pression, pas au relâchement : :active tombe en 60 ms, le retour remonte sur ressort (280 ms). */
+.btn-plein,.btn-fant,.btn-icone,.pill-act,.mode-fixe{-webkit-tap-highlight-color:transparent;user-select:none;transition:background-color var(--d-1) var(--e-sortie),border-color var(--d-1) var(--e-sortie),color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
+.btn-plein:active,.btn-fant:active,.btn-icone:active,.pill-act:active,.mode-fixe:active{transform:scale(.97);transition-duration:var(--d-0)}
+/* plein */
+.btn-plein{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--acc-fill);color:var(--on-acc);border:1px solid transparent;border-radius:var(--r-2);padding:10px 16px;min-height:38px;font-weight:600;font-size:14px;font-family:inherit;letter-spacing:0;cursor:pointer;box-shadow:var(--ombre-1)}
+.btn-plein:hover{background:var(--acc-fill-hover)}
+.btn-plein:active{background:var(--acc-fill-press)}
+.btn-plein.large{width:100%;margin-top:4px;min-height:44px;font-size:14.5px}
+.btn-plein.danger{background:var(--red);color:var(--on-red)}    /* encre sombre la nuit (6,9), blanche le jour (5,3) ; à réserver à l'irréversible */
+.btn-plein svg{flex:0 0 auto}
+/* fantôme */
+.btn-fant{display:inline-flex;align-items:center;gap:7px;background:transparent;border:1px solid var(--trait-ui);color:var(--text2);border-radius:var(--r-2);padding:7px 12px;min-height:34px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer}
+.btn-fant:hover{background:var(--hover);color:var(--strong);border-color:var(--trait-ui)}
+.btn-fant:active{background:var(--sel)}
+.btn-fant.danger{color:var(--redText);border-color:var(--red)}
+.btn-fant.danger:hover{background:var(--rougeBg)}
+/* icône seule (mode jour/nuit, rafraîchir) : 34 px, l'icône est en --text2 (≥ 7) */
+.btn-icone{display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--trait-ui);color:var(--text2);border-radius:var(--r-2);width:34px;height:34px;cursor:pointer;flex-shrink:0}
+.btn-icone:hover{background:var(--hover);color:var(--strong)}
+.mode-fixe{position:fixed;top:18px;right:18px;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--trait-ui);color:var(--text2);border-radius:var(--r-2);width:36px;height:36px;cursor:pointer;z-index:30}
+.mode-fixe:hover{background:var(--hover);color:var(--strong)}
+/* discret : action de ligne, état coloré par modificateur */
+.pill-act{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--trait-ui);border-radius:var(--r-2);padding:6px 12px;min-height:32px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;color:var(--text2)}
+.pill-act:hover{background:var(--hover);color:var(--strong)}
+.pill-act:active{background:var(--sel)}
+.pill-act.amb{color:var(--amber);border-color:var(--amber)}
+.pill-act.vrt{color:var(--green);border-color:var(--green)}
+.pill-act.gri{color:var(--gray)}
+/* désactivé : on garde le survol muet, le curseur dit pourquoi, le title reste lisible (pas de pointer-events:none) */
+.btn-plein:disabled,.btn-fant:disabled,.btn-icone:disabled,.pill-act:disabled,[aria-disabled=true],.inactif{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn-plein:disabled,.btn-fant:disabled,.btn-icone:disabled,.pill-act:disabled,[aria-disabled=true],.inactif{transform:none!important}
+.btn-plein:disabled:hover{background:var(--acc-fill)}
+.btn-fant:disabled:hover,.btn-icone:disabled:hover,.pill-act:disabled:hover{background:transparent;color:var(--text2)}
+
+/* ══ CHAMPS ═══ en creux (--inset), bordure à 3:1, focus = bordure verte + halo doux ══ */
+.lbl{font-family:var(--fm);font-size:10.5px;font-weight:600;color:var(--muted);letter-spacing:var(--suivi-mono);text-transform:uppercase;margin-bottom:7px}
+.inp{width:100%;background:var(--inset);border:1px solid var(--trait-ui);border-radius:var(--r-3);color:var(--text);padding:10px 12px;min-height:38px;font-size:14px;font-family:inherit;outline:none;transition:border-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie),background-color var(--d-1) var(--e-sortie)}
+.inp:hover{border-color:var(--text2)}
+.inp:focus,.inp:focus-visible{border-color:var(--acc);box-shadow:var(--focus-champ)}
+.inp:user-invalid{border-color:var(--red)}
+.inp:disabled{opacity:.55;cursor:not-allowed}
+textarea.inp{line-height:1.55;resize:vertical;min-height:88px}
+/* sélecteur : natif mais habillé, chevron dans le ton, menu déroulant qui suit color-scheme */
+.sel-f{background:var(--inset) var(--chevron) no-repeat right 9px center;-webkit-appearance:none;appearance:none;border:1px solid var(--trait-ui);border-radius:var(--r-2);color:var(--text);padding:8px 30px 8px 11px;min-height:36px;font-size:13px;font-family:inherit;outline:none;cursor:pointer;transition:border-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie)}
+.sel-f:hover{border-color:var(--text2)}
+.sel-f:focus,.sel-f:focus-visible{border-color:var(--acc);box-shadow:var(--focus-champ)}
+.sel-f option{background:var(--surface);color:var(--text)}
+/* barre de recherche : même creux, l'icône s'allume quand on écrit dedans */
+.rech{display:flex;align-items:center;gap:9px;background:var(--inset);border:1px solid var(--trait-ui);border-radius:var(--r-3);padding:8px 12px;min-height:38px;transition:border-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie)}
+.rech:hover{border-color:var(--text2)}
+.rech:focus-within{border-color:var(--acc);box-shadow:var(--focus-champ)}
+.rech input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--text);font-size:13.5px;font-family:inherit;box-shadow:none!important}
+.rech svg{color:var(--dim);flex-shrink:0;transition:color var(--d-1) var(--e-sortie)}
+.rech:focus-within svg{color:var(--acc)}
+.filtres{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+
+/* ══ PASTILLES & PUCES ═══ texte coloré sur fond teinté à 12-14 % ; tout passe 4,5 dans les deux modes ══ */
+.past{display:inline-block;border-radius:var(--r-pill);font-size:11px;font-weight:700;letter-spacing:.01em;line-height:1.5;padding:2px 10px;white-space:nowrap;vertical-align:middle}
+.p-bleu{background:var(--accBg);color:var(--link)}       /* nom hérité : c'est le vert d'accent */
+.p-vert{background:var(--vertBg);color:var(--green)}
+.p-ambre,.p-orange{background:var(--ambreBg);color:var(--amber)}   /* .p-orange manquait (L746, L768) */
+.p-rouge{background:var(--rougeBg);color:var(--redText)}
+.p-gris{background:var(--grisBg);color:var(--gray)}
+.chip{display:inline-block;background:var(--chip);border-radius:var(--r-1);font-size:11.5px;color:var(--text2);padding:3px 9px}
+.chip.acc{background:var(--accBg);color:var(--link)}
+.pt{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block}
+.bdg-r{display:none;background:var(--rougeBg);color:var(--redText);border-radius:var(--r-pill);font-size:11px;padding:1px 8px;font-weight:700;line-height:1.5}
+.bdg-b{display:none;background:var(--accBg);color:var(--blueSoft);border-radius:var(--r-pill);font-size:11px;padding:1px 8px;font-weight:700;line-height:1.5}
+
+/* ══ CARTES ═══ surface + bord fin ; la carte cliquable (.item) répond au survol et à la pression, la sélection = liseré vert à gauche (comme le courrier) ══ */
+.carte{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-4);padding:20px}
+.carte.p24{padding:24px}
+.ttl-carte{font-size:14.5px;font-weight:600;letter-spacing:var(--suivi-titre)}
+.sec{font-family:var(--fm);font-size:10.5px;color:var(--dim);letter-spacing:var(--suivi-mono-large);text-transform:uppercase}
+.item{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:14px 15px;cursor:pointer;margin-bottom:9px;transition:background-color var(--d-1) var(--e-sortie),border-color var(--d-1) var(--e-sortie),box-shadow var(--d-2) var(--e-sortie)}
+.item:hover{border-color:var(--acc)}
+.item:active{background:var(--sel)}
+.item.on{background:var(--sel);border-color:var(--accBrd);box-shadow:inset 3px 0 0 var(--acc)}   /* l'ancien var(--acc)88 était invalide */
+.item:focus-visible{outline:none;box-shadow:var(--anneau)}
+.vide{border:1px dashed var(--trait-ui);border-radius:var(--r-4);padding:34px 22px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.6}
+.encart{display:flex;gap:12px;align-items:flex-start;background:var(--accBg);border:1px solid var(--accBrd);border-radius:var(--r-3);padding:14px 16px;margin-top:16px}
 .encart-tx{font-size:12.5px;color:var(--muted);line-height:1.55}
 .encart-tx b{color:var(--text2);font-weight:600}
-.lg-pied{text-align:center;color:var(--dim);font-size:12px;margin-top:22px;font-family:'IBM Plex Mono',monospace}
-#lg-err{color:var(--redText);font-size:12.5px;margin-top:10px;min-height:16px}
-.mode-fixe{position:fixed;top:18px;right:18px;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--ghost);color:var(--text2);border-radius:9px;width:36px;height:36px;cursor:pointer;z-index:30}
-.mode-fixe:hover{background:var(--hover);color:var(--strong)}
-
-/* ══ COQUILLE ══ */
-#app{min-height:100vh;display:none;flex-direction:column}
-#app.on{display:flex}
-.bandeau{position:sticky;top:0;z-index:20;background:var(--headerBg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.hbar{max-width:1280px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 24px}
-.hg{display:flex;align-items:center;gap:11px}
-.hlogo{width:32px;height:32px;border-radius:9px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff}
-.hnom{font-weight:700;font-size:15.5px;letter-spacing:.04em}
-.hbadge{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--link);letter-spacing:.18em;background:var(--accBg);border:1px solid var(--accBrd);border-radius:6px;padding:3px 8px}
-.hd{display:flex;align-items:center;gap:12px}
-.hchip{display:flex;align-items:center;gap:9px}
-.hava{width:28px;height:28px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--blueSoft)}
-.hqui{font-size:13px;color:var(--text2)}
-.hqui b{font-weight:600}.hqui span{color:var(--dim)}
-.btn-icone{display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--ghost);color:var(--text2);border-radius:9px;width:34px;height:34px;cursor:pointer;flex-shrink:0}
-.btn-icone:hover{background:var(--hover);color:var(--strong)}
-.btn-fant{display:inline-flex;align-items:center;gap:7px;background:transparent;border:1px solid var(--ghost);color:var(--text2);border-radius:9px;padding:7px 12px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer}
-.btn-fant:hover{background:var(--hover);color:var(--strong)}
-nav.tabs{max-width:1280px;margin:0 auto;display:flex;align-items:stretch;gap:2px;padding:0 16px;overflow-x:auto}
-nav.tabs::-webkit-scrollbar{height:0}
-.tab{display:flex;align-items:center;gap:8px;padding:12px 14px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap}
-.tab:hover{color:var(--strong)}
-.tab.on{border-bottom-color:var(--acc);color:var(--strong)}
-.grp{display:flex;align-items:center;gap:8px;margin:0 4px 0 14px;flex-shrink:0}
-.grp i{width:1px;height:22px;background:var(--border);display:block}
-.grp span{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--dim);letter-spacing:.18em}
-.bdg-r{display:none;background:rgba(255,107,107,.16);color:var(--redText);border-radius:99px;font-size:11px;padding:1px 8px;font-weight:700}
-.bdg-b{display:none;background:var(--accBg);color:var(--blueSoft);border-radius:99px;font-size:11px;padding:1px 8px;font-weight:700}
-main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
-.pied{border-top:1px solid var(--line);padding:16px 24px;text-align:center;color:var(--dim);font-size:12px;font-family:'IBM Plex Mono',monospace}
-#toast{display:none;position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:100;background:var(--hover);border:1px solid var(--borderHover);border-radius:11px;padding:11px 18px;font-size:13.5px;font-weight:600;color:var(--text);box-shadow:0 10px 30px rgba(0,0,0,.45);animation:toastIn .25s ease;white-space:nowrap}
-
-/* ══ BRIQUES COMMUNES ══ */
-.carte{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px}
-.carte.p24{padding:24px}
-.sec{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);letter-spacing:.18em;text-transform:uppercase}
-.ttl-page{font-size:21px;font-weight:700;letter-spacing:-.01em}
-.desc{color:var(--muted);font-size:13.5px;line-height:1.55;margin-top:6px}
-.ttl-carte{font-size:14.5px;font-weight:600}
+.barre-act{background:var(--inset);border:1px solid var(--line);border-radius:11px;padding:12px 13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.code{background:var(--inset);border:1px solid var(--line);border-radius:var(--r-3);padding:12px 13px;font-family:var(--fm);font-size:12px;color:var(--code);white-space:pre;overflow-x:auto;line-height:1.55}
 .deux{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
 .col-liste{flex:1 1 345px;min-width:0}
 .col-detail{flex:1.35 1 420px;min-width:0}
-@media(min-width:1000px){.col-detail-sticky{position:sticky;top:118px}}
-.item{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:14px 15px;cursor:pointer;margin-bottom:9px}
-.item:hover{border-color:var(--borderHover)}
-.item.on{background:var(--sel);border-color:var(--acc)88}
-.vide{border:1px dashed var(--border);border-radius:14px;padding:34px 22px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.6}
-.past{display:inline-block;border-radius:99px;font-size:11px;font-weight:700;padding:2px 10px;white-space:nowrap}
-.p-bleu{background:var(--accBg);color:var(--link)}
-.p-vert{background:rgba(62,207,142,.12);color:var(--green)}
-.p-ambre{background:rgba(255,180,84,.12);color:var(--amber)}
-.p-rouge{background:rgba(255,107,107,.12);color:var(--redText)}
-.p-gris{background:rgba(143,163,200,.12);color:var(--gray)}
-.chip{display:inline-block;background:var(--chip);border-radius:6px;font-size:11.5px;color:var(--text2);padding:3px 9px}
-.chip.acc{background:var(--accBg);color:var(--link)}
-.sel-f{background:var(--inset);border:1px solid var(--inpBorder);border-radius:9px;color:var(--text);padding:9px 11px;font-size:13px;font-family:inherit;outline:none;cursor:pointer}
-.filtres{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px}
-.kpi .n{font-size:26px;font-weight:700;letter-spacing:-.01em}
-.kpi .l{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);letter-spacing:.18em;text-transform:uppercase;margin-top:6px}
-.grille-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}
-.tbl{border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden}
-.tbl .scroll{overflow-x:auto}
-.tbl .hd,.tbl .rw{display:grid;gap:12px;padding:12px 16px;align-items:center}
-.tbl .hd{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid var(--line)}
-.tbl .rw{border-top:1px solid var(--hairline);font-size:13.5px}
-.code{background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:12px 13px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--code);white-space:pre;overflow-x:auto;line-height:1.55}
-.pill-act{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--ghost);border-radius:9px;padding:7px 12px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;color:var(--text2)}
-.pill-act:hover{background:var(--hover)}
-.pill-act.amb{color:var(--amber);border-color:rgba(255,180,84,.4)}
-.pill-act.vrt{color:var(--green);border-color:rgba(62,207,142,.4)}
-.pill-act.gri{color:var(--gray)}
-.barre-act{background:var(--inset);border:1px solid var(--line);border-radius:11px;padding:12px 13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.pt{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block}
-.rech{display:flex;align-items:center;gap:9px;background:var(--inset);border:1px solid var(--inpBorder);border-radius:10px;padding:9px 12px}
-.rech input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:13.5px;font-family:inherit}
-.rech svg{color:var(--dim);flex-shrink:0}
-.kpi.clic{cursor:pointer}
-.kpi.clic:hover{border-color:var(--borderHover)}
-.kpi.sel{border-color:var(--acc)}
-.kpi .bars{display:flex;align-items:flex-end;gap:5px;height:38px;margin-top:10px}
-.kpi .bars i{flex:1;background:var(--acc);border-radius:3px 3px 0 0;display:block;min-height:4px}
 .expl-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:14px}
 .expl-l{display:flex;gap:9px;font-size:12.5px;line-height:1.55;color:var(--muted);margin-top:8px}
 .expl-l b{color:var(--text2);font-weight:600}
 .fiche-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px}
-/* sur téléphone, l'en-tête garde l'essentiel : le badge et le nom passent sous silence */
-@media(max-width:640px){ .hbadge,.hqui{display:none} .hbar{padding:11px 14px} main{padding:22px 14px 70px} }
 
-/* ═══ Une même charpente pour tous les écrans ═══════════════════════════════════════════
-   Chaque onglet s'annonce de la même façon : un titre, une phrase qui dit à quoi sert
-   l'écran, et les actions à droite. On sait où regarder sans avoir à chercher. */
+/* ══ PANNEAU ═══ la colonne de détail, collée sous le bandeau ; le contenu défile dessous ══ */
+.panneau{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-4);padding:20px}
+@media(min-width:1000px){.col-detail-sticky,.panneau.colle{position:sticky;top:118px;max-height:calc(100vh - 134px);overflow:auto}}
+
+/* ══ KPI ═══ le chiffre parle, l'étiquette murmure en mono ; sélection = barre verte en haut ══ */
+.grille-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-4);padding:18px 20px;transition:border-color var(--d-1) var(--e-sortie),box-shadow var(--d-2) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
+.kpi .n{font-size:26px;font-weight:700;line-height:1.1;letter-spacing:-.015em}
+.kpi .l{font-family:var(--fm);font-size:10.5px;color:var(--dim);letter-spacing:var(--suivi-mono-large);text-transform:uppercase;margin-top:6px}
+.kpi.clic{cursor:pointer}
+.kpi.clic:hover{border-color:var(--acc)}
+.kpi.clic:active{transform:scale(.985);transition-duration:var(--d-0)}
+.kpi.sel{border-color:var(--accBrd);box-shadow:inset 0 2px 0 var(--acc)}
+.kpi.clic:focus-visible{outline:none;box-shadow:var(--anneau)}
+.kpi .bars{display:flex;align-items:flex-end;gap:5px;height:38px;margin-top:10px}
+.kpi .bars i{flex:1;background:var(--acc);border-radius:3px 3px 0 0;display:block;min-height:4px;transform-origin:bottom;transition:height var(--d-4) var(--ressort)}
+
+/* ══ TABLEAUX ═══ en-tête mono capitales, lignes fines, survol discret ; la version <table> brute du JS reçoit le même habit ══ */
+.tbl{border:1px solid var(--border);border-radius:var(--r-4);background:var(--surface);overflow:hidden}
+.tbl .scroll{overflow-x:auto}
+.tbl .hd,.tbl .rw{display:grid;gap:12px;padding:12px 16px;align-items:center}
+.tbl .hd{font-family:var(--fm);font-size:10.5px;font-weight:600;color:var(--dim);letter-spacing:.12em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+.tbl .rw{border-top:1px solid var(--hairline);font-size:13.5px;transition:background-color var(--d-1) var(--e-sortie)}
+.tbl .rw:first-of-type{border-top:none}
+.tbl .rw:hover{background:var(--hover)}
+.carte table{width:100%;border-collapse:collapse;font-size:13px}
+.carte th{text-align:left;font-family:var(--fm);font-weight:600;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);padding:10px 12px;border-bottom:1px solid var(--line)}
+.carte td{padding:10px 12px;border-top:1px solid var(--hairline);vertical-align:middle}
+.carte tbody tr{transition:background-color var(--d-1) var(--e-sortie)}
+.carte tbody tr:hover td{background:var(--hover)}
+/* <tr class="item"> (L482) : une ligne n'est pas une carte — on lui retire le costume et on garde le sens (survol, sélection, liseré) */
+tr.item{display:table-row;background:transparent;border:none;border-radius:0;padding:0;margin:0;box-shadow:none}
+tr.item.on td{background:var(--sel)}
+tr.item.on td:first-child{box-shadow:inset 3px 0 0 var(--acc)}
+
+/* ══ ONGLETS ═══ icône + libellé ; l'actif est blanc, souligné de vert ; le trait pousse depuis le centre (280 ms, ressort) ══ */
+nav.tabs{max-width:1280px;margin:0 auto;display:flex;align-items:stretch;gap:2px;padding:0 16px;overflow-x:auto}
+nav.tabs::-webkit-scrollbar{height:0}
+.tab{position:relative;display:flex;align-items:center;gap:8px;padding:12px 14px;background:none;border:none;border-bottom:2px solid transparent;border-radius:var(--r-2) var(--r-2) 0 0;color:var(--muted);font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;transition:color var(--d-1) var(--e-sortie),background-color var(--d-1) var(--e-sortie)}
+.tab::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;border-radius:2px 2px 0 0;background:var(--acc);transform:scaleX(0);transition:transform var(--d-3) var(--ressort-vif)}
+.tab:hover{color:var(--strong)}
+.tab:active{background:var(--hover);transition-duration:var(--d-0)}
+.tab.on{color:var(--strong)}
+.tab.on::after{transform:scaleX(1)}
+.tab:focus-visible{outline:none;box-shadow:var(--anneau-int)}
+.tab svg{flex:0 0 auto}
+.grp{display:flex;align-items:center;gap:8px;margin:0 4px 0 14px;flex-shrink:0}
+.grp i{width:1px;height:22px;background:var(--border);display:block}
+.grp span{font-family:var(--fm);font-size:9.5px;color:var(--dim);letter-spacing:var(--suivi-mono-large)}
+
+/* ══ EN-TÊTE COLLANT ═══ un matériau translucide : le contenu passe dessous, flouté et saturé ══ */
+#app{min-height:100vh;display:none;flex-direction:column}
+#app.on{display:flex}
+.bandeau{position:sticky;top:0;z-index:20;background:var(--headerBg);-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%);border-bottom:1px solid var(--line)}
+.hbar{max-width:1280px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 24px}
+.hg{display:flex;align-items:center;gap:11px}
+.hlogo{width:32px;height:32px;border-radius:var(--r-2);background:var(--marque);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;letter-spacing:.02em;color:#fff;flex-shrink:0}
+.hnom{font-weight:700;font-size:15.5px;letter-spacing:.04em}
+.hbadge{font-family:var(--fm);font-size:10.5px;color:var(--link);letter-spacing:var(--suivi-mono-large);background:var(--accBg);border:1px solid var(--accBrd);border-radius:var(--r-1);padding:3px 8px}
+.hd{display:flex;align-items:center;gap:12px}
+.hchip{display:flex;align-items:center;gap:9px}
+.hava{width:28px;height:28px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--blueSoft)}
+.hqui{font-size:13px;color:var(--text2)}
+.hqui b{font-weight:600;color:var(--text)}.hqui span{color:var(--dim)}
+main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
+.pied{border-top:1px solid var(--line);padding:16px 24px;text-align:center;color:var(--dim);font-size:12px;font-family:var(--fm)}
 .page-tete{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
 .page-txt{min-width:0;flex:1 1 320px}
 .page-act{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.ttl-page{font-size:21px;font-weight:700;line-height:1.2;letter-spacing:var(--suivi-titre)}
+.desc{color:var(--muted);font-size:13.5px;line-height:1.55;margin-top:6px}
+@media(max-width:640px){ .hbadge,.hqui{display:none} .hbar{padding:11px 14px} main{padding:22px 14px 70px} }
 
-/* ═══ Le courrier ══════════════════════════════════════════════════════════════════════ */
-.mail{display:grid;grid-template-columns:1fr;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface)}
+/* ══ MODALE + VOILE ═══ #tour-panneau est créé par le JS avec ses styles inline ; on ajoute la matière, l'entrée et le mode jour ══
+   Le voile assombrit et floute (dim to focus) ; la feuille se matérialise depuis son centre (opacité + échelle + 8 px, ressort 400 ms). */
+#tour-panneau{-webkit-backdrop-filter:blur(8px) saturate(120%);backdrop-filter:blur(8px) saturate(120%);animation:voileIn var(--d-2) var(--e-sortie)}
+body.jour #tour-panneau{background:var(--scrim)!important}          /* l'inline pose le voile nuit ; le jour l'allège */
+#tour-panneau>div{background:var(--surface)!important;box-shadow:var(--ombre-3);transform-origin:50% 45%;animation:feuilleIn var(--d-4) var(--ressort)}
+@keyframes voileIn{from{opacity:0}to{opacity:1}}
+@keyframes feuilleIn{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}
+
+/* ══ TOAST ═══ posé au-dessus (--eleve), liseré vert à gauche comme toute chose « en cours » ; monte de 12 px sur ressort ══ */
+#toast{display:none;position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:100;background:var(--eleve);border:1px solid var(--border);border-left:3px solid var(--acc);border-radius:var(--r-3);padding:11px 16px 11px 14px;font-size:13.5px;font-weight:600;color:var(--text);box-shadow:var(--ombre-3);animation:toastIn var(--d-4) var(--ressort);white-space:nowrap;max-width:calc(100vw - 32px);overflow:hidden;text-overflow:ellipsis}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,12px) scale(.98)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
+
+/* ══ CONNEXION ═══ */
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(900px 480px at 50% -10%,var(--accBg),transparent 65%)}
+.lg-col{width:100%;max-width:420px}
+.lg-marque{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:26px}
+.lg-logo{width:44px;height:44px;border-radius:var(--r-3);background:var(--marque);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;letter-spacing:.02em;color:#fff}
+.lg-nom{font-weight:700;font-size:19px;letter-spacing:.08em}
+.lg-sous{font-family:var(--fm);font-size:11px;color:var(--link);letter-spacing:.22em;margin-top:2px}
+.lg-carte{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px 28px;box-shadow:var(--ombre-2)}
+.lg-t{font-size:20px;font-weight:700;letter-spacing:var(--suivi-titre)}
+.lg-st{color:var(--muted);font-size:13.5px;margin-top:6px;line-height:1.5}
+.lg-champs{display:flex;flex-direction:column;gap:16px;margin-top:26px}
+.lg-pied{text-align:center;color:var(--dim);font-size:12px;margin-top:22px;font-family:var(--fm)}
+#lg-err{color:var(--redText);font-size:12.5px;margin-top:10px;min-height:16px}
+
+/* ══ LE COURRIER ═══ la maquette elle-même ══ */
+.mail{display:grid;grid-template-columns:1fr;border:1px solid var(--border);border-radius:var(--r-4);overflow:hidden;background:var(--surface)}
 @media(min-width:1000px){.mail{grid-template-columns:216px minmax(300px,352px) 1fr;min-height:560px}
   .mail-rows{max-height:calc(100vh - 310px)}.mail-lect{overflow-y:auto;max-height:calc(100vh - 244px)}}
 .mail-doss{background:var(--inset);border-right:1px solid var(--line);padding:12px 10px}
@@ -155,44 +365,120 @@ main{width:100%;max-width:1280px;margin:0 auto;padding:30px 24px 90px;flex:1}
 .mail-lect{min-width:0}
 .mail-1{display:block}
 .dos-bar{display:flex;gap:8px;overflow-x:auto;padding-bottom:10px;margin-bottom:12px}
-.dos-bar .dos{width:auto;flex:0 0 auto;border:1px solid var(--border);border-radius:99px;padding:7px 13px}
+.dos-bar .dos{width:auto;flex:0 0 auto;border:1px solid var(--trait-ui);border-radius:var(--r-pill);padding:7px 13px}
 .dos-bar .dos-t{display:none}
-.dos{display:flex;align-items:center;gap:9px;width:100%;background:none;border:none;color:var(--text2);font-family:inherit;font-size:13.5px;text-align:left;padding:8px 10px;border-radius:9px;cursor:pointer}
+.dos{display:flex;align-items:center;gap:9px;width:100%;background:none;border:none;color:var(--text2);font-family:inherit;font-size:13.5px;text-align:left;padding:8px 10px;border-radius:var(--r-2);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background-color var(--d-1) var(--e-sortie),color var(--d-1) var(--e-sortie)}
 .dos:hover{background:var(--hover);color:var(--strong)}
+.dos:active{background:var(--sel);transition-duration:var(--d-0)}
 .dos.on{background:var(--accBg);color:var(--strong);font-weight:600}
+.dos:focus-visible{outline:none;box-shadow:var(--anneau)}
 .dos-i{flex:0 0 auto;font-size:14px}
 .dos-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dos .n{flex:0 0 auto;font-size:11.5px;color:var(--muted);font-weight:700}
 .dos.on .n{color:var(--acc)}
-.dos-t{font-size:10px;letter-spacing:.16em;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin:14px 0 6px 10px}
-.mrow{display:flex;gap:10px;padding:11px 13px;border-bottom:1px solid var(--hairline);cursor:pointer;align-items:flex-start}
+.dos-t{font-size:10px;letter-spacing:var(--suivi-mono);color:var(--muted);font-family:var(--fm);margin:14px 0 6px 10px}
+.mrow{display:flex;gap:10px;padding:11px 13px;border-bottom:1px solid var(--hairline);cursor:pointer;align-items:flex-start;transition:background-color var(--d-1) var(--e-sortie)}
 .mrow:hover{background:var(--hover)}
+.mrow:active{background:var(--sel);transition-duration:var(--d-0)}
 .mrow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
-.mrow .pastille{width:8px;height:8px;border-radius:50%;flex:0 0 8px;margin-top:6px;background:var(--acc)}
+.mrow:focus-visible{outline:none;box-shadow:var(--anneau-int)}
+.mrow .pastille{width:8px;height:8px;border-radius:50%;flex:0 0 8px;margin-top:6px;background:var(--acc);transition:background-color var(--d-2) var(--e-sortie)}
 .mrow.lu .pastille{background:transparent}
 .m-txt{flex:1;min-width:0}
 .m-l1{display:flex;align-items:baseline;gap:8px}
 .m-de{flex:1;min-width:0;font-size:13.5px;font-weight:700;color:var(--strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mrow.lu .m-de{font-weight:600;color:var(--text2)}
-.m-h{flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
+.m-h{flex:0 0 auto;font-family:var(--fm);font-size:11px;color:var(--muted)}
 .m-l2{font-size:13px;color:var(--text);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .m-l3{font-size:11.5px;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .m-sig{margin-left:6px;font-size:11px;color:var(--muted)}
-.m-auto{margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--muted);background:var(--chip);border-radius:99px;padding:1px 7px}
+.m-auto{margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--muted);background:var(--chip);border-radius:var(--r-pill);padding:1px 7px}
 .lec{padding:22px 24px}
 .lec-tete{border-bottom:1px solid var(--line);padding-bottom:16px}
 .lec-ret{margin-bottom:12px}
-.lec-obj{font-size:18px;font-weight:700;line-height:1.35;letter-spacing:-.01em}
+.lec-obj{font-size:18px;font-weight:700;line-height:1.35;letter-spacing:var(--suivi-titre)}
 .lec-qui{display:flex;align-items:center;gap:11px;margin-top:13px;flex-wrap:wrap}
-.m-ava{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex:0 0 34px}
+.m-ava{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex:0 0 34px}   /* teintes inline (L1457) : blanc ≥ 5,3 sur chacune ✓ */
 .lec-id{min-width:0;flex:1 1 160px;display:flex;flex-direction:column}
 .lec-id b{font-size:13.5px;color:var(--strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lec-id span{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lec-h{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;flex:0 0 auto}
+.lec-h{font-size:12px;color:var(--muted);font-family:var(--fm);flex:0 0 auto}
 .lec-act{margin-top:13px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .lec-corps{padding:20px 0;font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word;color:var(--text2)}
 .lec-rep{border-top:1px solid var(--line);padding-top:16px}
 @media(max-width:640px){.lec{padding:18px 15px}}
+
+/* ══ RATTRAPAGE des restes inline ═══ le JS les pose en dur ; ces lignes les ramènent dans le système jusqu'à ce qu'on nettoie le JS ══ */
+#lg-rester{accent-color:var(--acc)!important}                              /* L217 : accent-color:#6c8cff (bleu) */
+#lg-msg,#acc-msg{background:var(--inset)!important;border-color:var(--trait-ui)!important;font-family:inherit}   /* L712, L752 : background:#0d1526 */
+#abo-f,#abo-st,#abo-q,#abo-fin,#pack-promo{font-family:inherit;font-size:13px;min-height:36px;color:var(--text)!important;border-color:var(--trait-ui)!important}   /* L1715-1725 : border var(--line), trop faible */
+#abo-f,#abo-st{-webkit-appearance:none;appearance:none;background-image:var(--chevron)!important;background-repeat:no-repeat!important;background-position:right 9px center!important;padding-right:30px!important}
+#rep-txt,#inc-note,#eq-pass,#pack-promo{font-family:inherit}
+
+/* ══ PRÉFÉRENCES SYSTÈME (hors mouvement, voir bloc suivant) ═══ */
+@media (prefers-reduced-transparency:reduce){
+  .bandeau{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}
+  #tour-panneau{-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+@media (prefers-contrast:more){
+  body{--border:var(--trait-ui);--line:var(--trait-ui);--hairline:var(--line)}
+  .past,.chip{outline:1px solid currentColor;outline-offset:-1px}
+}
+
+/* ══ MOUVEMENT ═══ à coller après les composants ═══════════════════════════════════════════════════════════
+   Règles (Apple, Designing Fluid Interfaces, traduites en CSS sans dépendance) :
+   1. La réponse précède tout : le retour visuel part à la pression (:active), jamais au relâchement. 60 ms.
+   2. Seules les propriétés composées bougent en durée : transform et opacity. Les couleurs et bordures glissent en 120 ms, c'est un fondu, pas un déplacement.
+   3. Amortissement 1,0 partout (aucun rebond) : rien ici n'est lancé par un geste. --ressort-rebond existe mais reste au tiroir.
+   4. Chemins symétriques : ce qui entre par --e-sortie sort par --e-entree (courbes miroir) ; ce qui monte de 12 px redescend de 12 px.
+   5. Ancrage : la feuille de la modale grandit depuis son centre, le soulignement d'onglet pousse depuis le milieu, le toast monte depuis le bas de l'écran où il vit.
+   6. Jamais de verrou : aucune transition ne bloque un clic ; pointer-events reste libre pendant les animations.
+   7. Mouvement réduit = fondu court, jamais rien : l'information reste, le déplacement disparaît.
+
+   Tableau des mouvements ─────────────────────────────────────────────────────────────────────────────────
+   quoi                                  propriété                          courbe             durée
+   pression bouton/tuile/KPI             transform scale(.97 / .985)        ease (sortie)      60 ms   (--d-0)
+   relâchement                           transform → 1                      --ressort-vif      280 ms  (--d-3)
+   survol, focus, sélection              background/border/color/box-shadow --e-sortie         120 ms  (--d-1)
+   soulignement d'onglet actif           transform scaleX(0→1), origine 50 % --ressort-vif      280 ms
+   point « non lu » qui s'éteint         background-color                   --e-sortie         200 ms  (--d-2)
+   barres du KPI 7 jours                 height                             --ressort          400 ms  (--d-4)
+   voile de la modale                    opacity 0→1 (+ blur 8 px statique) --e-sortie         200 ms
+   feuille de la modale                  opacity 0→1, translateY 8→0, scale .96→1  --ressort   400 ms
+   toast                                 opacity 0→1, translateY 12→0, scale .98→1 --ressort   400 ms
+   bascule jour/nuit                     background-color, color            --e-sortie         200 ms  (évite le flash blanc ↔ noir)
+   ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* La bascule de thème ne claque pas : le fond et l'encre glissent (200 ms), le reste suit ses propres règles */
+body,.bandeau,.carte,.item,.kpi,.tbl,.mail,.mail-doss,.inp,.sel-f,.rech,.code,.lg-carte,#toast{transition-property:background-color,color,border-color,box-shadow,transform;transition-duration:var(--d-2),var(--d-2),var(--d-1),var(--d-1),var(--d-3);transition-timing-function:var(--e-sortie),var(--e-sortie),var(--e-sortie),var(--e-sortie),var(--ressort-vif)}
+
+/* Sortie : à brancher le jour où le JS pose une classe .part avant de cacher (3 lignes : classList.add('part') + animationend → display:none) */
+#toast.part{animation:toastOut var(--d-2) var(--e-entree) forwards}
+#tour-panneau.part{animation:voileOut var(--d-2) var(--e-entree) forwards}
+#tour-panneau.part>div{animation:feuilleOut var(--d-2) var(--e-entree) forwards}
+@keyframes toastOut{to{opacity:0;transform:translate(-50%,12px) scale(.98)}}
+@keyframes voileOut{to{opacity:0}}
+@keyframes feuilleOut{to{opacity:0;transform:translateY(8px) scale(.96)}}
+
+/* ══ MOUVEMENT RÉDUIT ═══ fondu court à la place de tout déplacement ; les changements de couleur restent, ils aident à comprendre ══ */
+@media (prefers-reduced-motion:reduce){
+  /* plus aucune propriété géométrique ne glisse ; couleurs et ombres continuent, brièvement */
+  *,*::before,*::after{transition-property:background-color,color,border-color,box-shadow,opacity!important;transition-duration:var(--d-1)!important;transition-timing-function:ease-out!important;animation-delay:0s!important;scroll-behavior:auto!important}
+  /* la pression se lit par la couleur, pas par l'échelle */
+  .btn-plein:active,.btn-fant:active,.btn-icone:active,.pill-act:active,.mode-fixe:active,.kpi.clic:active{transform:none}
+  /* le soulignement d'onglet apparaît, il ne pousse plus */
+  .tab::after{transition:none!important;transform:none;opacity:0}
+  .tab.on::after{opacity:1}
+  /* les barres du KPI se posent tout de suite */
+  .kpi .bars i{transition:none!important}
+  /* voile, feuille, toast : un fondu de 200 ms, sans translation ni échelle, sans flou animé */
+  #tour-panneau{animation:fonduSimple var(--d-2) ease-out}
+  #tour-panneau>div{animation:fonduSimple var(--d-2) ease-out}
+  #toast{animation:fonduSimple var(--d-2) ease-out}
+  #toast.part,#tour-panneau.part,#tour-panneau.part>div{animation:fonduSortie var(--d-1) ease-out forwards}
+  @keyframes fonduSimple{from{opacity:0}to{opacity:1}}
+  @keyframes fonduSortie{to{opacity:0}}
+}
 </style>
 </head>
 <body>

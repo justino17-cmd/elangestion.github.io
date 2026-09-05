@@ -21,7 +21,10 @@ const COUPLES = [
   { textes: ['--t3', '--muted', '--dim'], fonds: SURFACES, seuil: 3.0 },          // secondaires : au moins le seuil UI
   { textes: ['--side-ink'], fonds: ['--side', '--side-active'], seuil: 4.5 },
   { textes: ['--side-mut'], fonds: ['--side', '--side-active'], seuil: 3.0 },
-  { textes: ['--on-acc'], fonds: ['--acc'], seuil: 4.5 },                          // le texte des boutons pleins
+  // Le texte des boutons pleins : sur --acc-fill quand il existe (le vert vif ne sert
+  // alors que pour les traits et le texte), sinon sur --acc.
+  { textes: ['--on-acc'], fonds: ['--acc-fill', '--acc'], premierSeul: true, seuil: 4.5 },
+  { textes: ['--on-red'], fonds: ['--red'], seuil: 4.5 },
 ];
 
 function lireCouleur(v) {
@@ -104,9 +107,11 @@ function verifierContrastes(html) {
     const base = c['--bg'] || c['--surface'] || c['--card'];
     if (!base) continue;
     const faibles = [];
-    for (const { textes, fonds, seuil } of COUPLES) for (const t of textes) {
+    for (const { textes, fonds, seuil, premierSeul } of COUPLES) for (const t of textes) {
       if (!c[t]) continue;
-      for (const f of fonds) {
+      // premierSeul : on ne juge que le premier fond présent — les suivants sont des replis
+      const liste = premierSeul ? [fonds.find((f) => c[f])].filter(Boolean) : fonds;
+      for (const f of liste) {
         if (!c[f]) continue;
         const fond = surFond(c[f], base), texte = surFond(c[t], fond);
         const r = contraste(texte, fond);
