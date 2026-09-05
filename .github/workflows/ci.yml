@@ -1,0 +1,40 @@
+name: Vérifications
+
+# Le dépôt est public et le serveur est exposé sur Internet. Ce workflow
+# vérifie à chaque poussée qu'aucun secret n'est parti avec le code et
+# qu'aucune dépendance de production ne porte de faille grave.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Lecture seule : le workflow n'a aucun droit d'écriture sur le dépôt.
+permissions:
+  contents: read
+
+concurrency:
+  group: verifications-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  securite:
+    name: Secrets et dépendances
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Un jeton GitHub et un mot de passe d'équipe ont déjà fuité une fois.
+      # Cette étape échoue si un secret réapparaît dans les fichiers suivis.
+      - name: Recherche de secrets
+        run: bash scripts/verif-secrets.sh --suivis
+
+      # Les dépendances de production du serveur ne doivent porter aucune
+      # faille connue de niveau élevé ou critique.
+      - name: Failles connues (dépendances du serveur)
+        run: npm audit --omit=dev --audit-level=high --prefix server
