@@ -2843,6 +2843,8 @@ app.get('/api/devis/etat', (req, res) => {
   const team = String(req.query.team || '').trim().slice(0, 80);
   const rep = { ok: true, actif: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
   if (team) rep.equipe = devisActif() && devisTeamOk(team);
+  /* L'application n'affiche le second bouton que si l'entreprise y a droit. */
+  if (team) rep.approfondi = devisActif() && devisTeamOk(team) && devisMoteur(team) === 'sonnet';
   res.json(rep);
 });
 
@@ -2868,6 +2870,14 @@ const DEVIS_MOTEURS = {
   sonnet: { modele: 'claude-sonnet-5',           libelle: 'Sonnet 5 · supplément' },
 };
 const DEVIS_MOTEUR_DEFAUT = 'haiku';
+/* Deux étages de décision :
+     — le patron ouvre (ou non) le supplément à une entreprise ;
+     — l'utilisateur choisit ensuite, devis par devis, rapide ou approfondi.
+   Sans supplément, « approfondi » est simplement ignoré : personne ne peut
+   s'octroyer Sonnet en modifiant sa requête. */
+function devisMoteurChoisi(team, profond) {
+  return (profond && devisMoteur(team) === 'sonnet') ? 'sonnet' : DEVIS_MOTEUR_DEFAUT;
+}
 function devisMoteur(team) {
   const t = devisAcces[String(team || '').trim().slice(0, 80)];
   const m = (t && t.moteur) || DEVIS_MOTEUR_DEFAUT;
@@ -2925,7 +2935,7 @@ app.post('/api/devis/generer', async (req, res) => {
     const devis = await claudeGenere(sys,
       'Demande : ' + String(demande).slice(0, 2000)
         + (contexte ? '\nContexte : ' + String(contexte).slice(0, 1000) : ''),
-      DEVIS_SCHEMA, devisMoteur(teamKey));
+      DEVIS_SCHEMA, devisMoteurChoisi(teamKey, (req.body || {}).profond));
     if (!devis || !Array.isArray(devis.lignes) || !devis.lignes.length) return res.status(502).json({ error: 'Réponse illisible, réessaie' });
     devisCompte();
     if (okEquipe) { const t = devisAcces[teamKey]; t.n = (t.n || 0) + 1; t.dernier = new Date().toISOString().slice(0, 10); saveDevisAcces(); }
