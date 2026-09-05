@@ -14749,7 +14749,27 @@ function bonPdfStr(b){
    sa couleur — comme les bons, plus l'adresse légale de l'entreprise.
    Un devis part chez un client : il porte donc ce qu'un devis doit porter —
    validité, mention de TVA, place pour la signature. */
-function devisPdfStr(d){
+/* Le logo de la société, converti en JPEG par le navigateur : le PDF sait lire
+   le JPEG nativement (DCTDecode), pas le PNG. Passer par un canvas accepte donc
+   tous les formats que l'utilisateur a pu déposer, sans bibliothèque. */
+function devisLogoJpeg(src){
+  return new Promise(res=>{
+    if(!src){ res(null); return; }
+    const im=new Image();
+    im.onload=()=>{ try{
+      const H=90, W=Math.max(1,Math.round(im.width*(H/im.height)));
+      const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+      const cx=cv.getContext('2d');
+      cx.fillStyle='#fff'; cx.fillRect(0,0,W,H);   // le JPEG ignore la transparence
+      cx.drawImage(im,0,0,W,H);
+      const b64=cv.toDataURL('image/jpeg',0.92).split(',')[1];
+      res({b64:b64,w:W,h:H});
+    }catch(e){ res(null); } };
+    im.onerror=()=>res(null);
+    im.src=src;
+  });
+}
+function devisPdfStr(d,logo){
   const cli=db.clients.find(x=>x.id===d.clientId)||{};
   const soc={societe:d.rapportModele||''};
   const ent=bcEntete(soc);
@@ -14773,7 +14793,12 @@ function devisPdfStr(d){
 
   R(0,H-6,W,6,GREEN);
   y=H-M-16;
-  T(M,y,21,cut(ent,28),1,GREEN);
+  /* Logo à gauche quand la société en a un : le nom se décale d'autant. */
+  let nx=M;
+  if(logo && logo.b64){ const lh=34, lw=Math.round(logo.w*(lh/logo.h));
+    ops.push('q',lw+' 0 0 '+lh+' '+M.toFixed(1)+' '+(y-9).toFixed(1)+' cm','/I1 Do','Q');
+    nx=M+lw+12; }
+  T(nx,y,21,cut(ent,logo&&logo.b64?20:28),1,GREEN);
   TR(RGT,y+3,16,'DEVIS',1,DARK);
   TR(RGT,y-13,10,'N° '+(d.num||''),1,GREY);
   TR(RGT,y-25,9,dateFr(d.date),0,GREY);
@@ -14845,30 +14870,49 @@ function devisPdfStr(d){
   const objs=[]; objs[1]='<< /Type /Catalog /Pages 2 0 R >>';
   objs[3]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
   objs[4]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
-  const kids=[]; let n=5;
+  let n=5, xobj='';
+  /* Le logo devient un objet image du PDF, en JPEG brut (DCTDecode). */
+  if(logo && logo.b64){
+    const bin=atob(logo.b64); const io=n++;
+    objs[io]={s:bin, dict:'<< /Type /XObject /Subtype /Image /Width '+logo.w+' /Height '+logo.h+
+      ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+bin.length+' >>'};
+    xobj=' /XObject << /I1 '+io+' 0 R >>';
+  }
+  const kids=[];
   pages.forEach(c=>{ const pg=n++, ct=n++; kids.push(pg+' 0 R');
-    objs[pg]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+ct+' 0 R >>';
+    objs[pg]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>'+xobj+' >> /Contents '+ct+' 0 R >>';
     objs[ct]={s:c}; });
   objs[2]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+pages.length+' >>';
   let out='%PDF-1.4\n'; const offs=[];
   for(let i=1;i<objs.length;i++){ offs[i]=out.length; const o=objs[i];
-    out+= (o&&o.s!==undefined) ? i+' 0 obj\n<< /Length '+o.s.length+' >>\nstream\n'+o.s+'\nendstream\nendobj\n' : i+' 0 obj\n'+o+'\nendobj\n'; }
+    /* Un objet à flux porte son propre dictionnaire quand il en a un (l'image) ;
+       sinon la longueur suffit (les pages de texte). */
+    out+= (o&&o.s!==undefined)
+      ? i+' 0 obj\n'+(o.dict||('<< /Length '+o.s.length+' >>'))+'\nstream\n'+o.s+'\nendstream\nendobj\n'
+      : i+' 0 obj\n'+o+'\nendobj\n'; }
   const xr=out.length;
   out+='xref\n0 '+objs.length+'\n0000000000 65535 f \n';
   for(let i=1;i<objs.length;i++) out+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
   out+='trailer\n<< /Size '+objs.length+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF';
   return out;
 }
-function devisPdfBlob(d){ const s=devisPdfStr(d); const bytes=new Uint8Array(s.length);
+/* Le logo doit être chargé avant d'écrire le PDF : la fabrique devient donc
+   asynchrone. Sans logo, ou si son chargement échoue, le devis sort quand même
+   — le nom et la couleur de la société portent déjà la marque. */
+async function devisPdfBlob(d){
+  const st=(typeof socStyle==='function')?socStyle(d.rapportModele||''):{};
+  const src=st.logo||((db.entreprise||{}).logo)||'';
+  let logo=null; try{ logo=await devisLogoJpeg(src); }catch(e){}
+  const s=devisPdfStr(d,logo); const bytes=new Uint8Array(s.length);
   for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i)&255;
   return new Blob([bytes],{type:'application/pdf'}); }
-function devisPdfOpen(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
-  try{ const u=URL.createObjectURL(devisPdfBlob(d));
+async function devisPdfOpen(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  try{ const u=URL.createObjectURL(await devisPdfBlob(d));
     const w=window.open(u,'_blank'); if(!w) toast('Autorise les pop-ups pour voir le PDF');
     setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },120000);
   }catch(e){ console.error(e); toast('Aperçu PDF impossible'); } }
-function devisPdfDownload(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
-  try{ const u=URL.createObjectURL(devisPdfBlob(d));
+async function devisPdfDownload(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  try{ const u=URL.createObjectURL(await devisPdfBlob(d));
     const a=document.createElement('a'); a.href=u; a.download=('devis-'+(d.num||'')).replace(/[^\w-]/g,'_')+'.pdf';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },60000);
@@ -17081,7 +17125,16 @@ function devisIAModal(){
     <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Décris la prestation avec tes mots — l'IA propose un devis chiffré ligne par ligne, que tu relis et ajustes avant de l'envoyer.</p>
     <p style="color:var(--t3);font-size:11.5px;line-height:1.55;margin:-6px 0 12px">Seule ta description part au générateur. Le <b>nom et l'adresse du client ne sortent pas de cet appareil</b> — ils ne servent pas à faire un prix.</p>
     <div class="field"><label>Client</label><select id="dia-client"><option value="">— Sans client —</option>${db.clients.map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join('')}</select></div>
-    <div class="field"><label>La prestation à chiffrer *</label><textarea id="dia-demande" rows="4" placeholder="Ex : dératisation d'un restaurant de 120 m² avec cave, 8 postes d'appâtage, 3 passages sur 2 mois, à Strasbourg" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-family:inherit"></textarea></div>
+    <!-- La société choisie donne son nom, sa couleur et son logo à l'en-tête du
+         devis — même mécanisme que les bons de commande. -->
+    <div class="field"><label>Société (en-tête du devis)</label><select id="dia-societe">${entSocietes().map(t=>`<option ${(entSocUnique()||'Modèle générique')===t?'selected':''}>${esc(t)}</option>`).join('')}</select>
+      <div style="font-size:11px;color:var(--t3);margin-top:4px">Son nom, sa couleur et son logo apparaîtront en tête du PDF (Paramètres → Mes sociétés).</div></div>
+    <div class="field"><label>La prestation à chiffrer *</label><textarea id="dia-demande" rows="4" placeholder="Ex : dératisation d'un restaurant de 120 m² avec cave, 8 postes d'appâtage, 3 passages sur 2 mois, à Strasbourg" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-family:inherit"></textarea>
+      <!-- Dictée : sur un chantier on a les mains prises. La reconnaissance vocale
+           du navigateur écrit dans le même champ — rien ne part ailleurs, tout se
+           passe sur l'appareil. -->
+      <button type="button" id="dia-mic" class="btn ghost sm" style="margin-top:6px" onclick="devisIAMic()">🎤 Dicter la prestation</button>
+      <span id="dia-mic-etat" style="font-size:11px;color:var(--t3);margin-left:8px"></span></div>
     <div id="dia-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
     <button id="dia-go" class="btn" style="width:100%;justify-content:center;padding:13px" onclick="devisIAGo(false)">✨ Devis rapide</button>
     <!-- Le devis approfondi n'apparaît que si TeamOP l'a ouvert à cette entreprise.
@@ -17114,12 +17167,111 @@ async function devisIAGo(profond){
     if(!r.ok){ show(j.error||('Erreur '+r.status)); rearme(); return; }
     const d=j.devis||{}; const id=uid();
     db.devis.push({id,num:docNum('devis'),clientId,date:todayISO(),statut:'brouillon',tva:Number(d.tva)||20,
+      rapportModele:($('dia-societe')||{}).value||'',
       notes:((d.titre?d.titre+'. ':'')+(d.remarque||'')).trim(),
       lignes:(d.lignes||[]).map(l=>({designation:String(l.designation||'').slice(0,200),qte:Number(l.qte)||1,pu:Number(l.pu)||0}))});
     logEvent('Devis généré par IA',demande.slice(0,60),'crud');
-    save(); closeModal(); toast('✨ Devis proposé — relis et ajuste avant d\'envoyer'+(j.restants!=null?' · '+j.restants+' génération(s) restante(s) aujourd\'hui':''));
-    go('devis'); setTimeout(()=>{ try{ formDoc('devis',id); }catch(e){} },150);
+    save();
+    if(j.restants!=null) toast('✨ Devis proposé · '+j.restants+' génération(s) restante(s) aujourd\'hui');
+    devisIAApercu(id);
   }catch(e){ show('Le serveur ne répond pas — vérifie ta connexion.'); rearme(); }
+}
+
+/* ── Dictée de la prestation ────────────────────────────────────────────────
+   Sur un chantier, on a les mains prises. La reconnaissance vocale du
+   navigateur écrit dans le champ ; rien ne part ailleurs. Safari et Chrome la
+   proposent sous un nom différent, d'où les deux constructeurs testés. */
+let _diaRec=null;
+function devisIAMic(){
+  const Rec=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const et=$('dia-mic-etat'), bt=$('dia-mic');
+  if(!Rec){ if(et) et.textContent='Dictée non disponible sur ce navigateur'; return; }
+  if(_diaRec){ try{ _diaRec.stop(); }catch(e){} _diaRec=null; return; }
+  const r=new Rec(); _diaRec=r;
+  r.lang='fr-FR'; r.continuous=true; r.interimResults=false;
+  if(bt) bt.textContent='⏹ Arrêter la dictée';
+  if(et) et.textContent='À l\'écoute…';
+  r.onresult=e=>{ const ta=$('dia-demande'); if(!ta) return;
+    let txt=''; for(let i=e.resultIndex;i<e.results.length;i++) if(e.results[i].isFinal) txt+=e.results[i][0].transcript;
+    if(txt) ta.value=(ta.value?ta.value.replace(/\s*$/,' '):'')+txt.trim(); };
+  r.onerror=e=>{ if(et) et.textContent = e.error==='not-allowed' ? 'Micro refusé — autorise-le dans le navigateur' : 'Dictée interrompue'; };
+  r.onend=()=>{ _diaRec=null; if(bt) bt.textContent='🎤 Dicter la prestation'; if(et&&et.textContent==='À l\'écoute…') et.textContent=''; };
+  try{ r.start(); }catch(e){ if(et) et.textContent='Dictée impossible à démarrer'; _diaRec=null; }
+}
+
+/* ── Aperçu du devis produit, puis envoi ────────────────────────────────────
+   On montre le PDF tel qu'il partira, on complète le client si besoin, puis on
+   envoie. Le client peut être choisi dans la fiche existante ou saisi ici même :
+   sans lui, un devis n'a personne à qui aller. */
+function devisIAApercu(id){
+  const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  const c=db.clients.find(x=>x.id===d.clientId)||{};
+  openModal(`<div class="modal-head"><h3>📄 Devis ${esc(d.num||'')}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div id="dia-pdf-box" style="border:1px solid var(--brd2);border-radius:10px;overflow:hidden;background:#fff;height:46vh;min-height:280px"></div>
+    <div class="form-sec" style="margin-top:14px">À qui l'envoyer</div>
+    <div class="field"><label>Client enregistré</label>
+      <select id="dia-ap-client" onchange="devisIAApClient()">
+        <option value="">— Nouveau client, à saisir ci-dessous —</option>
+        ${db.clients.map(x=>`<option value="${x.id}" ${x.id===d.clientId?'selected':''}>${esc(x.nom)}</option>`).join('')}
+      </select></div>
+    <div id="dia-ap-neuf" style="display:${d.clientId?'none':'block'}">
+      <div class="field-row"><div class="field"><label>Nom *</label><input id="dia-c-nom" value="${esc(c.nom||'')}"></div>
+        <div class="field"><label>Téléphone</label><input id="dia-c-tel" value="${esc(c.tel||'')}"></div></div>
+      <div class="field"><label>E-mail</label><input id="dia-c-email" type="email" value="${esc(c.email||'')}"></div>
+      <div class="field"><label>Adresse</label><input id="dia-c-adresse" value="${esc(c.adresse||'')}"></div>
+      <div class="field-row"><div class="field"><label>Code postal</label><input id="dia-c-cp" value="${esc(c.cp||'')}"></div>
+        <div class="field"><label>Ville</label><input id="dia-c-ville" value="${esc(c.ville||'')}"></div></div>
+    </div>
+    <div id="dia-ap-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" style="flex:1;min-width:150px;justify-content:center" onclick="devisIAEnvoyer('${id}','mail')">📧 Envoyer par e-mail</button>
+      <button class="btn ghost" style="flex:1;min-width:150px;justify-content:center" onclick="devisIAEnvoyer('${id}','sms')">💬 Envoyer par SMS</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn ghost sm" onclick="devisPdfDownload('${id}')">⬇️ Télécharger le PDF</button>
+      <button class="btn ghost sm" onclick="devisIAAppliquer('${id}');closeModal();go('devis');setTimeout(()=>{try{formDoc('devis','${id}')}catch(e){}},150)">✎ Ajuster les lignes</button>
+    </div>`);
+  devisIAApRendu(id);
+}
+/* Le PDF affiché doit refléter le client courant : on le régénère à chaque
+   changement plutôt que de montrer une version périmée. */
+async function devisIAApRendu(id){
+  const box=$('dia-pdf-box'), d=db.devis.find(x=>x.id===id); if(!box||!d) return;
+  try{ const u=URL.createObjectURL(await devisPdfBlob(d));
+    box.innerHTML='<iframe src="'+u+'#toolbar=0" style="width:100%;height:100%;border:0"></iframe>';
+    setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },120000);
+  }catch(e){ box.innerHTML='<div style="padding:16px;color:#666;font-size:13px">Aperçu indisponible — le PDF reste téléchargeable.</div>'; }
+}
+function devisIAApClient(){
+  const sel=($('dia-ap-client')||{}).value||'', bloc=$('dia-ap-neuf');
+  if(bloc) bloc.style.display = sel ? 'none' : 'block';
+}
+/* Applique le client (choisi ou saisi) au devis, en créant la fiche si besoin. */
+function devisIAAppliquer(id){
+  const d=db.devis.find(x=>x.id===id); if(!d) return null;
+  const sel=($('dia-ap-client')||{}).value||'';
+  if(sel){ d.clientId=sel; save(); devisIAApRendu(id); return db.clients.find(x=>x.id===sel)||null; }
+  const nom=(($('dia-c-nom')||{}).value||'').trim();
+  if(!nom) return null;
+  let c=db.clients.find(x=>(x.nom||'').toLowerCase()===nom.toLowerCase());
+  if(!c){ c={id:uid(),nom:nom}; db.clients.push(c); }
+  c.tel=(($('dia-c-tel')||{}).value||'').trim();
+  c.email=(($('dia-c-email')||{}).value||'').trim();
+  c.adresse=(($('dia-c-adresse')||{}).value||'').trim();
+  c.cp=(($('dia-c-cp')||{}).value||'').trim();
+  c.ville=(($('dia-c-ville')||{}).value||'').trim();
+  d.clientId=c.id; save(); devisIAApRendu(id);
+  return c;
+}
+function devisIAEnvoyer(id,mode){
+  const err=$('dia-ap-err'); const show=m=>{ if(err){ err.textContent='⚠ '+m; err.style.display='block'; } };
+  const c=devisIAAppliquer(id);
+  if(!c){ show('Choisis un client enregistré, ou saisis au moins son nom.'); return; }
+  if(mode==='mail' && !c.email){ show('Ce client n\'a pas d\'e-mail — renseigne-le ci-dessus.'); return; }
+  if(mode==='sms' && !c.tel){ show('Ce client n\'a pas de téléphone — renseigne-le ci-dessus.'); return; }
+  closeModal();
+  try{ envoiDoc('devis',id,mode); }
+  catch(e){ toast('Envoi impossible — ouvre le devis et réessaie'); }
 }
 
 let formLignes=[];
