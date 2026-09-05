@@ -89,7 +89,7 @@ const geminiGenere = new Function('config', 'fetch', m[0] + `
   });
   const txt = await r.text();
   verifie('la route le dit franchement (503)', r.status === 503, r.status + ' · ' + txt.slice(0, 120));
-  verifie('… et nomme le script qui répare', /set-gemini\.sh/.test(txt), txt.slice(0, 160));
+  verifie('… et nomme le script qui répare', /set-claude\.sh/.test(txt), txt.slice(0, 160));
   const etat = await fetch(BASE + '/api/devis/etat').then(x => x.json()).catch(() => ({}));
   verifie("… et l'état n'annonce pas « actif » sans clé", etat && etat.actif === false, JSON.stringify(etat));
 
