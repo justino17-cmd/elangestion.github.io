@@ -518,22 +518,25 @@ function chargerIncidents(){
   }).catch(function(e){ INC.err=msgErreur(e); INC.loaded=true; if(TAB==='surveillance'||TAB==='accueil') render(); });
 }
 /* ── ✨ Devis IA : activation entreprise par entreprise (la clé et les codes restent côté serveur) ── */
-var DIA={equipes:{},cle:false,quotaJour:0,utilises:0,loaded:false,err:'',nv:''};
+var DIA={equipes:{},noms:{},cle:false,quotaJour:0,utilises:0,loaded:false,err:'',nv:''};
 function chargerDevisIA(){
   apiGet('/api/monitor/devisia').then(function(d){ if(!d) return;
-    DIA.equipes=d.equipes||{}; DIA.cle=!!d.cle; DIA.quotaJour=d.quotaJour||0; DIA.utilises=d.utilises||0; DIA.loaded=true; DIA.err='';
+    DIA.equipes=d.equipes||{}; DIA.noms=d.noms||{}; DIA.cle=!!d.cle; DIA.quotaJour=d.quotaJour||0; DIA.utilises=d.utilises||0; DIA.loaded=true; DIA.err='';
     if(TAB==='devisia') render();
   }).catch(function(e){ DIA.err=msgErreur(e); DIA.loaded=true; if(TAB==='devisia') render(); });
 }
 function diaEnvoyer(body){
   fetch(API+'/api/monitor/devisia',{method:'POST',headers:hAuth(),body:JSON.stringify(body)})
     .then(function(r){ return r.json(); })
-    .then(function(d){ if(d&&d.equipes){ DIA.equipes=d.equipes; render(); } else if(d&&d.error) alert(d.error); })
+    .then(function(d){ if(d&&d.equipes){ DIA.equipes=d.equipes; DIA.noms=d.noms||DIA.noms; render(); } else if(d&&d.error) alert(d.error); })
     .catch(function(){ alert(INJOIGNABLE); });
 }
 function diaActiver(){ var t=(DIA.nv||'').trim(); if(!t){ alert("Entre le code d'espace de l'entreprise (celui avec lequel son équipe se synchronise)."); return; } DIA.nv=''; diaEnvoyer({teamId:t,actif:true}); }
 function diaToggle(t,on){ diaEnvoyer({teamId:t,actif:!!on}); }
-function diaRetirer(t){ if(confirm('Retirer complètement « '+t+' » de la liste ?')) diaEnvoyer({teamId:t,supprimer:true}); }
+/* Haiku est inclus dans l'abonnement, Sonnet est le supplément payant.
+   On bascule d'un clic : même clé, même appel, seul le modèle change. */
+function diaMoteur(t,m){ diaEnvoyer({teamId:t,moteur:m}); }
+function diaRetirer(t){ var q=DIA.noms[t]?DIA.noms[t]+' ('+t+')':t; if(confirm('Retirer complètement « '+q+' » de la liste ?')) diaEnvoyer({teamId:t,supprimer:true}); }
 function vueDevisIA(){
   var tete=enTete('Devis IA',
     'Activez la génération de devis par IA, entreprise par entreprise. La clé et les accès restent sur le serveur : l’entreprise ne reçoit ni clé ni code — la fonction se met simplement à marcher chez elle.');
@@ -542,9 +545,15 @@ function vueDevisIA(){
   var ids=Object.keys(DIA.equipes);
   var liste=ids.map(function(t){ var e=DIA.equipes[t]||{};
     return '<div class="item" style="cursor:default"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-      '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600" class="mono">'+esc(t)+'</div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+(e.depuis?'Activé le '+esc(e.depuis)+' · ':'')+(e.n||0)+' devis généré(s)'+(e.dernier?' · dernier le '+esc(e.dernier):'')+'</div></div>'+
+      /* Le nom de l'entreprise d'abord : c'est ainsi qu'on pense à elle. Le code
+         d'espace passe en dessous — il sert au dépannage, pas à la reconnaître.
+         Sans nom connu (espace supprimé, code saisi à la main), le code reprend
+         la première ligne plutôt que de laisser un vide. */
+      '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(DIA.noms[t]||t)+'</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+(DIA.noms[t]?'<span class="mono">'+esc(t)+'</span> · ':'')+(e.depuis?'Activé le '+esc(e.depuis)+' · ':'')+(e.n||0)+' devis généré(s)'+(e.dernier?' · dernier le '+esc(e.dernier):'')+'</div></div>'+
       '<span class="past '+(e.actif?'p-vert':'p-gris')+'">'+(e.actif?'Actif':'Coupé')+'</span>'+
+      '<span class="past '+(e.moteur==='sonnet'?'p-vert':'p-gris')+'">'+(e.moteur==='sonnet'?'Sonnet 5 · supplément':'Haiku 4.5 · inclus')+'</span>'+
+      '<button class="pill-act" onclick="diaMoteur(\''+jsq(t)+'\',\''+(e.moteur==='sonnet'?'haiku':'sonnet')+'\')">'+(e.moteur==='sonnet'?'Repasser en inclus':'Passer au supplément')+'</button>'+
       '<span style="display:flex;gap:7px">'+
         '<button class="pill-act" onclick="diaToggle(\''+jsq(t)+'\','+(e.actif?'false':'true')+')">'+(e.actif?'Couper':'Réactiver')+'</button>'+
         '<button class="pill-act" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="diaRetirer(\''+jsq(t)+'\')">Retirer</button></span>'+

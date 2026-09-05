@@ -2841,8 +2841,8 @@ function devisCompte() { devisUtilises(); devisQuota.n++; try { fs.writeFileSync
 
 app.get('/api/devis/etat', (req, res) => {
   const team = String(req.query.team || '').trim().slice(0, 80);
-  const rep = { ok: true, actif: geminiActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
-  if (team) rep.equipe = geminiActif() && devisTeamOk(team);
+  const rep = { ok: true, actif: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
+  if (team) rep.equipe = devisActif() && devisTeamOk(team);
   res.json(rep);
 });
 
@@ -2853,6 +2853,37 @@ function getAnthropic() {
     anthropicClient = new Anthropic({ apiKey: devisConf().cleApi });
   }
   return anthropicClient;
+}
+
+/* Génération d'un devis structuré par Claude — l'équivalent de geminiGenere.
+   `output_config.format` impose le schéma, comme `responseSchema` chez Google :
+   la réponse est du JSON conforme, pas du texte à deviner.
+   Une seule clé alimente désormais tout : EXPLIQUE, PROPOSE, l'assistant et ce
+   générateur. Une clé de moins à poser, à renouveler et à surveiller. */
+/* Deux moteurs, une seule clé. Haiku est inclus dans l'abonnement ; Sonnet est
+   le supplément payant. C'est le même appel — seul l'identifiant de modèle
+   change, donc aucune dépendance ni panne supplémentaire à surveiller. */
+const DEVIS_MOTEURS = {
+  haiku:  { modele: 'claude-haiku-4-5-20251001', libelle: 'Haiku 4.5 · inclus' },
+  sonnet: { modele: 'claude-sonnet-5',           libelle: 'Sonnet 5 · supplément' },
+};
+const DEVIS_MOTEUR_DEFAUT = 'haiku';
+function devisMoteur(team) {
+  const t = devisAcces[String(team || '').trim().slice(0, 80)];
+  const m = (t && t.moteur) || DEVIS_MOTEUR_DEFAUT;
+  return DEVIS_MOTEURS[m] ? m : DEVIS_MOTEUR_DEFAUT;
+}
+
+async function claudeGenere(sys, texte, schema, moteur) {
+  const m = DEVIS_MOTEURS[moteur] || DEVIS_MOTEURS[DEVIS_MOTEUR_DEFAUT];
+  const msg = await getAnthropic().messages.create({
+    model: m.modele, max_tokens: 4000, system: sys,
+    output_config: { format: { type: 'json_schema', schema } },
+    messages: [{ role: 'user', content: texte }]
+  });
+  if (msg.stop_reason === 'refusal') { const e = new Error('demande refusée'); e.refus = true; throw e; }
+  const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
+  return JSON.parse(txt);
 }
 
 // Le schéma garantit une réponse JSON exploitable : mêmes champs que les lignes de devis de l'app
@@ -2878,7 +2909,7 @@ const DEVIS_SCHEMA = {
 
 app.post('/api/devis/generer', async (req, res) => {
   try {
-    if (!geminiActif()) return res.status(503).json({ error: 'Devis IA non configuré sur le serveur — sur le serveur : bash server/set-gemini.sh' });
+    if (!devisActif()) return res.status(503).json({ error: 'Devis IA non configuré sur le serveur — sur le serveur : bash server/set-claude.sh' });
     /* « client » n'est plus lu : le nom et l'adresse d'un client ne servent pas à faire
        un prix, et n'ont donc rien à faire chez un tiers. Le champ reste accepté dans le
        corps pour ne pas casser les applications déjà déployées ; il est ignoré. */
@@ -2891,16 +2922,16 @@ app.post('/api/devis/generer', async (req, res) => {
     if (devisUtilises() >= devisQuotaJour()) return res.status(429).json({ error: 'Quota du jour atteint (' + devisQuotaJour() + ' devis) — réessaie demain' });
 
     const sys = "Tu prépares des devis pour une entreprise française de gestion de nuisibles (dératisation, désinsectisation, désinfection, dépigeonnage) et petits travaux associés. À partir de la demande, produis un devis réaliste et sobre : des lignes claires (désignation précise, quantité, prix unitaire HT en euros, cohérent avec le marché français), la main d'œuvre et le déplacement en lignes séparées quand c'est pertinent, TVA 20 par défaut (10 seulement pour des travaux d'amélioration d'un logement de plus de 2 ans). « remarque » : 1 ou 2 phrases utiles pour le client (garantie, nombre de passages, conditions). Pas de lignes de remplissage.";
-    const devis = await geminiGenere(sys,
+    const devis = await claudeGenere(sys,
       'Demande : ' + String(demande).slice(0, 2000)
         + (contexte ? '\nContexte : ' + String(contexte).slice(0, 1000) : ''),
-      DEVIS_SCHEMA);
+      DEVIS_SCHEMA, devisMoteur(teamKey));
     if (!devis || !Array.isArray(devis.lignes) || !devis.lignes.length) return res.status(502).json({ error: 'Réponse illisible, réessaie' });
     devisCompte();
     if (okEquipe) { const t = devisAcces[teamKey]; t.n = (t.n || 0) + 1; t.dernier = new Date().toISOString().slice(0, 10); saveDevisAcces(); }
     res.json({ ok: true, devis, restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
   } catch (e) {
-    if (e && e.geminiCle) return res.status(502).json({ error: 'Clé Gemini refusée par Google — expirée ou incomplète. Sur le serveur : bash server/set-gemini.sh' });
+    if (e && e.refus) return res.status(422).json({ error: 'Demande refusée — reformule-la.' });
     if (e && e.geminiModele) return res.status(502).json({ error: 'Modèle Gemini introuvable — relance server/set-gemini.sh pour en choisir un disponible' });
     if (e && e.geminiQuota) return res.status(503).json({ error: 'Palier gratuit Gemini saturé pour le moment — réessaie dans quelques minutes' });
     console.error('devis IA:', e && e.message);
@@ -2910,8 +2941,20 @@ app.post('/api/devis/generer', async (req, res) => {
 
 // ── Tour de contrôle : activation du Devis IA entreprise par entreprise.
 //    Le patron active/désactive un espace depuis tour.html — rien à donner aux clients.
+/* Le patron pense en entreprises, pas en codes d'espace : on joint le nom à
+   chaque code pour que la Tour de contrôle affiche « teamop teste » et non
+   « justin ». Le code reste montré en second — il sert au dépannage. */
+function nomsDesEspaces(codes) {
+  const noms = {};
+  for (const t of codes) {
+    let e = null;
+    try { e = espaceParT(t); } catch (err) {}
+    noms[t] = (e && espNomPropre(e)) || '';
+  }
+  return noms;
+}
 app.get('/api/monitor/devisia', monAdmin, (req, res) => {
-  res.json({ ok: true, cle: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), equipes: devisAcces });
+  res.json({ ok: true, cle: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), equipes: devisAcces, noms: nomsDesEspaces(Object.keys(devisAcces)) });
 });
 app.post('/api/monitor/devisia', monAdmin, (req, res) => {
   const b = req.body || {};
@@ -2920,8 +2963,9 @@ app.post('/api/monitor/devisia', monAdmin, (req, res) => {
   if (b.supprimer) delete devisAcces[team];
   else if (b.actif) devisAcces[team] = { ...(devisAcces[team] || {}), actif: true, depuis: (devisAcces[team] || {}).depuis || new Date().toISOString().slice(0, 10) };
   else if (devisAcces[team]) devisAcces[team].actif = false;
+  if (b.moteur && DEVIS_MOTEURS[b.moteur] && devisAcces[team]) devisAcces[team].moteur = b.moteur;
   saveDevisAcces();
-  res.json({ ok: true, equipes: devisAcces });
+  res.json({ ok: true, equipes: devisAcces, noms: nomsDesEspaces(Object.keys(devisAcces)) });
 });
 
 /* ══════════ CODES PROMO — mois offerts, sans carte bancaire ══════════
