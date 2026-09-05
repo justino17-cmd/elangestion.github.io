@@ -16947,6 +16947,7 @@ function devisIAModal(){
   if(!can('devisIA')){ toast('Devis IA non autorisé pour ton compte — vois avec l\'administrateur'); return; }
   openModal(`<div class="modal-head"><h3>✨ Devis IA</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:12px">Décris la prestation avec tes mots — l'IA propose un devis chiffré ligne par ligne, que tu relis et ajustes avant de l'envoyer.</p>
+    <p style="color:var(--t3);font-size:11.5px;line-height:1.55;margin:-6px 0 12px">Seule ta description part au générateur. Le <b>nom et l'adresse du client ne sortent pas de cet appareil</b> — ils ne servent pas à faire un prix.</p>
     <div class="field"><label>Client</label><select id="dia-client"><option value="">— Sans client —</option>${db.clients.map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join('')}</select></div>
     <div class="field"><label>La prestation à chiffrer *</label><textarea id="dia-demande" rows="4" placeholder="Ex : dératisation d'un restaurant de 120 m² avec cave, 8 postes d'appâtage, 3 passages sur 2 mois, à Strasbourg" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:10px 12px;color:var(--t1);font-family:inherit"></textarea></div>
     <div id="dia-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
@@ -16966,9 +16967,11 @@ async function devisIAGo(){
   if(demande.trim().length<5){ show('Décris la prestation d\'abord.'); return; }
   if(btn){ btn.disabled=true; btn.textContent='⏳ Génération en cours… (jusqu\'à une minute)'; }
   try{
-    const cli=clientId?(db.clients.find(c=>c.id===clientId)||{}):null;
+    /* Le client choisi sert à RANGER le devis, pas à le calculer : son nom et son
+       adresse ne quittent pas l'appareil. Le générateur ne reçoit que la prestation —
+       il n'a besoin de rien d'autre pour chiffrer, et ce qui ne part pas ne fuit pas. */
     const r=await fetch(PUSH_API+'/api/devis/generer',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({team:syncTeam(),code:code||undefined,demande,client:cli?(cli.nom+(cli.adresse?', '+cli.adresse:'')):''})});
+      body:JSON.stringify({team:syncTeam(),code:code||undefined,demande})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){ show(j.error||('Erreur '+r.status)); rearme(); return; }
     const d=j.devis||{}; const id=uid();
