@@ -66,6 +66,53 @@ app.use((req, res, next) => {
 //    état périmé — par exemple « Stripe non configuré » alors que Stripe vient d'être relié.
 //    Cela évite aussi de laisser des données privées de clients dans le cache disque.
 app.use('/api/monitor', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+/* ── Journal des e-mails sortants + copie dans la boîte contact ──
+   Chaque envoi est noté (date, destinataire, sujet) pour l'onglet Journal de la
+   Tour, et reçoit une copie cachée (bcc) dans la boîte contact — SAUF les mails
+   contenant des codes secrets, jamais copiés. */
+const LOGO_PATH = path.join(__dirname, '..', 'icons', 'teamop-512.png');
+const LOGO_OK = (() => { try { return fs.existsSync(LOGO_PATH); } catch (e) { return false; } })();
+const LOGO_PIECE = { filename: 'teamop.png', path: LOGO_PATH, cid: 'logoteamop' };
+const MAILS_PATH = path.join(DATA_DIR, 'mails-envoyes.json');
+let mailsLog = []; try { mailsLog = JSON.parse(fs.readFileSync(MAILS_PATH, 'utf8')); } catch (e) {}
+function mailsSave() { try { fs.writeFileSync(MAILS_PATH, JSON.stringify(mailsLog)); } catch (e) {} }
+/* Journaux système (journalctl) : ils sont lus par plus de monde que la Tour et gardés plus
+   longtemps. Une adresse entière, un lien de connexion ou un code n'y ont rien à faire —
+   on n'y met qu'une forme masquée, assez pour reconnaître une ligne, pas pour la rejouer. */
+function masqueMail(a) {
+  const s = String(a || '').trim();
+  const i = s.indexOf('@');
+  if (i < 1) return s ? '(adresse)' : '';
+  return s[0] + '***@' + s.slice(i + 1);
+}
+/* Une entrée du journal des e-mails. Un secret n'y entre JAMAIS — ni par le texte, ni par
+   l'OBJET : c'est par l'objet que le code de confirmation était conservé en clair. */
+function mailsJournal(to, sujet, txt, secret, trace) {
+  try {
+    mailsLog.unshift({ ts: Date.now(), a: String(to || ''),
+      sujet: secret ? '(objet confidentiel)' : String(sujet || '').slice(0, 140),
+      txt: secret ? (trace ? String(trace).slice(0, 400) : '(contenu confidentiel — code de sécurité ou mot de passe, jamais conservé)') : String(txt || '').slice(0, 2000) });
+    if (mailsLog.length > 300) mailsLog.length = 300; mailsSave();
+  } catch (e) {}
+}
+function mailerEnvoi(opts) {
+  // confidentiel : code de sécurité ou mot de passe → jamais journalisé ni copié
+  const secret = opts.confidentiel === true || /code/i.test(String(opts.subject || ''));
+  // trace : ce qu'on garde d'un e-mail confidentiel (destinataire, lien envoyé, espace…) — jamais le secret lui-même
+  mailsJournal(opts.to, opts.subject, opts.text, secret, opts.trace);
+  const o2 = Object.assign({}, opts); delete o2.confidentiel; delete o2.trace; delete o2.diffusion;
+  try {
+    const moi = String(config.notifDemandes || (config.smtp && (config.smtp.from || config.smtp.user)) || '').toLowerCase();
+    /* La copie à soi-même est utile pour un envoi unitaire — on garde une trace de ce qu'on a
+       écrit à un client. Elle devient nuisible sur une diffusion : l'annonce revient UNE FOIS PAR
+       ENTREPRISE dans la boîte support. Avec deux entreprises c'est déjà deux copies ; avec
+       cinquante, les vrais messages clients sont noyés. */
+    if (moi && !secret && !opts.diffusion && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
+  } catch (e) {}
+  if (LOGO_OK && o2.html && String(o2.html).indexOf('cid:logoteamop') >= 0)
+    o2.attachments = (o2.attachments || []).concat([LOGO_PIECE]);
+  return mailer.sendMail(o2);
+}
 
 // ── Anti-abus : deux paliers ────────────────────────────────────────────────
 //
@@ -121,13 +168,46 @@ app.post('/api/sendcode', async (req, res) => {
   const code = String(Math.floor(100000 + Math.random() * 900000));
   codes.set(teamId + '|' + (purpose || 'reset'), { code, email, exp: Date.now() + 10 * 60000, tries: 0 });
   try {
-    await mailer.sendMail({
+    await mailerEnvoi({
+      // le code ne voyage PAS dans l'objet : l'objet est conservé au journal, le corps ne l'est pas
+      confidentiel: true, trace: 'code de confirmation → ' + masqueMail(email) + ' · espace ' + String(teamId).slice(0, 40),
       from: config.smtp.from || config.smtp.user, to: email,
-      subject: 'TeamOP — code de confirmation : ' + code,
-      text: 'Votre code de confirmation TeamOP : ' + code + '\n\nIl expire dans 10 minutes.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.'
+      subject: 'TeamOP — votre code de confirmation',
+      text: 'Votre code de confirmation TeamOP : ' + code + '\n\nIl expire dans 10 minutes.\nSi vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.',
+      html: mailTeamOP({ chip: 'Sécurité', chipBg: '#FFF3E0', chipColor: '#B26E12', titre: 'Votre code de confirmation 🔐',
+        corpsHtml: 'Bonjour,<br>voici le code demandé dans votre application. Il ne sert qu\'une fois.',
+        blocHtml: MAIL_BLOCS.code(code) + '<div style="font-size:12.5px;color:#93A2BF;padding-top:14px">Si vous n\'êtes pas à l\'origine de cette demande, ignorez ce message et vérifiez la sécurité de votre compte.</div>' })
     });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// le compte n'a pas d'e-mail : le code part à l'adresse de l'ENTREPRISE (l'annuaire),
+// et le responsable le transmet — jamais à une adresse tapée librement.
+app.post('/api/sendcode-entreprise', async (req, res) => {
+  const { teamId, purpose, login } = req.body || {};
+  if (!teamId) return res.status(400).json({ error: 'teamId requis' });
+  if (!mailer) return res.status(503).json({ error: 'email_off' });
+  const e = Object.values(espacesReg).find(x => {
+    if (x.t) return x.t === teamId;
+    try { return String(JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')).t || '') === teamId; } catch (err) { return false; }
+  });
+  if (!e || !e.email) return res.status(404).json({ error: 'entreprise_inconnue' });
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  codes.set(teamId + '|' + (purpose || 'reset'), { code, email: e.email, exp: Date.now() + 10 * 60000, tries: 0 });
+  try {
+    const loginSafe = monStr(login, 40).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    await mailerEnvoi({
+      // idem : le code reste dans le corps (jamais journalisé), l'objet n'en porte rien
+      confidentiel: true, trace: 'code de confirmation (équipe) → ' + masqueMail(e.email) + ' · @' + monStr(login, 40),
+      from: config.smtp.from || config.smtp.user, to: e.email,
+      subject: 'TeamOP — un code de confirmation pour votre équipe',
+      text: 'Un membre de votre équipe (identifiant « ' + monStr(login, 40) + ' ») a oublié son mot de passe OP GESTION, et son compte n\'a pas d\'adresse e-mail enregistrée.\n\nCode de confirmation à lui transmettre : ' + code + '\n\nIl expire dans 10 minutes. Si personne dans votre équipe n\'est à l\'origine de cette demande, ignorez ce message.',
+      html: mailTeamOP({ chip: 'Sécurité', chipBg: '#FFF3E0', chipColor: '#B26E12', titre: 'Un code pour votre équipe 🔐',
+        corpsHtml: 'Bonjour,<br>ce code arrive à l\'adresse de l\'entreprise, car le compte concerné n\'a pas d\'adresse e-mail enregistrée.',
+        blocHtml: MAIL_BLOCS.transmettre(loginSafe) + '<div style="height:14px"></div>' + MAIL_BLOCS.code(code) + '<div style="font-size:12.5px;color:#93A2BF;padding-top:14px">Si personne dans votre équipe n\'est à l\'origine de cette demande, ignorez ce message.</div>' }) });
+    const masque = String(e.email).replace(/^(.{2})[^@]*(@.*)$/, '$1•••$2');
+    res.json({ ok: true, envoye: masque });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/checkcode', (req, res) => {
   const { teamId, code, purpose } = req.body || {};
@@ -142,7 +222,7 @@ app.post('/api/checkcode', (req, res) => {
 });
 
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
-app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
+app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, annonce: ANNONCE.version, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
 
 // ── Assistant devis : l'agent qui compose un devis à partir d'une conversation.
 //    Il ne fait que parler à Claude ; c'est OP GESTION qui enregistre le devis
@@ -221,10 +301,14 @@ app.post('/api/bug', (req, res) => {
   if (mailer && Date.now() - (bugSeen.get(hash) || 0) > 6 * 3600000) {
     bugSeen.set(hash, Date.now());
     const to = config.alertEmail || config.contactEmail || 'contact@teamop.fr';
-    mailer.sendMail({
+    mailerEnvoi({
       from: config.smtp.from || config.smtp.user, to,
       subject: '🐛 Bug ' + appLisible(entry.app) + (entry.version !== '?' ? ' v' + entry.version : '') + ' — espace « ' + team + ' »',
-      text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + appLisible(entry.app) + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».'
+      text: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise.\n\nApplication : ' + appLisible(entry.app) + (entry.version !== '?' ? ' (v' + entry.version + ')' : '') + '\nEspace entreprise : ' + team + '\nErreur : ' + entry.msg + '\nFichier : ' + (entry.src || '—') + (entry.line ? ' ligne ' + entry.line : '') + '\nAppareil : ' + entry.ua + '\n\n' + (entry.stack ? 'Détail technique :\n' + entry.stack + '\n\n' : '') + 'Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».',
+      html: mailTeamOP({ chip: 'Vigie', chipBg: '#FDECEC', chipColor: '#C22B2B', titre: '🐛 Bug signalé — ' + appLisible(entry.app),
+        corpsHtml: 'Une erreur vient d\'être signalée par l\'application d\'une entreprise. Le détail complet est dans l\'encart ci-dessous.',
+        blocHtml: MAIL_BLOCS.vigie(Object.assign({}, entry, { app: appLisible(entry.app) })) + '<div style="font-size:12.5px;color:#93A2BF;padding-top:14px">Pour corriger : ouvre Claude Code et demande « corrige le bug signalé par la vigie ».</div>',
+        boutonTxt: 'Ouvrir la Tour de contrôle', boutonUrl: 'https://teamop.fr/tour.html' })
     }).catch(e => console.error('bug mail:', e.message));
   }
   res.json({ ok: true });
@@ -325,12 +409,12 @@ async function importHistorique(b, limit = 60) {
           try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); n++; } catch (_) {}
           if (mid) seenMids.add(mid);
         }
-        console.log('historique importé:', b.email, '(' + n + ' mails)');
+        console.log('historique importé:', masqueMail(b.email), '(' + n + ' mails)');
       }
     } finally { lock.release(); }
     await client.logout();
     if (b.id && mailboxes[b.id]) { mailboxes[b.id].histoDone = true; saveMailboxes(); }   // une seule fois par boîte
-  } catch (e) { console.error('histo', b.email + ':', e.message); try { if (client) client.close(); } catch (_) {} }
+  } catch (e) { console.error('histo', masqueMail(b.email) + ':', e.message); try { if (client) client.close(); } catch (_) {} }
 }
 let boiteBusy = false;
 async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag = {teamId, userId} pour le rattachement
@@ -366,7 +450,7 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
       }
     } finally { lock.release(); }
     await client.logout();
-  } catch (e) { console.error('releve', (cfg.user || '') + ':', e.message); try { if (client) client.close(); } catch (_) {} }
+  } catch (e) { console.error('releve', masqueMail(cfg.user) + ':', e.message); try { if (client) client.close(); } catch (_) {} }
 }
 async function releveBoite() {
   if (boiteBusy) return; boiteBusy = true;
@@ -439,25 +523,29 @@ app.post('/api/notify', async (req, res) => {
 // envoi d'e-mail métier (rapports, avis, devis…) — TOUJOURS via la boîte de l'entreprise (fournie par l'app),
 // jamais via l'adresse TeamOP (réservée aux codes de sécurité)
 const mailQuota = new Map();
+// 30 e-mails/heure par espace ; un espace sans appareil abonné aux notifications
+// est compté par adresse IP (anti-abus). Renvoie le message de refus, ou null.
+// (prefixe/max : un compteur à part, par ex. pour les e-mails d'accès, qui ne rogne pas celui des documents)
+function mailQuotaRefus(req, teamId, prefixe, max) {
+  prefixe = prefixe || ''; max = max || 30;
+  const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
+  const cle = prefixe + (teamConnue ? teamId : 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?'));
+  const q = mailQuota.get(cle) || { count: 0, reset: Date.now() + 3600000 };
+  if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
+  if (q.count >= max) {
+    const min = Math.max(1, Math.ceil((q.reset - Date.now()) / 60000));
+    lastRefus = { ts: Date.now(), raison: (prefixe ? prefixe + ' ' : '') + (teamConnue ? 'quota équipe (' + max + '/h)' : 'quota IP (espace sans notifications)') };
+    return 'quota horaire atteint (' + max + ' e-mails/h) — réessaie dans ' + min + ' min';
+  }
+  q.count++; mailQuota.set(cle, q);
+  return null;
+}
 app.post('/api/sendmail', async (req, res) => {
   const { teamId, to, subject, text, smtp, brand, atts, meta, useMailbox } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
-  const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
-  if (!teamConnue) {
-    // Espace sans appareil abonné aux notifications : envoi autorisé quand même,
-    // mais quota serré par adresse IP (anti-abus). Notifications activées = quota complet.
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
-    const qi = mailQuota.get('ip:' + ip) || { count: 0, reset: Date.now() + 3600000 };
-    if (Date.now() > qi.reset) { qi.count = 0; qi.reset = Date.now() + 3600000; }
-    if (qi.count >= 30) { lastRefus = { ts: Date.now(), raison: 'quota IP (espace sans notifications)' }; return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h) — réessaie dans une heure' }); }
-    qi.count++; mailQuota.set('ip:' + ip, qi);
-  } else {
-    const q = mailQuota.get(teamId) || { count: 0, reset: Date.now() + 3600000 };
-    if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
-    if (q.count >= 30) { lastRefus = { ts: Date.now(), raison: 'quota équipe (30/h)' }; return res.status(429).json({ error: 'quota horaire atteint (30 e-mails/h)' }); }
-    q.count++; mailQuota.set(teamId, q);
-  }
+  const refus = mailQuotaRefus(req, teamId);
+  if (refus) return res.status(429).json({ error: refus });
   const msg = { to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) };
   // Pièces jointes (ex : bon de commande en PDF) — max 3 fichiers, ~4 Mo au total (base64)
   if (Array.isArray(atts) && atts.length) {
@@ -491,13 +579,142 @@ app.post('/api/sendmail', async (req, res) => {
       const name = String((brand && brand.name) || 'TeamOP').replace(/["<>\r\n]/g, '').slice(0, 80);
       const replyTo = (brand && brand.replyTo && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(brand.replyTo))) ? String(brand.replyTo) : undefined;
       const addr = (config.smtp.from || config.smtp.user).match(/<([^>]+)>/) ? (config.smtp.from || config.smtp.user).match(/<([^>]+)>/)[1] : (config.smtp.user);
-      await mailer.sendMail({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
+      await mailerEnvoi({ from: '"' + name + '" <' + addr + '>', replyTo, ...msg });
     }
     if (meta && (meta.bonNum || meta.track)) rememberSent(teamId, meta.bonNum || '', to);   // pour rattacher la future réponse
     res.json({ ok: true });
   } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
 });
 
+// Accès d'un compte créé par l'entreprise : identifiant + mot de passe provisoire + lien de connexion
+// de l'entreprise (le lien met l'appareil sur le bon espace). Le mot de passe n'est jamais journalisé.
+app.post('/api/compte/identifiants', async (req, res) => {
+  const { teamId, to, prenom, entreprise, login, mdp, lien, par } = req.body || {};
+  if (!teamId || !to || !login || !mdp) return res.status(400).json({ error: 'teamId, to, login et mdp requis' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
+  if (!mailer) return res.status(503).json({ error: 'email_off' });
+  const t = String(teamId).slice(0, 80);
+  // Anti-hameçonnage : cette route envoie un e-mail officiel avec un lien d'espace → seulement pour un espace
+  // que le serveur connaît (annuaire, ou appareils abonnés aux notifications), jamais pour un espace inventé.
+  const esp = espaceParT(t);
+  const espaceConnu = !!esp || Object.values(subs).some(s => s.teamId === t);
+  if (!espaceConnu) { lastRefus = { ts: Date.now(), raison: 'accès : espace inconnu ' + t.slice(0, 30) }; return res.status(403).json({ error: 'espace inconnu du serveur — transmets les accès toi-même' }); }
+  const refus = mailQuotaRefus(req, t, 'acces:', 20);
+  if (refus) return res.status(429).json({ error: refus });
+  const net = (s, n) => String(s || '').replace(/[<>\r\n]/g, '').trim().slice(0, n);
+  const ent = net(entreprise, 80) || net(esp && esp.nom, 80), pre = net(prenom, 60), id = net(login, 60), pwd = net(mdp, 60), qui = net(par, 80);
+  // rien qui ressemble à une adresse web ou à un numéro dans les champs libres (auto-liés par les clients mail)
+  if (/\s/.test(id) || /\s/.test(pwd) || /https?:|www\./i.test(id + ' ' + pwd + ' ' + pre + ' ' + ent + ' ' + qui)) return res.status(400).json({ error: 'champs invalides' });
+  // Lien fourni par l'app : accepté seulement s'il est TeamOP et, pour un lien d'espace #entreprise=CODE, si le code
+  // désigne bien CET espace (t identique) — sinon on l'ignore.
+  let lienApp = '', cleApp = '';
+  if (/^https:\/\/teamop\.fr\/(app|beta|connexion)\.html([#?][A-Za-z0-9+/=_.&%#?-]*)?$/.test(String(lien || ''))) {
+    const l = String(lien).slice(0, 700); const m = l.match(/#entreprise=([A-Za-z0-9+/=_-]{8,})/);
+    if (m) { try { const o = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8')); if (o && o.t === t) { lienApp = l; cleApp = String(o.k || ''); } } catch (e) {} }
+    else if (!/#e=/.test(l)) lienApp = l;   // connexion.html / app.html sans espace
+  }
+  // Espace de l'annuaire → lien de connexion (teamop.fr/app.html#entreprise=CODE)… sauf si la clé a changé depuis
+  // l'inscription : le code de l'annuaire serait périmé, le lien de l'app (clé actuelle) fait foi.
+  let cleAnn = ''; try { if (esp && esp.code) cleAnn = String(JSON.parse(Buffer.from(esp.code, 'base64').toString('utf8')).k || ''); } catch (e) {}
+  const annuaireOk = !!(esp && esp.slug && esp.code) && (!cleApp || !cleAnn || cleApp === cleAnn);
+  /* Le lien porte le CODE de l'espace, jamais son nom : un nom se devine (il est sur le
+     camion et sur les factures), un code non. Voir /api/espaces/relance. */
+  const url = annuaireOk ? lienEspaceCode(esp) : (lienApp || 'https://teamop.fr/connexion.html');
+  const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const entTxt = ent ? ' « ' + ent + ' »' : '';
+  // ce que l'écran de connexion affichera vraiment : le nom porté par le lien (annuaire si #e=…, sinon celui de l'app)
+  const nomEcran = annuaireOk ? net(esp.nom, 80) : ent;
+  const ecranTxt = nomEcran ? ' « ' + nomEcran + ' »' : '';
+  const lienEspace = /#(e|entreprise)=/.test(url);   // un lien d'espace met l'appareil sur l'entreprise ; connexion.html, non
+  const explique = lienEspace
+    ? 'Cliquez dessus : l\'application se met sur l\'espace de l\'entreprise et affiche « Vous allez vous connecter à l\'entreprise' + ecranTxt + ' ». Entrez alors votre identifiant et votre mot de passe provisoire.'
+    : 'Ouvrez l\'application avec ce lien, puis entrez votre identifiant et votre mot de passe provisoire.';
+  // Taper le nom ne connecte plus : il fait RENVOYER ce lien à l'adresse de l'entreprise.
+  const sansLien = annuaireOk ? '(Lien perdu ? Sur teamop.fr → Se connecter, tapez le nom de l\'entreprise' + ecranTxt + ' : le lien est renvoyé à son adresse e-mail.)' : '';
+  try {
+    await mailerEnvoi({ confidentiel: true, trace: 'accès @' + id + ' → ' + url + ' · espace ' + t + (qui ? ' · par ' + qui : ''), from: config.smtp.from || config.smtp.user, to,
+      subject: 'Vos accès OP GESTION' + (ent ? ' — ' + ent : ''),
+      text: 'Bonjour' + (pre ? ' ' + pre : '') + ',\n\n' + (qui ? qui + ' vous a créé' : 'Votre entreprise vous a créé') + ' un compte OP GESTION' + (ent ? ' (' + ent + ')' : '') + '.\n\n'
+        + 'Identifiant : ' + id + '\nMot de passe provisoire : ' + pwd + '\n\n'
+        + 'Votre lien de connexion' + (lienEspace ? ' — c\'est celui de l\'entreprise' + entTxt : '') + ' :\n' + url + '\n'
+        + explique + '\n' + (sansLien ? sansLien + '\n' : '')
+        + '\nÀ votre première connexion, l\'application vous fera choisir votre propre mot de passe.\n\n— TEAM OP · teamop.fr',
+      html: mailTeamOP({ chip: 'Bienvenue', titre: 'Vos accès OP GESTION' + (ent ? ' · ' + ent : ''),
+        corpsHtml: 'Bonjour' + (pre ? ' ' + x(pre) : '') + ',<br>' + (qui ? '<b>' + x(qui) + '</b> vous a créé' : 'votre entreprise vous a créé') + ' un compte sur l\'application OP GESTION' + (ent ? ' de <b>' + x(ent) + '</b>' : '') + '.<br><br>'
+          + '<b>Votre lien de connexion</b>' + (lienEspace ? ' — c\'est celui de l\'entreprise' + x(entTxt) : '') + ' :<br><a href="' + x(url) + '" style="color:#34A97E">' + x(url.replace('https://', '')) + '</a><br>'
+          + '<span style="font-size:13px">' + x(explique).replace('« Vous allez vous connecter à l\'entreprise' + x(ecranTxt) + ' »', '« <b>Vous allez vous connecter à l\'entreprise' + x(ecranTxt) + '</b> »')
+          + (sansLien ? '<br><span style="color:#8fa3c8">' + x(sansLien) + '</span>' : '') + '</span>',
+        blocHtml: MAIL_BLOCS.acces(x(id), x(pwd)),
+        frise: [
+          { titre: 'Compte créé', sous: qui ? 'par ' + qui : 'par votre entreprise', fait: true },
+          { titre: 'Connectez-vous', sous: 'avec le lien', fait: false },
+          { titre: 'Votre mot de passe', sous: 'choisi à la 1re connexion', fait: false }
+        ],
+        boutonTxt: 'Ouvrir mon application', boutonUrl: url }) });
+    res.json({ ok: true, lien: url, entreprise: ent });
+  } catch (e) { lastRefus = { ts: Date.now(), raison: 'SMTP: ' + String(e.message || e).slice(0, 200) }; res.status(500).json({ error: e.message }); }
+});
+
+/* ── Gabarit d'e-mail TEAM OP (modèle « Suivi ») : logo, pastille d'état, frise,
+   boutons. Sert à tous les e-mails automatiques envoyés aux clients. ── */
+function mailTeamOP(o) {
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const etapes = (o.frise || []).map((e, i) =>
+    '<td width="' + Math.floor(100 / (o.frise.length || 1)) + '%" style="border-top:3px solid ' + (e.fait ? '#34D399' : '#DEE5EF') + ';padding-top:9px;font-size:12px;color:' + (e.fait ? '#17233B' : '#93A2BF') + '"><b>' + (e.fait && i === 0 ? '✔ ' : '') + esc(e.titre) + '</b><br><span style="color:#93A2BF">' + esc(e.sous) + '</span></td>').join('');
+  const bouton2 = o.bouton2Txt ? '<a href="' + esc(o.bouton2Url) + '" style="display:inline-block;color:#4A5A7A;text-decoration:none;font-size:13.5px;padding:12px 14px">' + esc(o.bouton2Txt) + '</a>' : '';
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#F3F5F9">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F5F9"><tr><td align="center" style="padding:28px 12px">' +
+    '<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#FFFFFF;border-radius:12px;border:1px solid #E3E8F1;font-family:-apple-system,\'Segoe UI\',Roboto,Arial,sans-serif">' +
+    '<tr><td style="padding:26px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    '<td><table cellpadding="0" cellspacing="0"><tr>' +
+    '<td><img src="' + (LOGO_OK ? 'cid:logoteamop' : 'https://teamop.fr/icons/teamop-512.png') + '" width="34" height="34" alt="TEAM OP" style="border-radius:8px;display:block"></td>' +
+    '<td style="padding-left:10px;font-family:\'Courier New\',monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:#17233B">TEAM OP</td>' +
+    '</tr></table></td>' +
+    (o.chip ? '<td align="right"><span style="background:' + (o.chipBg || '#E7F8F1') + ';color:' + (o.chipColor || '#1E7A57') + ';font-size:12px;font-weight:700;padding:6px 12px;border-radius:100px">● ' + esc(o.chip) + '</span></td>' : '') +
+    '</tr></table></td></tr>' +
+    '<tr><td style="padding:22px 34px 0;font-size:19px;font-weight:800;color:#17233B">' + esc(o.titre) + '</td></tr>' +
+    '<tr><td style="padding:10px 34px 0;font-size:14.5px;line-height:1.7;color:#4A5A7A">' + o.corpsHtml + '</td></tr>' +
+    (o.blocHtml ? '<tr><td style="padding:20px 34px 0">' + o.blocHtml + '</td></tr>' : '') +
+    (etapes ? '<tr><td style="padding:24px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' + etapes + '</tr></table></td></tr>' : '') +
+    '<tr><td style="padding:26px 34px 30px">' +
+    (o.boutonTxt ? '<a href="' + esc(o.boutonUrl) + '" style="display:inline-block;background:#34D399;color:#08251A;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:10px">' + esc(o.boutonTxt) + '</a>' : '') +
+    bouton2 + '</td></tr>' +
+    '<tr><td style="padding:16px 34px 22px;border-top:1px solid #EDF1F7;font-size:11.5px;color:#93A2BF">TEAM OP · la suite de gestion des pros du terrain · <a href="https://teamop.fr" style="color:#34A97E">teamop.fr</a></td></tr>' +
+    '</table></td></tr></table></body></html>';
+}
+
+/* ── Encarts réutilisables des e-mails TeamOP (galerie validée par Justin) ── */
+const MAIL_BLOCS = {
+  code: (c) => '<div align="center"><div style="display:inline-block;background:#F3F7FB;border:1.5px dashed #C6D3E4;border-radius:14px;padding:18px 34px;font-family:\'Courier New\',monospace;font-size:32px;font-weight:800;letter-spacing:10px;color:#17233B">' + String(c).split('').join(' ') + '</div><div style="font-size:12px;color:#93A2BF;padding-top:10px">Ce code expire dans <b>10 minutes</b> · 5 essais maximum</div></div>',
+  transmettre: (login) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF8EC;border:1px solid #F2DFB6;border-radius:12px"><tr><td style="padding:14px 18px;font-size:13.5px;line-height:1.7;color:#7A5A17">👤 À transmettre à <b>' + login + '</b> — ce membre de votre équipe a oublié son mot de passe et son compte n\'a pas d\'adresse e-mail.</td></tr></table>',
+  ident: (a, m) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3FBF7;border:1px solid #C9EBDC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;line-height:2;color:#17233B"><b>Vos identifiants de départ</b><br>Identifiant : <b style="font-family:\'Courier New\',monospace">' + a + '</b> <span style="color:#93A2BF">(votre prénom)</span><br>Mot de passe provisoire : <b style="font-family:\'Courier New\',monospace">' + m + '</b> <span style="color:#93A2BF">(votre nom + « !! »)</span></td></tr></table><div style="font-size:12px;color:#93A2BF;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
+  acces: (a, m) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3FBF7;border:1px solid #C9EBDC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;line-height:2;color:#17233B"><b>Vos identifiants</b><br>Identifiant : <b style="font-family:\'Courier New\',monospace">' + a + '</b><br>Mot de passe provisoire : <b style="font-family:\'Courier New\',monospace">' + m + '</b></td></tr></table><div style="font-size:12px;color:#93A2BF;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
+  promo: (c, f, fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F6F1FE;border:1px solid #E0D3F7;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#3F2B66;line-height:1.9"><b>🎁 Code ' + c + ' activé</b><br>Formule <b>' + f + '</b> offerte jusqu\'au <b>' + fin + '</b><br><span style="color:#8A76AC;font-size:12.5px">Aucune carte bancaire requise · un rappel avant la fin</span></td></tr></table>',
+  echeance: (fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF6EE;border:1px solid #F5D9BC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#7A4A17;line-height:1.9"><b>⏳ Votre période offerte se termine le ' + fin + '</b><br><span style="font-size:13px">Vos données ne bougent pas, quoi qu\'il arrive — mais sans abonnement, l\'application repassera en formule Gratuit.</span></td></tr></table>',
+  vigie: (e2) => { const x = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'); return '<table width="100%" cellpadding="0" cellspacing="0" style="background:#1B2233;border-radius:12px"><tr><td style="padding:16px 20px;font-family:\'Courier New\',monospace;font-size:12px;line-height:1.8;color:#D7E2F2">App : ' + x(e2.app) + ' (v' + x(e2.version) + ')<br>Espace : ' + x(e2.team) + '<br>Erreur : ' + x(e2.msg) + '<br>Fichier : ' + x(e2.src || '—') + (e2.line ? ' · ligne ' + e2.line : '') + '<br>Appareil : ' + x(String(e2.ua).slice(0, 90)) + (e2.stack ? '<br><br><span style="color:#93A2BF">' + x(e2.stack).replace(/\n/g, '<br>') + '</span>' : '') + '</td></tr></table>'; }
+};
+const FORMULE_LBL2 = { gratuit: 'Gratuit', pro: 'Pro', business: 'Business', premium: 'Business Premium' };
+// avis « ton code est activé » — envoyé UNE fois, à l'adresse de l'entreprise
+function mailPromoActive(teamT, code, finLe, formule) {
+  try {
+    if (!mailer || !teamT) return;
+    const e = Object.values(espacesReg).find(x => {
+      if (x.t) return x.t === teamT;
+      try { return String(JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')).t || '') === teamT; } catch (err) { return false; }
+    });
+    if (!e || !e.email) return;
+    const lbl = FORMULE_LBL2[formule] || formule || 'Business Premium';
+    const finFr = /^\d{4}-\d{2}-\d{2}$/.test(String(finLe)) ? String(finLe).split('-').reverse().join('/') : String(finLe || '');
+    mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
+      subject: '🎁 Votre code est activé — TEAM OP',
+      text: 'Bonjour,\n\nvotre code promo ' + code + ' vient d\'être activé : formule ' + lbl + ' offerte jusqu\'au ' + finFr + ', sans carte bancaire.\n\n— TEAM OP · teamop.fr',
+      html: mailTeamOP({ chip: 'Cadeau', chipBg: '#F1EBFC', chipColor: '#6D3FC4', titre: 'Votre code est activé 🎁',
+        corpsHtml: 'Bonjour,<br>bonne nouvelle : votre code promo vient d\'être activé sur votre espace.',
+        blocHtml: MAIL_BLOCS.promo(code, lbl, finFr),
+        boutonTxt: 'Ouvrir mon application', boutonUrl: 'https://teamop.fr/app.html' })
+    }).catch(() => {});
+  } catch (err) {}
+}
 // envoi d'e-mail (rapports, avis de passage) — nécessite la config smtp
 app.post('/api/email', async (req, res) => {
   if (!mailer) return res.status(503).json({ error: "e-mail non configuré sur le serveur (config.json → smtp)" });
@@ -505,7 +722,7 @@ app.post('/api/email', async (req, res) => {
   if (key !== config.apiKey) return res.status(403).json({ error: 'clé invalide' });
   if (!to || !subject) return res.status(400).json({ error: 'to et subject requis' });
   try {
-    await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to, subject: String(subject).slice(0, 200), text, html });
+    await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to, subject: String(subject).slice(0, 200), text, html });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -572,9 +789,34 @@ app.post('/api/monitor/report', express.text({ type: 'text/plain', limit: '200kb
       const appareil = monStr(r.appareil, 60) || '?';
       const count = Math.min(500, Math.max(1, parseInt(r.count, 10) || 1));
       const now = Date.now();
+      /* Tri à l'entrée : un « gel » de plus d'une minute n'est pas un gel.
+         Sur les 9 incidents ouverts du 3 septembre, l'un annonçait « Interface figée pendant
+         1 633 855 ms » — 27 minutes. Un navigateur ne gèle pas 27 minutes : l'appareil a été
+         mis en veille, et le compteur a continué de tourner. Ces faux positifs noyaient les
+         vrais problèmes clients, au point que l'écran d'accueil annonçait « tout est à jour ».
+         La règle est volontairement objective : aucune interprétation, juste une durée
+         physiquement impossible. Tout le reste continue d'arriver comme avant. */
+      /* ── LE TRIEUR ────────────────────────────────────────────────────────────────────
+         Trois règles mécaniques, sans jugement, appliquées avant que l'incident atteigne la
+         Tour. Rien n'est supprimé : tout est enregistré, simplement classé hors de « à
+         traiter » pour que les vrais problèmes clients ne soient plus noyés. Chaque classement
+         est consultable dans la Surveillance, filtre par statut — un tri qu'on ne peut pas
+         relire est un tri auquel on ne peut pas se fier. */
+      const gel = /fig[ée]e? pendant (\d+)\s*ms/i.exec(message);
+      // 1. Un « gel » de plus d'une minute est une mise en veille de l'appareil, pas un blocage.
+      const veille = !!(gel && parseInt(gel[1], 10) > 60000);
+      // 2. Ce que rapporte l'équipe en développant n'est pas un problème client. La liste vient
+      //    de config.json (interneEmails / interneEspaces) : aucune adresse n'est devinée ici.
+      const internes = (config.interneEmails || []).map(x => String(x).toLowerCase());
+      const espacesInternes = (config.interneEspaces || []).map(x => String(x).toLowerCase());
+      const interne = (!!entEmail && internes.indexOf(entEmail) >= 0)
+        || espacesInternes.indexOf(String(monStr(r.espace, 80) || '').toLowerCase()) >= 0;
+      // 3. Transitoires connus : ils se résolvent seuls au rechargement suivant.
+      const transitoire = /Failed to update a ServiceWorker|ServiceWorker.*(register|update).*(fail|error)|NetworkError when attempting to fetch|Load failed/i.test(message);
+      const triage = veille ? 'veille' : (interne ? 'interne' : (transitoire ? 'transitoire' : ''));
       let issue = monIssues.find(i => i.signature === signature);
       if (!issue) {
-        issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: appName, version: monStr(r.version, 12), categorie: monStr(r.categorie, 40) || 'Général', type, message, stack: monStr(r.stack, 600), src: monStr(r.src, 200), line: parseInt(r.line, 10) || 0, entreprises: [], appareils: {}, count: 0, firstTs: now, lastTs: now, statut: 'nouveau', notes: '', mailEnvoye: false };
+        issue = { id: 'i' + crypto.randomBytes(6).toString('hex'), signature, app: appName, version: monStr(r.version, 12), categorie: monStr(r.categorie, 40) || 'Général', type, message, stack: monStr(r.stack, 600), src: monStr(r.src, 200), line: parseInt(r.line, 10) || 0, entreprises: [], appareils: {}, count: 0, firstTs: now, lastTs: now, statut: triage || 'nouveau', triage: triage || undefined, notes: '', mailEnvoye: false };
         monIssues.push(issue);
       }
       issue.count += count; issue.lastTs = now;
@@ -594,10 +836,14 @@ app.post('/api/monitor/report', express.text({ type: 'text/plain', limit: '200kb
 //    stockés dans monitor.json (le premier compte patron est créé par server/set-admin.sh).
 //    POST /api/monitor/login {nom, pass} → token de session 24 h en mémoire, lié à l'utilisateur.
 const monTokens = new Map();          // token -> { exp, userId, nom, role }
+// les sessions de la Tour survivent aux redémarrages du serveur
+const TOKENS_PATH = path.join(DATA_DIR, 'tour-sessions.json');
+try { for (const [t, v] of JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8'))) if (v && v.exp > Date.now()) monTokens.set(t, v); } catch (e) {}
+function monTokensSave() { try { fs.writeFileSync(TOKENS_PATH, JSON.stringify([...monTokens].filter(([, v]) => v.exp > Date.now()))); } catch (e) {} }
 const monLoginTries = new Map();      // ip -> { count, reset }
 const monLock = new Map();            // ident -> { fails, until } : 5 échecs consécutifs = verrou 15 min
 const monHash = p => crypto.createHash('sha256').update(String(p)).digest('hex');
-setInterval(() => { const now = Date.now(); for (const [t, s] of monTokens) if (now > s.exp) monTokens.delete(t); }, 600000).unref();
+setInterval(() => { const now = Date.now(); let ch = false; for (const [t, s] of monTokens) if (now > s.exp) { monTokens.delete(t); ch = true; } if (ch) monTokensSave(); }, 600000).unref();
 function monUA(req) {   // appareil simplifié pour le journal (jamais l'UA complet)
   const u = String(req.headers['user-agent'] || '');
   const ap = /iPhone|iPad|iPod/i.test(u) ? 'iPhone' : (/Android/i.test(u) ? 'Android' : 'PC');
@@ -636,7 +882,9 @@ app.post('/api/monitor/login', (req, res) => {
     user = { id: 'u0', nom: nom || 'Patron', role: 'patron' };
   }
   const token = crypto.randomBytes(24).toString('hex');
-  monTokens.set(token, { exp: Date.now() + 24 * 3600000, userId: user.id, nom: user.nom, role: user.role });
+  const duree = (req.body || {}).rester ? 30 * 24 * 3600000 : 24 * 3600000;   // « rester connecté » : 30 jours
+  monTokens.set(token, { exp: Date.now() + duree, userId: user.id, nom: user.nom, role: user.role });
+  monTokensSave();
   monLoginTries.delete(ip); monLock.delete(ident);
   monLog(user.nom, true, req, '');
   res.json({ ok: true, token, exp: 24 * 3600, nom: user.nom, role: user.role });
@@ -672,6 +920,7 @@ app.get('/api/monitor/users', monPatronStrict, (req, res) => {
   res.json({ users: monUsers.map(u => ({ id: u.id, nom: u.nom, email: u.email || '', role: u.role, actif: !!u.actif, ts: u.ts || 0, creePar: u.creePar || '' })) });
 });
 // journal des connexions (réussies et échouées) — visible par le patron dans la section Équipe
+app.get('/api/monitor/mails', monAdmin, (req, res) => { res.json({ ok: true, mails: mailsLog.slice(0, 120) }); });
 app.get('/api/monitor/journal', monPatronStrict, (req, res) => {
   res.json({ journal: monJournal.slice(-100).reverse() });
 });
@@ -704,6 +953,770 @@ app.post('/api/monitor/users/delete', monPatronStrict, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ── Annuaire des espaces entreprise : « nom d'entreprise » → code de connexion ──
+   Rempli depuis la Tour (patron) quand un lien de connexion est généré. Permet la
+   connexion à la Organilog : l'utilisateur tape le nom de son entreprise dans l'app,
+   le serveur lui rend le code d'espace, puis identifiant + mot de passe. */
+const ESPACES_PATH = path.join(DATA_DIR, 'espaces.json');
+let espacesReg = {};
+try { espacesReg = JSON.parse(fs.readFileSync(ESPACES_PATH, 'utf8')); } catch (e) {}
+const espSlug = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '');
+/* \u2500\u2500 Le code d'espace ne porte PLUS de mot de passe en clair \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+   Le code est du base64, pas du chiffrement : tout ce qu'il contient est lisible par qui
+   l'obtient. Le champ \u00ab m \u00bb y transportait le mot de passe provisoire de
+   l'administrateur EN CLAIR : un nom d'entreprise suffisait donc \u00e0 r\u00e9cup\u00e9rer un
+   identifiant et le mot de passe qui va avec.
+   Le champ ne peut pas simplement dispara\u00eetre : c'est lui qui permet \u00e0 l'application, \u00e0
+   la premi\u00e8re connexion, de reconna\u00eetre le mot de passe provisoire annonc\u00e9 par e-mail.
+   On le remplace donc par \u00ab mh \u00bb, son empreinte SHA-256 \u2014 exactement ce que l'application
+   comparait d\u00e9j\u00e0 (elle hachait \u00ab m \u00bb de son c\u00f4t\u00e9). Le mot de passe lui-m\u00eame ne circule
+   plus que dans l'e-mail adress\u00e9 \u00e0 l'int\u00e9ress\u00e9.
+   NB : \u00ab k \u00bb (cl\u00e9 d'\u00e9quipe) reste dans le code, l'appareil en a besoin pour rejoindre
+   l'espace. C'est une divulgation distincte, \u00e0 traiter par un lien \u00e0 jeton \u2014 voir le
+   rapport. Cette fonction ferme la fuite du mot de passe, pas celle-l\u00e0. */
+const mdpEmpreinte = (p) => crypto.createHash('sha256').update(String(p)).digest('hex');
+function codeMdpHache(code) {
+  try {
+    const o = JSON.parse(Buffer.from(String(code || ''), 'base64').toString('utf8'));
+    if (!o || typeof o !== 'object' || !o.m) return String(code || '');
+    o.mh = mdpEmpreinte(o.m); delete o.m;
+    return Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
+  } catch (e) { return String(code || ''); }
+}
+/* Reprise au d\u00e9marrage : les codes d\u00e9j\u00e0 enregistr\u00e9s portent le mot de passe en clair \u2014
+   corriger le code neuf sans reprendre l'annuaire laisserait la fuite enti\u00e8re sur tous
+   les espaces existants, qui sont pr\u00e9cis\u00e9ment ceux qui ont des donn\u00e9es. */
+(function repriseMdpAnnuaire() {
+  let n = 0;
+  for (const slug of Object.keys(espacesReg)) {
+    const e = espacesReg[slug];
+    if (!e || !e.code) continue;
+    const propre = codeMdpHache(e.code);
+    if (propre !== e.code) { e.code = propre; n++; }
+  }
+  if (n) {
+    try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+    console.log('annuaire : mot de passe remplac\u00e9 par son empreinte dans', n, 'code(s) d\'espace');
+  }
+})();
+app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
+  const nom = monStr((req.body || {}).nom, 80).trim();
+  const code = codeMdpHache(monStr((req.body || {}).code, 4000).trim());
+  const slug = espSlug(nom);
+  if (!slug || !code) return res.status(400).json({ error: 'nom et code requis' });
+  let t = '';
+  try { const o = JSON.parse(Buffer.from(code, 'base64').toString('utf8')); t = String(o.t || ''); } catch (e) {}
+  const prev = espacesReg[slug] || {};
+  // un nom = une seule entreprise : refus si le nom est déjà pris par un AUTRE espace
+  if (prev.t && t && prev.t !== t) return res.status(409).json({ error: 'Ce nom est déjà utilisé par une autre entreprise — choisis une variante (ex. ajoute la ville)' });
+  espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom, email: monStr((req.body || {}).email, 120).toLowerCase() || prev.email || '',
+    formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs };
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+  res.json({ ok: true, slug });
+});
+// le patron attribue la formule d'un espace (Gratuit/Pro/Business/Premium × quantité)
+app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
+  const f = monStr((req.body || {}).formule, 20);
+  if (!['gratuit', 'pro', 'business', 'premium'].includes(f)) return res.status(400).json({ error: 'formule inconnue' });
+  const q = Math.max(1, Math.min(50, parseInt((req.body || {}).quantite, 10) || 1));
+  e.formule = f; e.quantite = q; e.formulePar = req.tourUser.nom; e.formuleTs = Date.now();
+  try { if (!e.t) { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); e.t = String(o.t || ''); } } catch (err) {}
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  console.log('Tour :', req.tourUser.nom, 'attribue', f, '×' + q, 'à', slug);
+  // le « Mon espace » du client reflète l'attribution : accès activé + abonnement affiché
+  if (e.email) fbMajFicheClient(e.email, { status: 'fourni', apps: ['elan'], plan: FORMULE_LBL[f] || f, planStatus: 'actif' }).catch(() => {});
+  res.json({ ok: true, slug, formule: f, quantite: q });
+});
+// ── L'abonnement réglé à la main par le patron (fiche entreprise de la Tour) : formule, places,
+//    statut et date de fin. Il PRIME sur les portes automatiques (Stripe, code promo). ──
+const ABO_STATUTS = ['auto', 'actif', 'essai', 'impaye', 'suspendu', 'annule'];
+app.post('/api/monitor/espaces/abonnement', monPatronStrict, (req, res) => {
+  const b = req.body || {};
+  const slug = espSlug(b.nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
+  const f = monStr(b.formule, 20);
+  if (!['gratuit', 'pro', 'business', 'premium'].includes(f)) return res.status(400).json({ error: 'formule inconnue' });
+  const st = monStr(b.statut, 12) || 'auto';
+  if (!ABO_STATUTS.includes(st)) return res.status(400).json({ error: 'statut inconnu' });
+  const fin = monStr(b.fin, 10);
+  if (fin && !/^\d{4}-\d{2}-\d{2}$/.test(fin)) return res.status(400).json({ error: 'date de fin invalide (AAAA-MM-JJ)' });
+  const q = Math.max(1, Math.min(50, parseInt(b.quantite, 10) || 1));
+  e.formule = f; e.quantite = q; e.formulePar = req.tourUser.nom; e.formuleTs = Date.now();
+  e.aboStatut = st === 'auto' ? '' : st; e.aboFin = fin; e.aboPar = req.tourUser.nom; e.aboTs = Date.now();
+  try { if (!e.t) { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); e.t = String(o.t || ''); } } catch (err) {}
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  console.log('Tour :', req.tourUser.nom, 'règle l\'abonnement de', slug, ':', f, '×' + q, st, fin || '');
+  // la fiche client (site « Mon espace ») reflète le réglage
+  const ps = { auto: 'actif', actif: 'actif', essai: 'essai', impaye: 'impaye', suspendu: 'impaye', annule: 'annule' }[st] || 'actif';
+  if (e.email) fbMajFicheClient(e.email, { status: 'fourni', apps: ['elan'], plan: FORMULE_LBL[f] || f, planStatus: ps, planFin: fin }).catch(() => {});
+  res.json({ ok: true, slug, formule: f, quantite: q, statut: e.aboStatut || 'auto', fin });
+});
+// payé ? — le réglage manuel du patron d'abord ; sinon trois portes : formule gratuite, code promo actif, abonnement Stripe actif
+const espStripeCache = { ts: 0, data: null };
+async function espacePaye(e) {
+  if (!e || !e.formule) return { paye: false, motif: 'aucune formule' };
+  if (e.aboStatut) {   // réglé à la main dans la Tour
+    const auj = new Date().toISOString().slice(0, 10);
+    if (e.aboStatut === 'actif' || e.aboStatut === 'essai') {
+      if (e.aboFin && e.aboFin < auj) return { paye: false, motif: (e.aboStatut === 'essai' ? 'essai' : 'abonnement') + ' terminé le ' + e.aboFin + ' (réglé par ' + (e.aboPar || 'TEAM OP') + ')', finLe: e.aboFin };
+      return { paye: true, motif: (e.aboStatut === 'essai' ? 'essai offert' : 'abonnement activé') + ' par ' + (e.aboPar || 'TEAM OP') + (e.aboFin ? ' (jusqu\'au ' + e.aboFin + ')' : ''), finLe: e.aboFin || '' };
+    }
+    return { paye: false, motif: { impaye: 'impayé', suspendu: 'suspendu', annule: 'annulé' }[e.aboStatut] + ' (réglé par ' + (e.aboPar || 'TEAM OP') + ')' };
+  }
+  if (e.formule === 'gratuit') return { paye: true, motif: 'gratuit' };
+  try {   // rattrapage : un code demandé à la demande d'accès mais jamais compté (espace recréé…) s'active ici
+    if (e.codePromo && e.t) {
+      const c = String(e.codePromo).toUpperCase();
+      const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+      const u0 = promoUsages[c] || { n: 0, equipes: {} };
+      if (p && !u0.equipes[e.t] && !(p.maxUtilisations && u0.n >= p.maxUtilisations)) {
+        const dF = new Date(); dF.setMonth(dF.getMonth() + Math.max(1, Number(p.mois) || 1));
+        u0.n++; u0.equipes[e.t] = { date: new Date().toISOString().slice(0, 10), finLe: dF.toISOString().slice(0, 10) };
+        promoUsages[c] = u0; savePromoUsages();
+        console.log('code promo', c, 'activé en rattrapage pour', e.t);
+        mailPromoActive(e.t, c, dF.toISOString().slice(0, 10), ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium');
+      }
+    }
+  } catch (err) {}
+  try {   // code promo : compté par espace (teamId = identifiant de l'espace)
+    for (const [code, u] of Object.entries(promoUsages || {})) {
+      const eq = u && u.equipes && u.equipes[e.t];
+      if (eq && eq.finLe && eq.finLe >= new Date().toISOString().slice(0, 10)) return { paye: true, motif: 'code promo ' + code + ' (jusqu\'au ' + eq.finLe + ')', promoCode: code, finLe: eq.finLe };
+    }
+  } catch (err) {}
+  const sk = config.stripe && config.stripe.secretKey;
+  if (sk && e.email) {
+    try {
+      if (Date.now() - espStripeCache.ts > 5 * 60000 || !espStripeCache.data) { espStripeCache.data = await stripeAbosBruts(sk); espStripeCache.ts = Date.now(); }
+      const abo = (espStripeCache.data || []).find(sb => ['active', 'trialing', 'past_due'].includes(sb.status) &&
+        sb.customer && typeof sb.customer === 'object' && String(sb.customer.email || '').toLowerCase() === e.email);
+      if (abo) return { paye: true, motif: 'abonnement Stripe (' + abo.status + ')', echeance: abo.current_period_end ? new Date(abo.current_period_end * 1000).toISOString().slice(0, 10) : '' };
+    } catch (err) { console.error('espacePaye stripe:', err.message); }
+  }
+  return { paye: false, motif: 'aucun paiement ni code promo' };
+}
+// liste complète des espaces (formule attribuée, payé/promo) — pour l'onglet Abonnements de la Tour
+app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
+  const sortie = [];
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    let p = { paye: false, motif: '' };
+    try { p = await espacePaye(e); } catch (err) {}
+    sortie.push({ slug, nom: e.nom || slug, email: e.email || '', formule: e.formule || '', quantite: e.quantite || 1,
+      paye: p.paye, motif: p.motif, promoCode: p.promoCode || '', finLe: p.finLe || '', echeance: p.echeance || '', attribueLe: e.formuleTs || 0, par: e.formulePar || '',
+      aboStatut: e.aboStatut || 'auto', aboFin: e.aboFin || '' });
+  }
+  sortie.sort((a, b) => (b.attribueLe || 0) - (a.attribueLe || 0));
+  res.json({ ok: true, espaces: sortie });
+});
+// statut complet d'un espace, côté contrôle
+app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  const p = await espacePaye(e);
+  res.json({ ok: true, formule: e.formule || '', quantite: e.quantite || 1, email: e.email || '', paye: p.paye, motif: p.motif, aboStatut: e.aboStatut || 'auto', aboFin: e.aboFin || '', finLe: p.finLe || '' });
+});
+// ── Activité par onglet (anonyme : noms d'écrans + compteurs, par espace) ──
+const USAGE_PATH = path.join(DATA_DIR, 'usage.json');
+let usageData = {}; try { usageData = JSON.parse(fs.readFileSync(USAGE_PATH, 'utf8')); } catch (e) {}
+let usageTimer = null;
+function usageSave() { clearTimeout(usageTimer); usageTimer = setTimeout(() => { try { fs.writeFileSync(USAGE_PATH, JSON.stringify(usageData)); } catch (e) {} }, 800); }
+app.post('/api/usage', (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80); if (!t) return res.status(400).json({ error: 't requis' });
+  const vues = (b.vues && typeof b.vues === 'object' && !Array.isArray(b.vues)) ? b.vues : {};
+  if (Object.keys(usageData).length >= 3000 && !usageData[t]) return res.json({ ok: true });
+  const u = usageData[t] = usageData[t] || { vues: {}, total: 0, dernier: 0, version: '' };
+  let n = 0;
+  for (const [k, v] of Object.entries(vues)) {
+    if (n++ > 80) break;
+    const key = monStr(k, 30).replace(/[^a-zA-Z0-9]/g, ''); const q = Math.min(500, parseInt(v, 10) || 0);
+    if (!key || q <= 0) continue;
+    if (Object.keys(u.vues).length >= 80 && !u.vues[key]) continue;
+    u.vues[key] = (u.vues[key] || 0) + q; u.total += q;
+  }
+  u.dernier = Date.now(); u.version = monStr(b.version, 12) || u.version;
+  usageSave(); res.json({ ok: true });
+});
+// la Tour lit l'activité par onglet d'une entreprise, et ses problèmes ouverts
+app.post('/api/monitor/espaces/activite', monAdmin, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  const u = usageData[t] || { vues: {}, total: 0, dernier: 0, version: '' };
+  const vues = Object.entries(u.vues).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => ({ vue: k, n: v }));
+  const bugs = (monIssues || []).filter(i => i.statut !== 'corrige' && i.statut !== 'ignore' && (i.entreprises || []).some(x => x.nom === e.nom)).length;
+  res.json({ ok: true, vues, total: u.total, dernier: u.dernier, version: u.version, bugs });
+});
+// ── Connexions des applications, par espace : qui se connecte, quand, depuis quel appareil,
+//    avec quelle version, par quel chemin (lien, nom d'entreprise, session gardée) — et les
+//    échecs. L'application envoie un événement à chaque connexion ; la Tour lit le tout. ──
+const CNX_PATH = path.join(DATA_DIR, 'connexions.json');
+let cnxData = {}; try { cnxData = JSON.parse(fs.readFileSync(CNX_PATH, 'utf8')); } catch (e) {}
+let cnxTimer = null;
+function cnxSave() { clearTimeout(cnxTimer); cnxTimer = setTimeout(() => { try { fs.writeFileSync(CNX_PATH, JSON.stringify(cnxData)); } catch (e) {} }, 800); }
+app.post('/api/connexions', (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80); if (!t) return res.status(400).json({ error: 't requis' });
+  if (Object.keys(cnxData).length >= 3000 && !cnxData[t]) return res.json({ ok: true });
+  const ev = { ts: Date.now(), ev: ['connexion', 'echec', 'session', 'deconnexion'].includes(b.ev) ? b.ev : 'connexion',
+    login: monStr(b.login, 40), role: monStr(b.role, 16), version: monStr(b.version, 12), app: monStr(b.app, 12) || 'gestion',
+    via: monStr(b.via, 16), appareil: monStr(b.appareil, 20), os: monStr(b.os, 20), nav: monStr(b.nav, 20), pwa: !!b.pwa,
+    dev: monStr(b.dev, 24), motif: monStr(b.motif, 80) };
+  const l = cnxData[t] = cnxData[t] || [];
+  l.unshift(ev); if (l.length > 500) l.length = 500;
+  cnxSave(); res.json({ ok: true });
+});
+/* Résumé lisible d'un espace : dernière connexion, utilisateurs et appareils actifs, échecs, versions */
+function cnxResume(t) {
+  const l = cnxData[t] || []; const now = Date.now(), j7 = now - 7 * 86400000, j30 = now - 30 * 86400000, h24 = now - 86400000;
+  const ok = l.filter(e => e.ev === 'connexion' || e.ev === 'session');
+  const u7 = new Set(ok.filter(e => e.ts > j7 && e.login).map(e => e.login)), u30 = new Set(ok.filter(e => e.ts > j30 && e.login).map(e => e.login));
+  const d7 = new Set(ok.filter(e => e.ts > j7 && e.dev).map(e => e.dev));
+  const echecs24 = l.filter(e => e.ev === 'echec' && e.ts > h24).length;
+  const versions = {}; const vuDev = new Set();
+  ok.forEach(e => { if (!e.dev || vuDev.has(e.dev) || !e.version) return; vuDev.add(e.dev); versions[e.version] = (versions[e.version] || 0) + 1; });
+  const apps = {}; ok.forEach(e => { if (e.ts > j30) apps[e.app || 'gestion'] = (apps[e.app || 'gestion'] || 0) + 1; });
+  const appareils = {}; ok.forEach(e => { if (e.ts > j30 && e.appareil) appareils[e.appareil] = (appareils[e.appareil] || 0) + 1; });
+  const dern = ok[0] || null;
+  return { total: l.length, derniere: dern ? dern.ts : 0, dernierLogin: dern ? dern.login : '', utilisateurs7: u7.size, utilisateurs30: u30.size, appareils7: d7.size,
+    echecs24, connexions7: ok.filter(e => e.ts > j7).length, versions, apps, appareils };
+}
+// la Tour : détail des connexions d'une entreprise
+app.post('/api/monitor/espaces/connexions', monAdmin, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  let t = e ? e.t : ''; try { if (e && !t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  if (!t) t = monStr((req.body || {}).t, 80);
+  if (!t) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  res.json({ ok: true, t, resume: cnxResume(t), evenements: (cnxData[t] || []).slice(0, parseInt((req.body || {}).n, 10) || 60) });
+});
+// la Tour : toutes les entreprises d'un coup, triées par dernière connexion
+app.get('/api/monitor/connexions', monAdmin, (req, res) => {
+  const vus = new Set(); const sortie = [];
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+    if (!t || vus.has(t)) continue; vus.add(t);
+    sortie.push({ slug, nom: e.nom || slug, t, formule: e.formule || '', resume: cnxResume(t) });
+  }
+  for (const t of Object.keys(cnxData)) { if (vus.has(t)) continue; vus.add(t); sortie.push({ slug: '', nom: '(espace hors annuaire) ' + t, t, formule: '', resume: cnxResume(t) }); }
+  sortie.sort((a, b) => (b.resume.derniere || 0) - (a.resume.derniere || 0));
+  const now = Date.now(); const tous = [].concat(...Object.values(cnxData));
+  res.json({ ok: true, espaces: sortie, global: { connexions24: tous.filter(e => e.ts > now - 86400000 && e.ev !== 'echec').length, echecs24: tous.filter(e => e.ts > now - 86400000 && e.ev === 'echec').length, actives7: sortie.filter(x => x.resume.derniere > now - 7 * 86400000).length } });
+});
+// repartir à neuf : libère le nom et EFFACE l'ancien espace (données Firestore comprises),
+// SANS bloquer l'entreprise — elle repart aussitôt sur un espace propre et vide
+app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.json({ ok: true, rien: true });
+  let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  delete espacesReg[slug];
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  let efface = false;
+  if (t) {
+    let tok = await fbAdminJeton(), viaAdmin = !!tok;
+    if (!tok) { try {
+      const r0 = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + ((config.firebase && config.firebase.apiKey) || 'AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8'),
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
+      tok = ((await r0.json().catch(() => ({}))).idToken) || '';
+    } catch (err) {} }
+    if (tok) { try {
+      const r = await fbAdminFetch('https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents/elan_teams/' + encodeURIComponent(t), { method: 'DELETE' }, tok);
+      efface = r.ok;
+    } catch (err) { console.error('renaitre effacement :', err.message); } }
+  }
+  console.log('Tour :', req.tourUser.nom, 'fait repartir « ' + slug + ' » à neuf — ancien espace', t, efface ? 'effacé' : 'NON effacé');
+  res.json({ ok: true, ancien: t, efface });
+});
+// le patron active un code promo pour une entreprise, directement depuis la Tour
+app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  if (!t) return res.status(400).json({ error: 'espace illisible' });
+  const c = monStr((req.body || {}).code, 40).trim().toUpperCase();
+  if (!c) return res.status(400).json({ error: 'Entre le code promo' });
+  const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+  if (!p) return res.status(404).json({ error: 'Code promo inconnu' });
+  for (const [c2, u2] of Object.entries(promoUsages || {})) {   // un seul code à la fois
+    const eq2 = u2 && u2.equipes && u2.equipes[t];
+    if (c2 !== c && eq2 && eq2.finLe && eq2.finLe >= new Date().toISOString().slice(0, 10))
+      return res.status(409).json({ error: 'Un code (« ' + c2 + ' ») est déjà actif pour cette entreprise jusqu\'au ' + eq2.finLe });
+  }
+  const u = promoUsages[c] || { n: 0, equipes: {} };
+  let finLe;
+  if (u.equipes[t]) finLe = u.equipes[t].finLe;
+  else {
+    if (p.maxUtilisations && u.n >= p.maxUtilisations) return res.status(410).json({ error: 'Ce code a atteint son maximum d\'utilisations' });
+    const d = new Date(); d.setMonth(d.getMonth() + Math.max(1, Number(p.mois) || 1));
+    finLe = d.toISOString().slice(0, 10);
+    u.n++; u.equipes[t] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages();
+    mailPromoActive(t, c, finLe, ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium');
+  }
+  e.codePromo = c;
+  const f = ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium';
+  if (!e.formule || e.formule === 'gratuit') { e.formule = f; e.quantite = e.quantite || 1; e.formulePar = req.tourUser.nom + ' (code)'; e.formuleTs = Date.now(); }
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  console.log('Tour :', req.tourUser.nom, 'active le code', c, 'pour', slug, '→ fin', finLe);
+  res.json({ ok: true, code: c, formule: e.formule, finLe });
+});
+// le patron envoie au client son lien + identifiants de départ (bel e-mail TeamOP)
+// ── 📣 ANNONCE DE MISE À JOUR : un e-mail à TOUTES les entreprises ──
+//    Le texte de l'annonce vit ici ; le patron déclenche l'envoi depuis la Tour.
+//    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
+//    gabarit TeamOP et le journal des e-mails.
+const ANNONCE = {
+  version: '557',
+  sujet: '🆕 Du nouveau dans OP GESTION — vos commandes se suivent, et vous décidez qui voit quoi',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
+  points: [
+    ['📦 Une demande suit sa commande jusqu\'à la réception', 'Jusqu\'ici une demande s\'arrêtait à « Validée » et le bon de commande vivait sa vie de son côté : celui qui avait fait la demande ne savait jamais si sa commande était partie ou arrivée. Les deux sont maintenant reliés. Sur la demande, vous lisez : <b>En attente → Acceptée · En préparation → Envoyée → En livraison → Reçue</b>, ou Refusée avec son motif.'],
+    ['👥 Chaque personne est rattachée à son valideur', 'Dans la fiche d\'un utilisateur, une section <b>« À qui il est rattaché »</b> : vous choisissez qui valide ses mouvements de box et ses demandes. Ce valideur est le seul prévenu et le seul à les voir — fini les alertes pour des box dont on ne s\'occupe pas. Le rattachement se fait dans les deux sens : depuis la fiche de la personne, ou depuis celle du valideur avec une liste à cocher.'],
+    ['✅ Une validation se voit des deux côtés', 'Celui qui valide et celui qui attend voient le même écran. La personne qui a fait la demande sait enfin où elle en est.'],
+    ['🎛️ Le rôle n\'est plus qu\'un nom — c\'est vous qui décidez', 'Un directeur régional ne voit plus tout <i>parce qu\'il est directeur régional</i>. Chaque droit et chaque rubrique du menu se coche, personne par personne ou rôle par rôle, dans <b>Permissions</b>. <b>Rien ne change aujourd\'hui</b> : les droits que vos équipes avaient ont été recopiés dans les cases. Vous décochez ce que vous voulez, quand vous voulez.'],
+    ['📱 Plus lisible, sur téléphone comme en thème sombre', 'Des boutons de Paramètres sortaient de l\'écran et restaient inatteignables au doigt : les lignes passent maintenant à la ligne. Toucher le libellé d\'un champ place enfin le curseur dedans, partout. Et en thème sombre, les initiales des pastilles s\'adaptent à leur couleur au lieu de rester blanches sur fond clair. Revue menée écran par écran, en téléphone, tablette et bureau.'],
+    ['🧹 Les personnes supprimées ne réapparaissent plus', 'Un compte supprimé restait accroché aux box (« Visible par », « Responsable »), aux groupes et aux validations, et ressortait dans les écrans de choix. C\'est nettoyé. Vos mouvements passés gardent le nom écrit à l\'époque.'],
+    ['🔐 Sécurité et fiabilité', 'Le mot de passe provisoire d\'un administrateur ne sort plus de l\'annuaire, les codes de confirmation ne sont plus conservés dans le journal des e-mails, et un administrateur ne peut plus être rétrogradé par erreur en créant une fiche technicien à son nom. La synchronisation ne s\'arrête plus définitivement en cas de refus passager au démarrage.']
+  ]
+};
+app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
+  if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
+  // une adresse par entreprise, la plus récente gagne
+  const parMail = new Map();
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    const ad = String(e.email || '').toLowerCase().trim();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ad)) parMail.set(ad, e.nom || slug);
+  }
+  if (!parMail.size) return res.status(404).json({ error: 'aucune entreprise avec une adresse e-mail' });
+  const blocs = ANNONCE.points.map(([t, d]) =>
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F7FB;border:1px solid #E3E8F1;border-radius:12px;margin-bottom:10px"><tr><td style="padding:14px 18px">' +
+    '<div style="font-size:14px;font-weight:800;color:#17233B;padding-bottom:4px">' + t + '</div>' +
+    '<div style="font-size:13px;line-height:1.7;color:#4A5A7A">' + d + '</div></td></tr></table>').join('');
+  const texte = 'Bonjour,\n\nvotre application OP GESTION vient de recevoir une mise à jour (v' + ANNONCE.version + ') :\n\n' +
+    ANNONCE.points.map(([t, d]) => '• ' + t.replace(/^[^ ]+ /, '') + ' — ' + d.replace(/<[^>]+>/g, '')).join('\n') +
+    '\n\nElle est déjà active : rouvrez simplement l\'application.\n\n— L\'équipe TEAM OP · teamop.fr';
+  let envoyes = 0, refus = 0;
+  for (const [ad, nom] of parMail) {
+    try {
+      await mailerEnvoi({ diffusion: true, from: config.smtp.from || config.smtp.user, to: ad,
+        subject: ANNONCE.sujet, text: texte,
+        html: mailTeamOP({ chip: 'Mise à jour', chipBg: '#E7F0FE', chipColor: '#1D4ED8',
+          titre: 'Du nouveau dans votre application 🆕',
+          corpsHtml: ANNONCE.intro,
+          blocHtml: blocs,
+          boutonTxt: 'Ouvrir mon application', boutonUrl: 'https://teamop.fr/app.html',
+          bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html' }) });
+      envoyes++;
+    } catch (err) { refus++; console.error('annonce →', ad, ':', String(err.message || err).slice(0, 120)); }
+  }
+  console.log('Tour :', req.tourUser.nom, 'a envoyé l\'annonce v' + ANNONCE.version, '→', envoyes, 'entreprises', refus ? ('(' + refus + ' refus)') : '');
+  res.json({ ok: true, envoyes, refus, version: ANNONCE.version });
+});
+app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) => {
+  if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  if (!e.email) return res.status(400).json({ error: 'aucun e-mail enregistré pour cette entreprise' });
+  if (!e.code) return res.status(400).json({ error: 'cet espace n\'a pas de code de connexion — régénère son lien' });
+  let a = '', m = '';
+  try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); a = String(o.a || ''); m = String(o.m || ''); } catch (err) {}
+  const lien = lienEspaceCode(e);
+  const co = (a && m)
+    ? '• Identifiant : ' + a + ' (votre prénom)\n• Mot de passe provisoire : ' + m + ' (votre nom + « !! »)\nÀ votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.\n'
+    : 'Connectez-vous avec vos identifiants habituels.\n';
+  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\nVotre lien de connexion :\n' + lien + '\n(Lien perdu ? Sur teamop.fr → Se connecter, tapez « ' + e.nom + ' » : il vous est renvoyé à cette adresse.)\n\n' + co + '\n— L\'équipe TEAM OP · teamop.fr';
+  const coHtml = (a && m)
+    ? MAIL_BLOCS.ident(a, m) + '<br>'
+    : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br>';
+  const html = mailTeamOP({
+    chip: 'Accès prêt',
+    titre: 'Votre lien de connexion 🔗',
+    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><span style="color:#8fa3c8;font-size:13px">(Lien perdu ? Sur teamop.fr → Se connecter, tapez « <b>' + e.nom + '</b> » : il vous est renvoyé à cette adresse.)</span><br><br>' + coHtml,
+    frise: [
+      { titre: 'Lien généré', sous: 'par TEAM OP', fait: true },
+      { titre: 'Connectez-vous', sous: 'avec le lien', fait: false },
+      { titre: 'Votre mot de passe', sous: 'choisi à la 1re connexion', fait: false }
+    ],
+    boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+    bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
+  });
+  try {
+    await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
+      subject: '🔗 Votre lien de connexion — TEAM OP', text: texte, html });
+    console.log('Tour :', req.tourUser.nom, 'a envoyé le lien de', slug, '→', masqueMail(e.email));
+    // son « Mon espace » passe à Accès activé · OP GESTION active (+ abonnement si formule posée)
+    fbMajFicheClient(e.email, Object.assign({ status: 'fourni', apps: ['elan'] },
+      e.formule ? { plan: FORMULE_LBL[e.formule] || e.formule, planStatus: 'actif' } : {})).catch(() => {});
+    res.json({ ok: true, envoye: e.email });
+  } catch (err) { res.status(500).json({ error: 'envoi impossible : ' + String(err.message).slice(0, 120) }); }
+});
+// l'app d'un espace demande sa formule attribuée (public — ne révèle que la formule)
+/* Fiche d'un espace de l'annuaire à partir de son identifiant d'équipe (avec son nom de lien) */
+function espaceParT(t) {
+  if (!t) return null;
+  const slugs = Object.keys(espacesReg).filter(s => { const x = espacesReg[s];
+    if (x.t) return x.t === t;
+    try { const o = JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')); return String(o.t || '') === t; } catch (err) { return false; } });
+  if (!slugs.length) return null;
+  const slug = slugs.sort((a, b) => (espacesReg[b].ts || 0) - (espacesReg[a].ts || 0))[0];   // plusieurs noms pour le même espace : le plus récent
+  return Object.assign({ slug }, espacesReg[slug]);
+}
+app.post('/api/espaces/etat', (req, res) => {
+  const t = monStr((req.body || {}).t, 80);
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const e = espaceParT(t);
+  if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
+  if (!e || !e.formule) return res.json({ ok: true });
+  espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif }))
+    .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible' }));
+});
+/* ── Création AUTOMATIQUE d'un espace à la demande d'application ──
+   Dès qu'un client fait une demande sur teamop.fr, son espace est créé, inscrit à
+   l'annuaire, et le lien lui est envoyé par e-mail. Sa première connexion se fait
+   avec l'e-mail + le mot de passe de son compte TeamOP (le code embarque a = e-mail).
+   Si son e-mail a déjà un espace, on le RÉUTILISE : le lien pointe sur ses vraies
+   données, jamais sur un espace vide. */
+const formuleDeLabel = (s) => {
+  s = String(s || '').toLowerCase();
+  if (s.includes('premium')) return 'premium';
+  if (s.includes('business')) return 'business';
+  if (s.includes('pro')) return 'pro';
+  if (s.includes('gratuit')) return 'gratuit';
+  return '';
+};
+function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu, prenomC, nomFamC) {
+  email = String(email || '').toLowerCase();
+  let slug = Object.keys(espacesReg).find(s => (espacesReg[s].email || '').toLowerCase() === email);
+  let e, neuf = false, ident = '', mdpProv = '';
+  if (slug) { e = espacesReg[slug]; }
+  else {
+    // le client a choisi le nom de son lien de connexion (vérifié disponible côté site) —
+    // sinon on part du nom d'entreprise
+    const voulu = String(lienVoulu || '').trim().slice(0, 60);
+    slug = espSlug(voulu) || espSlug(entreprise) || espSlug(email.split('@')[0]) || ('ent' + crypto.randomBytes(3).toString('hex'));
+    const base = slug; let n = 2;
+    while (espacesReg[slug]) slug = base + n++;   // nom déjà pris par une autre entreprise → variante
+    const t = 'ent-' + crypto.randomBytes(8).toString('hex');
+    const k = crypto.randomBytes(24).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || crypto.randomBytes(12).toString('hex');
+    const nom = (espSlug(voulu) && slug === espSlug(voulu) ? voulu : String(entreprise || '').trim().slice(0, 80)) || email;
+    // identifiants de départ : identifiant = prénom, mot de passe provisoire = Nom + « !! »
+    // (l'application fait choisir le vrai mot de passe à la première connexion)
+    const cap = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : '';
+    ident = (espSlug(prenomC) || 'admin').slice(0, 20);
+    mdpProv = (cap(espSlug(nomFamC)) || 'Teamop') + '!!';
+    // « mh », pas « m » : le mot de passe provisoire part par e-mail (mdpProv est rendu à l'appelant),
+    // le code ne porte que son empreinte — de quoi le reconnaître, pas de quoi le lire
+    const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: ident, mh: mdpEmpreinte(mdpProv), e: email }), 'utf8').toString('base64').replace(/=+$/, '');
+    e = espacesReg[slug] = { nom, code, t, ts: Date.now(), par: 'auto (demande)', email };
+    neuf = true;
+  }
+  const f = formuleDeLabel(formuleLabel);
+  if (f) {
+    e.formule = f; e.quantite = Math.max(1, Math.min(50, parseInt(users, 10) || 1));
+    e.formulePar = 'auto (demande)'; e.formuleTs = Date.now();
+  }
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  let t = e.t;
+  try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf, t, ident, mdp: mdpProv };
+}
+/* nom d'entreprise présentable (jamais une adresse e-mail mise là faute de mieux) */
+function espNomPropre(e) { const n = String((e && e.nom) || '').trim(); return (n && !/@/.test(n) && n.toLowerCase() !== String((e && e.email) || '').toLowerCase()) ? n : ''; }
+/* ── Le nom d'une entreprise ne rend plus sa clé d'équipe ──────────────────────────────
+   /api/espaces/trouver rendait le code d'espace — donc « k », la clé qui ouvre les
+   données de l'entreprise — à qui tapait son NOM. Un nom se lit sur un camion, une
+   facture, un devis : ce n'est pas un secret, et il ne doit pas en garder un.
+   La route est retirée. Trois routes la remplacent, chacune ne rendant que le strict
+   nécessaire à ce qu'elle sert :
+     • /relance     — renvoie le lien de connexion à l'adresse DÉJÀ enregistrée pour
+                      l'entreprise. Il faut donc sa boîte aux lettres, plus seulement
+                      son nom. La réponse est la même que l'entreprise existe ou non :
+                      sinon la route deviendrait l'annuaire des clients de TEAM OP.
+     • /libre       — un oui/non de disponibilité, pour le formulaire d'inscription.
+     • /verifie-nom — « ce nom est-il celui de l'équipe t ? », demandé par un appareil
+                      qui est DÉJÀ dans l'espace t. Rien n'en sort que ce booléen. */
+const relanceQuota = new Map();
+function quotaOk(map, cle, max, fenetre) {
+  const q = map.get(cle) || { n: 0, reset: Date.now() + fenetre };
+  if (Date.now() > q.reset) { q.n = 0; q.reset = Date.now() + fenetre; }
+  q.n++; map.set(cle, q);
+  return q.n <= max;
+}
+/* Plusieurs inscriptions peuvent porter le même espace : la plus récente fait foi. */
+function espaceAJour(slug) {
+  let e = espacesReg[slug]; if (!e) return null;
+  try { const t = e.t || String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); const r = espaceParT(t); if (r && r.code) e = r; } catch (err) {}
+  return e;
+}
+/* Identifiant d'équipe porté par un espace de l'annuaire. */
+function espaceT(e) {
+  if (!e) return '';
+  if (e.t) return String(e.t);
+  try { return String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) { return ''; }
+}
+/* Le lien de connexion d'un espace porte le CODE (#entreprise=…), jamais le nom
+   (#e=nom) : un nom se devine, un code non. Le mot de passe provisoire n'y figure
+   pas — codeMdpHache l'a remplacé par son empreinte. */
+function lienEspaceCode(e) { return 'https://teamop.fr/app.html#entreprise=' + codeMdpHache(e.code); }
+app.post('/api/espaces/relance', (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
+  if (!quotaOk(relanceQuota, 'ip:' + String(ip).split(',')[0].trim(), 10, 3600000))
+    return res.status(429).json({ error: 'Trop de demandes — réessaie dans une heure' });
+  /* La réponse part AVANT l'envoi : ni le texte ni le délai ne doivent laisser deviner
+     si l'entreprise est cliente de TEAM OP. */
+  res.json({ ok: true, envoye: true });
+  const e = espaceAJour(slug);
+  if (!e || !e.email || !e.code || e.clePerimee || !mailer) return;
+  if (!quotaOk(relanceQuota, 'esp:' + slug, 5, 3600000)) return;
+  const lien = lienEspaceCode(e);
+  const nom = espNomPropre(e) || e.nom || '';
+  const entTxt = nom ? ' « ' + nom + ' »' : '';
+  const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  mailerEnvoi({
+    confidentiel: true, trace: 'relance du lien de connexion · espace ' + slug,
+    from: config.smtp.from || config.smtp.user, to: e.email,
+    subject: '🔗 Votre lien de connexion — TEAM OP',
+    text: 'Bonjour,\n\nQuelqu\'un vient de demander le lien de connexion de votre entreprise'
+      + entTxt + ' sur teamop.fr.\n\nVotre lien :\n' + lien + '\n\n'
+      + 'Ouvrez-le sur l\'appareil à connecter, puis entrez votre identifiant et votre mot de passe.\n'
+      + 'Ce lien donne accès aux données de l\'entreprise : ne le transmettez qu\'à vos employés.\n\n'
+      + 'Si vous n\'êtes à l\'origine d\'aucune demande, ignorez ce message — rien n\'a changé.\n\n— TEAM OP · teamop.fr',
+    html: mailTeamOP({
+      chip: 'Lien de connexion',
+      titre: 'Votre lien de connexion 🔗',
+      corpsHtml: 'Bonjour,<br>quelqu\'un vient de demander le lien de connexion de votre entreprise'
+        + x(entTxt) + ' sur teamop.fr.<br><br><b>Votre lien :</b><br>'
+        + '<a href="' + x(lien) + '" style="color:#34A97E;word-break:break-all">' + x(lien.replace('https://', '')) + '</a><br><br>'
+        + '<span style="font-size:13px">Ouvrez-le sur l\'appareil à connecter, puis entrez votre identifiant et votre mot de passe.<br>'
+        + 'Ce lien donne accès aux données de l\'entreprise : <b>ne le transmettez qu\'à vos employés</b>.</span><br><br>'
+        + '<span style="color:#8fa3c8;font-size:13px">Si vous n\'êtes à l\'origine d\'aucune demande, ignorez ce message — rien n\'a changé.</span>',
+      boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+      bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
+    })
+  }).catch((err) => console.error('relance lien', slug, ':', String(err && err.message || err).slice(0, 120)));
+});
+/* Disponibilité d'un nom de lien, pour le formulaire d'inscription : un oui/non, rien d'autre. */
+app.post('/api/espaces/libre', (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  if (!slug) return res.status(400).json({ error: 'Indique un nom' });
+  res.json({ ok: true, libre: !espacesReg[slug] });
+});
+/* « Ce nom est-il celui de l'équipe t ? » — pour un appareil déjà dans l'espace t, qui
+   fait confirmer à son porteur qu'il tape bien le nom de SON entreprise. Le booléen ne
+   révèle rien : il faut déjà connaître t, et t seul ne mène à aucun nom. */
+app.post('/api/espaces/verifie-nom', (req, res) => {
+  const t = monStr((req.body || {}).t, 80), slug = espSlug((req.body || {}).nom);
+  if (!t || !slug) return res.status(400).json({ error: 't et nom requis' });
+  const tEsp = espaceT(espaceAJour(slug));
+  res.json({ ok: true, correspond: !!tEsp && tEsp === t });
+});
+/* Le lien de connexion d'un espace (teamop.fr/app.html#entreprise=CODE), pour l'application de l'entreprise :
+   t = identifiant d'équipe, kh = empreinte SHA-256 de la clé d'équipe (jamais la clé elle-même).
+   Le nom et le lien ne sont rendus QUE si l'empreinte est celle de la clé de l'annuaire : sans
+   preuve de clé, rien n'est révélé (un identifiant d'équipe seul ne doit mener à aucun nom). */
+const lienQuota = new Map();
+app.post('/api/espaces/lien', (req, res) => {
+  const t = monStr((req.body || {}).t, 80), kh = monStr((req.body || {}).kh, 64).toLowerCase();
+  if (!t || !/^[0-9a-f]{64}$/.test(kh)) return res.status(400).json({ error: 't et kh requis' });
+  const q = lienQuota.get(t) || { n: 0, reset: Date.now() + 3600000 };
+  if (Date.now() > q.reset) { q.n = 0; q.reset = Date.now() + 3600000; }
+  if (++q.n > 30) return res.status(429).json({ error: 'trop de demandes — réessaie plus tard' });
+  lienQuota.set(t, q);
+  const e = espaceParT(t);
+  const refus = () => res.status(404).json({ error: 'lien lisible pas encore activé pour cet espace' });
+  if (!e || !e.slug || !e.code) return refus();
+  let cleAnn = '', identAdmin = '';
+  try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); cleAnn = String(o.k || ''); identAdmin = String(o.a || ''); } catch (err) {}
+  if (!cleAnn) return refus();
+  if (crypto.createHash('sha256').update(cleAnn).digest('hex') !== kh) {
+    // l'appareil a une autre clé que l'annuaire : le code de l'annuaire est périmé → le site cesse de le servir
+    if (!espacesReg[e.slug].clePerimee) { espacesReg[e.slug].clePerimee = Date.now(); try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} lastRefus = { ts: Date.now(), raison: 'clé d\'équipe changée pour l\'espace ' + e.slug + ' — à réinscrire dans la Tour' }; console.warn('espace', e.slug, ': clé d\'équipe changée — lien de l\'annuaire périmé'); }
+    return res.status(404).json({ error: 'la clé d\'équipe a changé depuis l\'inscription chez TEAM OP — l\'espace est à réinscrire dans la Tour', motif: 'cle_changee' });
+  }
+  if (espacesReg[e.slug].clePerimee) { delete espacesReg[e.slug].clePerimee; try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
+  // identAdmin : l'identifiant déclaré administrateur à la création de l'espace. Il n'est rendu
+  // qu'ici, c'est-à-dire contre une preuve de possession de la clé d'équipe — jamais par une
+  // route ouverte. L'application s'en sert pour qu'un patron ne puisse pas être déclassé.
+  /* Le lien rendu porte le code, pas le nom : celui qui le reçoit a prouvé qu'il détient
+     la clé d'équipe, mais le lien qu'il ira coller ne doit se deviner par personne. */
+  res.json({ ok: true, slug: e.slug, nom: espNomPropre(e), lien: lienEspaceCode(e), cleOk: true, nomExact: espSlug(e.nom) === e.slug, identAdmin });
+});
+
+// ── Fermeture totale d'une entreprise (patron) : code de confirmation par e-mail,
+//    puis retrait de la liste, du nom, du lien, de la formule — et les applications
+//    des appareils reliés se vident toutes seules à leur prochain lancement. ──
+const FERMES_PATH = path.join(DATA_DIR, 'entreprises-fermees.json');
+let entFermes = { emails: [], espaces: [] };
+try { entFermes = JSON.parse(fs.readFileSync(FERMES_PATH, 'utf8')); } catch (e) {}
+function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFermes)); } catch (e) {} }
+const retraitCodes = new Map();   // email -> { code, exp, tries }
+// retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
+/* ── Clé d'administration Firebase (facultative) : /opt/teamop/firebase-admin.json ──
+   Clé de compte de service (console Firebase → ⚙️ Paramètres du projet → Comptes de
+   service → « Générer une nouvelle clé privée »). Quand elle est posée sur le serveur,
+   la fermeture d'une entreprise supprime AUSSI son compte du site (espace client),
+   sa fiche et sa messagerie — plus rien n'est enregistré nulle part. */
+const FB_ADMIN_PATH = process.env.TEAMOP_FB_ADMIN || '/opt/teamop/firebase-admin.json';
+let fbAdminCle = null;
+try { fbAdminCle = JSON.parse(fs.readFileSync(FB_ADMIN_PATH, 'utf8')); } catch (e) {}
+const fbAdminTok = { jeton: '', exp: 0 };
+async function fbAdminJeton() {
+  if (!fbAdminCle || !fbAdminCle.client_email || !fbAdminCle.private_key) return '';
+  if (fbAdminTok.jeton && Date.now() < fbAdminTok.exp) return fbAdminTok.jeton;
+  try {
+    const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const now = Math.floor(Date.now() / 1000);
+    const jwtSans = b64u({ alg: 'RS256', typ: 'JWT' }) + '.' + b64u({
+      iss: fbAdminCle.client_email, aud: 'https://oauth2.googleapis.com/token',
+      scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit',
+      iat: now, exp: now + 3600 });
+    const sig = crypto.createSign('RSA-SHA256').update(jwtSans).sign(fbAdminCle.private_key).toString('base64url');
+    const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + jwtSans + '.' + sig });
+    const j = await r.json().catch(() => ({}));
+    if (!j.access_token) { console.error('clé admin firebase : jeton refusé', j.error || r.status); return ''; }
+    fbAdminTok.jeton = j.access_token; fbAdminTok.exp = Date.now() + 50 * 60000;
+    return j.access_token;
+  } catch (e) { console.error('clé admin firebase :', e.message); return ''; }
+}
+const fsBase = () => 'https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents';
+async function fbAdminFetch(url, opts, tok) {
+  const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 10000);
+  try { return await fetch(url, Object.assign({}, opts, { headers: Object.assign({ 'Authorization': 'Bearer ' + tok }, (opts || {}).headers || {}), signal: ctrl.signal })); }
+  finally { clearTimeout(tm); }
+}
+// supprime le compte du site (connexion) + fiche + messagerie d'un client — via la clé admin
+async function fbSupprimerCompteSite(email) {
+  const tok = await fbAdminJeton();
+  if (!tok) return { fait: false, motif: 'clé admin absente sur le serveur' };
+  try {
+    const rl = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:lookup',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: [email] }) }, tok);
+    const jl = await rl.json().catch(() => ({}));
+    const uid = jl.users && jl.users[0] && jl.users[0].localId;
+    if (!uid) return { fait: false, motif: 'aucun compte du site avec cet e-mail' };
+    let pageTok = '', n = 0;   // messagerie : les messages un par un, puis le fil, puis la fiche
+    for (let tour = 0; tour < 20; tour++) {
+      const rm = await fbAdminFetch(fsBase() + '/teamop_threads/' + uid + '/msgs?pageSize=300' + (pageTok ? '&pageToken=' + encodeURIComponent(pageTok) : ''), { method: 'GET' }, tok);
+      const jm = await rm.json().catch(() => ({}));
+      for (const d of (jm.documents || [])) { await fbAdminFetch('https://firestore.googleapis.com/v1/' + d.name, { method: 'DELETE' }, tok); n++; }
+      pageTok = jm.nextPageToken || ''; if (!pageTok) break;
+    }
+    await fbAdminFetch(fsBase() + '/teamop_threads/' + uid, { method: 'DELETE' }, tok);
+    await fbAdminFetch(fsBase() + '/teamop_requests/' + uid, { method: 'DELETE' }, tok);
+    const rd = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:delete',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localId: uid }) }, tok);
+    if (!rd.ok) return { fait: false, motif: 'suppression du compte refusée (HTTP ' + rd.status + ')' };
+    return { fait: true, motif: 'compte du site + fiche + messagerie supprimés (' + n + ' message(s))' };
+  } catch (e) { return { fait: false, motif: String(e.message).slice(0, 120) }; }
+}
+/* Met à jour la fiche « Mon espace » du client (Firestore, via la clé admin) :
+   demande acceptée → badge « Accès activé », application OP GESTION active,
+   abonnement affiché. Sans la clé admin, on passe silencieusement. */
+async function fbMajFicheClient(email, champs) {
+  const tok = await fbAdminJeton();
+  if (!tok) return false;
+  try {
+    const rl = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:lookup',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: [email] }) }, tok);
+    const jl = await rl.json().catch(() => ({}));
+    const uid = jl.users && jl.users[0] && jl.users[0].localId;
+    if (!uid) return false;
+    const fields = {};
+    for (const [k, v] of Object.entries(champs)) {
+      fields[k] = Array.isArray(v) ? { arrayValue: { values: v.map(x => ({ stringValue: String(x) })) } } : { stringValue: String(v) };
+    }
+    const mask = Object.keys(champs).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+    const r = await fbAdminFetch(fsBase() + '/teamop_requests/' + uid + '?' + mask,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) }, tok);
+    if (r.ok) console.log('fiche espace client mise à jour →', masqueMail(email), Object.keys(champs).join(','));
+    else console.error('fiche espace client HTTP', r.status, '→', masqueMail(email));
+    return r.ok;
+  } catch (e) { console.error('fiche espace client :', e.message); return false; }
+}
+const FORMULE_LBL = { gratuit: 'Gratuit', pro: 'Pro', business: 'Business', premium: 'Business Premium' };
+app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
+  const email = monStr((req.body || {}).email, 120).toLowerCase();
+  if (!clientsData[email]) return res.status(404).json({ error: 'entreprise introuvable' });
+  const codeRecu = monStr((req.body || {}).code, 10).trim();
+  if (!codeRecu) {   // 1er temps : on envoie le code de confirmation au patron
+    if (!mailer) return res.status(503).json({ error: 'e-mail non configuré — impossible d\'envoyer le code' });
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    retraitCodes.set(email, { code, exp: Date.now() + 10 * 60000, tries: 0 });
+    const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
+    try {
+      await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
+        subject: '🗑 Code de confirmation — fermeture de « ' + (clientsData[email].entreprise || email) + ' »',
+        text: 'Tu es sur le point de FERMER DÉFINITIVEMENT l\'entreprise « ' + (clientsData[email].entreprise || email) + ' » (' + email + ').\n\nCode de confirmation : ' + code + '\n\nValable 10 minutes. Après validation : plus de nom, plus de lien, plus de formule, et les applications de ses appareils se vident à leur prochain lancement.\nSi ce n\'est pas toi, ignore ce message.' });
+    } catch (e) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(e.message).slice(0, 120) }); }
+    console.log('Tour : code de fermeture envoyé pour', masqueMail(email), '→', masqueMail(dest));
+    return res.json({ ok: true, codeEnvoye: true, dest });
+  }
+  const c = retraitCodes.get(email);
+  if (!c || Date.now() > c.exp) { retraitCodes.delete(email); return res.status(400).json({ error: 'code expiré — recommence' }); }
+  c.tries++; if (c.tries > 5) { retraitCodes.delete(email); return res.status(429).json({ error: 'trop d\'essais — recommence' }); }
+  if (codeRecu !== c.code) return res.status(400).json({ error: 'code incorrect (' + (6 - c.tries) + ' essai(s) restants)' });
+  retraitCodes.delete(email);
+  // fermeture effective : liste, annuaire (nom + lien + formule), et blocage des espaces reliés
+  if (!entFermes.emails.includes(email)) entFermes.emails.push(email);
+  const espacesAEffacer = [];
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    if ((e.email || '').toLowerCase() === email) {
+      let t = e.t;
+      try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+      if (t) { if (!entFermes.espaces.includes(t)) entFermes.espaces.push(t); espacesAEffacer.push(t); }
+      delete espacesReg[slug];
+    }
+  }
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+  fermesSave();
+  delete clientsData[email]; cliSave();
+  // Effacement DÉFINITIF des données chiffrées de l'entreprise sur Firestore :
+  // plus rien n'est enregistré, la place est libérée. (Les appareils reliés se
+  // vident de toute façon au prochain lancement via le blocage entFermes.)
+  const FB_CLE = (config.firebase && config.firebase.apiKey) || 'AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8';
+  let effaces = 0;
+  // Les règles Firestore exigent un utilisateur connecté : jeton anonyme jetable,
+  // supprimé sitôt l'effacement terminé.
+  let jeton = '', jetonAdmin = false;
+  if (espacesAEffacer.length) {
+    jeton = await fbAdminJeton(); jetonAdmin = !!jeton;   // la clé admin passe au-dessus des règles
+    if (!jeton) try {
+      const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + FB_CLE,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
+      const j = await r.json().catch(() => ({}));
+      jeton = j.idToken || '';
+      if (!jeton) console.error('effacement firestore : jeton anonyme refusé (active la connexion Anonyme dans Firebase)');
+    } catch (e) { console.error('effacement firestore jeton :', e.message); }
+  }
+  for (const t of espacesAEffacer) {
+    try {
+      const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch('https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents/elan_teams/' + encodeURIComponent(t) + '?key=' + FB_CLE,
+        { method: 'DELETE', headers: jeton ? { 'Authorization': 'Bearer ' + jeton } : {}, signal: ctrl.signal });
+      clearTimeout(tm);
+      if (r.ok) effaces++; else console.error('effacement firestore', t, ': HTTP', r.status);
+    } catch (e) { console.error('effacement firestore', t, ':', e.message); }
+  }
+  if (jeton && !jetonAdmin) { try { await fetch('https://identitytoolkit.googleapis.com/v1/accounts:delete?key=' + FB_CLE,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: jeton }) }); } catch (e) {} }
+  // et le compte créé sur le site (connexion espace client) : supprimé aussi, si la clé admin est là
+  const compteSite = await fbSupprimerCompteSite(email);
+  console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', masqueMail(email), '— données effacées :', effaces + '/' + espacesAEffacer.length, '· compte du site :', compteSite.motif);
+  res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces, compteSite });
+});
+
 // liste des problèmes + compteurs (admin)
 app.get('/api/monitor/issues', monAdmin, (req, res) => {
   monPurge();
@@ -732,14 +1745,330 @@ app.post('/api/monitor/status', monAdmin, async (req, res) => {
     const texte = 'Bonjour,\n\nNotre système de surveillance a détecté puis corrigé un dysfonctionnement mineur sur ' + (issue.categorie || 'votre application') + '. Votre application est déjà à jour — vous n\'avez rien à faire.\n\n— L\'équipe TEAM OP';
     for (const d of dests) {
       if (mailer) {
-        try { await mailer.sendMail({ from: config.smtp.from || config.smtp.user, to: d.email, subject: sujet, text: texte }); mails++; }
-        catch (e) { console.error('monitor mail', d.email + ':', e.message); }
-      } else { mailsSimules++; console.log('monitor mail (simulé, smtp non configuré) →', d.email, '·', sujet); }
+        try { await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: d.email, subject: sujet, text: texte }); mails++; }
+        catch (e) { console.error('monitor mail', masqueMail(d.email) + ':', e.message); }
+      } else { mailsSimules++; console.log('monitor mail (simulé, smtp non configuré) →', masqueMail(d.email), '·', sujet); }
     }
     issue.mailEnvoye = true;
   }
   monSave();
   res.json({ ok: true, issue, mails, mailsSimules });
+});
+
+
+/* ══════════ EXPLIQUE — d'un incident à sa cause, en français ══════════
+   Un incident dit CE QUI a cassé. Il ne dit pas pourquoi, et c'est tout le travail :
+   « Interface figée », « Cannot read properties of undefined » — il faut ensuite ouvrir
+   le fichier, trouver la ligne, comprendre. Cette route fait ce chemin-là.
+
+   Deux règles la tiennent :
+     • L'extrait de code vient du DÉPÔT, lu ici, jamais du modèle. On lui donne le code
+       à lire ; il ne l'invente pas. Quand la trace ne désigne aucun fichier du dépôt,
+       la route le dit au lieu de fabriquer un emplacement plausible.
+     • Elle n'écrit rien dans l'application. Elle pose une explication à côté de
+       l'incident, dans la console — et cette explication est datée, signée du
+       collaborateur qui l'a demandée, et relisible. Une explication qu'on ne peut pas
+       relire est une explication à laquelle on ne peut pas se fier. */
+const DEPOT = path.resolve(__dirname, '..');
+/* Le fichier désigné par une trace de sentinelle : un seul nom, à la racine du dépôt,
+   et rien d'autre — pas de chemin, pas de remontée, pas d'autre extension. */
+function monSource(src, ligne) {
+  const n = parseInt(ligne, 10) || 0;
+  let f = String(src || '').trim();
+  try { if (/^https?:\/\//i.test(f)) f = new URL(f).pathname; } catch (e) {}
+  f = f.replace(/^\/+/, '').split('?')[0].split('#')[0];
+  if (!/^[a-z0-9._-]+\.(html|js)$/i.test(f)) return null;
+  const p = path.join(DEPOT, f);
+  if (p !== path.join(DEPOT, path.basename(p)) || !fs.existsSync(p)) return null;
+  let lignes;
+  try { lignes = fs.readFileSync(p, 'utf8').split('\n'); } catch (e) { return null; }
+  if (!n || n > lignes.length) return { fichier: f, ligne: 0, extrait: '' };
+  const d = Math.max(1, n - 12), fin = Math.min(lignes.length, n + 12);
+  const extrait = lignes.slice(d - 1, fin)
+    .map((l, i) => String(d + i).padStart(6) + (d + i === n ? ' ▶ ' : ' │ ') + l.slice(0, 300)).join('\n');
+  return { fichier: f, ligne: n, extrait };
+}
+const EXPLIQUE_SCHEMA = {
+  type: 'object',
+  properties: {
+    cause: { type: 'string' },
+    ou: { type: 'string' },
+    verifier: { type: 'string' },
+    confiance: { type: 'string', enum: ['haute', 'moyenne', 'faible'] }
+  },
+  required: ['cause', 'ou', 'verifier', 'confiance'],
+  additionalProperties: false
+};
+const EXPLIQUE_QUOTA_PATH = path.join(DATA_DIR, 'explique-quota.json');
+let expliqueQuota = { jour: '', n: 0 };
+try { expliqueQuota = JSON.parse(fs.readFileSync(EXPLIQUE_QUOTA_PATH, 'utf8')); } catch (e) {}
+function expliqueUtilises() {
+  const auj = new Date().toISOString().slice(0, 10);
+  if (expliqueQuota.jour !== auj) expliqueQuota = { jour: auj, n: 0 };
+  return expliqueQuota.n;
+}
+function expliqueCompte() { expliqueUtilises(); expliqueQuota.n++; try { fs.writeFileSync(EXPLIQUE_QUOTA_PATH, JSON.stringify(expliqueQuota)); } catch (e) {} }
+const EXPLIQUE_MAX = 40;
+app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
+  try {
+    if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
+    const issue = monIssues.find(i => i.id === (req.body || {}).id);
+    if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    if (issue.explication && !(req.body || {}).refaire) return res.json({ ok: true, explication: issue.explication, deja: true });
+    if (expliqueUtilises() >= EXPLIQUE_MAX) return res.status(429).json({ error: 'Quota du jour atteint (' + EXPLIQUE_MAX + ' explications) — réessaie demain' });
+
+    const s = monSource(issue.src, issue.line);
+    const sys = "Tu expliques la cause d'un incident survenu dans une application web de gestion d'interventions, à un artisan qui n'est pas développeur mais qui lit du code quand on le lui montre. Réponds en français, sobrement, sans jargon inutile.\n"
+      + "« cause » : deux ou trois phrases qui disent POURQUOI cela s'est produit. Pas de reformulation du message d'erreur — la cause.\n"
+      + "« ou » : le fichier et la ligne, repris EXACTEMENT de l'extrait fourni. Si aucun extrait n'est fourni, ou si l'extrait ne montre pas la cause, écris « emplacement non déterminé » — n'invente jamais un fichier ni un numéro de ligne.\n"
+      + "« verifier » : ce qu'un humain doit regarder ou reproduire pour confirmer, en une phrase.\n"
+      + "« confiance » : « haute » seulement si l'extrait montre la cause noir sur blanc ; « faible » si tu raisonnes sans voir le code fautif. Une explication plausible mais invérifiable est de confiance faible, dis-le.";
+    const contexte = 'Incident\n'
+      + '- application : ' + (issue.app || '?') + (issue.version ? ' v' + issue.version : '') + '\n'
+      + '- type : ' + (issue.type || '?') + ' · rubrique : ' + (issue.categorie || '?') + '\n'
+      + '- message : ' + (issue.message || '') + '\n'
+      + '- vu ' + (issue.count || 1) + ' fois, sur ' + Object.keys(issue.appareils || {}).length + ' appareil(s)\n'
+      + (issue.stack ? '- trace :\n' + issue.stack + '\n' : '')
+      + (s && s.extrait
+        ? '\nCode du dépôt autour de ' + s.fichier + ':' + s.ligne + ' (▶ = la ligne désignée) :\n' + s.extrait + '\n'
+        : '\nAucun extrait de code : la trace ne désigne pas un fichier du dépôt' + (issue.src ? ' (elle indique « ' + String(issue.src).slice(0, 120) + ' »)' : '') + '.\n');
+
+    const msg = await getAnthropic().messages.create({
+      model: 'claude-opus-5', max_tokens: 2000, system: sys,
+      output_config: { format: { type: 'json_schema', schema: EXPLIQUE_SCHEMA } },
+      messages: [{ role: 'user', content: contexte }]
+    });
+    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Explication refusée' });
+    const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
+    let e; try { e = JSON.parse(txt); } catch (err) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+    expliqueCompte();
+    issue.explication = {
+      cause: monStr(e.cause, 900), ou: monStr(e.ou, 200), verifier: monStr(e.verifier, 400),
+      confiance: ['haute', 'moyenne', 'faible'].includes(e.confiance) ? e.confiance : 'faible',
+      /* le fichier et la ligne réellement OUVERTS ici — c'est cela qui fait foi, pas ce
+         que le modèle en a redit */
+      fichier: s ? s.fichier : '', ligne: s ? s.ligne : 0, codeLu: !!(s && s.extrait),
+      ts: Date.now(), par: req.tourUser.nom
+    };
+    issue.historique = (issue.historique || []).concat([{ ts: Date.now(), par: req.tourUser.nom, action: 'Cause expliquée', note: issue.explication.ou }]).slice(-30);
+    monSave();
+    console.log('Tour :', req.tourUser.nom, 'a demandé la cause de', issue.id, '→', issue.explication.confiance, issue.explication.ou);
+    res.json({ ok: true, explication: issue.explication, restants: Math.max(0, EXPLIQUE_MAX - expliqueUtilises()) });
+  } catch (err) {
+    const st = err && err.status;
+    if (st === 401) return res.status(502).json({ error: 'Clé Claude refusée par Anthropic — expirée ou incomplète. Sur le serveur : bash server/set-claude.sh' });
+    if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    console.error('expliquer :', err && err.message);
+    res.status(500).json({ error: 'Erreur du serveur' });
+  }
+});
+
+
+/* ══════════ PROPOSE — d'une cause à une correction, soumise au patron ══════════
+   EXPLIQUE dit pourquoi. PROPOSE écrit le correctif et ouvre une proposition sur
+   GitHub. Elle ne fusionne rien : ce fichier n'appelle nulle part la fusion, et
+   la proposition part en brouillon. Rien ne va en production sans une main humaine.
+
+   Quatre verrous, dans cet ordre :
+     1. Il faut une cause déjà établie, et le code doit avoir été RÉELLEMENT LU pour
+        l'établir. Corriger sur une intuition, c'est corriger au hasard.
+     2. L'ancre du remplacement doit se trouver UNE SEULE FOIS dans le fichier. Zéro,
+        le modèle a inventé du code qui n'existe pas ; deux, on ne sait pas laquelle
+        il visait. Dans les deux cas on s'arrête.
+     3. Le fichier corrigé doit encore s'analyser. C'est la panne du 3 septembre 2026 :
+        un « // » au milieu d'une ligne avait avalé une accolade, app.html avait cessé
+        de parser, et la page est restée blanche chez toutes les entreprises. Un
+        correctif qui casse le fichier ne doit jamais atteindre une proposition.
+     4. app.html commande beta.html : on régénère la bêta avec le générateur livré
+        (beta-build.js, exécuté tel quel), sinon la vérification d'intégration
+        signalerait à juste titre une bêta désynchronisée.
+
+   La clé GitHub vit UNIQUEMENT dans /opt/teamop/config.json → "github" :
+     "github": { "token": "…", "depot": "compte/TeamOP" }
+   Sans elle, la route se tait proprement : PROPOSE reste inerte. */
+const PROPOSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    titre: { type: 'string' },
+    pourquoi: { type: 'string' },
+    fichier: { type: 'string' },
+    avant: { type: 'string' },
+    apres: { type: 'string' },
+    verifier: { type: 'string' },
+    risque: { type: 'string', enum: ['faible', 'moyen', 'eleve'] }
+  },
+  required: ['titre', 'pourquoi', 'fichier', 'avant', 'apres', 'verifier', 'risque'],
+  additionalProperties: false
+};
+function ghConf() { return config.github || {}; }
+function ghActif() { return !!(ghConf().token && ghConf().depot); }
+async function gh(chemin, options) {
+  const r = await fetch('https://api.github.com/repos/' + ghConf().depot + chemin, Object.assign({
+    headers: {
+      'Authorization': 'Bearer ' + ghConf().token,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'teamop-propose',
+      'Content-Type': 'application/json'
+    }
+  }, options || {}));
+  const txt = await r.text();
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  if (!r.ok) { const e = new Error('GitHub ' + r.status + ' : ' + ((j && j.message) || txt.slice(0, 200))); e.statutGh = r.status; throw e; }
+  return j;
+}
+/* Chaque bloc <script> d'une page doit rester analysable — même contrôle que
+   scripts/verifier-syntaxe.js, qui existe précisément à cause de la page blanche.
+   new Function COMPILE le code sans jamais l'exécuter : c'est ce qu'on veut ici, savoir
+   si le navigateur saura lire la page, sans faire tourner une ligne du correctif. */
+function pageAnalysable(html) {
+  const BLOC = /<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+  let m, n = 0;
+  while ((m = BLOC.exec(html))) {
+    n++;
+    try { new Function(m[1]); }
+    catch (e) {
+      try { new Function('return (async () => {' + m[1] + '})'); }
+      catch (e2) { return 'bloc <script> n°' + n + ' : ' + e2.message; }
+    }
+  }
+  return '';
+}
+/* beta.html est GÉNÉRÉE depuis app.html. On ne réécrit pas ses règles ici : on exécute
+   le générateur livré, en lui donnant l'app corrigée à lire et en captant ce qu'il écrit.
+   Ses propres refus (isolation du stockage, de l'espace de synchro) restent actifs. */
+function betaDepuis(appHtml) {
+  const src = fs.readFileSync(path.join(DEPOT, 'beta-build.js'), 'utf8');
+  let sortie = null;
+  const fauxFs = {
+    readFileSync: (f, e) => (String(f).endsWith('app.html') ? appHtml : fs.readFileSync(f, e)),
+    writeFileSync: (f, d) => { if (String(f).endsWith('beta.html')) sortie = d; }
+  };
+  new Function('require', 'console', 'process', src)(
+    (n) => (n === 'fs' ? fauxFs : require(n)),
+    { log: () => {}, error: (m) => { throw new Error(String(m)); } },
+    { exit: (c) => { if (c) throw new Error('beta-build.js a refusé la génération'); } }
+  );
+  if (!sortie) throw new Error('beta-build.js n\'a rien produit');
+  return sortie;
+}
+app.post('/api/monitor/proposer', monPatronStrict, async (req, res) => {
+  try {
+    if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
+    if (!ghActif()) return res.status(503).json({ error: 'Dépôt GitHub non configuré sur le serveur (config.json → github.token et github.depot)' });
+    const issue = monIssues.find(i => i.id === (req.body || {}).id);
+    if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    const e = issue.explication;
+    if (!e) return res.status(400).json({ error: 'Cherche d\'abord la cause : on ne corrige pas un incident qu\'on n\'a pas compris' });
+    if (!e.codeLu || !e.fichier) return res.status(400).json({ error: 'La cause a été établie sans lire le code — pas de correctif automatique là-dessus' });
+    if (issue.proposition && !(req.body || {}).refaire) return res.json({ ok: true, proposition: issue.proposition, deja: true });
+
+    const s = monSource(e.fichier, e.ligne);
+    if (!s || !s.extrait) return res.status(400).json({ error: 'Le fichier de la cause n\'est plus lisible dans le dépôt' });
+    const lignes = fs.readFileSync(path.join(DEPOT, s.fichier), 'utf8').split('\n');
+    const d = Math.max(1, s.ligne - 40), fin = Math.min(lignes.length, s.ligne + 40);
+    const large = lignes.slice(d - 1, fin).map((l, i) => String(d + i) + ' │ ' + l).join('\n');
+
+    const sys = "Tu corriges un défaut dans une application web française (JavaScript dans des pages HTML d'un seul fichier, sans build ni framework). Le style existant fait loi : mêmes conventions, mêmes noms en français, mêmes commentaires expliquant le POURQUOI. Pas de refactorisation, pas d'amélioration au passage — la plus petite correction qui traite la cause, et rien d'autre.\n"
+      + "« avant » : le fragment EXACT à remplacer, copié caractère pour caractère depuis le code fourni (sans les numéros de ligne ni la barre verticale). Il doit être assez long pour n'apparaître QU'UNE FOIS dans le fichier, et assez court pour ne rien emporter d'inutile.\n"
+      + "« apres » : ce fragment corrigé. Il doit rester du JavaScript valide au même endroit.\n"
+      + "« pourquoi » : deux ou trois phrases expliquant ce que le correctif change et pourquoi cela traite la cause.\n"
+      + "« verifier » : comment un humain confirme que c'est réglé, concrètement.\n"
+      + "« risque » : « faible » si le correctif ne touche qu'un chemin d'exécution étroit ; « eleve » s'il touche du code partagé ou une donnée persistée.\n"
+      + "Si le code fourni ne suffit pas pour corriger sûrement, renvoie « avant » et « apres » identiques : c'est la façon de dire que tu ne corriges pas à l'aveugle.";
+    const contexte = 'Incident : ' + (issue.message || '') + '\n'
+      + 'Cause établie : ' + (e.cause || '') + '\n'
+      + 'Emplacement : ' + s.fichier + ' ligne ' + s.ligne + '\n'
+      + (issue.stack ? 'Trace :\n' + issue.stack + '\n' : '')
+      + '\nCode du dépôt (' + s.fichier + ', lignes ' + d + ' à ' + fin + ') :\n' + large;
+
+    const msg = await getAnthropic().messages.create({
+      model: 'claude-opus-5', max_tokens: 8000, system: sys,
+      output_config: { format: { type: 'json_schema', schema: PROPOSE_SCHEMA } },
+      messages: [{ role: 'user', content: contexte }]
+    });
+    if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Correctif refusé' });
+    const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
+    let p; try { p = JSON.parse(txt); } catch (err) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
+
+    // ── verrou 2 : l'ancre, une fois et une seule ──
+    if (!p.avant || p.avant === p.apres) return res.status(422).json({ error: 'Aucun correctif sûr à partir de ce code — la cause reste à traiter à la main' });
+    if (p.avant.length > 4000) return res.status(422).json({ error: 'Correctif trop large pour être proposé automatiquement' });
+    const avantFichier = fs.readFileSync(path.join(DEPOT, s.fichier), 'utf8');
+    const occurrences = avantFichier.split(p.avant).length - 1;
+    if (occurrences !== 1) return res.status(422).json({
+      error: occurrences === 0
+        ? 'Le fragment à remplacer ne se trouve pas dans le fichier — correctif écarté'
+        : 'Le fragment à remplacer apparaît ' + occurrences + ' fois — on ne sait pas lequel viser, correctif écarté'
+    });
+    const apresFichier = avantFichier.replace(p.avant, p.apres);
+
+    // ── verrou 3 : le fichier corrigé s'analyse encore ──
+    const fichiers = {};
+    if (/\.html$/i.test(s.fichier)) {
+      const casse = pageAnalysable(apresFichier);
+      if (casse) return res.status(422).json({ error: 'Correctif écarté : il rend ' + s.fichier + ' inanalysable (' + casse + ')' });
+    } else {
+      try { new (require('vm').Script)(apresFichier, { filename: s.fichier }); }
+      catch (err) { return res.status(422).json({ error: 'Correctif écarté : il rend ' + s.fichier + ' inanalysable (' + err.message + ')' }); }
+    }
+    fichiers[s.fichier] = apresFichier;
+    // ── verrou 4 : la bêta suit l'app ──
+    if (s.fichier === 'app.html') {
+      try { fichiers['beta.html'] = betaDepuis(apresFichier); }
+      catch (err) { return res.status(422).json({ error: 'Correctif écarté : la bêta ne se régénère pas (' + err.message + ')' }); }
+    }
+
+    // ── la proposition, en brouillon ──
+    const branche = 'propose/' + issue.id + '-' + Date.now().toString(36);
+    const base = await gh('/git/ref/heads/main');
+    await gh('/git/refs', { method: 'POST', body: JSON.stringify({ ref: 'refs/heads/' + branche, sha: base.object.sha }) });
+    for (const nomF of Object.keys(fichiers)) {
+      const actuel = await gh('/contents/' + encodeURIComponent(nomF) + '?ref=main');
+      await gh('/contents/' + encodeURIComponent(nomF), {
+        method: 'PUT',
+        body: JSON.stringify({
+          message: monStr(p.titre, 120) + '\n\nIncident #' + String(issue.id).slice(-6) + ' — proposition ouverte depuis la Tour par ' + req.tourUser.nom + '.',
+          content: Buffer.from(fichiers[nomF], 'utf8').toString('base64'),
+          branch: branche, sha: actuel.sha
+        })
+      });
+    }
+    const corps = '## Ce qui ne va pas\n\n' + (issue.message || '') + '\n\n'
+      + '_Incident #' + String(issue.id).slice(-6) + ' · vu ' + (issue.count || 1) + ' fois sur '
+      + Object.keys(issue.appareils || {}).length + ' appareil(s) · ' + (issue.categorie || '') + '_\n\n'
+      + '## La cause\n\n' + (e.cause || '') + '\n\n`' + s.fichier + '` ligne ' + s.ligne + '\n\n'
+      + '## Ce que change ce correctif\n\n' + (p.pourquoi || '') + '\n\n'
+      + '## À vérifier avant de fusionner\n\n' + (p.verifier || '') + '\n\n'
+      + '```\nnode scripts/verifier-syntaxe.js\nnode scripts/verifier-lien-jeton.js\nnode scripts/verifier-explique.js\n```\n\n'
+      + '## Ce que cette proposition n\'a pas fait\n\n'
+      + '- Elle n\'est **pas** fusionnée, et rien dans le serveur ne peut la fusionner.\n'
+      + '- Le correctif a été écrit par Claude à partir du code du dépôt ; il a été vérifié analysable, pas vérifié juste. Risque annoncé : **' + (p.risque || '?') + '**.\n'
+      + '- Personne n\'a exécuté l\'application avec ce correctif.\n\n'
+      + '---\nProposition ouverte depuis la Tour de contrôle par **' + req.tourUser.nom + '** le '
+      + new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) + '.\n';
+    const pr = await gh('/pulls', {
+      method: 'POST',
+      body: JSON.stringify({ title: monStr(p.titre, 120), head: branche, base: 'main', body: corps, draft: true })
+    });
+
+    issue.proposition = {
+      url: pr.html_url, numero: pr.number, branche: branche,
+      titre: monStr(p.titre, 120), pourquoi: monStr(p.pourquoi, 900), verifier: monStr(p.verifier, 400),
+      risque: ['faible', 'moyen', 'eleve'].includes(p.risque) ? p.risque : 'moyen',
+      fichiers: Object.keys(fichiers), ts: Date.now(), par: req.tourUser.nom
+    };
+    issue.historique = (issue.historique || []).concat([{ ts: Date.now(), par: req.tourUser.nom, action: 'Correction proposée', note: '#' + pr.number + ' ' + monStr(p.titre, 120) }]).slice(-30);
+    monSave();
+    console.log('Tour :', req.tourUser.nom, 'a proposé une correction pour', issue.id, '→', pr.html_url);
+    res.json({ ok: true, proposition: issue.proposition });
+  } catch (err) {
+    const st = err && err.status;
+    if (st === 401) return res.status(502).json({ error: 'Clé Claude refusée par Anthropic — expirée ou incomplète. Sur le serveur : bash server/set-claude.sh' });
+    if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
+    if (err && err.statutGh) return res.status(502).json({ error: err.message });
+    console.error('proposer :', err && err.message);
+    res.status(500).json({ error: 'Erreur du serveur' });
+  }
 });
 
 // santé globale (admin) : reprend /health + uptime + répartition des problèmes
@@ -907,9 +2236,20 @@ app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
   if (!corps.trim()) return res.status(400).json({ error: 'message vide' });
   try {
     const nodemailer = require('nodemailer');
-    const t = nodemailer.createTransport({ host: supportBox.smtpHost, port: supportBox.smtpPort, secure: supportBox.smtpPort === 465, auth: { user: supportBox.email, pass: supportBox.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
-    await t.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps });
+    const tr = nodemailer.createTransport({ host: supportBox.smtpHost, port: supportBox.smtpPort, secure: supportBox.smtpPort === 465, auth: { user: supportBox.email, pass: supportBox.pass }, connectionTimeout: 9000, greetingTimeout: 9000 });
+    // le beau modèle TeamOP (logo, mise en page) — le texte brut reste en secours
+    const echap = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = mailTeamOP({
+      chip: 'Message', chipBg: '#F1EBFC', chipColor: '#6D3FC4',
+      titre: obj,
+      corpsHtml: echap(corps).replace(/\n/g, '<br>'),
+      boutonTxt: 'Mon espace client', boutonUrl: 'https://teamop.fr/espace.html',
+      bouton2Txt: 'Répondre à TEAM OP', bouton2Url: 'mailto:' + supportBox.email
+    });
+    await tr.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps, html,
+      attachments: (LOGO_OK && html.indexOf('cid:logoteamop') >= 0) ? [LOGO_PIECE] : [] });
   } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
+  mailsJournal(dest, obj, corps, false, '');
   supportEnvoyes.unshift({ id: 'e' + crypto.randomBytes(5).toString('hex'), to: dest, subject: obj, text: corps.slice(0, 2000), ts: Date.now(), par: req.tourUser.nom });
   if (supportEnvoyes.length > 100) supportEnvoyes.length = 100;
   supSave();
@@ -1003,12 +2343,15 @@ app.post('/api/clients/sync', async (req, res) => {
   if (!ident) return res.status(401).json({ error: 'connexion non vérifiée' });
   const email = monStr(ident.email, 120).trim().toLowerCase();   // l'e-mail vient du jeton signé, jamais du corps
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(401).json({ error: 'compte sans e-mail' });
+  if (entFermes.emails.includes(email)) return res.status(410).json({ error: 'compte fermé par TeamOP' });
   if (Object.keys(clientsData).length >= 2000 && !clientsData[email]) return res.json({ ok: true });   // cap silencieux
   const prev = clientsData[email] || {};
   const demandes = (Array.isArray(b.demandes) ? b.demandes.slice(0, 20) : []).map(d => ({
-    app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200) }));
+    app: monStr(d && d.app, 60), formule: monStr(d && d.formule, 40), statut: monStr(d && d.statut, 20), date: parseInt(d && d.date, 10) || 0, besoin: monStr(d && d.besoin, 200), users: monStr(d && d.users, 10),
+    code: monStr(d && d.code, 40), lien: monStr(d && d.lien, 60) }));
   clientsData[email] = {
-    email, nom: monStr(b.nom, 80), entreprise: monStr(b.entreprise, 80),
+    email, nom: monStr(b.nom, 80), prenom: monStr(b.prenom, 40) || prev.prenom || '', nomFam: monStr(b.nomFam, 40) || prev.nomFam || '',
+    tel: monStr(b.tel, 30) || prev.tel || '', entreprise: monStr(b.entreprise, 80),
     inscrit: parseInt(b.inscrit, 10) || prev.inscrit || Date.now(),
     apps: (Array.isArray(b.apps) ? b.apps.slice(0, 6) : []).map(a => monStr(a, 20)),
     demandes, plan: monStr(b.plan, 40), planStatus: monStr(b.planStatus, 20), promo: monStr(b.promo, 60),
@@ -1019,6 +2362,139 @@ app.post('/api/clients/sync', async (req, res) => {
     demandesTraitees: prev.demandesTraitees || {}
   };
   cliSave();
+  // Un code promo activé sur le SITE se relaie à l'espace de l'application :
+  // même échéance, l'app se débloque toute seule à sa prochaine vérification.
+  try {
+    const pc = monStr(b.promoCode, 40).toUpperCase(), pf = monStr(b.promoFin, 10);
+    if (pc && /^\d{4}-\d{2}-\d{2}$/.test(pf)) {
+      const esp = Object.values(espacesReg).find(x => (x.email || '').toLowerCase() === email);
+      let tEsp = esp && esp.t;
+      if (esp && !tEsp) { try { tEsp = String(JSON.parse(Buffer.from(esp.code, 'base64').toString('utf8')).t || ''); } catch (e2) {} }
+      if (tEsp) {
+        const u = promoUsages[pc] || { n: 0, equipes: {} };
+        if (!u.equipes[tEsp]) { u.n++; u.equipes[tEsp] = { date: new Date().toISOString().slice(0, 10), finLe: pf }; promoUsages[pc] = u; savePromoUsages(); console.log('code promo du site relayé →', pc, tEsp, 'fin', pf);
+          const pDef = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === pc);
+          mailPromoActive(tEsp, pc, pf, (pDef && ['pro', 'business', 'premium'].includes(pDef.formule)) ? pDef.formule : 'premium'); }
+        else if (pf > (u.equipes[tEsp].finLe || '')) { u.equipes[tEsp].finLe = pf; savePromoUsages(); }
+      }
+    }
+  } catch (e) {}
+  // Nouvelle demande d'application → e-mail au patron (destinataire : config.notifDemandes,
+  // sinon l'expéditeur SMTP). Au plus 1 mail par demande nouvellement apparue.
+  try {
+    const avant = (prev.demandes || []).length;
+    if (mailer && demandes.length > avant) {
+      const dest = (config.notifDemandes || config.smtp.from || config.smtp.user);
+      const nv = demandes.slice(avant);
+      // ── Circuit automatique : l'espace est créé (ou retrouvé) tout de suite,
+      //    le lien part au client, et le patron reçoit le récapitulatif complet.
+      const dFormule = [...nv].reverse().find(d => formuleDeLabel(d.formule)) || {};
+      const dCode = [...nv].reverse().find(d => d.code) || {};
+      const dLien = [...nv].reverse().find(d => d.lien) || {};
+      const dUsers = [...nv].reverse().find(d => d.users) || {};
+      // code teste : c'est LUI qui dit la formule à laquelle le client a droit
+      let promoDef = null;
+      if (dCode.code) {
+        const c = String(dCode.code).trim().toUpperCase();
+        const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+        if (p) promoDef = { code: c, formule: ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium', mois: Math.max(1, Number(p.mois) || 1), max: p.maxUtilisations };
+      }
+      const cli = clientsData[email];
+      const prenomC = cli.prenom || String(cli.nom || '').trim().split(/\s+/)[0] || '';
+      const nomFamC = cli.nomFam || String(cli.nom || '').trim().split(/\s+/).slice(1).join(' ') || '';
+      const auto = espaceAutoPour(email, cli.entreprise || cli.nom || '',
+        promoDef ? promoDef.formule : dFormule.formule, dUsers.users, dLien.lien, prenomC, nomFamC);
+      // lien de bienvenue : il porte le code de l'espace, pas son nom (voir /api/espaces/relance)
+      const eAuto = espacesReg[auto.slug];
+      const lien = (eAuto && eAuto.code) ? lienEspaceCode(eAuto) : 'https://teamop.fr/connexion.html';
+      // activation du code pour cet espace : la formule est offerte, sans carte bancaire
+      let promoActif = null;
+      if (promoDef) { const eEsp = espacesReg[auto.slug];
+        if (eEsp && eEsp.codePromo !== promoDef.code) { eEsp.codePromo = promoDef.code;
+          try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} } }
+      if (promoDef && auto.t) {
+        const u = promoUsages[promoDef.code] || { n: 0, equipes: {} };
+        const deja = u.equipes[auto.t];
+        if (deja) promoActif = Object.assign({}, promoDef, { finLe: deja.finLe });
+        else if (!(promoDef.max && u.n >= promoDef.max)) {
+          const dF = new Date(); dF.setMonth(dF.getMonth() + promoDef.mois);
+          const finLe = dF.toISOString().slice(0, 10);
+          u.n++; u.equipes[auto.t] = { date: new Date().toISOString().slice(0, 10), finLe };
+          promoUsages[promoDef.code] = u; savePromoUsages();
+          promoActif = Object.assign({}, promoDef, { finLe });
+        }
+      }
+      const promoLib = promoActif ? ({ pro: 'Pro', business: 'Business', premium: 'Business Premium' }[promoActif.formule] || promoActif.formule) : '';
+      // les demandes qui viennent d'arriver sont marquées traitées (le lien est parti)
+      for (let i = avant; i < demandes.length; i++) clientsData[email].demandesTraitees[i] = { par: 'auto — lien envoyé', ts: Date.now() };
+      cliSave();
+      const texte = 'Nouvelle demande d\'application sur teamop.fr\n\n' +
+        'Entreprise : ' + (clientsData[email].entreprise || clientsData[email].nom || email) + '\n' +
+        'Contact : ' + (clientsData[email].nom || '—') + '\n' +
+        'E-mail : ' + email + '\n' +
+        'Téléphone : ' + (clientsData[email].tel || 'non renseigné') + '\n\n' +
+        nv.map(d => '• ' + (d.app || 'Application') + (d.formule ? ' — formule « ' + d.formule + ' »' : ' — formule non précisée') + (d.users ? '\n  Utilisateurs souhaités : ' + d.users : '') + (d.besoin && d.besoin !== 'x' ? '\n  Besoin : ' + d.besoin : '')).join('\n') +
+        '\n\n── Traité automatiquement ──\n' +
+        (auto.neuf ? 'Espace créé : « ' + auto.nom + ' »\n' : 'Espace EXISTANT retrouvé : « ' + auto.nom + ' » (ses données sont conservées)\n') +
+        'Lien envoyé au client : ' + lien + '\n' +
+        'Nom à taper sur la page de connexion : « ' + auto.nom + ' »\n' +
+        (auto.neuf ? 'Première connexion : identifiant « ' + auto.ident + ' » · mot de passe provisoire « ' + auto.mdp + ' » (son nom + !!) — l\'app lui fait choisir son vrai mot de passe.\n'
+                   : 'Connexion : ses identifiants habituels.\n') +
+        (promoActif ? '🎁 Code teste « ' + promoActif.code + ' » activé : ' + promoLib + ' offert jusqu\'au ' + promoActif.finLe + ' — espace débloqué SANS paiement.'
+          : (dCode.code && !promoDef ? '⚠️ Code « ' + dCode.code + ' » INCONNU — ignoré.\n' : '') +
+            (auto.formule ? 'Formule enregistrée : ' + auto.formule + ' × ' + auto.quantite + ' — se débloque au paiement (ou code promo).'
+                          : 'Formule non précisée par le client → à attribuer dans ta Tour (Abonnements).')) +
+        '\n\nTout est visible dans ta Tour de contrôle : https://teamop.fr/tour.html';
+      mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
+        subject: '📥 Demande traitée automatiquement — ' + (clientsData[email].entreprise || email), text: texte })
+        .then(() => console.log('mail demande envoyé →', masqueMail(dest), '(' + nv.map(d => d.app).join(', ') + ')'))
+        .catch(e => console.error('mail demande:', e.message));
+      // e-mail au client : son lien de connexion, généré automatiquement
+      const premiereCo = auto.neuf
+        ? 'Première connexion :\n• Identifiant : ' + auto.ident + ' (votre prénom)\n• Mot de passe provisoire : ' + auto.mdp + ' (votre nom + « !! »)\n' +
+          'À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite, ce sont vos identifiants pour toujours.\n'
+        : 'Connectez-vous avec vos identifiants habituels.\n';
+      const accuse = 'Bonjour,\n\n' +
+        'Bonne nouvelle : votre espace « ' + auto.nom + ' » est prêt.\n\n' +
+        'Votre lien de connexion :\n' + lien + '\n' +
+        '(ou tapez « ' + auto.nom + ' » sur teamop.fr/connexion.html)\n\n' + premiereCo +
+        (promoActif ? '\n🎁 Votre code « ' + promoActif.code + ' » est activé : formule ' + promoLib + ' offerte jusqu\'au ' + promoActif.finLe + ' — aucune carte bancaire requise.\n' : '') +
+        '\nEnsuite, créez les comptes de vos collègues dans Administration → Utilisateurs.\n\n' +
+        '— L\'équipe TEAM OP · teamop.fr';
+      const premiereCoHtml = auto.neuf
+        ? MAIL_BLOCS.ident(auto.ident, auto.mdp) + '<br><br>'
+        : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br><br>';
+      const payer = promoActif
+        ? '🎁 Votre code « ' + promoActif.code + ' » est activé : formule <b>' + promoLib + '</b> offerte jusqu\'au <b>' + promoActif.finLe + '</b> — aucune carte bancaire requise.<br>'
+        : (auto.formule && auto.formule !== 'gratuit')
+        ? '💳 Votre formule « ' + (dFormule.formule || auto.formule) + ' » s\'activera dès le paiement de votre abonnement (Mon espace client → Mon abonnement). En attendant, l\'application fonctionne en mode Découverte.<br>'
+        : '';
+      const accuseHtml = mailTeamOP({
+        chip: 'Accès prêt',
+        titre: 'Votre application est prête 🎉',
+        corpsHtml: 'Bonjour,<br>bonne nouvelle : votre espace « <b>' + auto.nom + '</b> » est prêt.<br><br>' +
+          '<b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br>' +
+          '<span style="color:#8fa3c8;font-size:13px">(ou tapez « <b>' + auto.nom + '</b> » sur teamop.fr → Se connecter)</span><br><br>' +
+          premiereCoHtml +
+          'Ensuite, créez les comptes de vos collègues dans <b>Administration → Utilisateurs</b>.<br>' + payer,
+        frise: [
+          { titre: 'Reçue', sous: 'aujourd\'hui', fait: true },
+          { titre: 'Acceptée', sous: 'espace créé', fait: true },
+          { titre: 'Connectez-vous', sous: 'avec votre lien', fait: false }
+        ],
+        boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+        bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
+      });
+      mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: email,
+        subject: '🔗 Votre lien de connexion est prêt — TEAM OP', text: accuse, html: accuseHtml })
+        .then(() => console.log('lien de connexion envoyé →', masqueMail(email))   /* jamais le lien : il porte la clé d'équipe */)
+        .catch(e => console.error('mail lien:', e.message));
+      // et son « Mon espace » sur le site passe à : Accès activé · OP GESTION active · abonnement affiché
+      const planLbl = promoActif ? promoLib : (dFormule.formule || FORMULE_LBL[auto.formule] || '');
+      fbMajFicheClient(email, Object.assign({ status: 'fourni', apps: ['elan'] },
+        planLbl ? { plan: planLbl, planStatus: 'actif' } : {})).catch(() => {});
+    }
+  } catch (e) { console.error('notif demande:', e && e.message); }
   res.json({ ok: true });
 });
 // lecture depuis le contrôle (patron ET collaborateurs)
@@ -1293,6 +2769,238 @@ try {
   require('./mail')(app, { DATA_DIR, monAdmin, monPatronStrict, monStr, pousseNotif });
   console.log('messagerie : module chargé');
 } catch (e) { console.error('messagerie indisponible :', e.message); }
+
+/* ══════════ DEVIS IA — génération de devis par Claude ══════════
+   La clé API vit UNIQUEMENT dans /opt/teamop/config.json → bloc "anthropic" :
+     "anthropic": { "cleApi": "sk-ant-…", "secretDevis": "<code partagé à l'équipe>", "quotaJour": 100 }
+   Elle ne transite jamais par le navigateur ni par le dépôt. L'app envoie le
+   code d'équipe + la demande ; le serveur appelle Claude et renvoie les lignes. */
+const DEVIS_QUOTA_PATH = path.join(DATA_DIR, 'devis-quota.json');
+let devisQuota = { jour: '', n: 0 };
+try { devisQuota = JSON.parse(fs.readFileSync(DEVIS_QUOTA_PATH, 'utf8')); } catch (e) {}
+function devisConf() { return config.anthropic || {}; }
+function devisActif() { return !!devisConf().cleApi; }
+/* ── Le Devis IA tourne sur Gemini, pas sur Claude ────────────────────────────────
+   Deux raisons. La première est le prix : Google offre un palier gratuit, et un devis
+   n'a pas besoin du modèle le plus cher du marché — c'est de la rédaction structurée à
+   partir de prix qu'on lui donne, pas du raisonnement difficile.
+   La seconde suit de la première : sur ce palier gratuit, Google se réserve le droit
+   d'exploiter ce qu'on lui envoie. On lui envoie donc le strict nécessaire pour
+   chiffrer — la prestation — et RIEN qui identifie le client. Ni son nom, ni son
+   adresse : ils ne servent pas à faire un prix, et ils ne sont pas à nous.
+   La clé vit UNIQUEMENT dans /opt/teamop/config.json → "gemini" :
+     "gemini": { "cleApi": "…", "modele": "gemini-3.7-flash" }
+   Elle se pose avec server/set-gemini.sh, qui la vérifie avant de l'écrire. */
+function geminiConf() { return config.gemini || {}; }
+function geminiActif() { return !!geminiConf().cleApi; }
+function geminiModele() { return String(geminiConf().modele || 'gemini-3.7-flash'); }
+async function geminiGenere(sys, texte, schema) {
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/'
+    + encodeURIComponent(geminiModele()) + ':generateContent?key=' + encodeURIComponent(geminiConf().cleApi);
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: texte }] }],
+      systemInstruction: { parts: [{ text: sys }] },
+      generationConfig: { responseMimeType: 'application/json', responseSchema: schema }
+    })
+  });
+  const txt = await r.text();
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  if (!r.ok) {
+    /* Google répond 400 pour une clé invalide, pas 401 : on lit le motif plutôt que le
+       code, sinon « clé morte » et « requête malformée » se confondent. */
+    const motif = (j && j.error && (j.error.status || j.error.message)) || ('HTTP ' + r.status);
+    const e = new Error(String(motif).slice(0, 200));
+    e.geminiCle = /API_KEY_INVALID|API key not valid/i.test(txt);
+    e.geminiQuota = r.status === 429 || /RESOURCE_EXHAUSTED/i.test(txt);
+    e.geminiModele = r.status === 404 || /NOT_FOUND/i.test(txt);
+    throw e;
+  }
+  const part = j && j.candidates && j.candidates[0] && j.candidates[0].content
+    && j.candidates[0].content.parts && j.candidates[0].content.parts[0];
+  const sortie = part && part.text;
+  if (!sortie) throw new Error('réponse vide');
+  return JSON.parse(sortie);
+}
+/* ── Accès par entreprise : activé depuis la Tour de contrôle — aucun code ni clé ne
+   circule chez les clients. data/devis-acces.json : { "<espace>": { actif, depuis, n, dernier } }
+   L'ancien code partagé (secretDevis) reste accepté en dépannage tant qu'il est configuré. */
+const DEVIS_ACCES_PATH = path.join(DATA_DIR, 'devis-acces.json');
+let devisAcces = {};
+try { devisAcces = JSON.parse(fs.readFileSync(DEVIS_ACCES_PATH, 'utf8')); } catch (e) {}
+function saveDevisAcces() { try { fs.writeFileSync(DEVIS_ACCES_PATH, JSON.stringify(devisAcces)); } catch (e) {} }
+function devisTeamOk(team) { const t = devisAcces[String(team || '').trim().slice(0, 80)]; return !!(t && t.actif); }
+function devisQuotaJour() { return Number(devisConf().quotaJour) || 100; }
+function devisUtilises() {
+  const auj = new Date().toISOString().slice(0, 10);
+  if (devisQuota.jour !== auj) devisQuota = { jour: auj, n: 0 };
+  return devisQuota.n;
+}
+function devisCompte() { devisUtilises(); devisQuota.n++; try { fs.writeFileSync(DEVIS_QUOTA_PATH, JSON.stringify(devisQuota)); } catch (e) {} }
+
+app.get('/api/devis/etat', (req, res) => {
+  const team = String(req.query.team || '').trim().slice(0, 80);
+  const rep = { ok: true, actif: geminiActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), restants: Math.max(0, devisQuotaJour() - devisUtilises()) };
+  if (team) rep.equipe = geminiActif() && devisTeamOk(team);
+  res.json(rep);
+});
+
+let anthropicClient = null;
+function getAnthropic() {
+  if (!anthropicClient) {
+    const Anthropic = require('@anthropic-ai/sdk');
+    anthropicClient = new Anthropic({ apiKey: devisConf().cleApi });
+  }
+  return anthropicClient;
+}
+
+// Le schéma garantit une réponse JSON exploitable : mêmes champs que les lignes de devis de l'app
+const DEVIS_SCHEMA = {
+  type: 'object',
+  properties: {
+    titre: { type: 'string' },
+    lignes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { designation: { type: 'string' }, qte: { type: 'number' }, pu: { type: 'number' } },
+        required: ['designation', 'qte', 'pu'],
+        additionalProperties: false
+      }
+    },
+    tva: { type: 'number' },
+    remarque: { type: 'string' }
+  },
+  required: ['titre', 'lignes', 'tva', 'remarque'],
+  additionalProperties: false
+};
+
+app.post('/api/devis/generer', async (req, res) => {
+  try {
+    if (!geminiActif()) return res.status(503).json({ error: 'Devis IA non configuré sur le serveur — sur le serveur : bash server/set-gemini.sh' });
+    /* « client » n'est plus lu : le nom et l'adresse d'un client ne servent pas à faire
+       un prix, et n'ont donc rien à faire chez un tiers. Le champ reste accepté dans le
+       corps pour ne pas casser les applications déjà déployées ; il est ignoré. */
+    const { code, team, demande, contexte } = req.body || {};
+    const teamKey = String(team || '').trim().slice(0, 80);
+    const okEquipe = devisTeamOk(teamKey);
+    const okCode = !!(code && devisConf().secretDevis && String(code) === String(devisConf().secretDevis));
+    if (!okEquipe && !okCode) return res.status(401).json({ error: "Devis IA non activé pour cette entreprise — demande l'activation à TeamOP" });
+    if (!demande || String(demande).trim().length < 5) return res.status(400).json({ error: 'Décris la prestation à chiffrer' });
+    if (devisUtilises() >= devisQuotaJour()) return res.status(429).json({ error: 'Quota du jour atteint (' + devisQuotaJour() + ' devis) — réessaie demain' });
+
+    const sys = "Tu prépares des devis pour une entreprise française de gestion de nuisibles (dératisation, désinsectisation, désinfection, dépigeonnage) et petits travaux associés. À partir de la demande, produis un devis réaliste et sobre : des lignes claires (désignation précise, quantité, prix unitaire HT en euros, cohérent avec le marché français), la main d'œuvre et le déplacement en lignes séparées quand c'est pertinent, TVA 20 par défaut (10 seulement pour des travaux d'amélioration d'un logement de plus de 2 ans). « remarque » : 1 ou 2 phrases utiles pour le client (garantie, nombre de passages, conditions). Pas de lignes de remplissage.";
+    const devis = await geminiGenere(sys,
+      'Demande : ' + String(demande).slice(0, 2000)
+        + (contexte ? '\nContexte : ' + String(contexte).slice(0, 1000) : ''),
+      DEVIS_SCHEMA);
+    if (!devis || !Array.isArray(devis.lignes) || !devis.lignes.length) return res.status(502).json({ error: 'Réponse illisible, réessaie' });
+    devisCompte();
+    if (okEquipe) { const t = devisAcces[teamKey]; t.n = (t.n || 0) + 1; t.dernier = new Date().toISOString().slice(0, 10); saveDevisAcces(); }
+    res.json({ ok: true, devis, restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
+  } catch (e) {
+    if (e && e.geminiCle) return res.status(502).json({ error: 'Clé Gemini refusée par Google — expirée ou incomplète. Sur le serveur : bash server/set-gemini.sh' });
+    if (e && e.geminiModele) return res.status(502).json({ error: 'Modèle Gemini introuvable — relance server/set-gemini.sh pour en choisir un disponible' });
+    if (e && e.geminiQuota) return res.status(503).json({ error: 'Palier gratuit Gemini saturé pour le moment — réessaie dans quelques minutes' });
+    console.error('devis IA:', e && e.message);
+    res.status(500).json({ error: 'Erreur du serveur de devis' });
+  }
+});
+
+// ── Tour de contrôle : activation du Devis IA entreprise par entreprise.
+//    Le patron active/désactive un espace depuis tour.html — rien à donner aux clients.
+app.get('/api/monitor/devisia', monAdmin, (req, res) => {
+  res.json({ ok: true, cle: devisActif(), quotaJour: devisQuotaJour(), utilises: devisUtilises(), equipes: devisAcces });
+});
+app.post('/api/monitor/devisia', monAdmin, (req, res) => {
+  const b = req.body || {};
+  const team = String(b.teamId || '').trim().slice(0, 80);
+  if (!team) return res.status(400).json({ error: "code d'espace requis" });
+  if (b.supprimer) delete devisAcces[team];
+  else if (b.actif) devisAcces[team] = { ...(devisAcces[team] || {}), actif: true, depuis: (devisAcces[team] || {}).depuis || new Date().toISOString().slice(0, 10) };
+  else if (devisAcces[team]) devisAcces[team].actif = false;
+  saveDevisAcces();
+  res.json({ ok: true, equipes: devisAcces });
+});
+
+/* ══════════ CODES PROMO — mois offerts, sans carte bancaire ══════════
+   Les codes vivent dans /opt/teamop/config.json → "promos" :
+     "promos": [ { "code": "BIENVENUE3", "formule": "premium", "mois": 3, "maxUtilisations": 50 } ]
+   formule : pro | business | premium. Les usages sont comptés dans
+   data/promos-usages.json — un même code ne compte qu'une fois par équipe. */
+const PROMO_USAGE_PATH = path.join(DATA_DIR, 'promos-usages.json');
+let promoUsages = {};
+try { promoUsages = JSON.parse(fs.readFileSync(PROMO_USAGE_PATH, 'utf8')); } catch (e) {}
+function savePromoUsages() { try { fs.writeFileSync(PROMO_USAGE_PATH, JSON.stringify(promoUsages)); } catch (e) {} }
+
+app.post('/api/promo/valider', (req, res) => {
+  const { code, teamId, apercu } = req.body || {};
+  const c = String(code || '').trim().toUpperCase();
+  if (!c) return res.status(400).json({ error: 'Entre ton code promo' });
+  const p = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === c);
+  if (!p) return res.status(404).json({ error: 'Code promo inconnu' });
+  const u = promoUsages[c] || { n: 0, equipes: {} };
+  const team = String(teamId || '').slice(0, 80);
+  const deja = team && u.equipes[team];
+  // un seul code à la fois par espace : si un AUTRE code est encore actif, refus clair
+  if (team && !deja) {
+    for (const [c2, u2] of Object.entries(promoUsages || {})) {
+      const eq2 = u2 && u2.equipes && u2.equipes[team];
+      if (c2 !== c && eq2 && eq2.finLe && eq2.finLe >= new Date().toISOString().slice(0, 10))
+        return res.status(409).json({ error: 'Un code (« ' + c2 + ' ») est déjà actif sur cet espace jusqu\'au ' + eq2.finLe + ' — un seul code à la fois.' });
+    }
+  }
+  if (!deja && p.maxUtilisations && u.n >= p.maxUtilisations) return res.status(410).json({ error: "Ce code a atteint son nombre maximum d'utilisations" });
+  const mois = Math.max(1, Number(p.mois) || 1);
+  let finLe;
+  if (deja) {
+    finLe = deja.finLe;   // le même code retape par la même équipe : on redonne la même échéance
+  } else {
+    const d = new Date(); d.setMonth(d.getMonth() + mois);
+    finLe = d.toISOString().slice(0, 10);
+    if (!apercu) { u.n++; if (team) u.equipes[team] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages();
+      if (team) mailPromoActive(team, c, finLe, ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium'); }
+  }
+  res.json({ ok: true, formule: ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium', mois, finLe, dejaUtilise: !!deja });
+});
+
+// ── ⏳ Rappel d'échéance : 7 jours avant la fin d'une période offerte, l'entreprise
+//    reçoit UN e-mail (modèle orange de la galerie) — jamais deux pour la même
+//    échéance (drapeau rappelFin posé sur l'espace).
+function rappelsEcheances() {
+  try {
+    if (!mailer) return;
+    const auj = new Date().toISOString().slice(0, 10);
+    const lim = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    let touche = false;
+    for (const [code, u] of Object.entries(promoUsages || {})) {
+      for (const [t, eq] of Object.entries((u && u.equipes) || {})) {
+        if (!eq || !eq.finLe || eq.finLe < auj || eq.finLe > lim) continue;   // ni déjà passée, ni encore loin
+        const e = Object.values(espacesReg).find(x => {
+          if (x.t) return x.t === t;
+          try { return String(JSON.parse(Buffer.from(x.code, 'base64').toString('utf8')).t || '') === t; } catch (err) { return false; }
+        });
+        if (!e || !e.email || e.rappelFin === eq.finLe) continue;   // pas d'adresse, ou déjà prévenu
+        e.rappelFin = eq.finLe; touche = true;
+        const finFr = eq.finLe.split('-').reverse().join('/');
+        mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
+          subject: '⏳ Votre période offerte se termine bientôt — TEAM OP',
+          text: 'Bonjour,\n\nla période offerte par votre code « ' + code + ' » se termine le ' + finFr + '.\nVos données ne bougent pas, quoi qu\'il arrive — mais sans abonnement, l\'application repassera en formule Gratuit.\n\nPour continuer sans coupure : teamop.fr/espace.html → Mon abonnement.\n\n— TEAM OP · teamop.fr',
+          html: mailTeamOP({ chip: 'Échéance', chipBg: '#FFF6EE', chipColor: '#B26E12', titre: 'Plus que quelques jours ⏳',
+            corpsHtml: 'Bonjour,<br>un petit mot pour vous prévenir à l\'avance : la période offerte par votre code « <b>' + code + '</b> » touche à sa fin.',
+            blocHtml: MAIL_BLOCS.echeance(finFr),
+            boutonTxt: 'Choisir mon abonnement', boutonUrl: 'https://teamop.fr/espace.html',
+            bouton2Txt: 'Ouvrir mon application', bouton2Url: 'https://teamop.fr/app.html' })
+        }).then(() => console.log('rappel échéance envoyé →', masqueMail(e.email), '(fin ' + eq.finLe + ')'))
+          .catch(err => console.error('rappel échéance:', err.message));
+      }
+    }
+    if (touche) { try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
+  } catch (e) { console.error('rappelsEcheances:', e.message); }
+}
+setTimeout(rappelsEcheances, 90 * 1000);      // un premier passage peu après le démarrage
+setInterval(rappelsEcheances, 6 * 3600000);   // puis toutes les 6 heures
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '127.0.0.1', () => console.log('TeamOP API sur 127.0.0.1:' + PORT));

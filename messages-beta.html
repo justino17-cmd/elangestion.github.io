@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icons/opmsg-apple-touch.png">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/opmsg-favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/opmsg-192.png">
-<title>OP MESSAGES — Messagerie d'entreprise</title>
+<title>OP MESSAGES 🧪 BÊTA — pont TEAM OP</title>
 <script>
 /* ══ LA COULEUR AVANT TOUT ══
    On pose le thème (jour/nuit) et la gamme (bleu ou violet) dès la première
@@ -2178,6 +2178,96 @@
     if(c==='auth/user-not-found')return 'Aucun compte trouvé.';
     return (e&&e.message)||'Erreur.'; }
 
+  /* ═══════════ PONT TEAM OP — le compte OP GESTION active le mode entreprise (Premium) ═══════════
+     Preuve d'appartenance : lien de l'entreprise + identifiant + mot de passe OP GESTION,
+     vérifiés dans l'espace chiffré de CETTE entreprise. Re-vérifié toutes les 12 h :
+     compte retiré / formule plus payée / entreprise fermée → retour au compte perso gratuit. */
+  const TEAMOP_API='https://api.teamop.fr';
+  function _toB64d(str){ const bin=atob(str); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return a; }
+  async function _toDechiffre(doc,k){
+    const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(k),'PBKDF2',false,['deriveKey']);
+    const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:_toB64d(doc.salt),iterations:120000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+    const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:_toB64d(doc.iv)},key,_toB64d(doc.enc));
+    return new TextDecoder().decode(pt);
+  }
+  async function _toSha(sv){ const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sv)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+  /* Le lien de connexion de l'entreprise porte lui-même t et k : on le lit ici, sans rien
+     demander au serveur. C'est le point : TEAM OP ne rend plus la clé d'un espace contre le
+     NOM de l'entreprise — un nom se lit sur un camion, il ne doit ouvrir aucune donnée. */
+  function teamopCode(x){
+    const s=String(x||'').trim(); if(!s) return null;
+    const m=s.match(/#entreprise=([A-Za-z0-9+/=_-]{8,})/);
+    const brut=m?m[1]:(/^[A-Za-z0-9+/=_-]{16,}$/.test(s)?s:'');
+    if(!brut) return null;
+    try{ const o=JSON.parse(decodeURIComponent(escape(atob(brut)))); return (o&&o.t&&o.k)?o:null; }catch(e){ return null; }
+  }
+  async function teamopVerifie(lien,ident,mdp){
+    const o=teamopCode(lien);
+    if(!o) return {err:'Colle le lien de connexion de ton entreprise (celui que TEAM OP lui a envoyé, teamop.fr/app.html#entreprise=…) — le nom seul ne suffit plus.'};
+    let j2={}; try{ const r2=await fetch(TEAMOP_API+'/api/espaces/etat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:o.t})}); j2=await r2.json(); }catch(e){ return {err:'Connexion internet requise.'}; }
+    if(j2&&j2.ferme) return {err:'Cette entreprise a été fermée par TEAM OP.'};
+    if(!(j2&&j2.formule==='premium'&&j2.paye)) return {err:'Cette entreprise n\'est pas en Business Premium payé — la messagerie d\'équipe n\'est pas incluse.'};
+    let d=null; try{ d=(await fs.collection('elan_teams').doc(o.t).get()).data(); }catch(e){}
+    if(!d||!d.enc) return {err:'Espace introuvable — l\'entreprise doit avoir ouvert OP GESTION au moins une fois.'};
+    let brut=null; try{ brut=await _toDechiffre(d,o.k); }catch(e){}
+    if(!brut) return {err:'Lecture de l\'espace impossible — redemande un lien à jour.'};
+    let bd=null; try{ bd=JSON.parse(brut); }catch(e){ return {err:'Espace illisible.'}; }
+    const login=String(ident||'').trim().toLowerCase();
+    const gu=(bd.users||[]).find(x=>String(x.login||'').toLowerCase()===login&&x.actif!==false);
+    if(mdp===undefined) return gu?{ok:true,t:o.t,nom:o.n||lien,gu}:{err:'retire'};
+    if(!gu) return {err:'Aucun compte OP GESTION « '+login+' » dans cette entreprise.'};
+    if(!gu.pwdHash||await _toSha(mdp)!==gu.pwdHash) return {err:'Mot de passe OP GESTION incorrect.'};
+    return {ok:true,t:o.t,nom:o.n||lien,gu};
+  }
+  async function teamopActiver(){
+    const info=document.getElementById('to-info'); const dis=m=>{ if(info) info.textContent=m; };
+    const lien=(document.getElementById('to-lien').value||'').trim();
+    const ident=(document.getElementById('to-ident').value||'').trim();
+    const mdp=document.getElementById('to-mdp').value||'';
+    if(!lien||!ident||!mdp){ dis('Remplis les trois champs.'); return; }
+    dis('Vérification auprès de TEAM OP…');
+    const v=await teamopVerifie(lien,ident,mdp);
+    if(!v.ok){ dis('⚠ '+v.err); return; }
+    dis('✔ Vérifié — activation de ton espace entreprise…');
+    try{
+      let comp=null;
+      const qs=await fs.collection('op_companies').where('teamopT','==',v.t).limit(1).get();
+      if(!qs.empty){ comp=qs.docs[0]; }
+      else{ const ref=await fs.collection('op_companies').add({name:v.nom,teamopT:v.t,code:'TO'+Math.random().toString(36).slice(2,8).toUpperCase(),ownerUid:(v.gu.role==='admin'?ME.uid:null),ts:Date.now()}); comp=await ref.get(); }
+      if(v.gu.role==='admin'&&!comp.data().ownerUid){ try{ await comp.ref.update({ownerUid:ME.uid}); }catch(e){} }
+      const nomAff=((v.gu.prenom||'')+' '+(v.gu.nom||'')).trim()||(USER&&USER.name)||ident;
+      await comp.ref.collection('members').doc(ME.uid).set({uid:ME.uid,name:nomAff,role:(v.gu.role==='admin'?'entreprise':'classique'),ts:Date.now()},{merge:true});
+      await fs.collection('op_users').doc(ME.uid).set({companyId:comp.id,companyName:comp.data().name},{merge:true});
+      USER.companyId=comp.id; USER.companyName=comp.data().name;
+      COMP={id:comp.id,name:comp.data().name}; HAS_COMPANY=true; MODE='company';
+      localStorage.setItem('opmsg_teamop',JSON.stringify({lien,t:v.t,login:String(ident).toLowerCase(),nom:v.nom,checkTs:Date.now()}));
+      dis('🎉 Activé — bienvenue dans l\'équipe '+v.nom+' !');
+      setTimeout(()=>{ try{ gammeMaj(); enterApp(); }catch(e){ location.reload(); } },900);
+    }catch(e){ dis('⚠ '+(e.message||'Erreur pendant l\'activation.')); }
+  }
+  async function teamopDetache(silencieux,motif){
+    try{ await fs.collection('op_users').doc(ME.uid).set({companyId:null,companyName:null},{merge:true}); }catch(e){}
+    try{ localStorage.removeItem('opmsg_teamop'); }catch(e){}
+    if(USER){ USER.companyId=null; USER.companyName=null; }
+    COMP=null; HAS_COMPANY=false; MODE='perso';
+    if(!silencieux) alert('Le mode entreprise a été désactivé'+(motif?(' : '+motif):'')+'.\nTon compte perso et tes conversations restent.');
+    try{ gammeMaj(); enterApp(); }catch(e){ location.reload(); }
+  }
+  async function teamopReverif(){
+    let m=null; try{ m=JSON.parse(localStorage.getItem('opmsg_teamop')||'null'); }catch(e){}
+    if(!m||!m.lien||!USER||!USER.companyId) return;
+    /* Réglage hérité : « lien » était le NOM de l'entreprise. Il ne prouve plus rien —
+       on redemande le vrai lien de connexion plutôt que de continuer sur cette base. */
+    if(!teamopCode(m.lien)) return teamopDetache(false,'le mode équipe se rattache désormais au lien de connexion de l\'entreprise — réactive-le avec ce lien');
+    if(m.checkTs&&Date.now()-m.checkTs<12*3600000) return;   // au plus deux contrôles par jour
+    try{
+      const v=await teamopVerifie(m.lien,m.login,undefined);
+      if(v&&v.ok){ m.checkTs=Date.now(); localStorage.setItem('opmsg_teamop',JSON.stringify(m)); return; }
+      const raison=(v&&v.err==='retire')?'ton compte a été retiré de l\'entreprise':((v&&v.err)||'');
+      await teamopDetache(false,raison);
+    }catch(e){ /* hors ligne : on réessaiera */ }
+  }
+
   // ========== APP SHELL ==========
   /* L'écran d'arrivée : le tableau de bord quand l'espace en a un
      (entreprise), sinon les messages (compte perso). */
@@ -2208,6 +2298,7 @@
   // Un seul compte : espace Perso (toujours) + éventuellement un espace Pro (entreprise).
   async function enterApp(){
     if(USER&&USER.companyId){ HAS_COMPANY=true; COMP={id:USER.companyId,name:USER.companyName}; }
+    try{ setTimeout(teamopReverif, 6000); }catch(e){}
     IS_OWNER=false;
     if(HAS_COMPANY&&COMP){
       try{ const d=await fs.collection('op_companies').doc(COMP.id).get(); if(d.exists){ COMP.ownerUid=d.data().ownerUid; IS_OWNER=(d.data().ownerUid===ME.uid); COMP.code=d.data().code; } }catch(e){}
@@ -11613,6 +11704,15 @@
           <div class="ds" id="sync-etat">À jour · ${esc(syncDepuis())}</div></div>
         <span class="ms" style="font-size:19px;color:var(--tile-tx)">done_all</span>
       </div>
+      ${(function(){ let m=null; try{ m=JSON.parse(localStorage.getItem('opmsg_teamop')||'null'); }catch(e){}
+        if(USER&&USER.companyId&&m) return `<div class="row" style="cursor:default;flex-wrap:wrap;gap:8px"><div class="info"><div class="nm">🏢 Entreprise TEAM OP</div><div class="ds">Relié à <b>${esc(m.nom||m.lien)}</b> — mode équipe Premium actif ⭐</div></div><button class="btn sm" onclick="if(confirm('Se détacher de l\\'entreprise ? Ton compte perso reste.'))teamopDetache(true,'')">Se détacher</button></div>`;
+        if(USER&&USER.companyId) return '';
+        return `<div class="row" style="cursor:default;flex-direction:column;align-items:stretch;gap:8px"><div class="info"><div class="nm">🏢 Entreprise TEAM OP</div><div class="ds">Ton entreprise est en Business Premium ? Active le mode équipe avec son lien de connexion et ton compte OP GESTION — rien à créer.</div></div>
+          <input id="to-lien" placeholder="Lien de connexion de l'entreprise (teamop.fr/app.html#entreprise=…)" autocapitalize="off" style="background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.3);border-radius:10px;padding:10px 12px;font-size:13px;color:inherit;width:100%">
+          <input id="to-ident" placeholder="Ton identifiant OP GESTION" autocapitalize="off" style="background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.3);border-radius:10px;padding:10px 12px;font-size:13px;color:inherit;width:100%">
+          <input id="to-mdp" type="password" placeholder="Ton mot de passe OP GESTION" style="background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.3);border-radius:10px;padding:10px 12px;font-size:13px;color:inherit;width:100%">
+          <div id="to-info" class="ds" style="min-height:16px"></div>
+          <button class="btn" onclick="teamopActiver()">🏢 Activer avec mon entreprise</button></div>`; })()}
       <div class="row" style="cursor:default">
         <div class="info"><div class="nm">Couleur de l\u2019offre</div>
           <div class="ds">${gammeOffre()==='violet'?'Violet — forfait Business Premium':'Bleu — offre Gratuite / PRO'}</div></div>

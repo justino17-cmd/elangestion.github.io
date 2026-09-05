@@ -1,0 +1,62 @@
+# Contrôles avant mise en ligne des pages.
+#
+# Le 3 septembre 2026, un commentaire « // » posé au milieu d'une instruction tenant sur une
+# seule ligne a mis app.html hors service : la page est restée BLANCHE en production pour
+# toutes les entreprises. Rien ne vérifiait que le fichier livré était encore analysable.
+name: Vérification des pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntaxe des blocs <script>
+        run: node scripts/verifier-syntaxe.js
+
+      # Les dépendances du serveur : les suites ci-dessous démarrent le serveur LIVRÉ et
+      # interrogent ses vraies routes — un test qui rejoue une copie du code ne dit rien
+      # de ce qui part en production.
+      - name: Dépendances du serveur
+        run: npm install --no-audit --no-fund
+        working-directory: server
+
+      - name: Le nom d'une entreprise ne rend pas sa clé
+        run: node scripts/verifier-lien-jeton.js
+
+      - name: EXPLIQUE n'ouvre que les pages du dépôt
+        run: node scripts/verifier-explique.js
+
+      - name: PROPOSE ne laisse pas passer un correctif qui casse la page
+        run: node scripts/verifier-propose.js
+
+      - name: Chacun ne voit que ce qui le concerne
+        run: node scripts/verifier-permissions.js
+
+      - name: Le Devis IA ne fait pas sortir le client
+        run: node scripts/verifier-devis-gemini.js
+
+      # beta.html est GÉNÉRÉE depuis app.html par beta-build.js. Si quelqu'un modifie beta.html
+      # à la main, ou oublie de la régénérer, la bêta et la production divergent en silence.
+      - name: beta.html est bien la génération de app.html
+        run: |
+          node beta-build.js
+          if ! git diff --quiet -- beta.html; then
+            echo "::error::beta.html ne correspond pas à app.html — lance « node beta-build.js » et commite le résultat."
+            git diff --stat -- beta.html
+            exit 1
+          fi
+          echo "beta.html est à jour."

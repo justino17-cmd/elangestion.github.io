@@ -18,4 +18,6 @@ Processus OBLIGATOIRE, dans l'ordre :
 
 Ne touche jamais au serveur VPS (api.teamop.fr) : s'il faut le mettre à jour, indique la commande à donner à l'utilisateur : `ssh root@217.154.6.139 "cd /opt/teamop/repo && git pull && systemctl restart teamop-api"`.
 
+**Canal bêta (teamop.fr/beta.html)** : pour tester une évolution SANS toucher aux clients, ne pas reporter app.html sur main. À la place : modifier app.html sur la branche de travail, lancer `node beta-build.js` (génère beta.html, isolée : stockage local préfixé elanB_, synchro elan-gestion-beta, bandeau 🧪), commit sur la branche puis report sur main d'un commit ne contenant QUE beta.html. L'utilisateur teste sur teamop.fr/beta.html (1re connexion : admin / 1234). Une fois qu'il valide : bump APP_VERSION + CACHE et report d'app.html sur main via le processus normal ci-dessus. beta.html n'est jamais mise en cache par le service worker.
+
 Rapport final : version déployée, pages touchées, résultat de la surveillance.

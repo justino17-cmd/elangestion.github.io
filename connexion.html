@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Connexion — TEAM OP</title>
+<link rel="icon" href="icons/teamop-512.png">
+<script>
+/* Porte d'entrée directe : si l'appareil connaît déjà son application,
+   on y va tout de suite — pas de site à traverser. ?choix=1 pour re-choisir. */
+try{
+  const d=localStorage.getItem('teamop_app');
+  if((d==='app.html'||d==='messages.html')&&!/choix/.test(location.search)) location.replace(d);
+}catch(e){}
+</script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{min-height:100vh;background:#0a1120;background:radial-gradient(1200px 700px at 70% -10%,#12203a 0%,#0a1120 55%);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;color:#eef2fa;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+  .logo{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  .logo img{width:46px;height:46px;border-radius:12px}
+  .logo b{font-size:21px;letter-spacing:2px;font-family:ui-monospace,'Space Mono',monospace}
+  .sous{color:#93a9d4;font-size:14px;margin-bottom:34px;text-align:center}
+  .cartes{display:flex;flex-direction:column;gap:14px;width:100%;max-width:420px}
+  a.carte{display:flex;align-items:center;gap:16px;background:#141f36;border:1px solid #243354;border-radius:16px;padding:18px 20px;text-decoration:none;color:#eef2fa;transition:.15s}
+  a.carte:hover{border-color:#34d399;transform:translateY(-1px)}
+  .ico{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+  .carte .txt b{display:block;font-size:16.5px;margin-bottom:3px}
+  .carte .txt span{color:#93a9d4;font-size:12.5px;line-height:1.45;display:block}
+  .fleche{margin-left:auto;color:#7684a3;font-size:18px}
+  .note{margin-top:26px;color:#7684a3;font-size:12.5px;text-align:center;line-height:1.6;max-width:420px}
+  .note a{color:#7cc6ff;text-decoration:none}
+</style>
+</head>
+<body>
+  <div class="logo"><img src="icons/teamop-512.png" alt=""><b>TEAM OP</b></div>
+  <div class="sous">Ton entreprise d'abord, puis ton application — la prochaine fois, tu arriveras directement dessus.</div>
+  <div id="bloc-ent" style="width:100%;max-width:460px;background:#141f36;border:1px solid #243354;border-radius:16px;padding:22px 22px 18px;margin-bottom:22px">
+    <div style="font-size:17px;font-weight:800;margin-bottom:6px">Comment te connecter ?</div>
+    <div style="color:#93a9d4;font-size:13px;line-height:1.6;margin-bottom:14px">Chaque entreprise possède <b style="color:#eef2fa">son propre espace</b>. Colle <b style="color:#eef2fa">ton lien de connexion</b> — celui que TEAM OP a envoyé à ton entreprise. Tu ne l'as plus ? Écris le nom de l'entreprise : le lien lui sera renvoyé par e-mail.</div>
+    <div style="display:flex;gap:0;align-items:stretch;border:1px solid #243354;border-radius:12px;overflow:hidden;background:#0d1526">
+      <span style="display:flex;align-items:center;padding:0 12px;color:#7684a3;font-size:13.5px;font-family:ui-monospace,monospace;background:#101a30;border-right:1px solid #243354">teamop.fr&nbsp;/</span>
+      <input id="ent-nom" placeholder="ton lien, ou le nom de l'entreprise" autocapitalize="off" autocomplete="organization" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:#eef2fa;font-size:15px;padding:13px 12px" onkeydown="if(event.key==='Enter')entAcceder()">
+    </div>
+    <div id="ent-err" style="display:none;color:#f87171;font-size:12.5px;margin-top:8px"></div>
+    <button onclick="entAcceder()" id="ent-btn" style="width:100%;margin-top:12px;background:#34d399;color:#08251a;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:800;cursor:pointer">Continuer</button>
+  </div>
+  <script>
+  /* Appareil déjà relié à son entreprise → on va droit au choix de l'application */
+  window.addEventListener('DOMContentLoaded',function(){
+  try{
+    var _ent=localStorage.getItem('elan_entreprise_nom'), _esp=localStorage.getItem('elan_sync_team');
+    if(_esp){
+      var bloc=document.getElementById('bloc-ent');
+      if(bloc) bloc.innerHTML='<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">'+
+        '<div style="font-size:14px">🏢 Ton espace : <b>'+(_ent||_esp).replace(/</g,'&lt;')+'</b></div>'+
+        '<a href="#" onclick="localStorage.removeItem(\'elan_entreprise_nom\');localStorage.removeItem(\'elan_sync_team\');localStorage.removeItem(\'elan_sync_secret\');location.reload();return false" style="color:#7cc6ff;font-size:12px;text-decoration:none">changer d\'entreprise</a>'+
+        '<div id="acces-ligne" style="width:100%;color:#93a9d4;font-size:12.5px;margin-top:4px"></div></div>';
+      // appareil relié : les applications apparaissent, selon la formule de l'espace
+      var cartes=document.getElementById('cartes-apps'); if(cartes) cartes.style.display='flex';
+      // Chaque application est indépendante : le lien d'entreprise connecte à OP GESTION ;
+      // OP MESSAGES a son compte personnel et son propre abonnement.
+      var li=document.getElementById('acces-ligne');
+      if(li) li.innerHTML='Ton lien d\'entreprise te connecte à <b style="color:#eef2fa">OP GESTION</b> · <b style="color:#eef2fa">OP MESSAGES</b> est une application à part (compte personnel, abonnement séparé)';
+    } else {
+      var lec=document.getElementById('lien-espace-client'); if(lec) lec.style.display='block';
+    }
+  }catch(e){}
+  });
+  async function entAcceder(){
+    var inp=document.getElementById('ent-nom'), err=document.getElementById('ent-err'), btn=document.getElementById('ent-btn');
+    var nom=(inp.value||'').trim();
+    if(!nom){ err.style.color='#f87171'; err.textContent='Colle ton lien de connexion, ou écris le nom de ton entreprise.'; err.style.display='block'; return; }
+    /* Le vrai lien de connexion porte le CODE de l'espace : on le suit tel quel. */
+    var mC=nom.match(/#entreprise=([A-Za-z0-9+\/=_-]{8,})/); if(mC){ location.href='app.html#entreprise='+mC[1]; return; }
+    /* Tout le reste — un ancien lien #e=nom, ou le nom tapé — n'est qu'un NOM d'entreprise.
+       Un nom se lit sur un camion : il ne donne plus accès à l'espace. Il fait renvoyer le
+       lien de connexion à l'adresse e-mail déjà enregistrée pour l'entreprise. */
+    var mE=nom.match(/#e=([a-z0-9.-]{2,60})/i); if(mE) nom=mE[1];
+    nom=nom.replace(/^https?:\/\/(www\.)?teamop\.fr\/?/i,'').replace(/^app\.html#?e?=?/i,'').trim();   // « teamop.fr/gci » ou « gci » → gci
+    btn.textContent='Envoi…'; err.style.display='none';
+    try{
+      await fetch('https://api.teamop.fr/api/espaces/relance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:nom})});
+      err.style.color='#34d399';
+      err.innerHTML="📧 Si «\u00a0"+nom.replace(/</g,'&lt;')+"\u00a0» est bien inscrite chez TEAM OP, son lien de connexion vient de partir à son adresse e-mail. Ouvre ce lien sur cet appareil.";
+      err.style.display='block'; btn.textContent='Continuer';
+    }catch(e){ err.style.color='#f87171'; err.textContent='Connexion internet requise — réessaie.'; err.style.display='block'; btn.textContent='Continuer'; }
+  }
+  </script>
+  <div class="cartes" id="cartes-apps" style="display:none">
+    <a class="carte" id="carte-gestion" href="app.html" onclick="try{localStorage.setItem('teamop_app','app.html')}catch(e){}">
+      <span class="ico" style="background:rgba(52,211,153,.14)">🧰</span>
+      <span class="txt"><b>OP GESTION</b><span>Interventions, planning, clients, stock, devis & factures — pour toute l'équipe.</span></span>
+      <span class="fleche">›</span>
+    </a>
+    <a class="carte" id="carte-messages" href="messages.html" onclick="try{localStorage.setItem('teamop_app','messages.html')}catch(e){}">
+      <span class="ico" style="background:rgba(59,130,246,.14)">💬</span>
+      <span class="txt"><b>OP MESSAGES</b><span>La messagerie — compte personnel, abonnement à part.</span></span>
+      <span class="fleche">›</span>
+    </a>
+    <a class="carte" href="espace.html">
+      <span class="ico" style="background:rgba(167,139,250,.14)">👤</span>
+      <span class="txt"><b>Espace client</b><span>Ton compte TeamOP : abonnement, factures, documents.</span></span>
+      <span class="fleche">›</span>
+    </a>
+  </div>
+  <div id="lien-espace-client" style="margin-top:18px;display:none"><a href="espace.html" style="color:#7cc6ff;font-size:13px;text-decoration:none">👤 Espace client TeamOP (abonnement, factures)</a></div>
+  <div class="note">💡 Ajoute cette page à ton écran d'accueil, ou donne simplement <b>teamop.fr/connexion.html</b> à tes employés : ils tomberont directement sur la connexion de leur application, sans passer par le site.<br><a href="index.html?hub=1">← Revenir au site TeamOP</a> · <a href="connexion.html?choix=1">Changer d'application</a></div>
+</body>
+</html>

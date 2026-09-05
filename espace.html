@@ -342,7 +342,7 @@
     const box=$('auth-err');
     if(!email){ box.innerHTML='<div class="err">Écris d\'abord ton e-mail dans le champ ci-dessus, puis reclique.</div>'; return; }
     box.innerHTML='<div class="muted" style="padding:8px 2px">Envoi en cours…</div>';
-    try{ await auth.sendPasswordResetEmail(email); }
+    try{ await auth.sendPasswordResetEmail(email,{url:'https://teamop.fr/espace.html'}); }
     catch(e){ if((e&&e.code)==='auth/invalid-email'){ box.innerHTML='<div class="err">E-mail invalide.</div>'; return; } }
     box.innerHTML='<div class="ok">📬 Si un compte existe pour <b>'+esc(email)+'</b>, un e-mail de réinitialisation vient de partir. Regarde aussi les indésirables.</div>';
   }
@@ -393,10 +393,14 @@
     const demandes=(Array.isArray(d.demandes)?d.demandes:[]).slice(0,20).map(x=>({
       app:String((x&&x.app)||''), formule:String((x&&x.formule)||''),
       statut:String((x&&x.statut)||'nouveau'), date:parseInt(x&&x.date,10)||0,
-      besoin:String((x&&x.besoin)||'').slice(0,200) }));
-    let promo=''; try{ const pi=promoInfo(d); if(pi) promo=(pi.code+' — '+pi.label+' (reste '+pi.jours+' j)').slice(0,60); }catch(e){ promo=''; }
-    return { email:String((user&&user.email)||''), nom, entreprise:String(d.company||''), inscrit, apps, demandes,
-      plan:String(d.plan||'Découverte'),
+      besoin:String((x&&x.besoin)||'').slice(0,200), users:String((x&&x.users)||'').slice(0,10),
+      code:String((x&&x.code)||'').slice(0,40), lien:String((x&&x.lien)||'').slice(0,60) }));
+    let promo='', promoCode='', promoFin='';
+    try{ const pi=promoInfo(d); if(pi){ promo=(pi.code+' — '+pi.label+' (reste '+pi.jours+' j)').slice(0,60);
+      promoCode=String(pi.code||'').toUpperCase().slice(0,40);
+      promoFin=new Date(Date.now()+Math.max(0,pi.jours||0)*86400000).toISOString().slice(0,10); } }catch(e){ promo=''; }
+    return { email:String((user&&user.email)||''), nom, prenom:String(d.prenom||'').slice(0,40), nomFam:String(d.nom||'').slice(0,40), tel:String(d.tel||'').slice(0,30), entreprise:String(d.company||''), inscrit, apps, demandes,
+      plan:String(d.plan||'Découverte'), promoCode, promoFin,
       planStatus:String(d.planStatus||'actif'),
       promo };
   }
@@ -516,6 +520,9 @@
           <div class="muted" style="margin-top:6px;line-height:1.65;font-size:13px">
             🕐 Envoyée le <b>${fmtDH(dm.date)}</b>${dm.modifie?(' · ✏️ modifiée le <b>'+fmtDH(dm.modifie)+'</b>'):''}<br>
             ${dm.company?('🏢 Entreprise : <b>'+esc(dm.company)+'</b><br>'):''}
+            ${dm.tel?('📞 Téléphone : <b>'+esc(dm.tel)+'</b><br>'):''}
+            ${dm.lien?('🔗 Nom du lien : <b>'+esc(dm.lien)+'</b><br>'):''}
+            ${dm.code?('🎁 Code : <b>'+esc(dm.code)+'</b><br>'):''}
             ${dm.users?('👥 Utilisateurs souhaités : <b>'+esc(String(dm.users))+'</b><br>'):''}
             ${dm.formule?('💼 Formule envisagée : <b>'+esc(dm.formule)+'</b><br>'):''}
             ${dm.besoin?('📝 Besoin : '+esc(dm.besoin)):''}
@@ -532,13 +539,25 @@
       body = `${confirmBloc}${histo}
         <div style="border-top:1px solid var(--brd);margin:18px 0 14px"></div>
         <h4 style="font-family:'Space Mono',monospace;font-size:14px;letter-spacing:.5px;margin-bottom:4px">${ed?'✏️ Modifier ma demande':'➕ Nouvelle demande d\'accès'}</h4>
-        <p class="muted" style="margin-bottom:14px">Nous validons et l'application s'active dans « Mes applications ». Vous pouvez aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
+        <p class="muted" style="margin-bottom:6px">Nous validons et l'application s'active dans « Mes applications ». Vous pouvez aussi écrire à <a href="mailto:contact@teamop.fr" style="color:inherit"><b>contact@teamop.fr</b></a>.</p>
+        <p class="muted" style="margin-bottom:14px;font-size:12.5px">⚠️ Tous les champs sont <b>obligatoires</b> — ils nous permettent de préparer votre espace correctement.</p>
         <div id="req-msg"></div>
-        <div class="field"><label>Application</label><select id="r-app">${['OP GESTION','OP MESSAGES','Les deux (OP GESTION + OP MESSAGES)'].map(o=>`<option ${ed&&ed.app===o?'selected':''}>${o}</option>`).join('')}</select></div>
-        <div class="field"><label>Votre entreprise</label><input id="r-company" value="${esc((ed&&ed.company)||d.company||'')}" placeholder="Nom de l'entreprise"></div>
-        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nombre d'utilisateurs</label><input id="r-users" type="number" min="1" max="250" placeholder="ex. 5" value="${ed&&ed.users?esc(String(ed.users)):''}"></div>
-        <div class="field" style="flex:1.4"><label>Formule envisagée</label><select id="r-formule">${['Je ne sais pas encore','Gratuit','Pro','Business','Business Premium'].map(o=>`<option ${ed&&ed.formule===o?'selected':''}>${o}</option>`).join('')}</select></div></div>
-        <div class="field"><label>Votre besoin / exigences</label><textarea id="r-besoin" placeholder="Votre activité, ce que vous voulez faire, vos exigences…">${esc((ed&&ed.besoin)||(ed?'':d.besoin)||'')}</textarea></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Prénom *</label><input id="r-prenom" value="${esc(d.prenom||'')}" placeholder="Jean"></div>
+        <div class="field" style="flex:1"><label>Nom *</label><input id="r-nom" value="${esc(d.nom||'')}" placeholder="Dupont"></div></div>
+        <div class="field"><label>Votre entreprise *</label><input id="r-company" value="${esc((ed&&ed.company)||d.company||'')}" placeholder="Nom de l'entreprise"></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Téléphone *</label><input id="r-tel" type="tel" value="${esc((ed&&ed.tel)||d.tel||'')}" placeholder="06 12 34 56 78"></div>
+        <div class="field" style="flex:1"><label>E-mail</label><input value="${esc((user&&user.email)||'')}" disabled style="opacity:.65"></div></div>
+        <div class="field"><label>Nom de votre lien de connexion *</label>
+        <input id="r-lien" placeholder="ex. ${esc((d.company||'ma-societe'))}" value="${esc((ed&&ed.lien)||d.company||'')}" oninput="verifLienDemande()" autocapitalize="off">
+        <div id="r-lien-msg" style="margin-top:6px;font-size:12.5px"></div></div>
+        <div class="field"><label>Application</label><input value="OP GESTION" disabled style="opacity:.65"><input type="hidden" id="r-app" value="OP GESTION"></div>
+        <p class="muted" style="margin:-6px 0 12px;font-size:12px">💬 <b>OP MESSAGES</b> est une application indépendante : compte personnel gratuit, abonnement à part — tout se passe directement dans l'application.</p>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Nombre d'utilisateurs *</label><input id="r-users" type="number" min="1" max="250" placeholder="ex. 5" value="${ed&&ed.users?esc(String(ed.users)):''}"></div>
+        <div class="field" style="flex:1.4"><label>Formule OP GESTION *</label><select id="r-formule"><option value="" disabled ${ed&&ed.formule&&ed.formule!=='Je ne sais pas encore'?'':'selected'}>— Choisissez votre formule —</option>${['Gratuit','Pro','Business','Business Premium'].map(o=>`<option ${ed&&ed.formule===o?'selected':''}>${o}</option>`).join('')}</select></div></div>
+        <div class="field"><label>Code teste / code promo (facultatif)</label>
+        <div style="display:flex;gap:8px"><input id="r-code" placeholder="ex. BIENVENUE3" style="flex:1;text-transform:uppercase" value="${esc((ed&&ed.code)||'')}" onblur="verifCodeDemande()"><button class="btn sm ghost" type="button" onclick="verifCodeDemande()">Vérifier</button></div>
+        <div id="r-code-msg"></div></div>
+        <div class="field"><label>Votre besoin / exigences *</label><textarea id="r-besoin" placeholder="Votre activité, ce que vous voulez faire, vos exigences…">${esc((ed&&ed.besoin)||(ed?'':d.besoin)||'')}</textarea></div>
         ${ed?`<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="sendRequest('${user.uid}')">💾 Enregistrer les modifications</button><button class="btn sm ghost" onclick="window._demEdit=null;openView('demandes')">Annuler</button></div>`
             :`<button class="btn" onclick="sendRequest('${user.uid}')">Envoyer ma demande</button>`}`;
     }
@@ -705,29 +724,90 @@
       </body></html>`);
     w.document.close(); }
 
+  /* Nom du lien de connexion : vérifié EN DIRECT auprès de l'annuaire TeamOP — « disponible »
+     ou « déjà pris ». On ne montre plus d'aperçu d'adresse : le lien de connexion porte le
+     code de l'espace, pas son nom, et il est envoyé par e-mail à l'entreprise. */
+  let _lienTimer=null, _lienEtat=null;
+  function lienSlug(s){ return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,''); }
+  function verifLienDemande(){
+    clearTimeout(_lienTimer);
+    const inp=$('r-lien'), msg=$('r-lien-msg'); if(!inp||!msg) return;
+    const nom=(inp.value||'').trim(), slug=lienSlug(nom);
+    _lienEtat=null;
+    if(!nom){ msg.innerHTML=''; return; }
+    if(!slug){ msg.innerHTML='<span style="color:#f87171">Utilise des lettres ou des chiffres.</span>'; return; }
+    msg.innerHTML='<span class="muted">Vérification…</span>';
+    _lienTimer=setTimeout(async ()=>{
+      try{
+        const r=await fetch('https://api.teamop.fr/api/espaces/libre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom})});
+        const j=await r.json().catch(()=>({}));
+        if(r.ok&&j.libre===false){ _lienEtat={nom,slug,libre:false}; msg.innerHTML='<span style="color:#f87171">❌ « '+esc(nom)+' » est déjà pris — choisis une variante (ajoute la ville, par exemple).</span>'; }
+        else if(r.ok&&j.libre===true){ _lienEtat={nom,slug,libre:true}; msg.innerHTML='<span style="color:#34d399">✅ Disponible</span>'; }
+        else { _lienEtat=null; msg.innerHTML='<span style="color:#f87171">Vérification impossible — réessaie.</span>'; }
+      }catch(e){ msg.innerHTML='<span style="color:#f87171">Vérification impossible — réessaie.</span>'; }
+    },450);
+  }
+  /* Code teste / code promo sur la demande : s'il est valide, il DIT la formule à
+     laquelle le client a droit — elle se remplit et se verrouille toute seule. */
+  async function verifCodeDemande(){
+    const inp=$('r-code'), msg=$('r-code-msg'); if(!inp||!msg) return null;
+    const c=(inp.value||'').trim().toUpperCase();
+    window._demCode=null;
+    const f=$('r-formule');
+    if(!c){ msg.innerHTML=''; if(f) f.disabled=false; return null; }
+    try{
+      const r=await fetch('https://api.teamop.fr/api/promo/valider',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c,apercu:true})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok||!j.ok){ msg.innerHTML='<div class="err" style="margin-top:8px">'+esc((j&&j.error)||'Code inconnu')+'</div>'; if(f) f.disabled=false; return null; }
+      const lib={pro:'Pro',business:'Business',premium:'Business Premium'}[j.formule]||j.formule;
+      window._demCode={code:c,formule:j.formule,lib,mois:j.mois};
+      if(f){ [...f.options].forEach(o=>{ o.selected=(o.textContent===lib); }); f.disabled=true; }
+      msg.innerHTML='<div style="margin-top:8px;padding:10px 12px;border:1px solid rgba(52,211,153,.5);background:rgba(52,211,153,.08);border-radius:10px;font-size:13px">🎁 Code valide : avec ce code, vous avez droit à la formule <b>'+esc(lib)+'</b> — offerte <b>'+j.mois+' mois</b>, sans carte bancaire.</div>';
+      return window._demCode;
+    }catch(e){ msg.innerHTML='<div class="err" style="margin-top:8px">Vérification impossible — réessaie.</div>'; return null; }
+  }
   async function sendRequest(uid){
     const app=$('r-app').value, company=($('r-company').value||'').trim(), besoin=($('r-besoin').value||'').trim();
     const users=($('r-users')&&$('r-users').value)?parseInt($('r-users').value,10):0;
-    const formule=($('r-formule')&&$('r-formule').value)||'';
-    if(!besoin){ $('req-msg').innerHTML='<div class="err">Décrivez votre besoin.</div>'; return; }
+    const codeSaisi=($('r-code')&&$('r-code').value||'').trim().toUpperCase();
+    let codeInfo=(window._demCode&&window._demCode.code===codeSaisi)?window._demCode:null;
+    if(codeSaisi&&!codeInfo){ codeInfo=await verifCodeDemande();
+      if(!codeInfo){ $('req-msg').innerHTML='<div class="err">⚠️ Ce code n\'est pas valide — corrige-le ou vide le champ.</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; } }
+    const formule=codeInfo?codeInfo.lib:(($('r-formule')&&$('r-formule').value)||'');
+    const prenom=($('r-prenom')&&$('r-prenom').value||'').trim(), nomF=($('r-nom')&&$('r-nom').value||'').trim(), tel=($('r-tel')&&$('r-tel').value||'').trim();
+    const lienNom=($('r-lien')&&$('r-lien').value||'').trim();
+    // Tous les champs sont obligatoires : on liste précisément ce qui manque.
+    const manque=[];
+    if(!prenom) manque.push('prénom'); if(!nomF) manque.push('nom'); if(!company) manque.push('entreprise');
+    if(!tel) manque.push('téléphone'); if(!lienNom||!lienSlug(lienNom)) manque.push('nom du lien');
+    if(!(users>=1)) manque.push('nombre d\'utilisateurs');
+    if(!formule||formule==='Je ne sais pas encore') manque.push('formule'); if(!besoin) manque.push('besoin');
+    if(manque.length){ $('req-msg').innerHTML='<div class="err">⚠️ Tous les champs sont obligatoires — il manque : <b>'+esc(manque.join(', '))+'</b>.</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
+    if(!/^[0-9+][0-9 .()\/-]{8,19}$/.test(tel)){ $('req-msg').innerHTML='<div class="err">⚠️ Numéro de téléphone invalide (ex. 06 12 34 56 78).</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
+    // le nom du lien doit être DISPONIBLE — revérifié au moment de l'envoi
+    try{
+      const rl=await fetch('https://api.teamop.fr/api/espaces/libre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:lienNom})});
+      const jl=await rl.json().catch(()=>({}));
+      if(rl.ok&&jl.libre===false){ $('req-msg').innerHTML='<div class="err">⚠️ Le nom de lien « '+esc(lienNom)+' » est déjà pris — choisis une variante (ajoute la ville, par exemple).</div>'; $('req-msg').scrollIntoView({behavior:'smooth',block:'center'}); return; }
+    }catch(e){}   // annuaire injoignable : on laisse passer, le serveur choisira une variante si besoin
     try{
       const d=_meDoc||{}; const liste=Array.isArray(d.demandes)?d.demandes.slice():[];
       let dem;
       if(window._demEdit){
         const i=liste.findIndex(x=>x.date===window._demEdit);
-        dem=Object.assign({},(i>=0?liste[i]:{}),{app,company,besoin,users:users||null,formule,modifie:Date.now()});
+        dem=Object.assign({},(i>=0?liste[i]:{}),{app,company,besoin,users:users||null,formule,tel,lien:lienNom,code:codeInfo?codeInfo.code:'',modifie:Date.now()});
         if(!dem.date) dem.date=Date.now();
         if(i>=0) liste[i]=dem; else liste.push(dem);
-        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,prenom,nom:nomF,name:(prenom+' '+nomF).trim(),tel,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
         await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'✏️ Demande modifiée : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
       } else {
-        dem={app,company,besoin,users:users||null,formule,date:Date.now(),statut:'nouveau'};
+        dem={app,company,besoin,users:users||null,formule,tel,lien:lienNom,code:codeInfo?codeInfo.code:'',date:Date.now(),statut:'nouveau'};
         liste.push(dem);
-        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,status:'nouveau',email:auth.currentUser.email,uid,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        await fs.collection('teamop_requests').doc(uid).set({app,company,besoin,prenom,nom:nomF,name:(prenom+' '+nomF).trim(),tel,status:'nouveau',email:auth.currentUser.email,uid,demandes:liste,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
         await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'client',text:'📩 Demande : '+app+(users?(' · '+users+' utilisateur(s)'):'')+(formule&&formule!=='Je ne sais pas encore'?(' · formule '+formule):'')+' — '+besoin,ts:firebase.firestore.FieldValue.serverTimestamp()});
         try{ await fs.collection('teamop_threads').doc(uid).collection('msgs').add({from:'admin',text:'✅ Votre demande a bien été prise en compte ! Notre équipe l\'étudie et revient vers vous au plus vite. Si nous avons besoin de renseignements supplémentaires, nous vous contacterons ici même. Vous pouvez modifier votre demande à tout moment dans « Mes demandes d\'accès ».',ts:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
       }
-      _meDoc=Object.assign({},_meDoc,{status:(window._demEdit?(_meDoc&&_meDoc.status)||'nouveau':'nouveau'),app,company,besoin,demandes:liste});
+      _meDoc=Object.assign({},_meDoc,{status:(window._demEdit?(_meDoc&&_meDoc.status)||'nouveau':'nouveau'),app,company,besoin,prenom,nom:nomF,name:(prenom+' '+nomF).trim(),tel,demandes:liste});
       window._demConfirm=!window._demEdit; window._demEdit=null;
       openView('demandes');
       setTimeout(()=>{ window._demConfirm=false; },100);
