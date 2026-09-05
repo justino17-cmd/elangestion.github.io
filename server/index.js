@@ -1834,7 +1834,7 @@ app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
         : '\nAucun extrait de code : la trace ne désigne pas un fichier du dépôt' + (issue.src ? ' (elle indique « ' + String(issue.src).slice(0, 120) + ' »)' : '') + '.\n');
 
     const msg = await getAnthropic().messages.create({
-      model: 'claude-opus-5', max_tokens: 2000, system: sys,
+      model: 'claude-sonnet-5', max_tokens: 2000, system: sys,
       output_config: { format: { type: 'json_schema', schema: EXPLIQUE_SCHEMA } },
       messages: [{ role: 'user', content: contexte }]
     });
@@ -1982,7 +1982,7 @@ app.post('/api/monitor/proposer', monPatronStrict, async (req, res) => {
       + '\nCode du dépôt (' + s.fichier + ', lignes ' + d + ' à ' + fin + ') :\n' + large;
 
     const msg = await getAnthropic().messages.create({
-      model: 'claude-opus-5', max_tokens: 8000, system: sys,
+      model: 'claude-sonnet-5', max_tokens: 8000, system: sys,
       output_config: { format: { type: 'json_schema', schema: PROPOSE_SCHEMA } },
       messages: [{ role: 'user', content: contexte }]
     });

@@ -18,7 +18,7 @@ const crypto = require('crypto');
 const SDK = require('@anthropic-ai/sdk');
 const Anthropic = SDK.default || SDK;
 
-const MODEL = 'claude-opus-5';
+const MODEL = 'claude-sonnet-5';
 const MAX_TOKENS = 16000;
 const EFFORT = 'medium';        // 'high' si les devis manquent de finesse, 'low' pour aller plus vite
 const MAX_TOURS = 3;            // proposition + reformulation finale : 2 suffisent, 3 par sécurité
