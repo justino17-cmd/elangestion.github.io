@@ -23,6 +23,25 @@ const MAX_TOKENS = 16000;
 const EFFORT = 'medium';        // 'high' si les devis manquent de finesse, 'low' pour aller plus vite
 const MAX_TOURS = 3;            // proposition + reformulation finale : 2 suffisent, 3 par sécurité
 
+// ── Journal des appels d'outil ────────────────────────────────────────────
+//
+//  Le texte que le client saisit arrive dans un modèle qui dispose d'un outil.
+//  Si quelqu'un cherche à détourner l'assistant par ce texte, sans trace on ne
+//  peut rien reconstituer après coup. On note donc : qui, quand, quel outil,
+//  quel résultat.
+//
+//  Volontairement absents : noms, adresses, objet, notes — tout texte libre.
+//  Ce sont des données personnelles de nos clients ; un journal n'a pas à en
+//  devenir un second entrepôt. On garde une empreinte courte, suffisante pour
+//  rapprocher deux appels entre eux sans rien révéler de leur contenu.
+function empreinte(valeur) {
+  return crypto.createHash('sha256').update(String(valeur || '')).digest('hex').slice(0, 8);
+}
+
+function journaliser(champs) {
+  console.log('devis ' + JSON.stringify({ h: new Date().toISOString(), ...champs }));
+}
+
 // ── L'outil que l'agent appelle quand il a de quoi composer le devis ──────
 const OUTIL_DEVIS = {
   name: 'creer_devis',
@@ -248,6 +267,9 @@ function monterAgentDevis(app, config, dataDir) {
 
         // Un refus de sécurité arrive en HTTP 200 : on le lit AVANT le contenu.
         if (rep.stop_reason === 'refusal') {
+          // Signal à surveiller : un refus répété depuis la même adresse est le
+          // symptôme d'une tentative de détournement, pas d'un client maladroit.
+          journaliser({ ip: req.ip, evenement: 'refus_securite', tour });
           return res.json({ reply: "Je ne peux pas traiter cette demande. Reformule-la.", devis: null });
         }
 
@@ -261,6 +283,8 @@ function monterAgentDevis(app, config, dataDir) {
         for (const bloc of rep.content) {
           if (bloc.type !== 'tool_use') continue;
           if (bloc.name !== 'creer_devis') {
+            // Le modèle n'a qu'un outil : réclamer autre chose est anormal.
+            journaliser({ ip: req.ip, evenement: 'outil_inconnu', tour, outil: txt(bloc.name, 40) });
             resultats.push({ type: 'tool_result', tool_use_id: bloc.id, content: 'Outil inconnu.', is_error: true });
             continue;
           }
@@ -283,6 +307,15 @@ function monterAgentDevis(app, config, dataDir) {
             tva: calc.tva,
             ttc: calc.ttc,
           };
+          journaliser({
+            ip: req.ip,
+            evenement: 'devis_compose',
+            tour,
+            outil: 'creer_devis',
+            lignes: calc.lignes.length,
+            ttc: calc.ttc,
+            client: empreinte(devis.clientNom),
+          });
           resultats.push({
             type: 'tool_result',
             tool_use_id: bloc.id,
