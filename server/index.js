@@ -2980,8 +2980,14 @@ function espacesConnus() {
     if (!tc || vus.has(tc)) continue;
     vus.add(tc);
     let e = null; try { e = espaceParT(tc); } catch (err) {}
+    const nom = (e && espNomPropre(e)) || '';
+    /* Sans nom d'entreprise, c'est un espace technique — environnement de test,
+       ancienne bascule. Il n'a rien à faire dans une liste de clients. On ne le
+       garde que s'il est déjà activé : couper un accès en cours par simple
+       ménage d'affichage serait pire que le bruit. */
+    if (!nom && !(devisAcces[tc] && devisAcces[tc].actif)) continue;
     let vu = null; try { vu = (cnxResume(tc) || {}).dernier || null; } catch (err) {}
-    out.push({ t: tc, nom: (e && espNomPropre(e)) || '', vu: vu });
+    out.push({ t: tc, nom: nom, vu: vu });
   }
   for (const slug of Object.keys(espacesReg)) {
     let e = null;

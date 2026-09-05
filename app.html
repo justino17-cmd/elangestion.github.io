@@ -14743,6 +14743,137 @@ function bonPdfStr(b){
   out+='trailer\n<< /Size '+objs.length+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF';
   return out;
 }
+/* ══ Devis en PDF ═══════════════════════════════════════════════════════════
+   Même fabrique que le bon de commande : aucune bibliothèque, on écrit les
+   octets du PDF. L'en-tête reprend la société choisie sur le devis — son nom,
+   sa couleur — comme les bons, plus l'adresse légale de l'entreprise.
+   Un devis part chez un client : il porte donc ce qu'un devis doit porter —
+   validité, mention de TVA, place pour la signature. */
+function devisPdfStr(d){
+  const cli=db.clients.find(x=>x.id===d.clientId)||{};
+  const soc={societe:d.rapportModele||''};
+  const ent=bcEntete(soc);
+  const hx=bcCouleur(soc), rgb=[1,3,5].map(i=>parseInt(hx.slice(i,i+2),16)/255);
+  const GREEN=rgb.map(v=>v.toFixed(3)).join(' '), GREENLT=rgb.map(v=>(0.93+v*0.07).toFixed(3)).join(' ');
+  const GREY='0.42 0.46 0.52', DARK='0.10 0.12 0.16', LINE='0.85 0.88 0.91';
+  const W=595,H=842,M=42,RGT=W-M;
+  const pages=[]; let ops=[]; let y;
+  const T=(x,yy,sz,txt,bold,col)=>ops.push((col||DARK)+' rg','BT','/F'+(bold?'2':'1')+' '+sz+' Tf',x.toFixed(1)+' '+yy.toFixed(1)+' Td','('+_pdfTxt(txt)+') Tj','ET');
+  const TR=(xr,yy,sz,txt,bold,col)=>T(xr-String(txt).length*sz*0.545,yy,sz,txt,bold,col);
+  const R=(x,yy,w,h,col)=>ops.push(col+' rg',x.toFixed(1)+' '+yy.toFixed(1)+' '+w.toFixed(1)+' '+h.toFixed(1)+' re f');
+  const cut=(s,n)=>{ s=String(s||''); return s.length>n? s.slice(0,n-1)+'…':s; };
+  const eur=n=>Number(n||0).toFixed(2).replace('.',',')+' EUR';
+  const dateFr=x=>{ try{ return new Date((x||todayISO())+'T00:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'}); }catch(e){ return x||''; } };
+
+  const tableHead=()=>{ R(M,y-6,W-2*M,22,GREEN);
+    T(M+8,y,9,'DÉSIGNATION',1,'1 1 1');
+    TR(RGT-232,y,9,'QTÉ',1,'1 1 1'); TR(RGT-120,y,9,'P.U. HT',1,'1 1 1'); TR(RGT-8,y,9,'TOTAL HT',1,'1 1 1');
+    y-=24; };
+  const newPage=()=>{ pages.push(ops.join('\n')); ops=[]; R(0,H-6,W,6,GREEN); y=H-M-14; tableHead(); };
+
+  R(0,H-6,W,6,GREEN);
+  y=H-M-16;
+  T(M,y,21,cut(ent,28),1,GREEN);
+  TR(RGT,y+3,16,'DEVIS',1,DARK);
+  TR(RGT,y-13,10,'N° '+(d.num||''),1,GREY);
+  TR(RGT,y-25,9,dateFr(d.date),0,GREY);
+  const EI=db.entreprise||{}; let ey=y-14;
+  const eL=[[EI.adresse,[EI.cp,EI.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+            [EI.tel?'Tél. '+EI.tel:'',EI.siret?'SIRET '+EI.siret:'',EI.tvaIntra?'TVA '+EI.tvaIntra:''].filter(Boolean).join('  ·  ')].filter(Boolean);
+  eL.forEach(t2=>{ T(M,ey,8.5,cut(t2,58),0,GREY); ey-=11; });
+  y=Math.min(y-32,ey-8); R(M,y,W-2*M,1.6,GREEN); y-=16;
+
+  const cl=[cli.nom||'', cli.adresse||'', [cli.cp,cli.ville].filter(Boolean).join(' '),
+            [cli.tel?'Tél. '+cli.tel:'', cli.email||''].filter(Boolean).join('  ·  ')].filter(Boolean);
+  const ph=20+cl.length*13;
+  R(M,y-ph+10,W-2*M,ph,GREENLT);
+  T(M+10,y-4,8,'CLIENT',1,GREEN);
+  cl.forEach((t2,i)=>{ T(M+10,y-18-i*13,i===0?10.5:8.8,cut(t2,i===0?52:70),i===0?1:0,i===0?DARK:GREY); });
+  y-=ph+14;
+
+  tableHead();
+
+  let totHT=0;
+  (d.lignes||[]).forEach((l,i)=>{
+    if(y<150) newPage();
+    const q=Number(l.qte)||0, pu=Number(l.pu)||0, tot=q*pu; totHT+=tot;
+    if(i%2===1) R(M,y-6,W-2*M,17,'0.962 0.97 0.976');
+    T(M+8,y,9.2,cut(l.designation||'',48),0,DARK);
+    TR(RGT-232,y,9.2,String(q).replace('.',','),0,DARK);
+    TR(RGT-120,y,9.2,eur(pu),0,DARK);
+    TR(RGT-8,y,9.2,eur(tot),1,DARK);
+    y-=17;
+  });
+  R(M,y+11,W-2*M,0.8,LINE);
+
+  if(y<200) newPage();
+  const tx=Number(d.tva)||0, mtva=totHT*tx/100, ttc=totHT+mtva;
+  y-=18; const bw=210;
+  T(RGT-bw+10,y,9.5,'Total HT',0,GREY); TR(RGT-8,y,9.5,eur(totHT),0,DARK); y-=15;
+  T(RGT-bw+10,y,9.5,'TVA '+String(tx).replace('.',',')+' %',0,GREY); TR(RGT-8,y,9.5,eur(mtva),0,DARK); y-=8;
+  R(RGT-bw,y-20,bw,26,GREEN);
+  T(RGT-bw+10,y-12,11,'TOTAL TTC',1,'1 1 1'); TR(RGT-8,y-12,11,eur(ttc),1,'1 1 1');
+  y-=34;
+
+  if(d.notes){ const nl=String(d.notes).split(/\n/).slice(0,6); const nh=22+nl.length*12;
+    y-=14; if(y-nh<140) newPage();
+    R(M,y-nh+8,W-2*M,nh,GREENLT);
+    T(M+9,y-6,8,'DÉTAIL',1,GREEN);
+    nl.forEach((line,i)=>{ T(M+9,y-19-i*12,8.8,cut(line,100),0,DARK); });
+    y-=nh+6; }
+
+  if(y<160) newPage();
+  y-=14;
+  [ 'Devis valable 30 jours à compter de sa date d\'émission.',
+    tx===0?'TVA non applicable, article 293 B du CGI.':'Prix en euros, TVA au taux indiqué ci-dessus.',
+    'Bon pour accord : date, signature et mention « Bon pour accord ».'
+  ].forEach(t2=>{ T(M,y,8,cut(t2,110),0,GREY); y-=11; });
+  y-=10;
+  R(RGT-210,y-52,210,54,'0.98 0.985 0.99');
+  T(RGT-200,y-14,8.5,'Bon pour accord',1,DARK);
+  T(RGT-200,y-28,7.5,'Date et signature du client',0,GREY);
+  y-=64;
+
+  pages.push(ops.join('\n'));
+
+  const iban=(EI.iban?'IBAN '+EI.iban:'')+(EI.bic?'  ·  BIC '+EI.bic:'');
+  const foot=(i,n)=>['0.85 0.88 0.91 rg',M+' 56 '+(W-2*M)+' 0.8 re f',
+    GREY+' rg','BT','/F1 7.5 Tf',M+' 44 Td','('+_pdfTxt(ent+(iban?' — '+iban:''))+') Tj','ET',
+    GREY+' rg','BT','/F1 7.5 Tf',(RGT-40)+' 44 Td','('+_pdfTxt('Page '+i+'/'+n)+') Tj','ET'].join('\n');
+  for(let i=0;i<pages.length;i++) pages[i]+='\n'+foot(i+1,pages.length);
+
+  const objs=[]; objs[1]='<< /Type /Catalog /Pages 2 0 R >>';
+  objs[3]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  objs[4]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  const kids=[]; let n=5;
+  pages.forEach(c=>{ const pg=n++, ct=n++; kids.push(pg+' 0 R');
+    objs[pg]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+ct+' 0 R >>';
+    objs[ct]={s:c}; });
+  objs[2]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+pages.length+' >>';
+  let out='%PDF-1.4\n'; const offs=[];
+  for(let i=1;i<objs.length;i++){ offs[i]=out.length; const o=objs[i];
+    out+= (o&&o.s!==undefined) ? i+' 0 obj\n<< /Length '+o.s.length+' >>\nstream\n'+o.s+'\nendstream\nendobj\n' : i+' 0 obj\n'+o+'\nendobj\n'; }
+  const xr=out.length;
+  out+='xref\n0 '+objs.length+'\n0000000000 65535 f \n';
+  for(let i=1;i<objs.length;i++) out+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
+  out+='trailer\n<< /Size '+objs.length+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF';
+  return out;
+}
+function devisPdfBlob(d){ const s=devisPdfStr(d); const bytes=new Uint8Array(s.length);
+  for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i)&255;
+  return new Blob([bytes],{type:'application/pdf'}); }
+function devisPdfOpen(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  try{ const u=URL.createObjectURL(devisPdfBlob(d));
+    const w=window.open(u,'_blank'); if(!w) toast('Autorise les pop-ups pour voir le PDF');
+    setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },120000);
+  }catch(e){ console.error(e); toast('Aperçu PDF impossible'); } }
+function devisPdfDownload(id){ const d=db.devis.find(x=>x.id===id); if(!d){ toast('Devis introuvable'); return; }
+  try{ const u=URL.createObjectURL(devisPdfBlob(d));
+    const a=document.createElement('a'); a.href=u; a.download=('devis-'+(d.num||'')).replace(/[^\w-]/g,'_')+'.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>{ try{URL.revokeObjectURL(u)}catch(e){} },60000);
+  }catch(e){ console.error(e); toast('Téléchargement impossible'); } }
+
 function bonPdfOpen(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
   try{ const s=bonPdfStr(b); const bytes=new Uint8Array(s.length); for(let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i)&255;
     const blob=new Blob([bytes],{type:'application/pdf'}); const u=URL.createObjectURL(blob);
@@ -17250,6 +17381,8 @@ function docListView(kind,xyloOnly){
       <button class="btn sm" onclick="envoiDoc('${kind}','${d.id}','mail')" title="Envoyer par email">📧</button>
       <button class="btn ghost sm" onclick="envoiDoc('${kind}','${d.id}','sms')" title="Envoyer par SMS (exception)">💬</button>
       <button class="btn ghost sm" onclick="printDoc('${kind}','${d.id}')" title="Aperçu">👁</button>
+      ${kind==='devis'?`<button class="btn ghost sm" onclick="devisPdfOpen('${d.id}')" title="Voir le PDF">📄</button>
+      <button class="btn ghost sm" onclick="devisPdfDownload('${d.id}')" title="Télécharger le PDF">⬇️</button> `:''}
       ${kind==='devis'&&d.statut==='accepte'?`<button class="btn sm" onclick="devisToFacture('${d.id}')" title="Convertir en facture">→🧾</button> `:''}
       <button class="btn ghost sm" onclick="formDoc('${kind}','${d.id}')">✎</button>
       <button class="btn danger sm" onclick="delItem('${cfg.coll}','${d.id}')">🗑</button></td></tr>`;}).join('');
