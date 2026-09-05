@@ -1,0 +1,67 @@
+name: Vérifications
+
+# Rien ne partait en production sans être vérifié : ce workflow comble ce trou.
+# ESLint et les tests existent depuis peu ; ici, ils s'exécutent tout seuls.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Lecture seule : le workflow n'a aucun droit d'écriture sur le dépôt.
+permissions:
+  contents: read
+
+# Une poussée annule la vérification précédente encore en cours sur la même branche.
+concurrency:
+  group: verifications-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualite:
+    name: Lint et tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Dépendances (racine)
+        run: npm ci
+
+      - name: Dépendances (serveur)
+        run: npm ci --prefix server
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+  securite:
+    name: Secrets et dépendances
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Un jeton GitHub et un mot de passe ont déjà fuité une fois.
+      # Cette étape échoue si un secret réapparaît dans les fichiers suivis.
+      - name: Recherche de secrets
+        run: bash scripts/verif-secrets.sh --suivis
+
+      # Le serveur est exposé sur Internet : ses dépendances de production
+      # ne doivent pas porter de faille connue de niveau élevé ou critique.
+      - name: Failles connues (dépendances du serveur)
+        run: npm audit --omit=dev --audit-level=high --prefix server

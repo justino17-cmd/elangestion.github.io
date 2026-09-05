@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Dernier filet avant que le code ne quitte ta machine.
+# Activé par : git config core.hooksPath .githooks
+#
+# Pour passer outre une fois (à n'utiliser qu'en connaissance de cause) :
+#   git commit --no-verify
+
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo "→ Recherche de secrets dans les fichiers du commit"
+if ! bash scripts/verif-secrets.sh; then
+  exit 1
+fi
+
+# ESLint, uniquement sur les fichiers JavaScript du commit : rapide, ciblé.
+fichiers_js=()
+while IFS= read -r l; do
+  [ -n "$l" ] && [ -f "$l" ] && fichiers_js+=("$l")
+done < <(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|mjs|cjs)$' || true)
+
+if [ "${#fichiers_js[@]}" -gt 0 ]; then
+  echo "→ ESLint sur ${#fichiers_js[@]} fichier(s)"
+  if ! npx --no-install eslint "${fichiers_js[@]}"; then
+    echo
+    echo "ESLint a signalé des erreurs — commit interrompu."
+    exit 1
+  fi
+fi
+
+echo "→ Vérifications passées"
+exit 0
