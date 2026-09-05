@@ -1806,7 +1806,7 @@ app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
     res.json({ ok: true, explication: issue.explication, restants: Math.max(0, EXPLIQUE_MAX - expliqueUtilises()) });
   } catch (err) {
     const st = err && err.status;
-    if (st === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur' });
+    if (st === 401) return res.status(502).json({ error: 'Clé Claude refusée par Anthropic — expirée ou incomplète. Sur le serveur : bash server/set-claude.sh' });
     if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
     console.error('expliquer :', err && err.message);
     res.status(500).json({ error: 'Erreur du serveur' });
@@ -2013,7 +2013,7 @@ app.post('/api/monitor/proposer', monPatronStrict, async (req, res) => {
     res.json({ ok: true, proposition: issue.proposition });
   } catch (err) {
     const st = err && err.status;
-    if (st === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur' });
+    if (st === 401) return res.status(502).json({ error: 'Clé Claude refusée par Anthropic — expirée ou incomplète. Sur le serveur : bash server/set-claude.sh' });
     if (st === 429 || st === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
     if (err && err.statutGh) return res.status(502).json({ error: err.message });
     console.error('proposer :', err && err.message);
@@ -2815,7 +2815,7 @@ app.post('/api/devis/generer', async (req, res) => {
     res.json({ ok: true, devis, restants: Math.max(0, devisQuotaJour() - devisUtilises()) });
   } catch (e) {
     const status = e && e.status;
-    if (status === 401) return res.status(502).json({ error: 'Clé API invalide côté serveur — vérifier config.json → anthropic.cleApi' });
+    if (status === 401) return res.status(502).json({ error: 'Clé Claude refusée par Anthropic — expirée ou incomplète. Sur le serveur : bash server/set-claude.sh' });
     if (status === 429 || status === 529) return res.status(503).json({ error: 'Service IA saturé — réessaie dans une minute' });
     console.error('devis IA:', e && e.message);
     res.status(500).json({ error: 'Erreur du serveur de devis' });
