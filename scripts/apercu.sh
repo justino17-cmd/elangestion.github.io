@@ -24,6 +24,12 @@ RUBAN='<div id="apercu-ruban" style="position:fixed;left:50%;bottom:14px;transfo
 apercu_page() {
   local src="$1" dst="apercu/$1"
   [ -f "$src" ] || { echo "absent : $src"; return 1; }
+  # OP GESTION : l'aperçu doit avoir SES données (préfixe elanB_, espace de synchro
+  # bêta), exactement comme beta.html — sinon il écrirait dans les vraies.
+  if [ "$src" = "app.html" ]; then
+    node beta-build.js apercu/app.source.html >/dev/null
+    src="apercu/app.source.html"
+  fi
   python3 - "$src" "$dst" "$RUBAN" <<'PY'
 import sys, io, re
 src, dst, ruban = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -34,9 +40,10 @@ if '<base ' not in s:
 s = re.sub(r"navigator\.serviceWorker\.register\(", "(function(){return Promise.reject(new Error('aperçu : pas de service worker'))})(", s)
 s = s.replace('</body>', ruban + '</body>', 1) if '</body>' in s else s + ruban
 io.open(dst, 'w', encoding='utf-8').write(s)
-print(f"apercu/{src}  ({len(s)//1024} Ko)")
+print(f"{dst}  ({len(s)//1024} Ko)")
 PY
 }
 
 [ $# -eq 0 ] && set -- tour.html
 for page in "$@"; do apercu_page "$page"; done
+rm -f apercu/app.source.html
