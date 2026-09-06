@@ -13,6 +13,16 @@ s = s.replace(/const APP_VERSION = '([0-9]+)'/, "const APP_VERSION = '$1-beta'")
 // La porte serveur : la bêta ne connaît aucun compte de départ et demande à api.teamop.fr
 // avant d'ouvrir. Les accès se créent et se coupent depuis la Tour de contrôle (Accès bêta).
 s = s.split("const BETA_ESSAI=false;").join("const BETA_ESSAI=true;");
+// Sur la bêta, il n'y a ni entreprise à nommer ni espace à rejoindre : l'identifiant et le mot
+// de passe viennent de la Tour, rien d'autre. On retire le champ « Entreprise » et le lien
+// « Rejoindre un espace » de l'écran de connexion — y taper un nom envoyait la page chercher
+// une entreprise et expédier un lien de connexion à son adresse.
+const ENT_AVANT = "${_surEspace?'':`<div class=\"field\"><label>Entreprise";
+if (s.indexOf(ENT_AVANT) < 0) { console.error('ÉCHEC : le champ Entreprise de la connexion est introuvable'); process.exit(1); }
+s = s.split(ENT_AVANT).join("${true?'':`<div class=\"field\"><label>Entreprise");
+const LIEN_AVANT = '<div style="text-align:center;margin-top:14px"><a onclick="teamopJoinPrompt()"';
+if (s.indexOf(LIEN_AVANT) < 0) { console.error('ÉCHEC : le lien « Rejoindre un espace » est introuvable'); process.exit(1); }
+s = s.split(LIEN_AVANT).join('<div style="display:none"><a onclick="teamopJoinPrompt()"');
 if (s.indexOf("const BETA_ESSAI=true;") < 0) { console.error('ÉCHEC : la porte serveur de la bêta (BETA_ESSAI) n\'est pas armée'); process.exit(1); }
 s = s.replace(/<link rel="manifest"[^>]*>/, '');
 s = s.split('<div class="topbar-brand mono">OP GESTION</div>').join('<div class="topbar-brand mono" style="color:var(--org)">OP GESTION · 🧪 BÊTA</div>');
