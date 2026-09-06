@@ -1869,7 +1869,7 @@ body.plan-plein .app{ background:var(--bg); }
   --e-entree:cubic-bezier(1,0,.8,1);
   --ressort:linear(0,.097,.282,.466,.619,.736,.821,.881,.921,.949,.967,.979,.986,.991,.995,.997,1);
   --ressort-vif:linear(0,.106,.301,.491,.645,.76,.841,.897,.934,.958,.973,.983,.99,.994,.996,.998,1);
-  --ombre-3:0 24px 64px rgba(0,0,0,.45);
+  --ombre-2:0 12px 32px rgba(0,0,0,.28); --ombre-3:0 24px 64px rgba(0,0,0,.45);
 }
 
 /* ══ TRANSITION DE VUE ══ le navigateur croise les deux écrans. La barre latérale et la
@@ -1883,6 +1883,21 @@ body.plan-plein .app{ background:var(--bg); }
 ::view-transition-group(barrelat),::view-transition-group(barrehaut){animation:none}
 ::view-transition-old(barrelat),::view-transition-new(barrelat),
 ::view-transition-old(barrehaut),::view-transition-new(barrehaut){animation:none}
+
+/* ══ SENS DE LA NAVIGATION ══ ouvrir une fiche la fait entrer par la droite, en sortir la
+   ramène par la gauche : le mouvement dit où l'on va, ce que deux écrans qui se croisent
+   ne disent pas. Même grammaire que la Tour de contrôle, aux mêmes durées. Changer de
+   rubrique dans le menu n'est ni un aller ni un retour : ça garde le croisement vertical.
+   L'ancien écran part vite (--d-3, courbe d'entrée) pour ne pas retenir le nouveau, qui
+   arrive sur un ressort — c'est lui que l'œil suit. */
+:root.nav-avant::view-transition-old(root){animation:navSortG var(--d-3) var(--e-entree) both}
+:root.nav-avant::view-transition-new(root){animation:navEntreD var(--d-4) var(--ressort) both}
+:root.nav-retour::view-transition-old(root){animation:navSortD var(--d-3) var(--e-entree) both}
+:root.nav-retour::view-transition-new(root){animation:navEntreG var(--d-4) var(--ressort) both}
+@keyframes navSortG{to{opacity:0;transform:translateX(-6%)}}
+@keyframes navEntreD{from{opacity:0;transform:translateX(8%)}to{opacity:1;transform:none}}
+@keyframes navSortD{to{opacity:0;transform:translateX(6%)}}
+@keyframes navEntreG{from{opacity:0;transform:translateX(-8%)}to{opacity:1;transform:none}}
 
 /* ══ ARRIVÉE DU CONTENU ══ les cartes se posent, elles n'apparaissent pas. Uniquement sur
    .entre, posée par rendreVueAnimee : jamais sur un rafraîchissement automatique. */
@@ -1912,6 +1927,8 @@ html[data-theme="light"] .card::before,html[data-theme="light"] .kpi::before,htm
 
 @media (prefers-reduced-motion: reduce){
   ::view-transition-old(root),::view-transition-new(root){animation:none!important}
+  :root.nav-avant::view-transition-old(root),:root.nav-avant::view-transition-new(root),
+  :root.nav-retour::view-transition-old(root),:root.nav-retour::view-transition-new(root){animation:none!important}
   .content.entre > .card,.content.entre > .kpis > .kpi,.content.entre > .tbl,.content.entre > table{animation:none!important}
   .modal,.overlay.open{animation:none!important}
   .toast{transition:opacity var(--d-1) ease!important}
@@ -1943,6 +1960,72 @@ html[data-theme="light"] .card::before,html[data-theme="light"] .kpi::before,htm
   /* la pression se lit à la couleur, plus à l'échelle */
   .btn:active,.kpi[onclick]:active,.kpi.clickable:active,.card[onclick]:active,.card.clickable:active,
   .nav-item:active,.list-row[onclick]:active,.tchip:active,.pf-ib:active,.seg:active,.chip:active{ transform:none!important; }
+}
+
+
+/* ══ LA SÉLECTION GLISSE ══ un seul fond, qui coulisse d'une rubrique du menu à l'autre.
+   Le fond de .nav-item.active reste défini plus haut : si le glisseur n'est pas posé
+   (menu pas encore rendu, JS coupé), la rubrique active se voit quand même. */
+.nav{position:relative}
+.nav-glisse{position:absolute;left:0;top:0;width:0;height:0;border-radius:10px;background:var(--side-active);opacity:0;z-index:0;pointer-events:none;
+  transition:transform var(--d-4) var(--ressort),width var(--d-4) var(--ressort),height var(--d-4) var(--ressort),opacity var(--d-2) var(--e-sortie)}
+.nav.a-glisse .nav-item{position:relative;z-index:1}
+.nav.a-glisse .nav-item.active,.sidebar .nav.a-glisse .nav-item.active{background:transparent}
+
+/* ══ LE CURSEUR ══ un halo suit la souris sur les surfaces : la matière réagit à la main.
+   ::after et non ::before — le bord haut lumineux occupe déjà ::before. */
+.card,.kpi{position:relative}
+.card::after,.kpi::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;
+  transition:opacity var(--d-2) var(--e-sortie);
+  background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.075),transparent 62%)}
+html[data-theme="light"] .card::after,html[data-theme="light"] .kpi::after{
+  background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%),color-mix(in srgb,var(--acc) 9%,transparent),transparent 62%)}
+@media (prefers-color-scheme: light){
+  html:not([data-theme="dark"]):not([data-theme="light"]) .card::after,
+  html:not([data-theme="dark"]):not([data-theme="light"]) .kpi::after{
+    background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%),color-mix(in srgb,var(--acc) 9%,transparent),transparent 62%)}
+}
+.card:hover::after,.kpi:hover::after{opacity:1}
+/* Ce qui s'ouvre se soulève. Les KPI du tableau de bord en sont exclus : ils se déplacent
+   à la souris pour être réordonnés, un soulèvement au survol brouillerait le geste. */
+.card[onclick]:not(.pf-bar):hover,.card.clickable:not(.pf-bar):hover,.list-row[onclick]:hover{
+  transform:translateY(-2px);box-shadow:var(--ombre-2)}
+
+/* ══ LES CHIFFRES MONTENT ══ voir compterKpi() : à l'arrivée d'un écran voulu, jamais
+   sur un rafraîchissement automatique. Rien ici, tout se joue en JS. */
+
+/* ══ LA FENÊTRE SE POSE ══ le voile se floute, puis le contenu arrive bloc par bloc.
+   .pose se retire au bout d'une demi-seconde : une transformation figée par « both »
+   empêcherait tout déplacement ultérieur de ces blocs. */
+.overlay.open{-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%)}
+.modal.pose>*{animation:opPosee var(--d-3) var(--e-sortie) both}
+.modal.pose>*:nth-child(1){animation-delay:40ms}
+.modal.pose>*:nth-child(2){animation-delay:80ms}
+.modal.pose>*:nth-child(3){animation-delay:120ms}
+.modal.pose>*:nth-child(4){animation-delay:160ms}
+.modal.pose>*:nth-child(n+5){animation-delay:200ms}
+
+/* ══ JOUR / NUIT EN CERCLE ══ le nouveau thème se révèle depuis le bouton pressé :
+   le changement part de la main, il ne tombe pas du ciel. */
+:root.theme-vt::view-transition-old(root){animation:none}
+:root.theme-vt::view-transition-new(root){animation:opRevele 520ms var(--e-sortie) both}
+@keyframes opRevele{from{clip-path:circle(0 at var(--rx,50%) var(--ry,50%))}to{clip-path:circle(var(--rr,150vmax) at var(--rx,50%) var(--ry,50%))}}
+/* Les deux barres sont normalement filmées à part pour ne pas clignoter ; pendant le
+   changement de thème elles doivent au contraire être balayées par le cercle. */
+:root.theme-vt .sidebar,:root.theme-vt .topbar{view-transition-name:none}
+:root.theme-vt *{transition:none!important}
+
+/* ══ L'OMBRE AU DÉFILEMENT ══ la barre du haut ne flotte que quand on a quitté le haut. */
+.topbar{transition:box-shadow var(--d-2) var(--e-sortie)}
+body.defile .topbar{box-shadow:0 10px 26px rgba(0,0,0,.22)}
+html[data-theme="light"] body.defile .topbar{box-shadow:0 10px 26px rgba(14,21,38,.10)}
+
+@media (prefers-reduced-motion: reduce){
+  .nav-glisse{transition:none!important}
+  .card::after,.kpi::after{display:none}
+  .card[onclick]:not(.pf-bar):hover,.card.clickable:not(.pf-bar):hover,.list-row[onclick]:hover{transform:none!important}
+  .modal.pose>*{animation:none!important}
+  :root.theme-vt::view-transition-new(root){animation:none!important}
 }
 
 @media print{ .sidebar,.topbar,#assistant,.fab,#update-banner,.filters{display:none!important} .content{padding:0!important} .plg-wrap{overflow:visible} }
@@ -2010,7 +2093,7 @@ html[data-theme="light"] .card::before,html[data-theme="light"] .kpi::before,htm
       <div class="gsrch" onclick="event.stopPropagation()"><span style="display:inline-flex;color:var(--t3)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><input id="gsrch-in" placeholder="Rechercher client, intervention, chantier…" oninput="gsearch(this.value)" onfocus="gsearch(this.value)"><div id="gsrch-res"></div></div>
       <div class="topbar-actions" id="topbar-actions"></div>
       <button class="bell" id="sync-btn" onclick="syncNow()" title="Synchroniser"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
-      <button class="bell" id="theme-btn" onclick="toggleTheme()" title="Mode jour / sombre"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+      <button class="bell" id="theme-btn" onclick="toggleTheme(event)" title="Mode jour / sombre"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
       <div class="topbar-bell">
         <button class="bell" onclick="toggleNotif(event)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span class="bell-count" id="bell-count" style="display:none">0</span></button>
         <div id="notif-panel"></div>
@@ -2137,7 +2220,11 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '558';
+const APP_VERSION = '560';
+/* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
+   compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
+   coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
+const BETA_ESSAI=false;
 /* Catalogue produits officiel OP GESTION : [nom, categorie, [fournisseurs], reference] */
 const CATALOGUE=[["ALTA 7000","TP18 — Insecticide",["ORCAD"],""],["ADVION GEL BLATTES 30G","TP18 — Insecticide",["ARMOSA","ENSYSTEX"],""],["AÉROSOL DE DÉTECTION DEBUSK 300 ML","TP18 — Insecticide",["ARMOSA"],""],["AÉROSOL EFFET GIVRANT TOUS INSECTES","TP18 — Insecticide",["ORCAD"],""],["AÉROSOL MEGASHOT GUÊPES FRELONS 750 ML","TP18 — Insecticide",["ARMOSA"],""],["AVIDUST PG 10KG","TP18 — Insecticide",["ARMOSA"],""],["CYTROL FORTE WP","TP18 — Insecticide",["ARMOSA"],""],["DOBOL FUMIGATEUR (20g)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["DOBOL FUMIGATEUR PROFESSIONNEL (20g)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["DOBOL FUMIGATEUR PROFESSIONNEL (100g)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["DOBOL GEL FOURMIS 35G","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["ECOREX ALFA SE SUSPO-EMULSION","TP18 — Insecticide",["ORCAD"],""],["FUMITHRINE 4.4 PLUS","TP18 — Insecticide",["ORCAD"],""],["HIBERNATUS INSECT 750 ML","TP18 — Insecticide",["ARMOSA"],""],["KIT POISSON D'ARGENT","TP18 — Insecticide",["ORCAD"],""],["MAGNUM GEL CAFARDS SERINGUE 40G","TP18 — Insecticide",["ORCAD"],""],["MAGNUM GEL FOURMIS SERINGUE 40G","TP18 — Insecticide",["ORCAD"],""],["MAGNUM GEL OPTIMUM SERINGUE 35G","TP18 — Insecticide",["ORCAD"],""],["NEBULOUS TURBO","TP18 — Insecticide",["ARMOSA"],""],["PIÈGE BLATTES GEOTRAP","TP18 — Insecticide",["ARMOSA"],""],["POUDRE FOURMIS","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["POUDRE À GUÊPES (Seau de 10kg)","TP18 — Insecticide",["ORCAD","ARMOSA"],""],["PROCEREX COLLIER PRO","TP18 — Insecticide",["ARMOSA"],""],["REMANEX POUDRE 10KG","TP18 — Insecticide",["ARMOSA"],""],["SPRAY INSECTICIDE FROID SANS BIOCIDE - KILL FREEZE","TP18 — Insecticide",["ARMOSA"],""],["SUPER CIMETROL","TP18 — Insecticide",["ARMOSA"],""],["TATHRIN NEXT - 500ML","TP18 — Insecticide",["ENSYSTEX"],""],["TATHRIN NEXT - 1L","TP18 — Insecticide",["ENSYSTEX"],""],["TEENOX EC","TP18 — Insecticide",["ARMOSA"],""],["TEENOX GEL BLATTES - ARMOSA","TP18 — Insecticide",["ARMOSA"],""],["GRANDE PLAQUE EN ISOREL ENGLUÉE RATS/SOURIS","TP14 — Rodenticide",["ORCAD","ARMOSA"],""],["MUSKIL BLOC - CARTON DE 10KG","TP14 — Rodenticide",["ARMOSA","ENSYSTEX"],""],["MUSKIL PÂTE - CARTON DE 10KG","TP14 — Rodenticide",["ARMOSA","ENSYSTEX"],""],["MUSKIL PÂTE - SEAU DE 5KG","TP14 — Rodenticide",["ARMOSA","ENSYSTEX"],""],["NOTRAC BLOC 28G SEAU DE 8KG","TP14 — Rodenticide",["ORCAD"],""],["PÂTE APPÂT BRODIFACOUM - ROBUST 25 SPÉCIAL 3D","TP14 — Rodenticide",["ARMOSA"],""],["PLACEDEX PÂTE","TP14 — Rodenticide",["ARMOSA"],""],["RACUMIN® FOAM 500ML","TP14 — Rodenticide",["ORCAD","ARMOSA"],""],["REPULSIF FOUINES ET MARTRES","TP14 — Rodenticide",["ARMOSA"],""],["ROBUST 25 CREME - 250G","TP14 — Rodenticide",["ARMOSA"],""],["CAGE À RAGONDINS ET À FAUVES 2 ENTRÉES","Piégeage",["ARMOSA"],""],["ECO-PIEGE CHENILLE PRO. DU PIN KIT DE 10","Piégeage",["ORCAD","ENSYSTEX"],""],["MASTER TRAP","Piégeage",["ORCAD"],""],["MASTER TRAP BOOKS","Piégeage",["ORCAD"],""],["MASTER TRAP SOURIS","Piégeage",["ORCAD"],""],["NASSE RONGEUR LEGERE","Piégeage",["ORCAD","ARMOSA"],""],["PIEGE A TAUPE PUTANGE (Unité)","Piégeage",["ARMOSA"],""],["PLAQUE ADHÉSIVE RAT BASE AGGLO.","Piégeage",["ARMOSA"],""],["PLAQUE ADHÉSIVE BOOK TRAP","Piégeage",["ARMOSA"],""],["POSTE PVC SECU RATS ORCABOX","Piégeage",["ORCAD"],""],["POSTE RAT COMPACT - ROTECH®","Piégeage",["ARMOSA"],""],["POSTE RAT CORAL","Piégeage",["ARMOSA"],""],["POSTE SOURIS ROTECH® NG","Piégeage",["ARMOSA"],""],["BIRCHMEIER DR5 POUDREUSE","Matériel",["ORCAD","ARMOSA","ENSYSTEX"],""],["CÂBLE DE FIXATION UNIVERSEL","Matériel",["ARMOSA"],""],["LANCE TÉLESCOPIQUE AR8 PRO","Matériel",["ARMOSA"],""],["PINCE DE RAMASSAGE 810MM","Matériel",["ARMOSA"],""],["PINCE RAMASSAGE RONGEURS","Matériel",["ORCAD"],""],["PISTOLET APLI-GEL","Matériel",["ORCAD"],""],["PISTOLET BAIT GUN PRO ECO","Matériel",["ARMOSA"],""],["POUDREUSE A PRESSION DR5 - Rallonge télescopique 1m/2m","Matériel",["ARMOSA"],""],["POUDREUSE À PRESSION DR5","Matériel",["ARMOSA","ENSYSTEX"],""],["PULVÉRISATEUR GLORIA PRO 5L","Matériel",["ARMOSA"],""],["CARTOUCHE POUR DEMI MASQUE","EPI",["ORCAD"],""],["COMBINAISON ARMOSA (XXL)","EPI",["ARMOSA"],""],["COMBINAISON ARMOSA L/XL","EPI",["ARMOSA"],""],["COMBINAISON JETABLE CAT 3 TYPE 5-6","EPI",["ORCAD","SODIF"],""],["DEMI MASQUE","EPI",["ORCAD","SODIF"],""],["GANTS JETABLES EN NITRILE - 100 GANTS","EPI",["ENSYSTEX"],""],["GANTS NITRILE JETABLES SUPER NITRO","EPI",["ARMOSA"],""],["GANTS NITRILE NOIR OU BLEU","EPI",["ORCAD"],""],["MASQUE COMPLET PANAREA TWIN","EPI",["ENSYSTEX"],""],["BARRIÈRE ANTI-RONGEURS XCLUDER","Proofing",["ARMOSA","ENSYSTEX","ORCAD"],""],["ECOPIC® TUILE TV AVEC CLIP DE FIXATION X 50 UNITÉ","Proofing",["ENSYSTEX"],""],["OBTURATEUR DE TUILE ACIER TILESTOP COULEUR BRIQUE","Proofing",["ORCAD"],""],["SILICONE FUTURE PROOF","Proofing",["ARMOSA"],""],["TISSU ACIER PROT. RONGEUR RLX 3M XCLUDER","Proofing",["ORCAD","ARMOSA","ENSYSTEX"],""],["TISSU REMPLISSAGE ACIER INOXIDABLE XCLUDER","Proofing",["ORCAD","ARMOSA","ENSYSTEX"],""],["ARMOCLEAN ODEUR","Désinfection",["ARMOSA"],""],["XILIX 3000 P – INSECTICIDE ANTI-TERMITES 20L","Xylophage",["MABI","SODIF"],""],["XILIX IFC 300 - INSECTICIDE CONCENTRÉ ANTI TERMITES 6L","Xylophage",["MABI","SODIF"],""],["STATION MURALE POUR TERMITES TERMIGARD","Xylophage",["MABI"],""],["PIÈGES ANTI-TERMITES MARRON STATIONS DE DÉTECTION TERRAIN","Xylophage",["MABI"],""],["POMPE AIRLESS MABI À MEMBRANE","Xylophage",["MABI"],""],["MÈCHE À BOIS POINTE VRILLE Ø 9,5 MM – 160/200/280 MM","Xylophage",["MABI","SODIF"],""],["INJECTEUR BOIS FEMELLE SANS TÊTE Ø9.5 MARRON","Xylophage",["MABI","SODIF"],""],["INJECTEUR BOIS FEMELLE SANS TÊTE Ø9.5 BLANC","Xylophage",["MABI","SODIF"],""],["INJECTEUR BOIS FEMELLE SANS TÊTE Ø9.5 BEIGE","Xylophage",["MABI","SODIF"],""],["EMBOUT MÂLE 7'8 X 14 POUR POMPE","Xylophage",["MABI"],""],["GANT SPÉCIAL SOLVANT EXTRA FORT","Xylophage",["MABI","SODIF"],""],["CARTOUCHE FILTRANTE A2B2P3 POUR MASQUE PANORAMIQUE","Xylophage",["MABI","SODIF"],""],["MASQUE PANORAMIQUE","Xylophage",["MABI","SODIF"],""],["POUDRE TERMICIDE SACHETS DE 50G","Xylophage",["MABI"],""],["POUDRE DÉTECTION SACHETS DE 75G","Xylophage",["MABI"],""],["RECHARGE BOIS POUR DÉTECTEUR ANTI TERMITE","Xylophage",["MABI"],""],["VISSEUSE À BATTERIE","Xylophage",["MABI","SODIF"],""],["PERCEUSE À FIL","Xylophage",["MABI","SODIF"],""],["POINÇON","Xylophage",["MABI","SODIF"],""],["TESTEUR D'HUMIDITÉ","Xylophage",["MABI","SODIF"],""],["MÈTRE LASER","Xylophage",["MABI","SODIF"],""],["CAMÉRA THERMIQUE TERMITE","Xylophage",["SODIF"],""],["BROSSE À BADIGEON","Xylophage",["MABI"],""],["BROSSE MÉTALLIQUE","Xylophage",["MABI"],""],["XILIX 1000","Xylophage",["SODIF"],"SG051"],["MIB 80","Xylophage",["SODIF"],""],["INOVBOIS IFNS","Xylophage",["SODIF"],""],["PISTOLET SODIF","Matériel",["SODIF"],"SC090"],["PORTE-BUSE GRACO RAC X 11/16","Matériel",["SODIF"],"SC190"],["ROTO CLEAN GRACO RAC X","Matériel",["SODIF"],"SC180"],["BOUCHONS POUR INJECTEURS","Matériel",["SODIF"],"SA020"]];
 /* Fiches fournisseurs ELAN — coordonnées officielles relevées sur leurs sites (modifiables dans Fournisseurs) */
@@ -2678,7 +2765,7 @@ function migrate(d){
     const hasPlan=(((d.plansSite||{})[c.id])||[]).length>0;
     const proMots=/\b(sarl|sas|sasu|eurl|sci|snc|scop|sa|soci[ée]t[ée]|restaurant|boulangerie|h[oô]tel|camping|supermarch[ée]|hypermarch[ée]|bar|brasserie|pizzeria|traiteur|[ée]cole|coll[eè]ge|lyc[ée]e|cr[eè]che|mairie|ehpad|clinique|h[oô]pital|pharmacie|garage|entreprise|magasin|boucherie|charcuterie|boulang|intermarch[ée]|leclerc|carrefour|lidl|aldi|syndic|immobilier|r[ée]sidence|cabinet|agence|atelier|usine|entrep[oô]t|logistique)\b/i;
     c.typeClient=(hasPlan||c.siret||proMots.test(c.nom||''))?'pro':'particulier'; } });
-  if(!d.users.length) d.users = [{id:uid(),prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];
+  if(!d.users.length && !BETA_ESSAI) d.users = [{id:uid(),prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];   // la bêta n'a pas de compte de départ : la porte est au serveur
   d.users.forEach(u=>{ if(!u.login) u.login=(u.prenom||u.nom||'user').toLowerCase().replace(/\s+/g,''); });
   // Messagerie : les anciens messages directs (par technicien) deviennent des messages par compte utilisateur
   (d.messages||[]).forEach(m=>{ if(m.toTechId && !m.toUserId){ const u=(d.users||[]).find(x=>x.techId===m.toTechId); if(u) m.toUserId=u.id; } });
@@ -3015,7 +3102,7 @@ function seed(){
       {id:uid(),nom:'Laboratoires Orcad',contact:'',email:'contact@orcad-vulcano.com',telephone:'',adresse:'260 Chemin De La Campagne Tassy',codePostal:'13240',ville:'Septèmes-les-Vallons',notes:''},
       {id:uid(),nom:'Armosa',contact:'',email:'info-3d@armosa.eu',telephone:'',adresse:'',codePostal:'',ville:'',notes:''},
     ],
-    users:[
+    users: BETA_ESSAI ? [] : [   // la bêta n'a pas de compte de départ : la porte est au serveur
       {id:adminId,prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true},
     ],
     techniciens:[
@@ -3166,7 +3253,10 @@ function toastAnnuler(msg,appel){
 function openModal(html,taille){ const m=$('modal');
   if(taille==='carte'){ m.className='modal carte'; $('overlay').classList.remove('full'); $('overlay').classList.add('centre'); }
   else { m.className='modal full'; $('overlay').classList.remove('centre'); $('overlay').classList.add('full'); }
-  m.innerHTML=html; $('overlay').classList.add('open'); m.scrollTop=0; }
+  m.innerHTML=html; $('overlay').classList.add('open'); m.scrollTop=0;
+  /* Le contenu arrive bloc par bloc. La classe se retire ensuite : « both » laisserait
+     une transformation figée sur ces blocs, qui bloquerait tout déplacement ultérieur. */
+  m.classList.add('pose'); clearTimeout(window._poseT); window._poseT=setTimeout(()=>m.classList.remove('pose'),620); }
 /* Écran obligatoire (mot de passe personnel à la 1re connexion) : ni Échap ni fermeture tant qu'il n'est pas validé */
 let _modalForcee=false;
 function closeModal(force){ if(_modalForcee&&force!==true) return; $('overlay').classList.remove('open'); if(scanTimer){clearInterval(scanTimer);scanTimer=null;} if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null;} stopBoxScanCamera(); }
@@ -3608,6 +3698,7 @@ function renderNav(){ try{ applyBrand(); }catch(e){}
     ).join('');
   }).join('');
   refreshBadges();
+  navGlisseInit();
 }
 function refreshBadges(){
   // les compteurs du menu suivent le périmètre de la personne (ses interventions, ses box, son véhicule) — jamais « 19 box » quand elle n'en voit qu'une
@@ -3624,6 +3715,10 @@ function goBack(){
   if(v===current) v=null;                       // la pile ne contenait que la page courante
   window._goingBack=true; go(v||'dashboard');
 }
+/* Sortir d'une fiche plein écran (intervention, box) est un retour, pas une navigation :
+   l'écran d'où l'on vient revient par la gauche. _goingBack le dit à go(), qui du même coup
+   n'empile pas la fiche quittée — on ne « revient » jamais dans une fiche qu'on a fermée. */
+function ficheRetour(vue){ window._goingBack=true; go(vue||'dashboard'); }
 /* ── Activité anonyme par onglet : SEULEMENT le nom des écrans ouverts et un
    compteur (jamais de données métier) — la Tour affiche à quoi sert l'application. */
 let _usageTimer=null;
@@ -3644,12 +3739,26 @@ try{ document.addEventListener('visibilitychange',()=>{ if(document.visibilitySt
 function planPleinQuitteSiBesoin(v){ try{ if(v!=='planning'&&planPleinPageOn()) planPleinPage(false); }catch(e){} }
 /* Croise l'ancien écran et le nouveau. La classe .entre déclenche l'arrivée du contenu ;
    elle se retire seule, sinon le rafraîchissement suivant la rejouerait. */
-function rendreVueAnimee(view){
+function rendreVueAnimee(view,sens){
   const c=$('content');
   const sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const poser=()=>{ rendreVueSure(view); if(c){ c.classList.add('entre'); setTimeout(()=>c.classList.remove('entre'),460); } };
+  const poser=()=>{ rendreVueSure(view); if(c){ c.classList.add('entre'); setTimeout(()=>c.classList.remove('entre'),460); } compterKpi(c); };
   if(!document.startViewTransition||sobre){ rendreVueSure(view); return; }
-  document.startViewTransition(poser);
+  rendreDirige(sens,poser);
+}
+/* Un mouvement porte un sens. 'avant' : on entre dans une fiche, elle est poussée depuis la
+   droite. 'retour' : on en sort, l'écran repart par la gauche. Sans sens, le croisement
+   vertical par défaut — changer de rubrique dans le menu n'est ni un aller ni un retour.
+   La classe ne vit sur <html> que le temps de la transition : gardée, elle enverrait le
+   croisement suivant dans la même direction. Retirée sur « finished », donc aussi quand la
+   transition est interrompue par une autre. */
+function rendreDirige(sens,rendu){
+  const sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(!document.startViewTransition||sobre){ rendu(); return; }
+  const root=document.documentElement, cl=sens?'nav-'+sens:'';
+  if(cl) root.classList.add(cl);
+  const vt=document.startViewTransition(rendu);
+  if(cl){ const fin=()=>root.classList.remove(cl); vt.finished.then(fin,fin); }
 }
 /* Le try/catch d'origine, sorti de go() : dans une transition de vue le rendu s'exécute
    plus tard, hors du try de l'appelant — sans cette enveloppe, une vue qui plante
@@ -3657,6 +3766,47 @@ function rendreVueAnimee(view){
 function rendreVueSure(view){
   try{ views[view](); }
   catch(e){ console.error('Vue '+view+' :',e); $('content').innerHTML=`<div class="card"><div class="card-head"><h3>Affichage indisponible</h3></div><p style="color:var(--t2);font-size:13px;line-height:1.6">Une erreur est survenue sur cette page.<br><span style="color:var(--t3)">${esc(e&&e.message||e)}</span></p><button class="btn ghost sm" style="margin-top:10px" onclick="go('dashboard')">← Retour au tableau de bord</button></div>`; }
+}
+/* Les chiffres montent jusqu'à leur valeur à l'arrivée d'un écran voulu — jamais sur un
+   rafraîchissement automatique, jamais si l'utilisateur a demandé moins d'animation.
+   Seuls les nombres nus sont animés : un montant, une date ou « 3/7 » resteraient faux
+   le temps du comptage. */
+function compterKpi(racine){
+  try{
+    if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    (racine||document).querySelectorAll('.kpi-val').forEach(el=>{
+      const txt=(el.textContent||'').trim(); if(!/^\d{1,6}$/.test(txt)) return;
+      const fin=parseInt(txt,10); if(fin<2) return;
+      const t0=performance.now(), duree=Math.min(900,420+fin*4);
+      (function pas(t){ const q0=Math.min(1,(t-t0)/duree), q=1-Math.pow(1-q0,3);
+        el.textContent=Math.round(fin*q); if(q0<1) requestAnimationFrame(pas); else el.textContent=txt; })(t0);
+    });
+  }catch(e){}
+}
+/* La sélection glisse d'une rubrique à l'autre : un seul fond, qui coulisse sur un ressort.
+   Il vit DANS le menu, qui défile : posé en absolu, il suit le défilement tout seul. */
+function navGlisseInit(){
+  const nav=$('nav'); if(!nav) return;
+  if(!nav.querySelector('.nav-glisse')){
+    const g=document.createElement('i'); g.className='nav-glisse'; g.setAttribute('aria-hidden','true');
+    nav.appendChild(g); nav.classList.add('a-glisse');
+  }
+  placerGlisse(false);
+}
+/* anime=false quand c'est le menu qui se (re)construit : le fond ne doit pas traverser
+   l'écran depuis le coin, seulement quand l'utilisateur change de rubrique. */
+function placerGlisse(anime){
+  try{
+    const nav=$('nav'), g=nav&&nav.querySelector('.nav-glisse'), on=nav&&nav.querySelector('.nav-item.active');
+    if(!nav||!g) return;
+    if(!on){ g.style.opacity='0'; return; }
+    const sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(!anime||sobre) g.style.transition='none';
+    g.style.opacity='1';
+    g.style.transform='translate('+on.offsetLeft+'px,'+on.offsetTop+'px)';
+    g.style.width=on.offsetWidth+'px'; g.style.height=on.offsetHeight+'px';
+    if(!anime||sobre){ void g.offsetWidth; g.style.transition=''; }
+  }catch(e){}
 }
 function go(view){
   if(!views[view]) view='dashboard';
@@ -3670,6 +3820,7 @@ function go(view){
   }catch(e){} }
   closeModal();
   planPleinQuitteSiBesoin(view);
+  const _retour=!!window._goingBack;   // lu avant d'être consommé deux lignes plus bas : c'est lui qui donne le sens
   if(!window._goingBack && current && current!==view){ (window._viewStack=window._viewStack||[]).push(current); if(window._viewStack.length>25) window._viewStack.shift(); }
   window._goingBack=false;
   /* en arrivant sur le planning, la carte est repliée : le planning prend tout l'écran.
@@ -3679,12 +3830,13 @@ function go(view){
   try{ history.replaceState(null,'','#v='+view); }catch(e){}
   document.getElementById('sidebar').classList.remove('open');
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===view));
+  placerGlisse(true);
   $('topbar-actions').innerHTML='';
   $('content').classList.toggle('content-map', view==='carteBox'||view==='carteInt');
   /* On anime le changement de vue — c'est une décision de l'utilisateur — mais JAMAIS le
      rafraîchissement automatique (views[current]() rappelé toutes les quelques secondes) :
      sinon l'écran rejouerait son entrée tout seul et donnerait l'impression de bugger. */
-  rendreVueAnimee(view);
+  rendreVueAnimee(view,_retour?'retour':'');
   updateBell();
 }
 function gsearch(q){ const box=$('gsrch-res'); if(!box) return; q=norm((q||'').trim()); if(q.length<2){ box.style.display='none'; box.innerHTML=''; return; }
@@ -10627,7 +10779,11 @@ function saveIntervention(e,id){ e.preventDefault(); if(!permGarde('int',id?'mod
   save(); closeModal(); toast(autoMsg || (id?'Mise à jour':'Intervention créée')); go(current);
 }
 let intTab='general', intBackView='interventions', infTab='plan', fsTab='medias', _effTick=null, intEdit=false;
-function detailIntervention(id){ intTab='general'; fsTab='medias'; intEdit=false; const _i=db.interventions.find(x=>x.id===id); infTab=(_i&&(_i.statut==='terminee'||_i.debutReel))?'eff':'plan'; try{ closeModal(); }catch(e){} if(current&&current!=='intDetail') intBackView=current; renderIntDetail(id); }
+/* Ouvrir une fiche est une décision : elle entre par la droite. Le mouvement est ici, au
+   point d'ouverture, et jamais dans renderIntDetail() — celle-ci est aussi rappelée pour
+   rafraîchir la fiche déjà ouverte (édition, changement d'onglet, fin de synchro), et ces
+   rendus-là ne doivent pas rejouer une entrée. */
+function detailIntervention(id){ intTab='general'; fsTab='medias'; intEdit=false; const _i=db.interventions.find(x=>x.id===id); infTab=(_i&&(_i.statut==='terminee'||_i.debutReel))?'eff':'plan'; try{ closeModal(); }catch(e){} if(current&&current!=='intDetail') intBackView=current; rendreDirige('avant',()=>renderIntDetail(id)); }
 function fic(n,sz=18){ const P={
   file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
   map:'<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
@@ -10941,7 +11097,7 @@ function renderIntDetail(id){
       <button onclick="intEditDone('${id}')" title="Enregistrer" style="background:none;border:none;color:var(--acc);cursor:pointer;padding:4px 2px 4px 10px;line-height:1">${fic('save',22)}</button>
     </div>`:`
     <div style="display:flex;align-items:center;gap:6px;margin:0">
-      <button class="btn ghost sm det-back" onclick="go(intBackView||'interventions')" title="Revenir à ${esc(navLabel(intBackView||'interventions')||'la liste')}">← ${esc(navLabel(intBackView||'interventions')||'Interventions')}</button>
+      <button class="btn ghost sm det-back" onclick="ficheRetour(intBackView||'interventions')" title="Revenir à ${esc(navLabel(intBackView||'interventions')||'la liste')}">← ${esc(navLabel(intBackView||'interventions')||'Interventions')}</button>
       ${i.num?`<div class="mono" style="font-size:13px;font-weight:600;color:var(--t3);letter-spacing:.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">N° ${esc(i.num)}</div>`:''}
       <span style="flex:1"></span>
       <button onclick="syncNow()" title="Synchroniser" style="background:none;border:none;color:var(--acc);cursor:pointer;padding:4px 10px;line-height:1">${fic('sync',21)}</button>
@@ -12920,7 +13076,8 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
 /* Détail box plein écran — inventaire produits (ctn / u), façon ELAN */
 let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
-function openBox(id){ boxView=id; boxProdSearch=''; renderBoxDetail(); }
+/* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
+function openBox(id){ boxView=id; boxProdSearch=''; rendreDirige('avant',renderBoxDetail); }
 function renderBoxDetail(){
   const b=db.boxes.find(x=>x.id===boxView); if(!b){ go('boxes'); return; }
   b.stock=b.stock||{};
@@ -12931,7 +13088,7 @@ function renderBoxDetail(){
   const pv=b.prochaineVisite||''; const late=pv && pv<todayISO();
   $('content').innerHTML=`
     <div style="display:flex;align-items:center;gap:6px;margin:0">
-      <button class="btn ghost sm det-back" onclick="go('boxes')" title="Revenir aux boxes">← ${esc(navLabel('boxes')||'Boxes')}</button>
+      <button class="btn ghost sm det-back" onclick="ficheRetour('boxes')" title="Revenir aux boxes">← ${esc(navLabel('boxes')||'Boxes')}</button>
       <div class="mono" style="font-size:14px;font-weight:600;color:var(--acc);letter-spacing:.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.numero||'Box')}</div>
       <span style="flex:1"></span>
       ${can('supprimer')?`<button onclick="formBox('${b.id}')" title="Modifier" style="background:none;border:none;color:var(--acc);cursor:pointer;padding:4px 10px;line-height:1">${fic('edit',20)}</button>
@@ -20271,7 +20428,7 @@ async function sha256(str){ try{ if(window.crypto&&crypto.subtle){ const b=await
 function getSession(){ return localStorage.getItem('elan_session')||sessionStorage.getItem('elan_session'); }
 async function boot(){
   try{ if(await teamopLienCheck()) return; }catch(e){}   // lien d'entreprise : bascule d'espace avant tout
-  try{ regMigration(); }catch(e){} let ch=false; for(const u of db.users){ if(!u.pinHash && !u.sansMdp && !u.compteSite){ u.pinHash=await sha256('1234'); ch=true; } }
+  try{ regMigration(); }catch(e){} let ch=false; for(const u of db.users){ if(!u.pinHash && !u.sansMdp && !u.compteSite && !BETA_ESSAI){ u.pinHash=await sha256('1234'); ch=true; } }
   // Ménage définitif des données de démonstration d'origine — plus personne ne voit d'utilisateur test.
   // On ne retire que ce qui correspond EXACTEMENT à la démo et n'a jamais servi (aucun vrai compte touché).
   try{
@@ -20581,7 +20738,11 @@ function suiteRefresh(){ if(!currentUser) return;
   const soOn=!!(can('opMessages')&&planOpMsg()&&opMsgDisponible());
   const so=$('suite-opmsg'); if(so) so.style.display=soOn?'flex':'none';
   try{ const sb=$('suite-box'); if(sb){ const on=soOn||currentUser.role==='admin'; sb.style.display=on?'':'none'; const lbl=sb.previousElementSibling; if(lbl) lbl.style.display=on?'':'none'; } }catch(e){} }
-function enterApp(u){ currentUser=u; try{ localStorage.removeItem('elan_lien_ok'); localStorage.removeItem('elan_ent_ok'); }catch(e){} try{ gpsAutoChrono(); }catch(e){} $('login').style.display='none'; $('app-root').style.display='flex';
+function enterApp(u){ currentUser=u;
+  // Bêta : « coupé » depuis la Tour doit fermer aussi les sessions déjà ouvertes. On demande
+  // au serveur, sans bloquer l'ouverture ; s'il dit non, on ressort proprement.
+  if(BETA_ESSAI&&u&&u.essai){ try{ fetch(PUSH_API+'/api/beta/etat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:u.login})})
+    .then(r=>r.json()).then(j=>{ if(j&&j.ouvert===false){ try{ localStorage.removeItem('elan_session'); sessionStorage.removeItem('elan_session'); }catch(_e){} alert('Cet accès d\'essai a été coupé depuis la Tour de contrôle.'); location.reload(); } }).catch(()=>{}); }catch(_e){} } try{ localStorage.removeItem('elan_lien_ok'); localStorage.removeItem('elan_ent_ok'); }catch(e){} try{ gpsAutoChrono(); }catch(e){} $('login').style.display='none'; $('app-root').style.display='flex';
   const av=$('app-ver'); if(av) av.textContent=APP_VERSION;
   const fn=fullName(u); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); userAvatarApply();
   const bh=$('brand-hi'); if(bh) bh.textContent='Bonjour '+(u.prenom||fn.split(' ')[0]||'')+',';
@@ -20690,6 +20851,31 @@ async function doLogin(e){ e.preventDefault();
   }
   const h=await sha256(pin);
   _cnxVia=localStorage.getItem('elan_lien_ok')?'lien':(_entSaisi?'entreprise':'identifiants');   // par quel chemin on arrive (pour la Tour)
+  // Bêta d'essai : la porte est au serveur. Aucun compte local ne vaut sans son accord, et un
+  // accès coupé depuis la Tour ne passe plus, même avec le bon mot de passe.
+  if(BETA_ESSAI){
+    const er=$('li-error');
+    if(!login||!pin){ if(er){ er.textContent='Entre ton identifiant d\'essai et son mot de passe'; er.style.display='block'; } return; }
+    let r=null;
+    try{ r=await fetch(PUSH_API+'/api/beta/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login,pass:pin})}); }
+    catch(_e){ if(er){ er.textContent='Connexion internet requise pour ouvrir la bêta'; er.style.display='block'; } return; }
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.ok){
+      try{ cnxSignaler('echec',{login,motif:'bêta refusée'}); }catch(_e){}
+      if(er){ er.textContent=j.error||'Identifiant ou mot de passe incorrect'; er.style.display='block'; }
+      const c=document.querySelector('.login-card'); if(c){ c.classList.add('pin-err'); setTimeout(()=>c.classList.remove('pin-err'),400); }
+      const p=$('li-pin'); if(p){ p.value=''; p.focus(); } return;
+    }
+    // le compte n'existe localement que comme reflet de l'accès serveur : même identifiant,
+    // même mot de passe, administrateur de la bêta — jamais de mot de passe à « définir »
+    let ub=db.users.find(x=>x.login&&x.login.toLowerCase()===j.login);
+    if(!ub){ ub={id:'beta-'+j.login,prenom:j.nom||j.login,nom:'',login:j.login,role:'admin',actif:true,essai:true}; db.users.push(ub); }
+    ub.pwdHash=h; ub.actif=true; ub.essai=true; delete ub.mustChangePwd; delete ub.pinHash; delete ub.sansMdp; save();
+    sessionStorage.setItem('elan_session',ub.id);
+    if(remember){ localStorage.setItem('elan_session',ub.id); localStorage.setItem('elan_savedLogin',ub.login); }
+    else { localStorage.removeItem('elan_session'); localStorage.removeItem('elan_savedLogin'); }
+    enterApp(ub); return;
+  }
   const trouver=()=>db.users.find(x=> x.login && x.login.toLowerCase()===login.toLowerCase() && x.actif);
   // vrai si le compte peut se connecter avec ce qui a été tapé (mot de passe, ancien PIN, ou 1re connexion libre / compte du site)
   const valide=x=>!!x && (x.compteSite || x.sansMdp || (x.pwdHash ? x.pwdHash===h : (x.pinHash===h || (pinClairHerite(x.pinHash) && x.pinHash===pin))));
@@ -20918,7 +21104,6 @@ function monComptePwd(){ if(!currentUser) return; const aDejaMdp=!!(currentUser.
     ${aDejaMdp?`<div class="field"><label>Mot de passe actuel</label><input id="mc-p0" type="password" autocomplete="current-password" placeholder="Celui que tu utilises aujourd'hui"></div>`:''}
     <div class="field"><label>Nouveau mot de passe</label><input id="mc-p1" type="password" minlength="8" placeholder="8 caractères minimum" autocomplete="new-password"></div>
     <div class="field"><label>Confirme-le</label><input id="mc-p2" type="password" minlength="8" placeholder="Le même, une deuxième fois" autocomplete="new-password"></div>
-    <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--t2);margin:2px 2px 12px;cursor:pointer"><input type="checkbox" onchange="['mc-p0','mc-p1','mc-p2'].forEach(i=>{const el=document.getElementById(i); if(el) el.type=this.checked?'text':'password';})" style="width:18px;height:18px;accent-color:var(--acc)"> Afficher ce que je tape</label>
     <div id="mc-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Annuler</button><button class="btn" onclick="monComptePwdSave()">Enregistrer</button></div>`);
   setTimeout(()=>{ const el=$(aDejaMdp?'mc-p0':'mc-p1'); if(el) el.focus(); },50); }
@@ -20951,7 +21136,6 @@ function forcePwdModal(){ if(!currentUser) return;
     <div class="field"><label>Nouveau mot de passe</label><input id="fp-p1" type="password" minlength="8" placeholder="8 caractères minimum" autocomplete="new-password"></div>
     <div class="field"><label>Confirme-le</label><input id="fp-p2" type="password" minlength="8" placeholder="Le même, une deuxième fois" autocomplete="new-password"></div>
     <div class="field" style="background:color-mix(in srgb,var(--acc) 10%,transparent);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent);border-radius:10px;padding:10px 12px"><label>✉️ Ton adresse e-mail *</label><input id="fp-mail" type="email" required value="${esc(mail)}" placeholder="prenom@entreprise.fr" autocapitalize="off" autocomplete="email" style="width:100%"><div style="font-size:11px;color:var(--t3);margin-top:4px"><b>Obligatoire</b> : si un jour tu oublies ton mot de passe, l'app t'enverra un <b>code de récupération</b> à cette adresse (« Mot de passe oublié ? » sur l'écran de connexion).${mail?' Vérifie qu\'elle est bien la tienne.':''}</div></div>
-    <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--t2);margin:2px 2px 12px;cursor:pointer"><input type="checkbox" onchange="['fp-p1','fp-p2'].forEach(i=>{const el=document.getElementById(i); if(el) el.type=this.checked?'text':'password';})" style="width:18px;height:18px;accent-color:var(--acc)"> Afficher ce que je tape</label>
     <div id="fp-err" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
     <button class="btn" style="width:100%;justify-content:center;padding:13px" onclick="forcePwdSave()">Enregistrer mon mot de passe</button>`); }
 async function forcePwdSave(){ const p1=($('fp-p1')||{}).value||'', p2=($('fp-p2')||{}).value||'';
@@ -21269,7 +21453,26 @@ function applyTheme(){
   if(current==='carteInt') views.carteInt(); else if(current==='carteBox') views.carteBox();
 }
 function setThemePref(p){ localStorage.setItem('elan_theme',p); applyTheme(); toast(THEME_ICO[p]+' '+THEME_LBL[p]); if(current==='parametres') views.parametres(); }
-function toggleTheme(){ const o=['auto','light','dark']; setThemePref(o[(o.indexOf(getThemePref())+1)%3]); }
+function toggleTheme(ev){
+  const o=['auto','light','dark'], suivant=o[(o.indexOf(getThemePref())+1)%3];
+  const sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(!document.startViewTransition||sobre){ setThemePref(suivant); return; }
+  /* Le nouveau thème se révèle en cercle depuis le bouton qu'on vient de presser :
+     le changement part de la main, il ne tombe pas du ciel. Le rayon va jusqu'au coin
+     le plus éloigné, sinon le cercle s'arrêterait avant d'avoir tout repeint. */
+  try{
+    const b=(ev&&ev.currentTarget)||$('theme-btn');
+    const r=b?b.getBoundingClientRect():{left:innerWidth-40,top:20,width:0,height:0};
+    const x=r.left+r.width/2, y=r.top+r.height/2;
+    const rayon=Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+40;
+    const root=document.documentElement;
+    root.style.setProperty('--rx',x+'px'); root.style.setProperty('--ry',y+'px'); root.style.setProperty('--rr',rayon+'px');
+    root.classList.add('theme-vt');
+    const vt=document.startViewTransition(()=>setThemePref(suivant));
+    const fin=()=>root.classList.remove('theme-vt');
+    vt.finished.then(fin,fin);
+  }catch(e){ document.documentElement.classList.remove('theme-vt'); setThemePref(suivant); }
+}
 /* Bouton Synchroniser (barre du haut) */
 function syncNow(){ const b=$('sync-btn'); if(b){ b.classList.add('spin'); setTimeout(()=>{ const x=$('sync-btn'); if(x) x.classList.remove('spin'); },1200); }
   if(_syncOn){ syncPush(true); toast('Synchronisé avec l\'équipe'); }
@@ -21354,6 +21557,26 @@ if('serviceWorker' in navigator){
 }
 /* Notification au démarrage si l'app a été mise à jour depuis la dernière ouverture */
 try{ const seen=localStorage.getItem('elan_seen_version'); if(seen && seen!==APP_VERSION){ setTimeout(()=>{ try{ toast('Application mise à jour en v'+APP_VERSION); }catch(e){} },1500); } localStorage.setItem('elan_seen_version',APP_VERSION); }catch(e){}
+</script>
+<script>
+/* ══ Le curseur, le défilement, la fenêtre ═══════════════════════════════════
+   Trois écouteurs passifs, posés une fois pour toute la page. */
+(function(){
+  /* Un halo suit la souris sur les cartes : la surface réagit à la main, comme une
+     matière. Doigt et stylet en sont exclus — sans survol, le halo resterait collé. */
+  document.addEventListener('pointermove',function(ev){
+    if(ev.pointerType&&ev.pointerType!=='mouse') return;
+    var c=ev.target&&ev.target.closest&&ev.target.closest('.card,.kpi');
+    if(!c) return;
+    var r=c.getBoundingClientRect();
+    c.style.setProperty('--mx',(ev.clientX-r.left)+'px');
+    c.style.setProperty('--my',(ev.clientY-r.top)+'px');
+  },{passive:true});
+  /* La barre du haut prend son ombre dès qu'on a quitté le haut de la page : elle flotte. */
+  addEventListener('scroll',function(){ document.body.classList.toggle('defile',(window.scrollY||0)>6); },{passive:true});
+  /* Le menu change de largeur avec la fenêtre : le fond glissant doit suivre, sans animation. */
+  addEventListener('resize',function(){ try{ placerGlisse(false); }catch(e){} },{passive:true});
+})();
 </script>
 <script>
 /* ══ Œil sur les mots de passe ════════════════════════════════════════════════

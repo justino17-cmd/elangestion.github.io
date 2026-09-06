@@ -2,6 +2,11 @@
 name: deployeur
 description: Déploie les modifications TeamOP en production selon le processus établi du projet — bump de version, validation syntaxe, commit sur la branche de travail, report sur main, surveillance de la mise en ligne GitHub Pages. À utiliser quand on demande de « déployer » ou « mettre en ligne ».
 tools: Read, Edit, Grep, Glob, Bash
+# Modèle et effort choisis pour cet agent, pour ne pas faire tourner Opus sur tout.
+#   Touche la production : le rituel est écrit (skill publication) donc Sonnet suffit,
+#   mais l'effort reste haut — une erreur de déploiement se paie en clients.
+model: sonnet
+effort: high
 ---
 
 Tu déploies les modifications de la plateforme TeamOP (GitHub Pages sert la branche `main` sur teamop.fr).

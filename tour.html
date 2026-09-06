@@ -586,7 +586,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.54</div>
+    <div class="lg-pied">console interne · v2.55</div>
   </div>
 </div>
 
@@ -613,7 +613,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.54</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.55</div>
 </div>
 
 <div id="toast"></div>
@@ -628,7 +628,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 var API='https://api.teamop.fr';
 var TOKEN='', MYNOM='', MYROLE='';
 var TAB='accueil';
-var VUES=['accueil','surveillance','support','entreprises','abonnements','devisia','equipe','journal'];
+var VUES=['accueil','surveillance','support','entreprises','abonnements','devisia','essais','equipe','journal'];
 var INJOIGNABLE='Serveur injoignable — nouvelle tentative dans un instant.';
 
 function $(i){ return document.getElementById(i); }
@@ -769,6 +769,7 @@ var IC={
   cb:'<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18"></path>',
   devisia:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path><path d="M18.5 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"></path>'
 };
+IC.essais=IC.cadenas;   /* l'accès bêta est une porte : le cadenas le dit */
 function svg(n,t){ t=t||17; return '<svg width="'+t+'" height="'+t+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(IC[n]||'')+'</svg>'; }
 
 function renderTabs(){
@@ -778,12 +779,12 @@ function renderTabs(){
      pas d'une administration en général. */
   var t=[['accueil','Accueil'],null,['surveillance','Surveillance','bdg-surv'],['support','Support','bdg-supp'],
          null,['entreprises','Entreprises'],['connexions','Connexions clients'],['abonnements','Abonnements'],['devisia','Devis IA'],null,
-         ['equipe','Équipe'],['journal','Journal de la console']];
+         ['essais','Accès bêta'],['equipe','Équipe'],['journal','Journal de la console']];
   var grp=['ACTIVITÉ','CLIENTS','CONSOLE'], gi=0, h='';
   t.forEach(function(x){
     /* Équipe est réservé au patron : l'afficher à un collaborateur, c'est promettre un écran
        qui ne lui servira à rien. */
-    if(x&&x[0]==='equipe'&&MYROLE!=='patron') return;
+    if(x&&(x[0]==='equipe'||x[0]==='essais')&&MYROLE!=='patron') return;
     if(!x){ h+='<div class="grp"><i></i><span>'+grp[gi++]+'</span></div>'; return; }
     h+='<button class="tab" data-t="'+x[0]+'" onclick="setTab(\''+x[0]+'\')">'+svg(x[0])+'<span>'+x[1]+'</span>'+
        (x[2]?'<span class="'+(x[0]==='surveillance'?'bdg-r':'bdg-b')+'" id="'+x[2]+'">0</span>':'')+'</button>';
@@ -863,6 +864,7 @@ var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',
 var CLI={list:[],total:0,loaded:false,err:'',sel:null,q:''};
 var ABO={abos:[],paiements:[],mrr:0,actifs:0,impayes:0,echecs:0,configured:false,loaded:false,err:'',f:''};
 var EQ={users:[],loaded:false,err:'',nom:'',pass:'',role:'collaborateur'};
+var BT={comptes:[],loaded:false,err:'',login:'',nom:'',pass:''};
 var JR={cnx:[],loaded:false,err:'',actions:[]};
 /* ── Connexions des applications : toutes les entreprises, le moindre détail ── */
 var CNX={list:[],global:{},loaded:false,err:'',sel:null,det:null,detErr:'',q:'',f:'toutes'};
@@ -959,7 +961,7 @@ function tourConnexionsCharge(nm){
   }).catch(function(){ var el=document.getElementById('fiche-connexions'); if(el) el.textContent='Serveur injoignable.'; });
 }
 
-function chargerTout(){ chargerIncidents(); chargerClients(); chargerAbos(); chargerJournal(); chargerEquipe(); chargerMail(); }
+function chargerTout(){ chargerIncidents(); chargerClients(); chargerAbos(); chargerJournal(); chargerEquipe(); chargerEssais(); chargerMail(); }
 
 function chargerIncidents(){
   apiGet('/api/monitor/issues').then(function(d){
@@ -1423,6 +1425,7 @@ function renderVue(v){
   else if(TAB==='connexions') v.innerHTML=vueConnexions();
   else if(TAB==='abonnements') v.innerHTML=vueAbonnements();
   else if(TAB==='devisia') v.innerHTML=vueDevisIA();
+  else if(TAB==='essais') v.innerHTML=vueEssais();
   else if(TAB==='equipe') v.innerHTML=vueEquipe();
   else if(TAB==='journal') v.innerHTML=vueJournal();
   if(v.classList.contains('entre')) compterKpi(v);
@@ -2329,6 +2332,73 @@ function eqAjouter(){
 function eqToggle(id){ apiPost('/api/monitor/users/toggle',{id:id}).then(function(){ chargerEquipe(); }); }
 function eqSuppr(id,nom){ if(!confirm('Supprimer définitivement l’accès de '+nom+' ?')) return;
   apiPost('/api/monitor/users/delete',{id:id}).then(function(){ toast('Accès supprimé'); chargerEquipe(); }); }
+
+/* ══════════ 6 bis. ACCÈS BÊTA ══════════
+   La bêta d'OP GESTION est une page publique. Ces accès sont la seule façon d'y entrer :
+   ils vivent sur le serveur, se créent ici, et « Couper » ferme la porte à l'instant —
+   les sessions déjà ouvertes sur un téléphone se referment à leur prochain réveil. */
+function chargerEssais(){
+  if(MYROLE!=='patron'){ BT.comptes=[]; BT.loaded=true; BT.err='Réservé au patron.'; if(TAB==='essais') render(); return; }
+  apiGet('/api/monitor/beta').then(function(d){ if(!d) return;
+    BT.comptes=d.comptes||[]; BT.loaded=true; BT.err=''; if(TAB==='essais') render();
+  }).catch(function(e){ BT.err=msgErreur(e); BT.loaded=true; if(TAB==='essais') render(); });
+}
+function btChamp(k,v){ BT[k]=v; }
+function btGen(){
+  var a='abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!#%',p='';
+  for(var i=0;i<12;i++) p+=a[Math.floor(Math.random()*a.length)];
+  BT.pass=p; var e=$('bt-pass'); if(e){ e.value=p; e.type='text'; }
+}
+function btAjouter(){
+  var login=(BT.login||'').trim().toLowerCase(), nom=(BT.nom||'').trim(), pass=BT.pass||'';
+  if(!login||!pass){ toast('Choisis un identifiant et un mot de passe'); return; }
+  apiPost('/api/monitor/beta',{login:login,nom:nom,pass:pass}).then(function(x){
+    if(!x.ok){ toast('⚠️ '+(x.d.error||'refusé')); return; }
+    BT.login=''; BT.nom=''; BT.pass='';
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a ouvert l’accès bêta « '+login+' »'});
+    toast('Accès « '+login+' » ouvert'); chargerEssais();
+  });
+}
+function btToggle(id){ apiPost('/api/monitor/beta/toggle',{id:id}).then(function(x){
+  if(x&&x.ok){ JR.actions.unshift({ts:Date.now(),tx:MYNOM+(x.d.actif?' a rouvert':' a coupé')+' un accès bêta'}); }
+  chargerEssais(); }); }
+function btSuppr(id,login){ if(!confirm('Supprimer définitivement l’accès bêta « '+login+' » ?')) return;
+  apiPost('/api/monitor/beta/delete',{id:id}).then(function(){ toast('Accès supprimé'); chargerEssais(); }); }
+function vueEssais(){
+  var tete=enTete('Accès bêta',
+    'Qui peut ouvrir <b>teamop.fr/beta.html</b>, la version d’essai d’OP GESTION. Ces accès n’ouvrent que la bêta — jamais les données d’une entreprise.');
+  if(!BT.loaded) return tete+'<div class="vide">Chargement des accès…</div>';
+  if(BT.err) return tete+'<div class="vide">'+esc(BT.err)+'</div>';
+  var liste=(BT.comptes||[]).map(function(c){
+    var off=(c.actif===false);
+    return '<div class="item" style="cursor:default">'+
+      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+        '<div style="width:38px;height:38px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(c.nom||c.login))+'</div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(c.nom||c.login)+
+          ' <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">'+esc(c.login)+'</span></div>'+
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+(c.derniere?'Dernière connexion '+esc(fmtJour(c.derniere)):'Jamais connecté')+
+            (c.ts?' · ouvert le '+esc(fmtJour(c.ts)):'')+(c.creePar?' par '+esc(c.creePar):'')+'</div></div>'+
+        '<span class="past '+(off?'p-gris':'p-vert')+'">'+(off?'Coupé':'Ouvert')+'</span>'+
+        '<span style="display:flex;gap:7px">'+
+          '<button class="pill-act" onclick="btToggle(\''+jsq(c.id)+'\')">'+(off?'Rouvrir':'Couper')+'</button>'+
+          '<button class="pill-act" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="btSuppr(\''+jsq(c.id)+'\',\''+jsq(c.login)+'\')">Supprimer</button></span>'+
+      '</div></div>';
+  }).join('')||'<div class="vide">Aucun accès d’essai : la bêta n’est ouverte à personne.</div>';
+  var form='<div class="carte"><div class="ttl-carte">Ouvrir un accès d’essai</div>'+
+    '<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">'+
+      '<div><div class="lbl">IDENTIFIANT</div><input class="inp mono" value="'+esc(BT.login)+'" oninput="btChamp(\'login\',this.value)" placeholder="ex. controle" autocapitalize="off" spellcheck="false"></div>'+
+      '<div><div class="lbl">NOM AFFICHÉ</div><input class="inp" value="'+esc(BT.nom)+'" oninput="btChamp(\'nom\',this.value)" placeholder="ex. Contrôle TEAM OP"></div>'+
+      '<div><div class="lbl">MOT DE PASSE</div><div style="display:flex;gap:9px">'+
+        '<input class="inp mono" id="bt-pass" value="'+esc(BT.pass)+'" oninput="btChamp(\'pass\',this.value)" placeholder="12 caractères">'+
+        '<button class="btn-fant" onclick="btGen()">Générer</button></div></div>'+
+      '<button class="btn-plein" onclick="btAjouter()">Ouvrir l’accès</button>'+
+    '</div>'+
+    '<div class="encart" style="margin-top:16px">'+
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)">'+IC.cadenas+'</svg>'+
+      '<div class="encart-tx">Sur <b>teamop.fr/beta.html</b> : champ Entreprise <b>vide</b>, puis cet identifiant et ce mot de passe. « Couper » ferme la porte immédiatement, même si le mot de passe est encore connu.</div></div>'+
+  '</div>';
+  return tete+'<div class="deux"><div class="col-liste">'+liste+'</div><div class="col-detail">'+form+'</div></div>';
+}
 function vueEquipe(){
   var tete=enTete('Équipe',
     'Qui peut ouvrir cette console, et avec quels droits. Chaque connexion est journalisée.');

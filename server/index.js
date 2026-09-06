@@ -123,7 +123,7 @@ const PLAFOND_GLOBAL = 120;    // requêtes / minute / IP
 const PLAFOND_STRICT = 20;     // idem, sur les routes sensibles
 const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
 
-const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp)/;
+const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta)/;
 
 let compteurs = new Map();
 setInterval(() => { compteurs = new Map(); }, 60000).unref();
@@ -1048,6 +1048,69 @@ app.post('/api/monitor/users/delete', monPatronStrict, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Accès d'essai à la bêta (teamop.fr/beta.html) ──
+//    La bêta est une page publique. Sans ceci, elle se laissait ouvrir avec le compte de
+//    départ admin / 1234, comme n'importe quelle installation neuve — et son espace de
+//    synchro, chiffré avec la clé par défaut de l'application, se lisait avec. Les accès
+//    d'essai se créent donc ICI, par le patron, et se coupent d'un clic : un accès coupé
+//    ne passe plus la porte, même s'il connaît encore son mot de passe.
+//    Ils ne vivent nulle part ailleurs : ni dans Firestore, ni dans le fichier de l'app.
+const BETA_PATH = path.join(DATA_DIR, 'beta-comptes.json');
+let betaComptes = [];
+try { betaComptes = JSON.parse(fs.readFileSync(BETA_PATH, 'utf8')) || []; } catch (e) {}
+function betaSave() { try { fs.writeFileSync(BETA_PATH, JSON.stringify(betaComptes)); } catch (e) { console.error('beta save:', e.message); } }
+const betaPublic = c => ({ id: c.id, login: c.login, nom: c.nom, actif: !!c.actif, ts: c.ts || 0, creePar: c.creePar || '', derniere: c.derniere || 0 });
+app.get('/api/monitor/beta', monPatronStrict, (req, res) => { res.json({ comptes: betaComptes.map(betaPublic) }); });
+app.post('/api/monitor/beta', monPatronStrict, (req, res) => {
+  const login = monStr((req.body || {}).login, 40).trim().toLowerCase();
+  const nom = monStr((req.body || {}).nom, 60).trim();
+  const pass = monStr((req.body || {}).pass, 200);
+  if (!/^[a-z0-9._@-]{3,40}$/.test(login)) return res.status(400).json({ error: 'identifiant : 3 à 40 caractères, lettres, chiffres, . _ @ -' });
+  if (pass.length < 8) return res.status(400).json({ error: 'mot de passe de 8 caractères minimum' });
+  if (betaComptes.some(c => c.login === login)) return res.status(409).json({ error: 'cet identifiant existe déjà' });
+  if (betaComptes.length >= 50) return res.status(400).json({ error: 'trop d\'accès d\'essai (50 max)' });
+  const c = { id: 'b' + crypto.randomBytes(5).toString('hex'), login, nom: nom || login, hash: monHash(pass), actif: true, ts: Date.now(), creePar: req.tourUser.nom };
+  betaComptes.push(c); betaSave();
+  res.json({ ok: true, compte: betaPublic(c) });
+});
+app.post('/api/monitor/beta/toggle', monPatronStrict, (req, res) => {
+  const c = betaComptes.find(x => x.id === (req.body || {}).id);
+  if (!c) return res.status(404).json({ error: 'accès introuvable' });
+  c.actif = !c.actif; betaSave();
+  res.json({ ok: true, actif: c.actif });
+});
+app.post('/api/monitor/beta/delete', monPatronStrict, (req, res) => {
+  const id = (req.body || {}).id;
+  if (!betaComptes.some(x => x.id === id)) return res.status(404).json({ error: 'accès introuvable' });
+  betaComptes = betaComptes.filter(x => x.id !== id); betaSave();
+  res.json({ ok: true });
+});
+// La porte elle-même. Publique (la bêta l'appelle depuis le navigateur), donc bornée comme
+// /api/monitor/login : même verrou par identifiant, et /api/beta figure dans ROUTES_SENSIBLES
+// pour le plafond par adresse. Réponse identique pour un identifiant inconnu et un mauvais
+// mot de passe : la route ne doit pas dire quels accès existent.
+app.post('/api/beta/login', (req, res) => {
+  const login = monStr((req.body || {}).login, 40).trim().toLowerCase();
+  const pass = monStr((req.body || {}).pass, 200);
+  const ident = 'bêta:' + login;
+  const lk = monLock.get(ident);
+  if (lk && lk.until > Date.now()) { monLog(ident, false, req, 'verrouillé'); return res.status(429).json({ error: 'accès temporairement verrouillé (15 min) après plusieurs échecs' }); }
+  const echec = (motif) => { const l = monLock.get(ident) || { fails: 0, until: 0 }; l.fails++; if (l.fails >= 5) { l.until = Date.now() + 15 * 60000; l.fails = 0; } monLock.set(ident, l); monLog(ident, false, req, motif); };
+  const c = betaComptes.find(x => x.login === login);
+  if (!c || !pass || monHash(pass) !== c.hash) { echec('identifiants'); return res.status(403).json({ error: 'identifiant ou mot de passe incorrect' }); }
+  if (!c.actif) { echec('accès désactivé'); return res.status(403).json({ error: 'cet accès d\'essai a été coupé depuis la Tour de contrôle' }); }
+  c.derniere = Date.now(); betaSave();
+  monLock.delete(ident); monLog(ident, true, req, '');
+  res.json({ ok: true, login: c.login, nom: c.nom });
+});
+// Un appareil resté connecté redemande si sa porte est toujours ouverte : « coupé » depuis
+// la Tour doit fermer aussi les sessions déjà ouvertes. Même réponse pour un accès inconnu.
+app.post('/api/beta/etat', (req, res) => {
+  const login = monStr((req.body || {}).login, 40).trim().toLowerCase();
+  const c = betaComptes.find(x => x.login === login);
+  res.json({ ouvert: !!(c && c.actif) });
+});
+
 /* ── Annuaire des espaces entreprise : « nom d'entreprise » → code de connexion ──
    Rempli depuis la Tour (patron) quand un lien de connexion est généré. Permet la
    connexion à la Organilog : l'utilisateur tape le nom de son entreprise dans l'app,
@@ -1368,14 +1431,13 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '558',
-  sujet: '\ud83d\udcc4 Vos devis sortent maintenant en PDF, \u00e0 votre en-t\u00eate',
-  intro: 'Bonjour,<br>votre application OP GESTION vient d\'\u00eatre mise \u00e0 jour \u2014 elle est d\u00e9j\u00e0 active, il suffit de la rouvrir (ou de toucher \u00ab Mettre \u00e0 jour \u00bb si la banni\u00e8re appara\u00eet).',
+  version: '560',
+  sujet: '\u2728 OP GESTION r\u00e9pond mieux \u00e0 la main \u2014 menus, cartes, th\u00e8me',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'\u00eatre mise \u00e0 jour \u2014 elle est d\u00e9j\u00e0 active, il suffit de la rouvrir (ou de toucher \u00ab Mettre \u00e0 jour \u00bb si la banni\u00e8re appara\u00eet). Rien ne change dans vos donn\u00e9es ni dans vos \u00e9crans : c\'est la fa\u00e7on dont l\'application <b>bouge</b> qui a \u00e9t\u00e9 travaill\u00e9e.',
   points: [
-    ['\ud83d\udcc4 Vos devis sortent en PDF', 'Jusqu\'ici un devis restait dans l\'application. Deux boutons apparaissent maintenant sur chaque devis : <b>\ud83d\udcc4 pour l\'ouvrir</b>, <b>\u2b07\ufe0f pour le t\u00e9l\u00e9charger</b>. Le document est complet : en-t\u00eate de votre soci\u00e9t\u00e9, coordonn\u00e9es l\u00e9gales, lignes d\u00e9taill\u00e9es avec quantit\u00e9s et prix unitaires, total HT, TVA, TTC, zone de signature et IBAN en pied de page. Prêt \u00e0 envoyer par mail ou par SMS depuis la fiche du devis.'],
-    ['\ud83c\udfa8 L\'en-t\u00eate suit la soci\u00e9t\u00e9 que vous choisissez', 'Dans <b>Param\u00e8tres</b>, chaque soci\u00e9t\u00e9 porte son <b>logo</b> et sa <b>couleur</b>. \u00c0 la cr\u00e9ation d\'un devis, vous s\u00e9lectionnez la soci\u00e9t\u00e9 concern\u00e9e : le bandeau, le logo et les mentions l\u00e9gales se mettent en place tout seuls. Une entreprise avec plusieurs soci\u00e9t\u00e9s n\'a plus \u00e0 refaire l\'en-t\u00eate \u00e0 la main.'],
-    ['\ud83d\udd11 L\'e-mail \u00ab mot de passe oubli\u00e9 \u00bb a \u00e9t\u00e9 refait', 'Il partait en anglais, sans logo, avec un lien qui n\'\u00e9tait pas le n\u00f4tre. Il arrive maintenant <b>en fran\u00e7ais</b>, \u00e0 l\'en-t\u00eate TEAM OP, et vous renvoie sur <b>teamop.fr</b>. Le lien ne sert qu\'une fois et expire au bout d\'une heure.'],
-    ['\u2728 \u00c0 essayer : l\'assistant de devis', 'D\u00e9crivez la prestation \u2014 au clavier, ou <b>en la dictant au micro</b> \u2014 et le devis se compose : lignes, quantit\u00e9s, prix. Il sort en PDF \u00e0 votre en-t\u00eate, vous choisissez le client dans votre fichier ou vous le saisissez, puis vous envoyez. <b>Cette option n\'est pas encore activ\u00e9e chez vous</b> : r\u00e9pondez simplement \u00e0 cet e-mail si vous voulez l\'essayer.']
+    ['\ud83e\udded Le menu suit votre geste', 'Quand vous changez de rubrique, la s\u00e9lection <b>glisse</b> jusqu\'\u00e0 la nouvelle au lieu de sauter. Sur ordinateur, un halo suit la souris sur les cartes et les compteurs : on voit ce qui va r\u00e9pondre avant de cliquer.'],
+    ['\ud83c\udf17 Le mode jour / nuit se r\u00e9v\u00e8le depuis le bouton', 'Le nouveau th\u00e8me part de l\'endroit o\u00f9 vous avez appuy\u00e9 et s\'\u00e9tend \u00e0 tout l\'\u00e9cran. Les chiffres du tableau de bord montent jusqu\'\u00e0 leur valeur en arrivant, et la barre du haut se d\u00e9tache du contenu d\u00e8s que vous faites d\u00e9filer.'],
+    ['\u267f Rien ne bouge si vous ne le voulez pas', 'Si votre t\u00e9l\u00e9phone est r\u00e9gl\u00e9 sur \u00ab R\u00e9duire les animations \u00bb, tout ceci se d\u00e9sactive de lui-m\u00eame : les couleurs continuent d\'indiquer ce qui est s\u00e9lectionn\u00e9, sans aucun d\u00e9placement.']
   ]
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
