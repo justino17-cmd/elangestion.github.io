@@ -176,6 +176,7 @@ Le choix est donc écrit, agent par agent, dans le frontmatter de `.claude/agent
 | `verificateur` | `haiku` | `low` | Constate, ne décide pas : syntaxe, versions servies, `/health` |
 | `testeur` | `sonnet` | `medium` | Écrit du Playwright et lit des échecs — du raisonnement, pas le plus cher |
 | `deployeur` | `sonnet` | `high` | Le rituel est écrit (skill `publication`), mais une erreur se paie en clients |
+| `concepteur` | `opus` | `high` | Refonte visuelle et mouvement : un jugement de goût, pas un contrôle mécanique |
 
 Tout autre sous-agent (recherche, revue de code, exploration) retombe sur
 `CLAUDE_CODE_SUBAGENT_MODEL` dans `.claude/settings.json` — Sonnet. La session
