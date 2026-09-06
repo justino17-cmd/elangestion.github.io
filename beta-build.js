@@ -24,6 +24,11 @@ const LIEN_AVANT = '<div style="text-align:center;margin-top:14px"><a onclick="t
 if (s.indexOf(LIEN_AVANT) < 0) { console.error('ÉCHEC : le lien « Rejoindre un espace » est introuvable'); process.exit(1); }
 s = s.split(LIEN_AVANT).join('<div style="display:none"><a onclick="teamopJoinPrompt()"');
 if (s.indexOf("const BETA_ESSAI=true;") < 0) { console.error('ÉCHEC : la porte serveur de la bêta (BETA_ESSAI) n\'est pas armée'); process.exit(1); }
+// La refonte (nouveau dessin ne du logo : sapin, menthe, diagonale) est ARMEE PAR LA BETA seule.
+// app.html sert la v561 a tous les clients ; ici on pose data-refonte sur <html> et le bloc
+// <style id="refonte-css"> prend la main. Un seul attribut separe les deux mondes.
+if (s.indexOf('<html lang="fr">') < 0) { console.error('ÉCHEC : la balise <html> de la page est introuvable'); process.exit(1); }
+s = s.replace('<html lang="fr">', '<html lang="fr" data-refonte>');
 s = s.replace(/<link rel="manifest"[^>]*>/, '');
 s = s.split('<div class="topbar-brand mono">OP GESTION</div>').join('<div class="topbar-brand mono" style="color:var(--org)">OP GESTION · 🧪 BÊTA</div>');
 s = s.split('<h2>OP GESTION</h2>').join('<h2>OP GESTION <span style="font-size:12px;color:var(--org);vertical-align:middle">🧪 BÊTA</span></h2>');
