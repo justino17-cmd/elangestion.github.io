@@ -14,7 +14,8 @@ Pas de compilation, pas de bundler. Ce qui est écrit est ce qui est servi.
 
 ## Le serveur
 
-`server/index.js` — environ 1 300 lignes, 43 routes. Écoute sur `127.0.0.1:8080`,
+`server/index.js` — environ 3 270 lignes, 80 routes (vérifié le 6 septembre 2026 ; il a
+doublé depuis la première rédaction de cette fiche). Écoute sur `127.0.0.1:8080`,
 **derrière nginx** (d'où `app.set('trust proxy', 1)`).
 
 Dépendances : `express`, `imapflow` + `mailparser` (réception des courriels),
@@ -204,6 +205,14 @@ Le choix est donc écrit, agent par agent, dans le frontmatter de `.claude/agent
 | `testeur` | `sonnet` | `medium` | Écrit du Playwright et lit des échecs — du raisonnement, pas le plus cher |
 | `deployeur` | `sonnet` | `high` | Le rituel est écrit (skill `publication`), mais une erreur se paie en clients |
 | `concepteur` | `opus` | `high` | Refonte visuelle et mouvement : un jugement de goût, pas un contrôle mécanique |
+| `gardien` | `opus` | `high` | Penser comme un attaquant se juge aussi. Une route qui fuit ne plante pas — le coût se compare à celui d'une fuite |
+| `relecteur` | `sonnet` | `high` | Applique des critères écrits à un diff : systématique, pas créatif. Mais il passe après chaque changement, donc son coût unitaire compte |
+
+Les deux derniers comblent ce que la CI ne fait pas : elle ne vérifie que les secrets commités
+et les failles des dépendances — **pas même la syntaxe**, et personne ne relisait ce qu'une
+route renvoie. `gardien` relit `server/` (80 routes exposées sur Internet, données de clients
+réels) ; `relecteur` relit le diff avant qu'il parte sur `main`, qui est servi aux clients en
+quelques minutes.
 
 Tout autre sous-agent (recherche, revue de code, exploration) retombe sur
 `CLAUDE_CODE_SUBAGENT_MODEL` dans `.claude/settings.json` — Sonnet. La session
