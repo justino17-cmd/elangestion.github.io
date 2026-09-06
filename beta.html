@@ -749,6 +749,19 @@ table, .tbl, .list-row {
 #splitpane .sp-head{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--brd);background:var(--side);color:var(--side-ink);flex-shrink:0;}
 #splitpane iframe{flex:1;border:none;width:100%;}
 @media(max-width:900px){ #splitpane{position:fixed;inset:0;z-index:350;max-width:none;min-width:0;flex:none;width:100%;} }
+
+/* ══ ŒIL SUR LES MOTS DE PASSE ═══ posé par le script en fin de page sur chaque champ ══ */
+:root{--oeil:var(--t3);--oeil-h:var(--bg2);--oeil-t:var(--t1);--oeil-on:var(--acc);--oeil-anneau:color-mix(in srgb,var(--acc) 45%,transparent);--champ-fond:var(--bg1)}   /* les couleurs de l'œil, prises dans les jetons de cette page */
+.mdp-wrap{position:relative;display:block;flex:1 1 auto;min-width:0}
+.mdp-wrap>input{padding-right:44px!important;width:100%;box-sizing:border-box}
+.mdp-oeil{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border:0;padding:0;margin:0;background:transparent;color:var(--oeil);border-radius:8px;cursor:pointer;line-height:0;-webkit-tap-highlight-color:transparent;transition:background-color .12s ease,color .12s ease,transform .28s cubic-bezier(.2,0,0,1)}
+.mdp-oeil:hover{background:var(--oeil-h);color:var(--oeil-t)}
+.mdp-oeil:active{transform:translateY(-50%) scale(.92)}
+.mdp-oeil:focus-visible{outline:none;box-shadow:0 0 0 3px var(--oeil-anneau)}
+.mdp-oeil[aria-pressed="true"]{color:var(--oeil-on)}
+/* Le remplissage automatique de Safari peignait les champs en jaune sur la carte sombre :
+   on repeint par-dessous avec le fond du champ, et l'encre du thème. */
+input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,textarea:-webkit-autofill{-webkit-text-fill-color:var(--oeil-t);caret-color:var(--oeil-t);-webkit-box-shadow:0 0 0 1000px var(--champ-fond) inset;box-shadow:0 0 0 1000px var(--champ-fond) inset;transition:background-color 9999s ease-out 0s}
 </style>
 <style id="plg-css">
 /* ── PLANNING MULTI-JOURS + CARTE ─────────────────────────────────────── */
@@ -21341,6 +21354,35 @@ if('serviceWorker' in navigator){
 }
 /* Notification au démarrage si l'app a été mise à jour depuis la dernière ouverture */
 try{ const seen=localStorage.getItem('elanB_seen_version'); if(seen && seen!==APP_VERSION){ setTimeout(()=>{ try{ toast('Application mise à jour en v'+APP_VERSION); }catch(e){} },1500); } localStorage.setItem('elanB_seen_version',APP_VERSION); }catch(e){}
+</script>
+<script>
+/* ══ Œil sur les mots de passe ════════════════════════════════════════════════
+   Chaque champ de mot de passe reçoit un bouton qui l'affiche en clair — sur un téléphone,
+   avec des gants, on ne voit pas ce qu'on tape. Les formulaires sont générés en JavaScript
+   au fil de l'eau : on équipe donc ce qui apparaît, quand ça apparaît. */
+(function(){
+  var OEIL='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var OEIL_BARRE='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.2A10.5 10.5 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2"/><path d="M6.6 6.6A17.4 17.4 0 0 0 2 12s3.5 7 10 7a10.6 10.6 0 0 0 4.4-.9"/></svg>';
+  function equiper(inp){
+    if(inp.getAttribute('data-oeil')||inp.type!=='password'||!inp.parentNode) return;
+    inp.setAttribute('data-oeil','1');
+    var w=document.createElement('span'); w.className='mdp-wrap';
+    inp.parentNode.insertBefore(w,inp); w.appendChild(inp);
+    var b=document.createElement('button'); b.type='button'; b.className='mdp-oeil';
+    b.setAttribute('aria-label','Afficher le mot de passe'); b.setAttribute('aria-pressed','false'); b.title='Afficher le mot de passe'; b.innerHTML=OEIL;
+    b.addEventListener('click',function(){
+      var voir=inp.type==='password'; inp.type=voir?'text':'password';
+      b.setAttribute('aria-pressed',String(voir)); b.title=voir?'Masquer le mot de passe':'Afficher le mot de passe'; b.setAttribute('aria-label',b.title);
+      b.innerHTML=voir?OEIL_BARRE:OEIL;
+      try{ inp.focus({preventScroll:true}); var n=inp.value.length; inp.setSelectionRange(n,n); }catch(e){}
+    });
+    w.appendChild(b);
+  }
+  function tout(){ var l=document.querySelectorAll('input[type="password"]:not([data-oeil])'); for(var i=0;i<l.length;i++) equiper(l[i]); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',tout); else tout();
+  var t=null;
+  try{ new MutationObserver(function(){ clearTimeout(t); t=setTimeout(tout,60); }).observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
+})();
 </script>
 </body>
 </html>
