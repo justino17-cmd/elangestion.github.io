@@ -112,6 +112,24 @@ PDF → client (choisi ou saisi) → envoi par `envoiDoc()`. Le moteur dépend d
 l'offre de l'entreprise, décidée côté serveur : Haiku inclus, Sonnet en supplément,
 ou les deux au choix de l'utilisateur.
 
+## La bêta : un outil de développement, jamais un canal public
+
+`beta.html` n'est **pas** une version d'essai pour les clients et ne le sera jamais. C'est
+l'outil de l'équipe qui développe : Justin et les personnes qui travaillent avec lui.
+Il n'y aura pas de « bêta publique » — ce mot désigne ici un canal interne.
+
+- **L'accès se gère uniquement depuis la Tour de contrôle** (onglet Accès bêta, réservé au
+  patron) : ouvrir, couper, rouvrir, supprimer. Le serveur porte ces accès
+  (`beta-comptes.json`), la page n'a aucun compte de départ, un accès coupé ne passe plus
+  même sur un appareil resté connecté.
+- **Chaque accès doit dire qui travaille sur quoi** : la personne, et le chantier qu'elle
+  teste (écran, fonctionnalité, version). C'est l'évolution attendue de l'onglet — l'accès
+  seul ne suffit pas, il faut la raison de l'accès.
+- **Jamais de données d'entreprise** : espace `elan-gestion-beta`, préfixe `elanB_`. Un accès
+  bêta n'ouvre que la bêta.
+- Sur `teamop.fr/beta.html`, le champ **Entreprise reste vide** : identifiant et mot de passe
+  donnés par la Tour, rien d'autre. Y taper un nom envoie la page chercher une entreprise.
+
 ## Refonte et aperçu (septembre 2026)
 
 La refonte design/mouvement se fait sur la branche `refonte/design`. **Rien ne remplace
