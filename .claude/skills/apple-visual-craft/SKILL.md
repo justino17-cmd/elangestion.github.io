@@ -1,6 +1,6 @@
 ---
 name: apple-visual-craft
-description: Visual taste and shape/material/typography reference from Apple's own design system (HIG, Liquid Glass) and from the App Store's most acclaimed craft — Things 3, Ivory, Fantastical, Arc, Apple Design Award winners. Use alongside apple-design (which covers motion) whenever a screen's LOOK needs judging or redrawing — shape language, materials, type scale, color restraint, spacing, density — not just how it animates.
+description: Visual taste and shape/material/typography reference from Apple's own design system (HIG, Liquid Glass) and from the App Store's most acclaimed craft — Things 3, Ivory, Fantastical, Arc, Apple Design Award winners — plus a resilience checklist for what actually breaks in production (text clipping at zoom, chips overflowing, colour-only badges, interrupted animations). Use alongside apple-design (which covers motion) whenever a screen's LOOK needs judging or redrawing — shape language, materials, type scale, color restraint, spacing, density — not just how it animates.
 ---
 
 # Le métier du beau — références Apple et grands studios
@@ -118,7 +118,48 @@ penser, pas pour le pixel.
   l'année en cours avant une refonte importante plutôt que de se fier à une mémoire datée —
   le style qui gagne change d'une année à l'autre (skeuomorphisme → flat → glass).
 
-## 7. Pour TeamOP précisément
+## 7. Résilience — ce qui casse une fois en production
+
+Un écran beau en capture d'écran et cassé sur un vrai téléphone n'est pas un bon écran. Ces
+règles viennent du skill `ui-ux-pro-max` (nextlevelbuilder, MIT) — la partie qui décrit les
+pannes réellement observées, pas son générateur de design system.
+
+- **Le texte essentiel doit refluer sans être coupé** : largeur étroite, zoom du navigateur,
+  taille de police système augmentée, espacement forcé par l'utilisateur. Un libellé tronqué
+  par `overflow:hidden` cache une information ; sur une fiche d'intervention, ça peut être le
+  nom du client. Vérifier à 390px ET avec le zoom à 200 %.
+- **L'équilibrage de titre (`text-wrap: balance`) est une amélioration, pas une garantie** :
+  ne jamais construire une mise en page qui suppose qu'un mot précis restera sur la dernière
+  ligne. Le navigateur peut l'ignorer.
+- **Les listes de chips et de tags s'enroulent, ou proposent un `+n` cliquable.** Jamais une
+  rangée qui déborde en silence hors de l'écran — c'est le piège classique des filtres.
+- **Le sens d'un badge ne peut pas reposer sur la seule couleur.** Un statut « Terminée » vs
+  « Annulée » doit rester distinguable en niveaux de gris, et lisible par un daltonien : il
+  faut le mot, pas juste la pastille verte ou rouge.
+- **Une interaction rapide peut annuler une animation, mais l'état final doit rester juste.**
+  Si l'utilisateur tape deux fois vite sur « retour », la transition saute — c'est acceptable ;
+  ce qui ne l'est pas, c'est de se retrouver sur le mauvais écran, avec le focus perdu ou un
+  contenu à moitié rendu. C'est exactement le risque des transitions de vue directionnelles
+  (`nav-avant` / `nav-retour`) : la classe est retirée sur `finished`, y compris quand une
+  transition en interrompt une autre.
+
+**Contrôle avant de dire « c'est fait »** (adapté du même skill) :
+
+- [ ] contraste texte ≥ 4,5:1, **dans les deux thèmes** (`node scripts/verifier-theme.js`)
+- [ ] état de focus visible au clavier sur tout ce qui est actionnable
+- [ ] `prefers-reduced-motion: reduce` respecté, sans exception
+- [ ] texte et chips qui refluent sans coupure, testés au zoom
+- [ ] `cursor: pointer` sur tout ce qui se clique
+- [ ] rendu vérifié à 390 px (téléphone), 768 px (tablette) et en largeur bureau
+
+**Ce que ce skill dit et qui NE s'applique pas tel quel à TeamOP** : sa règle « aucun emoji
+comme icône, uniquement du SVG ». TeamOP utilise délibérément les deux — des SVG via `fic()`
+pour les onglets et la navigation, des emojis dans les listes, badges et fenêtres (🏢 client,
+🧰 intervention, 🔑 note d'accès). C'est une identité assumée, lisible d'un coup d'œil sur le
+terrain. Ne pas partir en croisade anti-emoji au nom de cette règle : la question à se poser
+est « est-ce lisible et cohérent ? », pas « est-ce un SVG ? ».
+
+## 8. Pour TeamOP précisément
 
 - Priorité au terrain, pas au bureau : lumière du jour, une main, parfois un gant, jamais une
   souris. La cible 44×44pt et le plancher de 15px de corps de texte priment sur toute
@@ -142,3 +183,4 @@ penser, pas pour le pixel.
 - [Ivory : Playful Precision from Tapbots' 15-Year Craft Legacy — blakecrosley.com](https://blakecrosley.com/guides/design/ivory)
 - [The New Fantastical Review — MacStories](https://www.macstories.net/reviews/the-new-fantastical-review/)
 - [The Browser Company — design et craft — inverse.com](https://www.inverse.com/input/design/the-browser-company-arc-design-interview)
+- [ui-ux-pro-max-skill — nextlevelbuilder (MIT)](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) — section 7 uniquement (résilience du texte, anti-patterns, contrôle avant livraison). Son générateur de design system (192 palettes, 79 styles, 74 paires de polices) est délibérément écarté : TeamOP a déjà sa marque et sa discipline de couleur, en importer un catalogue les diluerait.
