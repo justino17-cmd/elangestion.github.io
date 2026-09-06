@@ -776,9 +776,16 @@ function compterKpi(racine){
   [].forEach.call((racine||document).querySelectorAll('.kpi .n,.kn'),function(el){
     var txt=(el.textContent||'').trim(); if(!/^\d{1,6}$/.test(txt)) return;
     var fin=parseInt(txt,10); if(fin<2) return;
-    var t0=performance.now(), duree=Math.min(900,420+fin*4);
-    (function pas(t){ var q=Math.min(1,(t-t0)/duree); q=1-Math.pow(1-q,3);
-      el.textContent=Math.round(fin*q); if(q<1) requestAnimationFrame(pas); else el.textContent=txt; })(t0);
+    /* Page cachée : requestAnimationFrame ne tourne pas, on affiche la valeur tout de suite. */
+    if(document.visibilityState!=='visible') return;
+    var t0=null, duree=Math.min(900,420+fin*4), fini=false;
+    function pas(t){ if(fini) return; if(t0===null) t0=t;
+      var q=Math.min(1,(t-t0)/duree); q=1-Math.pow(1-q,3);
+      el.textContent=Math.round(fin*q);
+      if(q<1) requestAnimationFrame(pas); else { fini=true; el.textContent=txt; } }
+    requestAnimationFrame(pas);
+    /* Filet : quoi qu'il arrive aux images, le vrai chiffre est là au bout du compte. */
+    setTimeout(function(){ if(!fini){ fini=true; el.textContent=txt; } }, duree+250);
   });
 }
 function setTab(t,sansAnim){
