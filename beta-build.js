@@ -10,6 +10,10 @@ s = s.split('"elan_').join('"elanB_');
 s = s.split("'op_devis_code'").join("'opB_devis_code'");
 s = s.split("FB_TEAM='elan-gestion'").join("FB_TEAM='elan-gestion-beta'");
 s = s.replace(/const APP_VERSION = '([0-9]+)'/, "const APP_VERSION = '$1-beta'");
+// La porte serveur : la bêta ne connaît aucun compte de départ et demande à api.teamop.fr
+// avant d'ouvrir. Les accès se créent et se coupent depuis la Tour de contrôle (Accès bêta).
+s = s.split("const BETA_ESSAI=false;").join("const BETA_ESSAI=true;");
+if (s.indexOf("const BETA_ESSAI=true;") < 0) { console.error('ÉCHEC : la porte serveur de la bêta (BETA_ESSAI) n\'est pas armée'); process.exit(1); }
 s = s.replace(/<link rel="manifest"[^>]*>/, '');
 s = s.split('<div class="topbar-brand mono">OP GESTION</div>').join('<div class="topbar-brand mono" style="color:var(--org)">OP GESTION · 🧪 BÊTA</div>');
 s = s.split('<h2>OP GESTION</h2>').join('<h2>OP GESTION <span style="font-size:12px;color:var(--org);vertical-align:middle">🧪 BÊTA</span></h2>');

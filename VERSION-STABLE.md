@@ -1,6 +1,22 @@
 # Point stable TeamOP
 
-**Version stable : v557** — gravée le 3 septembre 2026.
+**Version stable : v560** — gravée le 6 septembre 2026.
+
+v560 — la bêta a une porte, et c'est le patron qui en tient la clé. Jusqu'ici
+teamop.fr/beta.html s'ouvrait à quiconque tapait « admin » et « 1234 » — le
+compte de départ de toute installation neuve, que la migration dotait d'office
+de ce code — et son espace de synchronisation, chiffré avec la clé par défaut
+de l'application, se lisait avec. Le compte de départ n'existe plus dans la bêta ;
+un accès d'essai se crée depuis la Tour de contrôle (onglet Accès bêta), se coupe
+d'un clic, et un accès coupé ne passe plus, même sur un téléphone resté connecté.
+Le serveur porte ces accès (beta-comptes.json), avec le verrou anti-force-brute
+de la console. L'application des clients ne change pas de comportement. Et
+depuis v559, OP GESTION bouge comme la Tour : la sélection du menu glisse, un
+halo suit la souris sur les cartes, le thème se révèle en cercle depuis le bouton,
+les chiffres montent à l'arrivée d'un écran, la barre du haut prend son ombre au
+défilement — le tout neutralisé sous « réduire les animations ».
+
+Ancien point : **v557** — gravée le 3 septembre 2026.
 
 v557 — revue complète de l'affichage, menée dans un navigateur sur les 16 écrans
 et les 17 formulaires, en largeur téléphone (390 px), tablette (768 px) et
