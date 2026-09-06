@@ -1,6 +1,22 @@
 # Point stable TeamOP
 
-**Version stable : v560** — gravée le 6 septembre 2026.
+**Version stable : v561** — gravée le 6 septembre 2026.
+
+v561 — OP GESTION reçoit le dessin d'Apple, le même que la Tour de contrôle depuis
+la v2.5 : plus de bordure sur les surfaces, c'est le ton qui sépare les cartes du
+fond ; la police du système (SF sur Mac et iPhone) à la place d'Archivo ; une barre
+latérale et une barre du haut en verre dépoli, le contenu défile dessous ; la
+rubrique active du menu est un vert plein à l'encre blanche ; les boutons pleins
+disent l'action, les boutons teintés le reste ; les champs sont en creux avec un
+anneau au focus ; les titres grandissent et se resserrent. Rien ne change dans les
+données ni dans l'organisation des écrans — c'est la peau de l'application. Tout
+est écrit dans un seul bloc de style qui vient en dernier et reprend les noms de
+jetons existants : chaque composant change de peau sans qu'on le touche. Les
+contrastes tiennent 4,5 pour 1 sur le pire fond, dans les deux thèmes, et « moins
+de transparence » retire les verres. Vérifié dans un navigateur, nuit et jour, sur
+ordinateur et en largeur téléphone, sans erreur JavaScript.
+
+Ancien point : **v560** — gravée le 6 septembre 2026.
 
 v560 — la bêta a une porte, et c'est le patron qui en tient la clé. Jusqu'ici
 teamop.fr/beta.html s'ouvrait à quiconque tapait « admin » et « 1234 » — le

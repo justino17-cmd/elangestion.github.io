@@ -1431,13 +1431,14 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '560',
-  sujet: '\u2728 OP GESTION r\u00e9pond mieux \u00e0 la main \u2014 menus, cartes, th\u00e8me',
-  intro: 'Bonjour,<br>votre application OP GESTION vient d\'\u00eatre mise \u00e0 jour \u2014 elle est d\u00e9j\u00e0 active, il suffit de la rouvrir (ou de toucher \u00ab Mettre \u00e0 jour \u00bb si la banni\u00e8re appara\u00eet). Rien ne change dans vos donn\u00e9es ni dans vos \u00e9crans : c\'est la fa\u00e7on dont l\'application <b>bouge</b> qui a \u00e9t\u00e9 travaill\u00e9e.',
+  version: '561',
+  sujet: '✨ OP GESTION change de peau — plus claire, plus calme, plus lisible',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Vos données et vos écrans sont exactement les mêmes : c\'est l\'<b>apparence</b> de l\'application qui a été retravaillée, dans l\'esprit des applications de votre téléphone.',
   points: [
-    ['\ud83e\udded Le menu suit votre geste', 'Quand vous changez de rubrique, la s\u00e9lection <b>glisse</b> jusqu\'\u00e0 la nouvelle au lieu de sauter. Sur ordinateur, un halo suit la souris sur les cartes et les compteurs : on voit ce qui va r\u00e9pondre avant de cliquer.'],
-    ['\ud83c\udf17 Le mode jour / nuit se r\u00e9v\u00e8le depuis le bouton', 'Le nouveau th\u00e8me part de l\'endroit o\u00f9 vous avez appuy\u00e9 et s\'\u00e9tend \u00e0 tout l\'\u00e9cran. Les chiffres du tableau de bord montent jusqu\'\u00e0 leur valeur en arrivant, et la barre du haut se d\u00e9tache du contenu d\u00e8s que vous faites d\u00e9filer.'],
-    ['\u267f Rien ne bouge si vous ne le voulez pas', 'Si votre t\u00e9l\u00e9phone est r\u00e9gl\u00e9 sur \u00ab R\u00e9duire les animations \u00bb, tout ceci se d\u00e9sactive de lui-m\u00eame : les couleurs continuent d\'indiquer ce qui est s\u00e9lectionn\u00e9, sans aucun d\u00e9placement.']
+    ['🧱 Des surfaces sans cadre', 'Les cartes et les listes n\'ont plus de bordure : elles se détachent du fond par leur teinte, comme dans Mail ou Réglages. L\'écran est plus calme et l\'œil va droit au contenu.'],
+    ['🔤 L\'écriture de votre téléphone', 'OP GESTION utilise désormais la police du système — celle de vos autres applications. Les titres sont plus grands et plus nets, les chiffres s\'alignent, et le tout se lit mieux au soleil.'],
+    ['🧊 Le menu en verre dépoli', 'La barre latérale et la barre du haut laissent transparaître le contenu qui défile dessous. La rubrique où vous êtes est un rectangle vert plein, impossible à manquer. Les boutons verts disent l\'action principale, les boutons clairs le reste.'],
+    ['♿ Vos réglages sont respectés', 'Si votre téléphone est réglé sur « Réduire la transparence », les verres redeviennent des aplats ; sur « Augmenter le contraste », les contours se renforcent. Le mode jour et le mode nuit sont tous deux revus.']
   ]
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
