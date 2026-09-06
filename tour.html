@@ -471,6 +471,36 @@ body.jour .carte::after,body.jour .item::after,body.jour .kpi::after,body.jour .
 .bandeau{transition:box-shadow var(--d-2) var(--e-sortie)}
 @media(max-width:899px){ body.defile .bandeau{box-shadow:var(--ombre-2)} }
 
+/* ══ NAVIGATION DANS UN ONGLET ═══ ouvrir pousse depuis la droite, revenir ramène par la gauche,
+   un filtre croise. Le titre de page porte un nom : il se prolonge depuis la ligne cliquée. ══ */
+#vue .ttl-page{view-transition-name:titre}
+::view-transition-group(titre){animation-duration:var(--d-4);animation-timing-function:var(--ressort)}
+:root.nav-avant::view-transition-old(root){animation:pousseSortG var(--d-3) var(--e-entree) both}
+:root.nav-avant::view-transition-new(root){animation:pousseEntreD var(--d-4) var(--ressort) both}
+:root.nav-retour::view-transition-old(root){animation:pousseSortD var(--d-3) var(--e-entree) both}
+:root.nav-retour::view-transition-new(root){animation:pousseEntreG var(--d-4) var(--ressort) both}
+:root.nav-fondu::view-transition-old(root){animation:fondSort 140ms ease-out both}
+:root.nav-fondu::view-transition-new(root){animation:fondEntre var(--d-2) var(--e-sortie) both}
+@keyframes pousseSortG{to{opacity:0;transform:translateX(-6%)}}
+@keyframes pousseEntreD{from{opacity:0;transform:translateX(8%)}to{opacity:1;transform:none}}
+@keyframes pousseSortD{to{opacity:0;transform:translateX(6%)}}
+@keyframes pousseEntreG{from{opacity:0;transform:translateX(-8%)}to{opacity:1;transform:none}}
+@keyframes fondSort{to{opacity:0}}
+@keyframes fondEntre{from{opacity:0}to{opacity:1}}
+/* Écrans à deux colonnes : seule la colonne de droite bouge, la liste reste. */
+.col-detail{view-transition-name:detail}
+.mail-lect{view-transition-name:lecture}
+:root.nav-detail::view-transition-old(root),:root.nav-detail::view-transition-new(root),
+:root.nav-lecture::view-transition-old(root),:root.nav-lecture::view-transition-new(root),
+:root.nav-lecture-retour::view-transition-old(root),:root.nav-lecture-retour::view-transition-new(root){animation:none}
+:root.nav-detail::view-transition-group(detail),:root.nav-lecture::view-transition-group(lecture),:root.nav-lecture-retour::view-transition-group(lecture){animation:none}
+:root.nav-detail::view-transition-old(detail),:root.nav-lecture::view-transition-old(lecture){animation:pousseSortG var(--d-3) var(--e-entree) both}
+:root.nav-detail::view-transition-new(detail),:root.nav-lecture::view-transition-new(lecture){animation:pousseEntreD var(--d-4) var(--ressort) both}
+:root.nav-lecture-retour::view-transition-old(lecture){animation:pousseSortD var(--d-3) var(--e-entree) both}
+:root.nav-lecture-retour::view-transition-new(lecture){animation:pousseEntreG var(--d-4) var(--ressort) both}
+/* Le bouton « retour » : la flèche recule quand on le survole */
+.btn-fant:hover{letter-spacing:.005em}
+
 /* La bascule de thème ne claque pas : le fond et l'encre glissent (200 ms), le reste suit ses propres règles */
 body,.bandeau,.carte,.item,.kpi,.tbl,.mail,.mail-doss,.inp,.sel-f,.rech,.code,.lg-carte,#toast{transition-property:background-color,color,border-color,box-shadow,transform;transition-duration:var(--d-2),var(--d-2),var(--d-1),var(--d-1),var(--d-3);transition-timing-function:var(--e-sortie),var(--e-sortie),var(--e-sortie),var(--e-sortie),var(--ressort-vif)}
 
@@ -486,6 +516,10 @@ body,.bandeau,.carte,.item,.kpi,.tbl,.mail,.mail-doss,.inp,.sel-f,.rech,.code,.l
 @media (prefers-reduced-motion:reduce){
   /* plus aucune propriété géométrique ne glisse ; couleurs et ombres continuent, brièvement */
   *,*::before,*::after{transition-property:background-color,color,border-color,box-shadow,opacity!important;transition-duration:var(--d-1)!important;transition-timing-function:ease-out!important;animation-delay:0s!important;scroll-behavior:auto!important}
+  :root[class*="nav-"]::view-transition-old(root),:root[class*="nav-"]::view-transition-new(root),
+  :root[class*="nav-"]::view-transition-old(detail),:root[class*="nav-"]::view-transition-new(detail),
+  :root[class*="nav-"]::view-transition-old(lecture),:root[class*="nav-"]::view-transition-new(lecture){animation:none!important}
+  ::view-transition-group(titre){animation-duration:0s!important}
   .tab-indic{transition:none!important}
   .carte::after,.item::after,.kpi::after,.lg-carte::after{display:none}
   .item:hover,.kpi.clic:hover,.btn-plein:hover,.btn-fant:hover{transform:none!important}
@@ -826,7 +860,7 @@ function chargerConnexions(){
     if(TAB==='connexions') render();
   }).catch(function(e){ CNX.err=msgErreur(e); CNX.loaded=true; if(TAB==='connexions') render(); });
 }
-function cnxSel(t){ CNX.sel=t; CNX.det=null; CNX.detErr=''; render();
+function cnxSel(t){ CNX.sel=t; CNX.det=null; CNX.detErr=''; renderNav('detail');
   var e=CNX.list.filter(function(x){ return x.t===t; })[0]||{};
   apiPost('/api/monitor/espaces/connexions',{nom:e.slug?e.nom:'',t:t,n:120}).then(function(r){
     if(CNX.sel!==t) return;
@@ -847,7 +881,7 @@ function rendreEnGardantLeFocus(){
 var _rq=null;
 function rendreDifféré(){ clearTimeout(_rq); _rq=setTimeout(rendreEnGardantLeFocus,110); }
 function cnxQ(v){ CNX.q=v; rendreDifféré(); }
-function cnxF(v){ CNX.f=v; render(); }
+function cnxF(v){ CNX.f=v; renderNav('fondu'); }
 var CNX_VIA={lien:'par le lien',entreprise:'nom d\'entreprise',session:'session gardée',identifiants:'identifiants',code:'code espace'};
 var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion']};
 function cnxDepuis(ts){ if(!ts) return 'jamais'; var m=Math.round((Date.now()-ts)/60000);
@@ -1331,6 +1365,36 @@ function chargerMessages(){
    la recherche rejouait toute la transition et toutes les entrées de cartes : l'écran
    avait l'air de bugger. render() ne bouge donc plus ; seul renderAnime() croise les vues. */
 function render(){ var v=$('vue'); if(v) renderVue(v); }
+/* Ouvrir un dossier, revenir, changer un filtre : trois mouvements, tous décidés par
+   l'utilisateur. 'avant' pousse le nouvel écran depuis la droite, 'retour' le ramène par la
+   gauche, 'fondu' croise simplement. 'detail' et 'lecture' ne font bouger que la colonne de
+   droite des écrans à deux colonnes — le reste ne doit pas trembler. Sans transition de
+   vue, ou si l'utilisateur a demandé moins d'animation : render() tel quel. */
+function renderNav(sens){
+  var v=$('vue'); if(!v) return;
+  var sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(!document.startViewTransition||sobre){ render(); return; }
+  var root=document.documentElement, cl='nav-'+sens;
+  root.classList.add(cl);
+  var vt=document.startViewTransition(function(){ render(); });
+  var fin=function(){ root.classList.remove(cl);
+    [].forEach.call(document.querySelectorAll('[data-vt-nom]'),function(e){ e.style.viewTransitionName=''; e.style.display=e.getAttribute('data-vt-aff')||''; e.removeAttribute('data-vt-nom'); e.removeAttribute('data-vt-aff'); }); };
+  vt.finished.then(fin,fin);
+}
+/* Le titre de la ligne cliquée se prolonge en titre de la page : la continuité dit d'où on
+   vient. On nomme la source juste avant la transition ; la page d'arrivée porte le même nom
+   sur son titre (CSS). L'ancien titre de page rend le nom, sinon il y aurait doublon. */
+function marquerTitre(ev){
+  try{
+    var src=ev&&ev.currentTarget; if(!src||!src.querySelector) return;
+    var t=src.querySelector('b,.ttl-carte,.m-de')||src;
+    var ancien=document.querySelector('#vue .ttl-page');
+    if(ancien){ ancien.setAttribute('data-vt-nom','1'); ancien.style.viewTransitionName='none'; }
+    t.setAttribute('data-vt-nom','1'); t.setAttribute('data-vt-aff',t.style.display||'');
+    if(getComputedStyle(t).display==='inline') t.style.display='inline-block';   /* une boîte, pas un bout de ligne */
+    t.style.viewTransitionName='titre';
+  }catch(e){}
+}
 function renderAnime(){
   var v=$('vue'); if(!v) return;
   var sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1468,11 +1532,11 @@ function incFiltres(){
     return true;
   });
 }
-function incF(k,v){ INC.f[k]=v; render(); }
-function selIncident(id){ INC.sel=id; render(); window.scrollTo(0,0); }
-function incRetour(){ INC.sel=null; render(); window.scrollTo(0,0); }
-function selEnt(nom){ INC.grp=nom; INC.sel=null; render(); window.scrollTo(0,0); }
-function entRetour(){ INC.grp=null; INC.sel=null; render(); window.scrollTo(0,0); }
+function incF(k,v){ INC.f[k]=v; renderNav('fondu'); }
+function selIncident(id){ INC.sel=id; marquerTitre(window.event); renderNav('avant'); window.scrollTo(0,0); }
+function incRetour(){ INC.sel=null; renderNav('retour'); window.scrollTo(0,0); }
+function selEnt(nom){ INC.grp=nom; INC.sel=null; marquerTitre(window.event); renderNav('avant'); window.scrollTo(0,0); }
+function entRetour(){ INC.grp=null; INC.sel=null; renderNav('retour'); window.scrollTo(0,0); }
 var ENT_INCONNUE='Entreprise non identifiée';
 function incEnts(i){ var n=(i.entreprises||[]).map(function(e){ return e.nom||e.entreprise; }).filter(Boolean);
   return n.length?n:[ENT_INCONNUE]; }
@@ -1758,7 +1822,7 @@ function incCause(id){
     if(!x.ok){ toast('\u26a0\ufe0f '+(x.d.error||'refus\u00e9'),6000); return; }
     if(i) i.explication=x.d.explication;
     JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a cherch\u00e9 la cause de l\u2019incident #'+String(id).slice(-6)});
-    render();
+    renderNav('fondu');
     toast(x.d.deja?'Cause d\u00e9j\u00e0 \u00e9tablie \u2014 affich\u00e9e':'\u2713 Cause \u00e9tablie ('+(CONF_L[x.d.explication.confiance]||'').toLowerCase()+')',5000);
   });
 }
@@ -1790,7 +1854,7 @@ function incProposer(id){
     if(!x.ok){ toast('\u26a0\ufe0f '+(x.d.error||'refus\u00e9'),9000); return; }
     if(i) i.proposition=x.d.proposition;
     JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a propos\u00e9 une correction pour l\u2019incident #'+String(id).slice(-6)});
-    render();
+    renderNav('fondu');
     toast(x.d.deja?'Proposition d\u00e9j\u00e0 ouverte \u2014 affich\u00e9e':'\u2713 Proposition #'+x.d.proposition.numero+' ouverte, en attente de ta validation',7000);
   });
 }
@@ -1803,7 +1867,7 @@ function incStatut(id,st,note){
     if(i){ i.statut=st; if(note) i.notes=(i.notes?i.notes+'\n':'')+note; }
     JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a marqu\u00e9 l\u2019incident #'+String(id).slice(-6)+' \u00ab '+ST_L[st]+' \u00bb'});
     setBdg('bdg-surv',incOuverts().length);
-    render();
+    renderNav('fondu');
     var n=(x.d.mails||0)+(x.d.mailsSimules||0);
     toast(st==='corrige'?('\u2713 Corrig\u00e9'+(n?' \u2014 '+n+' e-mail(s) client(s)':'')):(note?'\ud83d\udcdd Note enregistr\u00e9e':'Dossier #'+String(id).slice(-6)+' \u2192 '+ST_L[st]));
     chargerIncidents();
@@ -1847,8 +1911,8 @@ function incCopier(id){
 function mailAller(b,d,nom,role){ MSG.sel={boite:b,dossier:d,nom:nom,role:role}; MSG.ouvert=null; MSG.lu=null; chargerMessages(); render(); }
 function mailQ(v){ MSG.q=v||''; chargerMessages(); }
 function mailActualiser(){ chargerMail(true); toast('Boîte support actualisée'); }
-function compoOuvrir(dest){ MSG.compo=true; if(dest) MSG.cDest=dest; render(); }
-function compoFermer(){ MSG.compo=false; render(); }
+function compoOuvrir(dest){ MSG.compo=true; if(dest) MSG.cDest=dest; renderNav('lecture'); }
+function compoFermer(){ MSG.compo=false; renderNav('lecture-retour'); }
 function compoChamp(k,v){ MSG[k]=v; }
 function boitePrincipale(){ var b=(MSG.boites[0]||{}).boite||{}; return b.id||b.email||''; }
 function compoEnvoyer(){
@@ -1857,7 +1921,7 @@ function compoEnvoyer(){
     .then(function(x){
       if(!x.ok){ toast('⚠️ '+(x.d.error||'envoi refusé')); return; }
       toast('Message envoyé à '+MSG.cDest);
-      MSG.compo=false; MSG.cSujet=''; MSG.cTexte=''; render();
+      MSG.compo=false; MSG.cSujet=''; MSG.cTexte=''; renderNav('fondu');
     });
 }
 function lireMessage(b,d,u){
@@ -1866,7 +1930,7 @@ function lireMessage(b,d,u){
     .then(function(m){ if(!m||m.error) return; MSG.ouvert=m;
       var k=MSG.messages.filter(function(x){ return x.uid===u&&x.boite===b; })[0];
       if(k&&!k.lu){ k.lu=true; MSG.nonLus=Math.max(0,MSG.nonLus-1); setBdg('bdg-supp',MSG.nonLus); }
-      render(); var _l=document.querySelector('.mail-lect'); if(_l){ _l.classList.add('entre'); setTimeout(function(){ _l.classList.remove('entre'); },420); } }).catch(function(){});
+      renderNav('lecture'); }).catch(function(){});
 }
 function repondre(){
   var z=$('rep-txt'), t=(z&&z.value)||'';
@@ -1885,7 +1949,7 @@ function repondre(){
    barre, et la lecture remplace la liste avec un retour — comme sur un téléphone.
    ═══════════════════════════════════════════════════════════════════════════════════════ */
 function mailEtroit(){ try{ return window.innerWidth<1000; }catch(e){ return false; } }
-function mailRetour(){ MSG.ouvert=null; MSG.lu=null; MSG.envSel=null; render(); }
+function mailRetour(){ MSG.ouvert=null; MSG.lu=null; MSG.envSel=null; renderNav('lecture-retour'); }
 function mailEnvoyes(){ return MSG.sel.boite==='envoyes'; }
 
 /* Un rond avec l'initiale : on reconnaît un correspondant avant même de lire son nom. */
@@ -1980,7 +2044,7 @@ function lecture(){
         '<button class="btn-plein" onclick="repondre()">'+svg('avion',15)+' Envoyer la réponse</button></div>'+
     '</div></div>';
 }
-function envoyeLire(i){ MSG.envSel=i; render(); }
+function envoyeLire(i){ MSG.envSel=i; renderNav('lecture'); }
 function envoyeLecture(){
   var m=(MSG.envoyes||[])[MSG.envSel];
   if(!m) return '<div class="vide"><span style="color:var(--dim)">'+svg('avion',22)+'</span>'+
@@ -2064,7 +2128,7 @@ function voirClient(email){ var c=CLI.list.filter(function(x){ return x.email===
   CLI.sel=c.email; setTab('entreprises'); }
 
 /* ══════════ 4. ENTREPRISES ══════════ */
-function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); render();
+function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); renderNav('detail');
   if(CLI.sel){ var c=(CLI.list||[]).find(function(x){ return x.email===CLI.sel; })||{};
     setTimeout(function(){ tourPackPrefill(c.entreprise||c.nom||c.email); },150); } }
 function cliQ(v){ CLI.q=v||''; rendreDifféré(); }
