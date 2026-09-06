@@ -19,8 +19,11 @@ const SURFACES = ['--bg', '--bg1', '--bg2', '--bg3', '--surface', '--inset', '--
 const COUPLES = [
   { textes: ['--t1', '--t2', '--text', '--text2', '--code', '--strong', '--link'], fonds: SURFACES, seuil: 4.5 },
   { textes: ['--t3', '--muted', '--dim'], fonds: SURFACES, seuil: 3.0 },          // secondaires : au moins le seuil UI
-  { textes: ['--side-ink'], fonds: ['--side', '--side-active'], seuil: 4.5 },
-  { textes: ['--side-mut'], fonds: ['--side', '--side-active'], seuil: 3.0 },
+  { textes: ['--side-ink'], fonds: ['--side'], seuil: 4.5 },
+  { textes: ['--side-mut'], fonds: ['--side'], seuil: 3.0 },
+  // La rubrique active est un vert plein qui porte sa propre encre (dessin d'Apple, v561) :
+  // --side-ink et --side-mut ne s'y posent plus jamais.
+  { textes: ['--side-active-ink'], fonds: ['--side-active'], seuil: 4.5 },
   // Le texte des boutons pleins : sur --acc-fill quand il existe (le vert vif ne sert
   // alors que pour les traits et le texte), sinon sur --acc.
   { textes: ['--on-acc'], fonds: ['--acc-fill', '--acc'], premierSeul: true, seuil: 4.5 },
