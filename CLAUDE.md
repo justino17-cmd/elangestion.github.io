@@ -88,6 +88,27 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
 - Ne pas modifier l'anti-abus (`server/index.js`) sans relire pourquoi il lit
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
+- **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante
+
+## Chrome DevTools MCP — mesurer pour de vrai, sur la bêta seulement
+
+`.mcp.json` déclare un seul serveur : `chrome-devtools` (lancé par `npx`, avec
+`--no-usage-statistics`). Il donne un vrai Chrome piloté — captures, console avec pile
+d'appels, réseau, et surtout **trace de performance**. C'est le seul moyen de mesurer ce que
+`app.html` coûte réellement : plus de 2 Mo en fichier unique, chargés sur des téléphones de
+terrain en 4G. Le skill `performance-budget-monitor` décrit le budget ; sans cet outil,
+personne ne pouvait le vérifier.
+
+Prérequis, sur la machine qui l'utilise : Node LTS et Chrome stable installés. Rien à
+configurer de plus, aucune clé API — la première utilisation télécharge le serveur via `npx`.
+
+⛔ **Bêta uniquement, sans exception.** Le serveur expose au client MCP **tout** le contenu
+de la page ouverte. Sur `app.html` en production, ce sont des noms, des adresses et des
+coordonnées de vrais clients — un flux de données qui n'est pas couvert par
+`sous-traitance.html`. On ne pointe donc le navigateur piloté que sur `beta.html` ou une
+copie d'aperçu : la bêta est isolée par construction (préfixe `elanB_`, espace
+`elan-gestion-beta`, jamais de données d'entreprise). Cette règle est écrite aussi dans les
+agents `concepteur` et `testeur`, qui sont les deux à s'en servir.
 
 ## Attention : deux copies de travail
 

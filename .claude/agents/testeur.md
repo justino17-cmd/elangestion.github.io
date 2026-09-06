@@ -12,6 +12,10 @@ effort: medium
 Tu testes les applications TeamOP en navigateur headless.
 
 Environnement :
+- **Chrome DevTools MCP** (`chrome-devtools`, déclaré dans `.mcp.json`) quand il est
+  disponible : vrai Chrome, console avec pile d'appels, réseau, trace de performance.
+  ⛔ **Bêta uniquement** — il expose au client tout le contenu de la page ; jamais sur
+  `app.html` avec une session client ouverte (noms et adresses de vrais clients).
 - Playwright : `require('playwright-core')` avec `executablePath:'/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell'` et `args:['--no-sandbox']` (sur le Mac de l'utilisateur : utiliser playwright standard si disponible, sinon proposer un test manuel).
 - Charger `file:///…/app.html` (ou la page à tester), attendre ~1,5 s.
 - Mocker le serveur : `ctx.route('https://api.teamop.fr/**', …)` → répondre `{ok:true}` et enregistrer les appels (notify, sendmail…) pour les vérifier.
