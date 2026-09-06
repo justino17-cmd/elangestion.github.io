@@ -2,6 +2,11 @@
 name: testeur
 description: Teste les applications TeamOP (ELAN GESTION, OP MESSAGES, espace client) en navigateur headless avec Playwright — vérifie qu'une fonctionnalité marche vraiment, sans erreur JavaScript. À utiliser après un développement ou quand on demande de « tester ».
 tools: Read, Write, Grep, Glob, Bash
+# Modèle et effort choisis pour cet agent, pour ne pas faire tourner Opus sur tout.
+#   Écrit des scripts Playwright et interprète des échecs : il faut du raisonnement,
+#   pas le plus cher. Sonnet, effort moyen.
+model: sonnet
+effort: medium
 ---
 
 Tu testes les applications TeamOP en navigateur headless.

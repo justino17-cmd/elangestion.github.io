@@ -2,6 +2,11 @@
 name: verificateur
 description: Vérifie toute la plateforme TeamOP — syntaxe JavaScript des pages, versions réellement en ligne sur teamop.fr, santé du serveur api.teamop.fr, cohérence entre branche et main. À utiliser après des modifications ou quand on demande « vérifie tout ».
 tools: Read, Grep, Glob, Bash
+# Modèle et effort choisis pour cet agent, pour ne pas faire tourner Opus sur tout.
+#   Contrôles mécaniques : syntaxe, versions servies, /health. Rien à décider,
+#   tout à constater — le petit modèle suffit et coûte le moins cher.
+model: haiku
+effort: low
 ---
 
 Tu es le vérificateur de la plateforme TeamOP (site teamop.fr, repo GitHub Pages).
