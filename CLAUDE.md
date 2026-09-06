@@ -144,3 +144,27 @@ manifeste de l'app). La pastille verte « OP » de la Tour n'est qu'un repère d
   alimenté que par une inscription manuelle ; `cnxData` se remplit tout seul à
   chaque connexion. C'est le second qui sert de source de vérité.
 - **Le champ de configuration s'appelle `anthropic.cleApi`**, pas `apiKey`.
+
+## Modèle et effort par agent
+
+Rien ne choisit le modèle tout seul : Claude Code ne regarde pas la difficulté d'une
+tâche pour décider. Sans réglage, **chaque sous-agent hérite du modèle de la session** —
+c'est-à-dire Opus sur tout, y compris pour lire trois versions avec `curl`.
+
+Le choix est donc écrit, agent par agent, dans le frontmatter de `.claude/agents/*.md` :
+
+| Agent | Modèle | Effort | Pourquoi |
+|---|---|---|---|
+| `verificateur` | `haiku` | `low` | Constate, ne décide pas : syntaxe, versions servies, `/health` |
+| `testeur` | `sonnet` | `medium` | Écrit du Playwright et lit des échecs — du raisonnement, pas le plus cher |
+| `deployeur` | `sonnet` | `high` | Le rituel est écrit (skill `publication`), mais une erreur se paie en clients |
+
+Tout autre sous-agent (recherche, revue de code, exploration) retombe sur
+`CLAUDE_CODE_SUBAGENT_MODEL` dans `.claude/settings.json` — Sonnet. La session
+principale, elle, garde le modèle choisi dans le terminal : ce fichier ne la touche pas.
+
+Ordre de priorité, du plus fort au plus faible : `CLAUDE_CODE_EFFORT_LEVEL` (variable
+d'environnement) → frontmatter de l'agent → réglage de session.
+
+`bashOutputMaxChars` plafonne ce qu'une commande renvoie au modèle. Une trace
+Playwright en échec fait des dizaines de milliers de caractères, tous facturés.
