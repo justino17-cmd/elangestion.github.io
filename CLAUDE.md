@@ -127,6 +127,12 @@ Il n'y aura pas de « bêta publique » — ce mot désigne ici un canal interne
   seul ne suffit pas, il faut la raison de l'accès.
 - **Jamais de données d'entreprise** : espace `elan-gestion-beta`, préfixe `elanB_`. Un accès
   bêta n'ouvre que la bêta.
+- **L'onglet s'appelle « Accès » et porte DEUX portes, à ne jamais confondre** : la bêta
+  (`beta.html`, comptes portés par le serveur, n'ouvre que la bêta) et la version publique
+  (`app.html`, crée un vrai espace d'entreprise avec de vraies données qui se synchronisent).
+  La seconde carte réemploie `tourEspaceDe()`, le même chemin exactement que « Lien de
+  connexion » sur la fiche d'un client — pas de seconde route serveur à maintenir. L'adresse
+  e-mail sert de clé : la réutiliser rouvre le même espace, elle ne le remplace pas.
 - Sur `teamop.fr/beta.html`, le champ **Entreprise reste vide** : identifiant et mot de passe
   donnés par la Tour, rien d'autre. Y taper un nom envoie la page chercher une entreprise.
 

@@ -586,7 +586,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
       <div class="encart-tx"><b>Accès nominatif réservé à l'équipe TEAM OP.</b> Les comptes sont créés uniquement par le patron — toutes les tentatives de connexion sont journalisées.</div>
     </div>
-    <div class="lg-pied">console interne · v2.55</div>
+    <div class="lg-pied">console interne · v2.56</div>
   </div>
 </div>
 
@@ -613,7 +613,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
     <nav class="tabs" id="tabs"></nav>
   </div>
   <main id="vue"></main>
-  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.55</div>
+  <div class="pied">console interne TEAM OP · toutes les actions sont journalisées · v2.56</div>
 </div>
 
 <div id="toast"></div>
@@ -779,7 +779,7 @@ function renderTabs(){
      pas d'une administration en général. */
   var t=[['accueil','Accueil'],null,['surveillance','Surveillance','bdg-surv'],['support','Support','bdg-supp'],
          null,['entreprises','Entreprises'],['connexions','Connexions clients'],['abonnements','Abonnements'],['devisia','Devis IA'],null,
-         ['essais','Accès bêta'],['equipe','Équipe'],['journal','Journal de la console']];
+         ['essais','Accès'],['equipe','Équipe'],['journal','Journal de la console']];
   var grp=['ACTIVITÉ','CLIENTS','CONSOLE'], gi=0, h='';
   t.forEach(function(x){
     /* Équipe est réservé au patron : l'afficher à un collaborateur, c'est promettre un écran
@@ -865,6 +865,10 @@ var CLI={list:[],total:0,loaded:false,err:'',sel:null,q:''};
 var ABO={abos:[],paiements:[],mrr:0,actifs:0,impayes:0,echecs:0,configured:false,loaded:false,err:'',f:''};
 var EQ={users:[],loaded:false,err:'',nom:'',pass:'',role:'collaborateur'};
 var BT={comptes:[],loaded:false,err:'',login:'',nom:'',pass:''};
+/* PB — accès à la version PUBLIQUE (teamop.fr/app.html), pas à la bêta. Deux choses
+   différentes qui vivent sur le même écran : la bêta n'ouvre que la bêta, un accès public
+   ouvre un vrai espace d'entreprise, avec de vraies données qui se synchronisent. */
+var PB={nom:'',email:'',ident:'',pass:''};
 var JR={cnx:[],loaded:false,err:'',actions:[]};
 /* ── Connexions des applications : toutes les entreprises, le moindre détail ── */
 var CNX={list:[],global:{},loaded:false,err:'',sel:null,det:null,detErr:'',q:'',f:'toutes'};
@@ -2364,9 +2368,48 @@ function btToggle(id){ apiPost('/api/monitor/beta/toggle',{id:id}).then(function
   chargerEssais(); }); }
 function btSuppr(id,login){ if(!confirm('Supprimer définitivement l’accès bêta « '+login+' » ?')) return;
   apiPost('/api/monitor/beta/delete',{id:id}).then(function(){ toast('Accès supprimé'); chargerEssais(); }); }
+function pbChamp(k,v){ PB[k]=v; }
+function pbGen(){
+  var a='abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!#%',p='';
+  for(var i=0;i<12;i++) p+=a[Math.floor(Math.random()*a.length)];
+  PB.pass=p; var e=$('pb-pass'); if(e){ e.value=p; e.type='text'; }
+}
+/* Créer un accès à la version publique, c'est créer un ESPACE d'entreprise : le même chemin
+   exactement que « Lien de connexion » sur la fiche d'un client — tourEspaceDe() fabrique la
+   clé d'équipe, enregistre le nom dans l'annuaire du serveur et rend le lien. Rien de neuf
+   côté serveur : réécrire ce chemin en aurait fait un second, à maintenir en double.
+   On passe neuf=true UNIQUEMENT quand aucun espace n'existe pour cette adresse — sinon le
+   drapeau efface l'espace en place, et avec lui l'accès aux données qui y sont déjà. */
+async function pbCreer(btn){
+  var nom=(PB.nom||'').trim(), email=(PB.email||'').trim().toLowerCase();
+  var ident=(PB.ident||'').trim().toLowerCase().replace(/[^a-z0-9.]/g,'');
+  var mdp=PB.pass||'';
+  if(!nom){ toast('Donne un nom à l’espace'); return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('Il faut une adresse e-mail valide'); return; }
+  if(!ident){ toast('Choisis un identifiant'); return; }
+  if(!mdp){ toast('Choisis un mot de passe (le bouton Générer en fait un)'); return; }
+  var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
+  var dejaLa=!!reg[email];
+  if(dejaLa && !confirm('Un espace existe déjà pour ' + email + '.\n\n• OK → on rouvre CE MÊME espace (ses données sont conservées) avec l’identifiant et le mot de passe ci-dessus.\n• Annuler → on ne touche à rien.\n\nPour repartir d’un espace vide, passe par Entreprises → sa fiche → « Repartir à neuf ».')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Création…'; }
+  try{
+    var e=await tourEspaceDe(email,nom,ident,mdp,!dejaLa);
+    PB.nom=''; PB.email=''; PB.ident=''; PB.pass='';
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a ouvert un accès à la version publique « '+nom+' »'});
+    tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🌍 Accès version publique — '+esc(e.nom)+'</div>'+
+      '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">C’est un vrai espace d’entreprise sur <b>teamop.fr/app.html</b>. Ouvre le lien sur chaque appareil qui doit y accéder.</div>'+
+      '<div class="sec">LE LIEN</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="pb-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'pb-lien\',this)">Copier</button></div>'+
+      '<div class="sec">LES IDENTIFIANTS</div>'+
+      '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(e.ident)+'</b><br>Mot de passe provisoire : <b>'+esc(e.mdp||mdp)+'</b> <span style="color:var(--muted);font-size:12px">(l’app fait choisir le vrai mot de passe à la 1re connexion)</span></div>'+
+      '<div class="encart"><div class="encart-tx">Ce lien ouvre la <b>version publique</b>, avec ses vraies données. Il n’a rien à voir avec un accès bêta : la bêta n’ouvre que la bêta.</div></div>');
+    chargerEssais();
+  }catch(err){ toast('Création impossible'); }
+  if(btn){ btn.disabled=false; btn.textContent='Ouvrir l’accès public'; }
+}
 function vueEssais(){
-  var tete=enTete('Accès bêta',
-    'Qui peut ouvrir <b>teamop.fr/beta.html</b>, la version d’essai d’OP GESTION. Ces accès n’ouvrent que la bêta — jamais les données d’une entreprise.');
+  var tete=enTete('Accès',
+    'Les deux portes, au même endroit. <b>La bêta</b> (teamop.fr/beta.html) est l’outil de ceux qui développent : ces accès n’ouvrent que la bêta, jamais les données d’une entreprise. <b>La version publique</b> (teamop.fr/app.html) est l’application des clients : y ouvrir un accès crée un vrai espace, avec de vraies données.');
   if(!BT.loaded) return tete+'<div class="vide">Chargement des accès…</div>';
   if(BT.err) return tete+'<div class="vide">'+esc(BT.err)+'</div>';
   var liste=(BT.comptes||[]).map(function(c){
@@ -2397,7 +2440,24 @@ function vueEssais(){
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)">'+IC.cadenas+'</svg>'+
       '<div class="encart-tx">Sur <b>teamop.fr/beta.html</b> : champ Entreprise <b>vide</b>, puis cet identifiant et ce mot de passe. « Couper » ferme la porte immédiatement, même si le mot de passe est encore connu.</div></div>'+
   '</div>';
-  return tete+'<div class="deux"><div class="col-liste">'+liste+'</div><div class="col-detail">'+form+'</div></div>';
+  /* La deuxième porte. Volontairement SOUS celle de la bêta et dans un cadre à elle : les
+     confondre reviendrait à donner un espace client à qui ne devait tester qu'un écran. */
+  var formPub='<div class="carte" style="margin-top:16px"><div class="ttl-carte">🌍 Ouvrir un accès à la version publique</div>'+
+    '<div style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:6px">Crée un espace sur <b>teamop.fr/app.html</b> — l’application des clients. À utiliser pour avoir accès aux deux versions, ou pour faire essayer la vraie application.</div>'+
+    '<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">'+
+      '<div><div class="lbl">NOM DE L’ESPACE</div><input class="inp" value="'+esc(PB.nom)+'" oninput="pbChamp(\'nom\',this.value)" placeholder="ex. TEAM OP interne"></div>'+
+      '<div><div class="lbl">E-MAIL</div><input class="inp mono" value="'+esc(PB.email)+'" oninput="pbChamp(\'email\',this.value)" placeholder="ex. controle@teamop.fr" autocapitalize="off" spellcheck="false"></div>'+
+      '<div><div class="lbl">IDENTIFIANT</div><input class="inp mono" value="'+esc(PB.ident)+'" oninput="pbChamp(\'ident\',this.value)" placeholder="ex. justin" autocapitalize="off" spellcheck="false"></div>'+
+      '<div><div class="lbl">MOT DE PASSE PROVISOIRE</div><div style="display:flex;gap:9px">'+
+        '<input class="inp mono" id="pb-pass" value="'+esc(PB.pass)+'" oninput="pbChamp(\'pass\',this.value)" placeholder="12 caractères">'+
+        '<button class="btn-fant" onclick="pbGen()">Générer</button></div></div>'+
+      '<button class="btn-plein" onclick="pbCreer(this)">Ouvrir l’accès public</button>'+
+    '</div>'+
+    '<div class="encart" style="margin-top:16px">'+
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)">'+IC.cadenas+'</svg>'+
+      '<div class="encart-tx">L’adresse sert de clé : réutiliser une adresse déjà connue <b>rouvre le même espace</b> au lieu d’en créer un second. Pour repartir d’un espace vide, passe par Entreprises → sa fiche → « Repartir à neuf ».</div></div>'+
+  '</div>';
+  return tete+'<div class="deux"><div class="col-liste">'+liste+'</div><div class="col-detail">'+form+formPub+'</div></div>';
 }
 function vueEquipe(){
   var tete=enTete('Équipe',
