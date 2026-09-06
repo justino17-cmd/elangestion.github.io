@@ -17,6 +17,8 @@ if (s.indexOf("'elanB_gestion_v2'") < 0) { console.error('ÉCHEC : le stockage l
 if (s.indexOf("FB_TEAM='elan-gestion-beta'") < 0) { console.error('ÉCHEC : l\'espace de synchro bêta n\'est pas isolé (FB_TEAM)'); process.exit(1); }
 // Sortie par défaut : beta.html. Un chemin en argument sert au canal d'aperçu
 // (scripts/apercu.sh), qui veut la même isolation des données sous /apercu/.
-const sortie = process.argv[2] || 'beta.html';
+// La route PROPOSE du serveur exécute ce fichier dans un bac à sable dont le faux
+// `process` n'a que exit() : on ne suppose jamais argv.
+const sortie = (process.argv && process.argv[2]) || 'beta.html';
 fs.writeFileSync(sortie, s);
 console.log(sortie + ' générée (' + Math.round(s.length / 1024) + ' Ko) — version ' + (s.match(/APP_VERSION = '([^']+)'/) || [])[1]);
