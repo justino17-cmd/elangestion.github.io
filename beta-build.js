@@ -15,5 +15,10 @@ s = s.split('<div class="topbar-brand mono">OP GESTION</div>').join('<div class=
 s = s.split('<h2>OP GESTION</h2>').join('<h2>OP GESTION <span style="font-size:12px;color:var(--org);vertical-align:middle">🧪 BÊTA</span></h2>');
 if (s.indexOf("'elanB_gestion_v2'") < 0) { console.error('ÉCHEC : le stockage local de la bêta n\'est pas isolé (STORE_KEY)'); process.exit(1); }
 if (s.indexOf("FB_TEAM='elan-gestion-beta'") < 0) { console.error('ÉCHEC : l\'espace de synchro bêta n\'est pas isolé (FB_TEAM)'); process.exit(1); }
-fs.writeFileSync('beta.html', s);
-console.log('beta.html générée (' + Math.round(s.length / 1024) + ' Ko) — version ' + (s.match(/APP_VERSION = '([^']+)'/) || [])[1]);
+// Sortie par défaut : beta.html. Un chemin en argument sert au canal d'aperçu
+// (scripts/apercu.sh), qui veut la même isolation des données sous /apercu/.
+// La route PROPOSE du serveur exécute ce fichier dans un bac à sable dont le faux
+// `process` n'a que exit() : on ne suppose jamais argv.
+const sortie = (process.argv && process.argv[2]) || 'beta.html';
+fs.writeFileSync(sortie, s);
+console.log(sortie + ' générée (' + Math.round(s.length / 1024) + ' Ko) — version ' + (s.match(/APP_VERSION = '([^']+)'/) || [])[1]);

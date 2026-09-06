@@ -70,9 +70,6 @@ app.use('/api/monitor', (req, res, next) => { res.setHeader('Cache-Control', 'no
    Chaque envoi est noté (date, destinataire, sujet) pour l'onglet Journal de la
    Tour, et reçoit une copie cachée (bcc) dans la boîte contact — SAUF les mails
    contenant des codes secrets, jamais copiés. */
-const LOGO_PATH = path.join(__dirname, '..', 'icons', 'teamop-512.png');
-const LOGO_OK = (() => { try { return fs.existsSync(LOGO_PATH); } catch (e) { return false; } })();
-const LOGO_PIECE = { filename: 'teamop.png', path: LOGO_PATH, cid: 'logoteamop' };
 const MAILS_PATH = path.join(DATA_DIR, 'mails-envoyes.json');
 let mailsLog = []; try { mailsLog = JSON.parse(fs.readFileSync(MAILS_PATH, 'utf8')); } catch (e) {}
 function mailsSave() { try { fs.writeFileSync(MAILS_PATH, JSON.stringify(mailsLog)); } catch (e) {} }
@@ -109,8 +106,9 @@ function mailerEnvoi(opts) {
        cinquante, les vrais messages clients sont noyés. */
     if (moi && !secret && !opts.diffusion && String(opts.to || '').toLowerCase() !== moi) o2.bcc = moi;
   } catch (e) {}
-  if (LOGO_OK && o2.html && String(o2.html).indexOf('cid:logoteamop') >= 0)
-    o2.attachments = (o2.attachments || []).concat([LOGO_PIECE]);
+  // Une diffusion (annonce) doit offrir une sortie : les messageries lisent cet
+  // en-tête, et son absence pèse dans le classement en spam.
+  if (opts.diffusion) o2.headers = Object.assign({}, o2.headers, { 'List-Unsubscribe': '<mailto:contact@teamop.fr?subject=Stop%20annonces>' });
   return mailer.sendMail(o2);
 }
 
@@ -716,41 +714,79 @@ app.post('/api/compte/identifiants', async (req, res) => {
 
 /* ── Gabarit d'e-mail TEAM OP (modèle « Suivi ») : logo, pastille d'état, frise,
    boutons. Sert à tous les e-mails automatiques envoyés aux clients. ── */
+// ── Gabarit des e-mails TEAM OP ─────────────────────────────────────────────
+//  Tableaux imbriqués et styles en ligne : la seule chose que TOUS les clients
+//  de messagerie rendent pareil. Le logo est chargé depuis teamop.fr, jamais
+//  joint : une pièce jointe pèse dans le filtre anti-spam, et Exchange affichait
+//  l'image jointe à sa taille native (1024 px) en ignorant width/height. La
+//  taille est fixée trois fois (attributs, style, max-width) pour cette raison.
+//  Le mode sombre est déclaré (color-scheme) et pris en charge par des règles
+//  !important : c'est ainsi qu'Apple Mail et Outlook l'appliquent.
+const MAIL_POLICE = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+const MAIL_STYLE = '<style>' +
+  ':root{color-scheme:light dark;supported-color-schemes:light dark}' +
+  'body{margin:0;padding:0;-webkit-text-size-adjust:100%}' +
+  'a{color:#1E7A4E}' +
+  '@media (prefers-color-scheme:dark){' +
+    '.m-fond{background:#0D1624!important}' +
+    '.m-carte{background:#16203A!important;border-color:#243154!important}' +
+    '.m-fort,.m-fort b{color:#EAEEF7!important}' +
+    '.m-texte{color:#B6C2D9!important}.m-texte b{color:#EAEEF7!important}' +
+    '.m-muet{color:#8B9AB8!important}' +
+    '.m-pied{border-color:#243154!important;color:#8B9AB8!important}.m-pied a{color:#4FD196!important}' +
+    '.m-bloc{background:#0F1830!important;border-color:#243154!important;color:#B6C2D9!important}.m-bloc b{color:#EAEEF7!important}' +
+    '.m-btn{background:#2EB872!important;color:#06231A!important}' +
+    '.m-btn2{color:#B6C2D9!important}' +
+    '.m-chip{background:#1B2542!important;color:#B6C2D9!important}' +
+  '}' +
+  '@media (max-width:600px){.m-int{padding-left:20px!important;padding-right:20px!important}}' +
+  '</style>';
 function mailTeamOP(o) {
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const int = (haut, bas) => 'padding:' + haut + 'px 36px ' + bas + 'px';
+  // Le pré-en-tête : la ligne grise sous l'objet dans la boîte de réception.
+  const pre = o.preentete || String(o.corpsHtml || '').replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '').slice(0, 110);
   const etapes = (o.frise || []).map((e, i) =>
-    '<td width="' + Math.floor(100 / (o.frise.length || 1)) + '%" style="border-top:3px solid ' + (e.fait ? '#34D399' : '#DEE5EF') + ';padding-top:9px;font-size:12px;color:' + (e.fait ? '#17233B' : '#93A2BF') + '"><b>' + (e.fait && i === 0 ? '✔ ' : '') + esc(e.titre) + '</b><br><span style="color:#93A2BF">' + esc(e.sous) + '</span></td>').join('');
-  const bouton2 = o.bouton2Txt ? '<a href="' + esc(o.bouton2Url) + '" style="display:inline-block;color:#4A5A7A;text-decoration:none;font-size:13.5px;padding:12px 14px">' + esc(o.bouton2Txt) + '</a>' : '';
-  return '<!doctype html><html><body style="margin:0;padding:0;background:#F3F5F9">' +
-    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F5F9"><tr><td align="center" style="padding:28px 12px">' +
-    '<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#FFFFFF;border-radius:12px;border:1px solid #E3E8F1;font-family:-apple-system,\'Segoe UI\',Roboto,Arial,sans-serif">' +
-    '<tr><td style="padding:26px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' +
-    '<td><table cellpadding="0" cellspacing="0"><tr>' +
-    '<td><img src="' + (LOGO_OK ? 'cid:logoteamop' : 'https://teamop.fr/icons/teamop-512.png') + '" width="34" height="34" alt="TEAM OP" style="border-radius:8px;display:block"></td>' +
-    '<td style="padding-left:10px;font-family:\'Courier New\',monospace;font-weight:700;font-size:15px;letter-spacing:2px;color:#17233B">TEAM OP</td>' +
+    '<td width="' + Math.floor(100 / (o.frise.length || 1)) + '%" class="m-texte" style="border-top:3px solid ' + (e.fait ? '#1E7A4E' : '#E4E8F0') + ';padding-top:9px;font-size:12.5px;color:' + (e.fait ? '#17233B' : '#8593AB') + '"><b>' + (e.fait && i === 0 ? '✔ ' : '') + esc(e.titre) + '</b><br><span class="m-muet" style="color:#8593AB">' + esc(e.sous) + '</span></td>').join('');
+  const bouton = o.boutonTxt ? '<a href="' + esc(o.boutonUrl) + '" class="m-btn" style="display:inline-block;background:#1E7A4E;color:#FFFFFF;text-decoration:none;font-weight:600;font-size:15px;line-height:20px;padding:13px 22px;border-radius:12px;font-family:' + MAIL_POLICE + '">' + esc(o.boutonTxt) + '</a>' : '';
+  const bouton2 = o.bouton2Txt ? '<a href="' + esc(o.bouton2Url) + '" class="m-btn2" style="display:inline-block;color:#4A5A7A;text-decoration:none;font-size:14px;line-height:20px;padding:13px 16px;font-family:' + MAIL_POLICE + '">' + esc(o.bouton2Txt) + '</a>' : '';
+  const desabo = o.desabo ? ' · <a href="mailto:contact@teamop.fr?subject=Stop%20annonces" style="color:#8593AB">ne plus recevoir les annonces</a>' : '';
+  return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>' + esc(o.titre) + '</title>' + MAIL_STYLE + '</head>' +
+    '<body class="m-fond" style="margin:0;padding:0;background:#F2F4F8">' +
+    '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">' + esc(pre) + '&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="m-fond" style="background:#F2F4F8"><tr><td align="center" style="padding:32px 12px">' +
+    '<table role="presentation" width="560" cellpadding="0" cellspacing="0" class="m-carte" style="max-width:560px;width:100%;background:#FFFFFF;border-radius:16px;border:1px solid #E4E8F0;font-family:' + MAIL_POLICE + '">' +
+    // en-tête : logo TEAM OP (34 px) + mot-marque, puce de contexte à droite
+    '<tr><td class="m-int" style="' + int(26, 0) + '"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' +
+    '<td><table role="presentation" cellpadding="0" cellspacing="0"><tr>' +
+    '<td width="34" style="width:34px"><img src="https://teamop.fr/icons/teamop-192.png" width="34" height="34" alt="TEAM OP" style="width:34px;height:34px;max-width:34px;border-radius:9px;display:block;border:0"></td>' +
+    '<td class="m-fort" style="padding-left:11px;font-family:' + MAIL_POLICE + ';font-weight:700;font-size:15px;letter-spacing:.07em;color:#17233B">TEAM OP</td>' +
     '</tr></table></td>' +
-    (o.chip ? '<td align="right"><span style="background:' + (o.chipBg || '#E7F8F1') + ';color:' + (o.chipColor || '#1E7A57') + ';font-size:12px;font-weight:700;padding:6px 12px;border-radius:100px">● ' + esc(o.chip) + '</span></td>' : '') +
+    (o.chip ? '<td align="right"><span class="m-chip" style="display:inline-block;background:' + (o.chipBg || '#EAF4EE') + ';color:' + (o.chipColor || '#1E7A4E') + ';font-size:12px;font-weight:600;line-height:16px;padding:5px 11px;border-radius:100px;letter-spacing:.01em">' + esc(o.chip) + '</span></td>' : '') +
     '</tr></table></td></tr>' +
-    '<tr><td style="padding:22px 34px 0;font-size:19px;font-weight:800;color:#17233B">' + esc(o.titre) + '</td></tr>' +
-    '<tr><td style="padding:10px 34px 0;font-size:14.5px;line-height:1.7;color:#4A5A7A">' + o.corpsHtml + '</td></tr>' +
-    (o.blocHtml ? '<tr><td style="padding:20px 34px 0">' + o.blocHtml + '</td></tr>' : '') +
-    (etapes ? '<tr><td style="padding:24px 34px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>' + etapes + '</tr></table></td></tr>' : '') +
-    '<tr><td style="padding:26px 34px 30px">' +
-    (o.boutonTxt ? '<a href="' + esc(o.boutonUrl) + '" style="display:inline-block;background:#34D399;color:#08251A;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:10px">' + esc(o.boutonTxt) + '</a>' : '') +
-    bouton2 + '</td></tr>' +
-    '<tr><td style="padding:16px 34px 22px;border-top:1px solid #EDF1F7;font-size:11.5px;color:#93A2BF">TEAM OP · la suite de gestion des pros du terrain · <a href="https://teamop.fr" style="color:#34A97E">teamop.fr</a></td></tr>' +
-    '</table></td></tr></table></body></html>';
+    '<tr><td class="m-int m-fort" style="' + int(26, 0) + ';font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.01em;color:#17233B">' + esc(o.titre) + '</td></tr>' +
+    '<tr><td class="m-int m-texte" style="' + int(10, 0) + ';font-size:15px;line-height:24px;color:#4A5A7A">' + o.corpsHtml + '</td></tr>' +
+    (o.blocHtml ? '<tr><td class="m-int" style="' + int(20, 0) + '">' + o.blocHtml + '</td></tr>' : '') +
+    (etapes ? '<tr><td class="m-int" style="' + int(24, 0) + '"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + etapes + '</tr></table></td></tr>' : '') +
+    ((bouton || bouton2) ? '<tr><td class="m-int" style="' + int(26, 8) + '">' + bouton + bouton2 + '</td></tr>' : '<tr><td style="height:8px;line-height:8px;font-size:0">&nbsp;</td></tr>') +
+    '<tr><td class="m-int m-pied" style="' + int(18, 22) + ';border-top:1px solid #EDF0F5;font-size:12px;line-height:18px;color:#8593AB">TEAM OP · la suite de gestion des pros du terrain · <a href="https://teamop.fr" style="color:#1E7A4E;text-decoration:none">teamop.fr</a>' + desabo + '</td></tr>' +
+    '</table>' +
+    '<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%"><tr><td class="m-muet" style="padding:14px 8px 0;font-size:11.5px;line-height:17px;color:#8593AB;font-family:' + MAIL_POLICE + '">Vous recevez cet e-mail parce que vous avez un compte TEAM OP.</td></tr></table>' +
+    '</td></tr></table></body></html>';
 }
 
 /* ── Encarts réutilisables des e-mails TeamOP (galerie validée par Justin) ── */
 const MAIL_BLOCS = {
-  code: (c) => '<div align="center"><div style="display:inline-block;background:#F3F7FB;border:1.5px dashed #C6D3E4;border-radius:14px;padding:18px 34px;font-family:\'Courier New\',monospace;font-size:32px;font-weight:800;letter-spacing:10px;color:#17233B">' + String(c).split('').join(' ') + '</div><div style="font-size:12px;color:#93A2BF;padding-top:10px">Ce code expire dans <b>10 minutes</b> · 5 essais maximum</div></div>',
-  transmettre: (login) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF8EC;border:1px solid #F2DFB6;border-radius:12px"><tr><td style="padding:14px 18px;font-size:13.5px;line-height:1.7;color:#7A5A17">👤 À transmettre à <b>' + login + '</b> — ce membre de votre équipe a oublié son mot de passe et son compte n\'a pas d\'adresse e-mail.</td></tr></table>',
-  ident: (a, m) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3FBF7;border:1px solid #C9EBDC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;line-height:2;color:#17233B"><b>Vos identifiants de départ</b><br>Identifiant : <b style="font-family:\'Courier New\',monospace">' + a + '</b> <span style="color:#93A2BF">(votre prénom)</span><br>Mot de passe provisoire : <b style="font-family:\'Courier New\',monospace">' + m + '</b> <span style="color:#93A2BF">(votre nom + « !! »)</span></td></tr></table><div style="font-size:12px;color:#93A2BF;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
-  acces: (a, m) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F3FBF7;border:1px solid #C9EBDC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;line-height:2;color:#17233B"><b>Vos identifiants</b><br>Identifiant : <b style="font-family:\'Courier New\',monospace">' + a + '</b><br>Mot de passe provisoire : <b style="font-family:\'Courier New\',monospace">' + m + '</b></td></tr></table><div style="font-size:12px;color:#93A2BF;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
-  promo: (c, f, fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F6F1FE;border:1px solid #E0D3F7;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#3F2B66;line-height:1.9"><b>🎁 Code ' + c + ' activé</b><br>Formule <b>' + f + '</b> offerte jusqu\'au <b>' + fin + '</b><br><span style="color:#8A76AC;font-size:12.5px">Aucune carte bancaire requise · un rappel avant la fin</span></td></tr></table>',
-  echeance: (fin) => '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF6EE;border:1px solid #F5D9BC;border-radius:12px"><tr><td style="padding:16px 20px;font-size:14px;color:#7A4A17;line-height:1.9"><b>⏳ Votre période offerte se termine le ' + fin + '</b><br><span style="font-size:13px">Vos données ne bougent pas, quoi qu\'il arrive — mais sans abonnement, l\'application repassera en formule Gratuit.</span></td></tr></table>',
-  vigie: (e2) => { const x = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'); return '<table width="100%" cellpadding="0" cellspacing="0" style="background:#1B2233;border-radius:12px"><tr><td style="padding:16px 20px;font-family:\'Courier New\',monospace;font-size:12px;line-height:1.8;color:#D7E2F2">App : ' + x(e2.app) + ' (v' + x(e2.version) + ')<br>Espace : ' + x(e2.team) + '<br>Erreur : ' + x(e2.msg) + '<br>Fichier : ' + x(e2.src || '—') + (e2.line ? ' · ligne ' + e2.line : '') + '<br>Appareil : ' + x(String(e2.ua).slice(0, 90)) + (e2.stack ? '<br><br><span style="color:#93A2BF">' + x(e2.stack).replace(/\n/g, '<br>') + '</span>' : '') + '</td></tr></table>'; }
+  // Un bloc = une table à fond très léger et bord fin ; en mode sombre les
+  // classes m-bloc reprennent la main (voir MAIL_STYLE).
+  cadre: (html, fond, bord, couleur) => '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="m-bloc" style="background:' + (fond || '#F6F8FB') + ';border:1px solid ' + (bord || '#E4E8F0') + ';border-radius:12px;color:' + (couleur || '#4A5A7A') + '"><tr><td style="padding:16px 18px;font-size:14px;line-height:22px;font-family:' + MAIL_POLICE + '">' + html + '</td></tr></table>',
+  code: (c) => '<div align="center"><div class="m-bloc" style="display:inline-block;background:#F6F8FB;border:1.5px dashed #C9D3E3;border-radius:14px;padding:18px 34px;font-family:\'SF Mono\',Menlo,Consolas,\'Courier New\',monospace;font-size:32px;line-height:38px;font-weight:700;letter-spacing:10px;color:#17233B">' + String(c).split('').join(' ') + '</div><div class="m-muet" style="font-size:12px;line-height:18px;color:#8593AB;padding-top:10px">Ce code expire dans <b>10 minutes</b> · 5 essais maximum</div></div>',
+  transmettre: (login) => MAIL_BLOCS.cadre('👤 À transmettre à <b>' + login + '</b> — ce membre de votre équipe a oublié son mot de passe et son compte n\'a pas d\'adresse e-mail.', '#FFF8EC', '#F2DFB6', '#7A5A17'),
+  ident: (a, m) => MAIL_BLOCS.cadre('<b>Vos identifiants de départ</b><br>Identifiant : <b style="font-family:\'SF Mono\',Menlo,Consolas,monospace">' + a + '</b> <span class="m-muet" style="color:#8593AB">(votre prénom)</span><br>Mot de passe provisoire : <b style="font-family:\'SF Mono\',Menlo,Consolas,monospace">' + m + '</b> <span class="m-muet" style="color:#8593AB">(votre nom + « !! »)</span>', '#EEF7F2', '#CFE6D8', '#17233B') + '<div class="m-muet" style="font-size:12px;line-height:18px;color:#8593AB;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
+  acces: (a, m) => MAIL_BLOCS.cadre('<b>Vos identifiants</b><br>Identifiant : <b style="font-family:\'SF Mono\',Menlo,Consolas,monospace">' + a + '</b><br>Mot de passe provisoire : <b style="font-family:\'SF Mono\',Menlo,Consolas,monospace">' + m + '</b>', '#EEF7F2', '#CFE6D8', '#17233B') + '<div class="m-muet" style="font-size:12px;line-height:18px;color:#8593AB;padding-top:8px">À votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.</div>',
+  promo: (c, f, fin) => MAIL_BLOCS.cadre('<b>🎁 Code ' + c + ' activé</b><br>Formule <b>' + f + '</b> offerte jusqu\'au <b>' + fin + '</b><br><span class="m-muet" style="color:#8593AB;font-size:12.5px">Aucune carte bancaire requise · un rappel avant la fin</span>', '#F4F0FB', '#DDD3F0', '#3F2B66'),
+  echeance: (fin) => MAIL_BLOCS.cadre('<b>⏳ Votre période offerte se termine le ' + fin + '</b><br><span style="font-size:13px">Vos données ne bougent pas, quoi qu\'il arrive — mais sans abonnement, l\'application repassera en formule Gratuit.</span>', '#FFF6EE', '#F5D9BC', '#7A4A17'),
+  vigie: (e2) => { const x = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'); return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#16203A;border-radius:12px"><tr><td style="padding:16px 20px;font-family:\'SF Mono\',Menlo,Consolas,\'Courier New\',monospace;font-size:12px;line-height:20px;color:#D7E2F2">App : ' + x(e2.app) + ' (v' + x(e2.version) + ')<br>Espace : ' + x(e2.team) + '<br>Erreur : ' + x(e2.msg) + '<br>Fichier : ' + x(e2.src || '—') + (e2.line ? ' · ligne ' + e2.line : '') + '<br>Appareil : ' + x(String(e2.ua).slice(0, 90)) + (e2.stack ? '<br><br><span style="color:#8B9AB8">' + x(e2.stack).replace(/\n/g, '<br>') + '</span>' : '') + '</td></tr></table>'; }
 };
 const FORMULE_LBL2 = { gratuit: 'Gratuit', pro: 'Pro', business: 'Business', premium: 'Business Premium' };
 // avis « ton code est activé » — envoyé UNE fois, à l'adresse de l'entreprise
@@ -1363,7 +1399,7 @@ app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
     try {
       await mailerEnvoi({ diffusion: true, from: config.smtp.from || config.smtp.user, to: ad,
         subject: ANNONCE.sujet, text: texte,
-        html: mailTeamOP({ chip: 'Mise à jour', chipBg: '#E7F0FE', chipColor: '#1D4ED8',
+        html: mailTeamOP({ desabo: true, chip: 'Mise à jour', chipBg: '#E7F0FE', chipColor: '#1D4ED8',
           titre: 'Du nouveau dans votre application 🆕',
           corpsHtml: ANNONCE.intro,
           blocHtml: blocs,
@@ -2303,7 +2339,7 @@ app.post('/api/monitor/support/envoyer', monAdmin, async (req, res) => {
       bouton2Txt: 'Répondre à TEAM OP', bouton2Url: 'mailto:' + supportBox.email
     });
     await tr.sendMail({ from: '"TEAM OP" <' + supportBox.email + '>', to: dest, subject: obj, text: corps, html,
-      attachments: (LOGO_OK && html.indexOf('cid:logoteamop') >= 0) ? [LOGO_PIECE] : [] });
+      attachments: [] });
   } catch (e) { return res.status(500).json({ error: 'envoi refusé : ' + String(e.message || e).slice(0, 140) }); }
   mailsJournal(dest, obj, corps, false, '');
   supportEnvoyes.unshift({ id: 'e' + crypto.randomBytes(5).toString('hex'), to: dest, subject: obj, text: corps.slice(0, 2000), ts: Date.now(), par: req.tourUser.nom });

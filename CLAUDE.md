@@ -112,6 +112,26 @@ PDF → client (choisi ou saisi) → envoi par `envoiDoc()`. Le moteur dépend d
 l'offre de l'entreprise, décidée côté serveur : Haiku inclus, Sonnet en supplément,
 ou les deux au choix de l'utilisateur.
 
+## Refonte et aperçu (septembre 2026)
+
+La refonte design/mouvement se fait sur la branche `refonte/design`. **Rien ne remplace
+une page utilisée par les clients sans que Justin l'ait testée.** Le canal de test :
+
+```bash
+bash scripts/apercu.sh tour.html app.html   # copies sous apercu/, base href, ruban, sans service worker
+node scripts/verifier-theme.js tour.html    # syntaxe du JS embarqué, variables fantômes, contrastes
+```
+
+`apercu/` se commite **seul sur `main`** (nouveaux fichiers, aucun point d'entrée client
+ne change) et se teste sur `https://teamop.fr/apercu/…` — même origine, donc l'API
+(CORS limité à teamop.fr) et la session fonctionnent. `apercu/app.html` passe par
+`beta-build.js` : données `elanB_`, espace de synchro bêta. Le serveur (`server/`)
+reste sur la branche jusqu'à validation : un push sur `main` le déploie.
+
+Marque, à ne plus confondre : **carré bleu nuit « TEAM / OP » = TEAM OP** (`icons/teamop-*`,
+site, mails) ; **carré vert « GESTION / OP » = OP GESTION** (`icons/opgestion-*`, `icon-*`,
+manifeste de l'app). La pastille verte « OP » de la Tour n'est qu'un repère d'en-tête.
+
 ## Pièges rencontrés — à ne pas refaire
 
 - **Ne jamais figer les données d'un client dans le code.** `REPORT_TEMPLATES`
