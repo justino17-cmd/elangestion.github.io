@@ -1,6 +1,44 @@
 # Point stable TeamOP
 
-**Version stable : v567** — gravée le 7 septembre 2026.
+**Version stable : v568** — gravée le 7 septembre 2026.
+
+v568 — la couleur dit la même chose partout, et la Tour reprend la main sur ses accès.
+
+**Le vert disait le contraire de ce qu'il annonçait.** Justin l'a vu sur sa capture : trois
+produits « à commander » entourés de vert. La règle est pourtant simple, et il l'a énoncée deux
+fois — ce qui SORT est rouge, ce qui ENTRE est vert. Deux notifications ne la suivaient pas :
+« Stock bas » et « Box à réapprovisionner » posaient un anneau vert sur des produits qui
+manquent. Le vert se lit « tout va bien » : la notification disait donc l'inverse de son texte.
+Les deux passent au rouge, et la règle est écrite au-dessus de `cible()` pour que la prochaine
+notification tranche avant d'être écrite. Éprouvé sur les **cinq** catégories qui surlignent des
+produits : stock bas (rouge), box à réapprovisionner (rouge), arrivage (vert), passage mixte
+(les deux), décision du DR sur un lot mixte (les deux).
+
+**La Tour ne redemande plus l'identifiant, et ne propose plus « admin ».** « Revoir le lien »
+ouvrait un `prompt` pré-rempli à `admin` : on croyait choisir, et on écrasait l'identifiant réel
+de l'entreprise par un mot générique. Or le serveur le connaît déjà — il vit dans le code de
+l'espace, champ `a`. Il le rend maintenant, la liste l'affiche sur chaque ligne, et le bouton
+n'invente plus rien.
+
+**Les deux listes portent leur titre.** « Accès à la bêta — n'ouvrent que beta.html » et « Accès
+à la version publique — vrais espaces, vraies données ». Sans le premier, on lisait une suite de
+cartes sans savoir laquelle ouvre quoi.
+
+**Reprendre la main sur un accès qu'on vient d'ouvrir.** Un bouton « Changer identifiant / mot
+de passe » sur les espaces **qui n'ont pas encore servi**, avec la route
+`/api/monitor/espaces/identifiants` (patron seul, écriture sur l'entrée vivante du registre, mot
+de passe jamais conservé en clair). Sur un espace déjà utilisé, le bouton n'apparaît pas et la
+ligne explique pourquoi : après la première connexion, le mot de passe vit dans les données
+CHIFFRÉES de l'espace, hors de portée du serveur. Le réécrire ne changerait rien et ferait mentir
+l'écran — on refuse et on le dit, plutôt que d'offrir un bouton qui ment.
+
+**Ce qui reste ouvert, et que cette version ne règle pas.** Justin veut un système à la
+Organilog : une adresse durable par entreprise, où l'on arrive avec son identifiant et son mot
+de passe, sans avoir à garder un lien ni un code. Aujourd'hui le lien PORTE la clé de
+déchiffrement, donc le perdre, c'est perdre l'accès. Pour que des identifiants suffisent, le
+serveur doit pouvoir les VÉRIFIER — ce qu'il ne peut pas faire, les comptes vivant dans les
+données chiffrées. Le serveur détient pourtant déjà la clé (`espacesReg`) : il ne manque que le
+contrôle. C'est un chantier à part entière, à décider avant d'écrire.
 
 v567 — une loupe dans le menu, un lot qui dit ce qu'il attend, et la connexion par nom.
 

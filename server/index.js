@@ -1282,6 +1282,11 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
       paye: p.paye, motif: p.motif, promoCode: p.promoCode || '', finLe: p.finLe || '', echeance: p.echeance || '', attribueLe: e.formuleTs || 0, par: e.formulePar || '',
       // qui a ouvert l'espace et quand : la Tour en a besoin pour lister les accès publics
       ouvertLe: e.ts || 0, ouvertPar: e.par || '', t: espaceT(e), resume: cnxResume(espaceT(e)),
+      /* L'identifiant de départ vit DÉJÀ dans le code de l'espace (champ « a »). La Tour le
+         redemandait à chaque fois et proposait « admin » par défaut, alors que le serveur l'a
+         sous la main : elle n'a plus à deviner. Le mot de passe, lui, n'y est pas — seulement
+         son empreinte, et c'est voulu. */
+      ident: (() => { try { return String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).a || ''); } catch (err) { return ''; } })(),
       aboStatut: e.aboStatut || 'auto', aboFin: e.aboFin || '' });
   }
   sortie.sort((a, b) => (b.attribueLe || 0) - (a.attribueLe || 0));
@@ -1449,14 +1454,14 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '567',
-  sujet: '🔍 Une loupe dans le menu, et le lot de produits qui dit ce qu\'il attend',
+  version: '568',
+  sujet: '🔴 Rouge pour ce qui manque, vert pour ce qui arrive',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['🔍 Trouver une rubrique sans la chercher', 'Le menu compte jusqu\'à quarante rubriques. Un champ discret en haut les filtre à la frappe : tapez « box », vous avez les box ; validez, vous y êtes. Chacun ne voit filtrer que les rubriques auxquelles il a déjà accès.'],
-    ['🔒 La box dit ce qui attend le DR', 'Quand vos mouvements passent par la validation du DR, les quantités ne bougeaient pas et rien ne l\'expliquait — ce qui pousse à re-taper. La fiche annonce maintenant « 5 produits en attente de validation DR », l\'heure d\'envoi, et sur chaque ligne ce qui est demandé, avec un bouton pour retirer une ligne ou annuler l\'ensemble.'],
-    ['🔴 Rouge et vert dans le même passage', 'Un passage où l\'on reprend trois produits et où l\'on en repose deux était surligné d\'une seule couleur, fausse pour la moitié. Chaque produit porte désormais la sienne. Et le téléphone du DR ne sonne plus qu\'UNE fois par passage, au lieu d\'une fois par produit.'],
-    ['📧 La boîte mail se range', '« Connecter une boîte » descend en pied de colonne, avec « Gérer mes boîtes » à côté — là où on va les chercher, et non plus au milieu de la liste.']
+    ['🔴 La couleur dit enfin la même chose partout', 'En touchant une notification, les produits concernés s\'entourent d\'un anneau. « Stock bas » et « Box à réapprovisionner » le posaient en VERT — la couleur qui se lit « tout va bien » — alors qu\'ils annoncent exactement le contraire. Désormais : rouge pour ce qui sort ou ce qui manque, vert pour ce qui arrive, dans toutes les notifications.'],
+    ['🔍 Trouver une rubrique sans la chercher', 'Le menu compte jusqu\'à quarante rubriques. Un champ discret en haut les filtre à la frappe : tapez « box », vous avez les box ; validez, vous y êtes.'],
+    ['🔒 La box dit ce qui attend le DR', 'Quand vos mouvements passent par la validation du DR, les quantités ne bougeaient pas et rien ne l\'expliquait. La fiche annonce maintenant ce qui est en attente, sur chaque ligne, avec de quoi retirer un produit ou tout annuler.'],
+    ['📧 La boîte mail sur un écran moyen', 'Sur une fenêtre ni petite ni large — un navigateur qu\'on n\'a pas mis en plein écran — la Réception n\'affichait que les premiers messages et refusait de défiler. Corrigé.']
   ],
   fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };
@@ -1798,6 +1803,38 @@ app.post('/api/monitor/espaces/acces', monPatronStrict, (req, res) => {
     console.log('Tour :', req.tourUser.nom, ((req.body || {}).regenerer ? 'renouvelle' : 'crée'), 'le code d\'accès de l\'espace', t);
   }
   res.json({ ok: true, slug, acces: enr.code, ts: enr.ts || 0, par: enr.par || '', vu: enr.vu || 0 });
+});
+/* ══ CHANGER LES IDENTIFIANTS DE DÉPART D'UN ESPACE ═══════════════════════════════════════
+   Justin ouvre un accès depuis la Tour, oublie le mot de passe, et n'a aucun moyen de le
+   reprendre. On le lui rend — MAIS seulement tant que personne ne s'est connecté.
+   La raison n'est pas un excès de prudence : après la première connexion, le mot de passe réel
+   vit dans les données CHIFFRÉES de l'espace, que le serveur ne peut ni lire ni écrire. Le
+   « mot de passe provisoire » n'est qu'une amorce, lue une seule fois par l'application au
+   tout premier démarrage. Le réécrire après coup ne changerait rien et ferait mentir l'écran :
+   on refuse et on dit pourquoi. */
+app.post('/api/monitor/espaces/identifiants', monPatronStrict, (req, res) => {
+  const slug = espSlug(monStr((req.body || {}).slug || (req.body || {}).nom, 80));
+  const e = espaceAJour(slug);
+  if (!e || !e.code) return res.status(404).json({ error: 'Espace inconnu' });
+  const t = espaceT(e);
+  const vu = cnxResume(t);
+  if (vu && vu.derniere) return res.status(409).json({
+    error: 'Cet espace a déjà servi (dernière connexion enregistrée) : son mot de passe vit désormais dans ses données chiffrées, le serveur ne peut plus le changer. C\'est à la personne de passer par « mot de passe oublié » dans l\'application.' });
+  const ident = monStr((req.body || {}).ident, 40).toLowerCase().replace(/[^a-z0-9.]/g, '');
+  const mdp = monStr((req.body || {}).mdp, 200);
+  if (!ident || mdp.length < 8) return res.status(400).json({ error: 'Un identifiant et un mot de passe d\'au moins 8 caractères sont requis' });
+  let o;
+  try { o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); } catch (err) { return res.status(500).json({ error: 'Code d\'espace illisible' }); }
+  o.a = ident; o.mh = mdpEmpreinte(mdp); delete o.m;
+  const neuf = Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
+  /* On écrit sur l'entrée VIVANTE du registre, pas sur la copie que rend espaceAJour. */
+  const vraiSlug = e.slug || slug;
+  if (!espacesReg[vraiSlug]) return res.status(500).json({ error: 'Entrée d\'annuaire introuvable' });
+  espacesReg[vraiSlug].code = neuf;
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); }
+  catch (err) { console.error('identifiants : espaces.json non écrit :', err.message); return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' }); }
+  console.log('Tour :', req.tourUser.nom, 'change les identifiants de départ de l\'espace', t);
+  res.json({ ok: true, ident: ident, lien: 'https://teamop.fr/app.html#entreprise=' + neuf });
 });
 app.post('/api/espaces/relance', (req, res) => {
   // borné AVANT espSlug : son normalize('NFD') sur 6 Mo gèle la boucle d'événements, donc toute l'API
