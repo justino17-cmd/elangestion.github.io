@@ -15963,8 +15963,12 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
     else { var nl=lot.lignes.length; toast('🔒 '+nl+' produit'+(nl>1?'s':'')+' en attente du DR'); }
     renderBoxProdList();
     // la question « pour qui ? » se pose UNE fois pour le lot, pas à chaque produit sorti
-    const totLot=lot.lignes.reduce((t,l)=>t+(l.du||0)+(l.dc||0),0);
-    if(totLot<0&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),150);
+    /* On regarde s'il SORT quelque chose, pas si le total est négatif. Un lot où l'on repose
+       dix unités et où l'on en reprend deux a un total POSITIF — mais deux unités partent quand
+       même avec quelqu'un, et le bon de remise doit les porter. Le bon lui-même ne retient déjà
+       que les lignes négatives (voir boxMvtValider), il ne restait qu'à poser la question. */
+    const sortQqc=lot.lignes.some(l=>((+l.du||0)+(+l.dc||0))<0);
+    if(sortQqc&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),150);
     return; }
   b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
   traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box');
