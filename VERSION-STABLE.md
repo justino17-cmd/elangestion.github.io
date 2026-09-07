@@ -1,7 +1,30 @@
 # Point stable TeamOP
 
-**Version stable : v562** — gravée le 7 septembre 2026.
+**Version stable : v563** — gravée le 7 septembre 2026.
 
+v563 — les notifications emmènent à la LIGNE, plus seulement à l'écran.
+
+Toucher « Sofia a pris 6 MUSKIL dans Box Démo Nord » ouvrait la box, puis laissait
+chercher le produit parmi vingt-deux. La ligne vient désormais se placer au milieu de
+l'écran et ressort deux respirations. Trois cas couverts : le produit d'une box, le
+mouvement qui attend la validation du DR, et la demande de commande.
+
+Le mécanisme est volontairement générique : les lignes portent un attribut
+(`data-pid`, `data-mvt`, `data-dem`) et une fonction `cible(type, id)` ATTEND
+l'élément au lieu de le supposer présent — l'écran se redessine en plusieurs temps, et
+un simple délai arrivait tantôt trop tôt, tantôt trop tard. Au bout de trois secondes
+elle abandonne en silence : la navigation a eu lieu de toute façon, on ne bloque
+personne pour un surlignage.
+
+Un anneau plutôt qu'un fond : la ligne garde ses propres couleurs — un produit épuisé
+reste rouge, une demande garde son état — et on lit « c'est celle-ci » sans perdre
+l'information qu'elle porte déjà. Neutralisé sous « réduire les animations ».
+
+Le cache du service worker passe à v760.
+
+## Ancien point
+
+**v562**
 v562 — deux corrections signalées à l'usage, et rien d'autre pour les entreprises.
 
 **Les sorties de box partent en une seule validation.** Les taps successifs sur un

@@ -1431,13 +1431,12 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '562',
-  sujet: '🔒 Vos sorties de box en une seule validation, et la connexion mail réparée',
-  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Deux points précis changent, tous les deux signalés par des utilisateurs.',
+  version: '563',
+  sujet: '🔔 Vos notifications vous emmènent droit au bon endroit',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Un seul point change, et il fait gagner du temps chaque jour.',
   points: [
-    ['📦 Plusieurs produits, une seule validation', 'Quand vos équipes sont soumises à la validation du DR, chaque produit ajusté dans une box partait jusqu\'ici en demande séparée : retirer trois produits donnait trois validations à traiter une par une. Désormais tout ce qu\'une personne ajuste dans une même box tient dans <b>une seule demande</b>. Le DR valide une fois, tout s\'applique ; il refuse une fois, rien ne bouge.'],
-    ['📄 Le bon de remise détaillé', 'Quand ces sorties sont destinées à quelqu\'un, le bon de remise liste maintenant <b>chaque produit avec sa quantité</b>, au lieu d\'un total global.'],
-    ['📧 La connexion à Gmail réparée', 'Si votre boîte Gmail ou Yahoo a la validation en deux étapes — le réglage par défaut — la connexion échouait et l\'application vous proposait de réinitialiser votre mot de passe. C\'était un mauvais conseil : cela ne pouvait pas fonctionner. Elle vous envoie maintenant créer un <b>mot de passe d\'application</b>, la clé de 16 caractères que Google exige, et vous explique comment.']
+    ['🎯 La ligne concernée, tout de suite', 'Jusqu\'ici, toucher une notification ouvrait le bon écran et vous laissait chercher. « Sofia a pris 6 flacons dans la Box Nord » ouvrait la box… et ses vingt-deux produits. Désormais la ligne vient <b>se placer au milieu de l\'écran</b> et <b>ressort quelques secondes</b>, le temps que l\'œil l\'attrape.'],
+    ['📦 Sur les box, les validations et les demandes', 'Le produit qu\'on a pris ou ajouté dans une box, le mouvement qui attend votre accord, la demande de commande à valider : dans les trois cas, vous arrivez sur la bonne ligne et non sur une liste.']
   ],
   fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };

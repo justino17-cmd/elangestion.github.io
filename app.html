@@ -2145,6 +2145,23 @@ body{font-size:14.5px;line-height:1.45;text-rendering:optimizeLegibility;letter-
 .ph-title{font-size:clamp(24px,2.6vw,30px)!important;font-weight:700!important;letter-spacing:-.025em!important;line-height:1.08}
 .ph-sub{font-size:14.5px;color:var(--t3)}
 .topbar-brand{letter-spacing:.14em!important;font-weight:600!important}
+/* ══ LA LIGNE QU'ON VIENT CHERCHER ═════════════════════════════════════════════════════════
+   Posée par cible(), retirée après 2,6 s. Un anneau plutôt qu'un fond : la ligne garde ses
+   propres couleurs — un produit épuisé reste rouge, une demande garde son état — et on lit
+   « c'est celle-ci » sans perdre l'information qu'elle porte déjà. Le halo respire deux fois,
+   puis s'éteint : assez pour attraper l'œil, trop court pour gêner.
+   Hors du bloc de refonte, parce que la fonction, elle, sert aussi aux entreprises. */
+.cible-vue{
+  position:relative;z-index:1;
+  box-shadow:0 0 0 2px var(--acc), 0 0 0 7px color-mix(in srgb,var(--acc) 26%,transparent)!important;
+  border-radius:12px;
+  animation:cibleRespire 1.3s ease-in-out 2}
+@keyframes cibleRespire{
+  0%,100%{box-shadow:0 0 0 2px var(--acc), 0 0 0 7px color-mix(in srgb,var(--acc) 26%,transparent)}
+  50%    {box-shadow:0 0 0 2px var(--acc), 0 0 0 12px color-mix(in srgb,var(--acc) 6%,transparent)}}
+@media (prefers-reduced-motion: reduce){
+  .cible-vue{animation:none!important}
+}
 .content{padding:30px 34px 96px}
 @media(max-width:780px){ .content{padding:22px 16px 76px} .topbar{padding:12px 16px} }
 body.defile .topbar{box-shadow:var(--ombre-2)!important}
@@ -4399,7 +4416,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '562';
+const APP_VERSION = '563';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -15494,7 +15511,7 @@ function renderBoxProdList(){
   if(!entries.length){ el.innerHTML=`<div style="color:var(--t3);font-size:13px;padding:18px;text-align:center">${boxProdSearch?'Aucun résultat.':'Aucun produit dans cette box. Touche ＋ Ajouter.'}</div>`; return; }
   el.innerHTML=entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
     const fours=(p.fournisseurs||[]).map(fourBadge).join(' ');
-    return `<div style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${low?e.c:'transparent'};border-radius:12px;margin-bottom:8px;overflow:hidden">
+    return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${low?e.c:'transparent'};border-radius:12px;margin-bottom:8px;overflow:hidden">
       <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="editBoxQte('${pid}')">
         <div style="flex:1;min-width:0">
           <div style="font-size:15px;font-weight:800;color:var(--t1)">${esc(p.nom)}</div>
@@ -16178,13 +16195,13 @@ views.validations=function(){
   // le DR / l'admin voit tout ; les autres ne voient que LEURS demandes et LEURS mouvements (avec la décision du DR)
   const att=visibleDemandes(db.demandes).filter(d=>d.statut==='enAttente');
   const autres=visibleDemandes(db.demandes).filter(d=>d.statut!=='enAttente').sort((a,b)=>(b.dateValidation||b.date||'').localeCompare(a.dateValidation||a.date||''));
-  const row=d=>`<div class="pl-row" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))} <span class="tag">${(d.lignes||[]).length} produit(s)</span></div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${demTotal(d)} unité(s)</div></div>`;
+  const row=d=>`<div class="pl-row" data-dem="${d.id}" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))} <span class="tag">${(d.lignes||[]).length} produit(s)</span></div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${demTotal(d)} unité(s)</div></div>`;
   // ── Mouvements de box en attente du DR (arrivages, ajustements, retraits) ──
   const estDr=!!(currentUser&&can('validerDR'));
   const MICO={arrivage:'📦',ajustement:'✏️',retrait:'🗑️'};
   const mv=visibleBoxMvts(db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente');
   const mvHisto=visibleBoxMvts(db.boxMvtAttente||[]).filter(m=>m.statut!=='enAttente').slice(0,12);
-  const mvRow=m=>`<div class="pl-row" style="cursor:default"><div class="pl-info"><div class="pl-title">${MICO[m.type]||'📦'} ${esc(boxMvtLibelle(m))}</div><div class="pl-meta">${esc(m.par||'')} · ${new Date(m.ts||0).toLocaleDateString('fr-FR')}${m.motifRefus?' · motif : '+esc(m.motifRefus):''}</div></div>`;
+  const mvRow=m=>`<div class="pl-row" data-mvt="${m.id}" style="cursor:default"><div class="pl-info"><div class="pl-title">${MICO[m.type]||'📦'} ${esc(boxMvtLibelle(m))}</div><div class="pl-meta">${esc(m.par||'')} · ${new Date(m.ts||0).toLocaleDateString('fr-FR')}${m.motifRefus?' · motif : '+esc(m.motifRefus):''}</div></div>`;
   const blocMv=`<div class="card"><div class="card-head"><h3>Mouvements de box (${mv.length})</h3></div>
     ${mv.length? mv.map(m=>mvRow(m)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button> <button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
   </div>`;
@@ -22587,10 +22604,10 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
       out.push({id:'boxlow:'+b.id+':'+lows.map(x=>x.pid+'.'+x.u).join('|'),ic:nEp?'🟥':'🟠',txt:`Box <b>${esc(b.nom||b.numero||'')}</b> — ${lows.length} produit(s) à réapprovisionner${nEp?` dont <b>${nEp} épuisé(s)</b>`:''} : ${names}`,act:"openBox('"+b.id+"')"});
     });
     if(can('validerDR') && notifVoitModule('validations')){   // toute personne qui a le droit de valider (DR, admin, ou droit accordé)
-      db.demandes.filter(d=>d.statut==='enAttente').forEach(d=>out.push({id:'dem:'+d.id,ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>${(d.chefNom||d.chefId)?' · '+esc(d.chefNom||userName(d.chefId)):''}`,act:"go('validations')"}));
+      db.demandes.filter(d=>d.statut==='enAttente').forEach(d=>out.push({id:'dem:'+d.id,ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>${(d.chefNom||d.chefId)?' · '+esc(d.chefNom||userName(d.chefId)):''}`,act:"go('validations');cible('dem','"+d.id+"')"}));
       // mouvements de box (arrivages, réceptions de bons, ajustements…) en attente de la validation du DR
       (db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente'&&!m.bcId&&!notifMoi(m.par)).forEach(m=>{   // tout ce qui attend SA validation, quelle que soit la box (les réceptions de bons sont portées par « bonarr » ci-dessous)
-        out.push({id:'mvatt:'+m.id,ts:m.ts||0,ic:'🔒',txt:`<b>À valider</b> — ${esc(boxMvtLibelle(m))} · par <b>${esc(m.par||'')}</b>`,act:"go('validations')"}); });
+        out.push({id:'mvatt:'+m.id,ts:m.ts||0,ic:'🔒',txt:`<b>À valider</b> — ${esc(boxMvtLibelle(m))} · par <b>${esc(m.par||'')}</b>`,act:"go('validations');cible('mvt','"+m.id+"')"}); });
     }
     if(estDir && notifVoitModule('enveloppes')) db.enveloppes.filter(e=>(e.paiements||[]).some(p=>p.statut==='attente')).forEach(e=>out.push({id:'env:'+e.id,ic:'📮',txt:`Enveloppe avec paiement en attente : <b>${esc(e.numero)}</b>`,act:"go('enveloppes')"}));
     if(estDir && notifVoitModule('interventions')) db.interventions.filter(i=>i.date>=today&&i.statut!=='terminee'&&i.statut!=='annulee').forEach(i=>{ const k=keyForClient(i.clientId); if(k&&!techForKey(k)) out.push({id:'sect:'+i.id,ic:'🗺️',txt:`Secteur non couvert : <b>${esc(i.titre)}</b> (${esc(keyLabel(k))})`,act:"detailIntervention('"+i.id+"')"}); });
@@ -22620,7 +22637,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   if(vBox && currentUser && ['admin','dr','chefEquipe'].includes(currentUser.role)){
     const recent=Date.now()-3*86400000;
     (db.mouvements||[]).filter(m=>m.boxId&&m.ts>=recent&&(m.type==='sortie'||(m.type==='entree'&&!/^Arrivage/.test(m.motif||'')))&&!notifMoi(m.technicien)&&notifBoxConcerne((db.boxes||[]).find(b=>b.id===m.boxId))).forEach(m=>{ const p=produit(m.produitId); const bx=(db.boxes||[]).find(b=>b.id===m.boxId);
-      out.push({id:'boxmv:'+m.id,ts:m.ts||0,ic:m.type==='sortie'?'📤':'📥',txt:`<b>${esc(m.technicien||'Quelqu\'un')}</b> a ${m.type==='sortie'?'pris':'ajouté'} ${m.qte||1} ${esc(p.nom||'produit')} dans <b>${esc(bx?(bx.nom||bx.numero||'une box'):'une box')}</b>`,act:bx?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120)"):"go('mouvements')"}); });
+      out.push({id:'boxmv:'+m.id,ts:m.ts||0,ic:m.type==='sortie'?'📤':'📥',txt:`<b>${esc(m.technicien||'Quelqu\'un')}</b> a ${m.type==='sortie'?'pris':'ajouté'} ${m.qte||1} ${esc(p.nom||'produit')} dans <b>${esc(bx?(bx.nom||bx.numero||'une box'):'une box')}</b>`,act:bx?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);cible('pid','"+m.produitId+"')"):"go('mouvements')"}); });
   }
   // Essai gratuit (code promo) : rappel dans la cloche la dernière semaine
   if(currentUser.role==='admin'&&db.forfaitEssai&&!db.forfaitEssai.termine&&db.forfaitEssai.finLe){
@@ -22649,6 +22666,32 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
 function unseenCount(){ return computeNotifs().filter(n=>!notifSeen.has(n.id)).length; }
 function updateBell(){ if(!currentUser)return; const n=unseenCount(), c=$('bell-count'); if(!c)return; c.style.display=n?'flex':'none'; c.textContent=n>99?'99+':n; }
 function notifSee(id){ notifSeen.set(id,Date.now()); saveNotifSeen(); updateBell(); }
+/* ── ALLER À LA LIGNE CONCERNÉE ────────────────────────────────────────────────────────────
+   Une notification disait « Sofia a pris 6 MUSKIL dans Box Démo Nord » et ouvrait la box —
+   puis laissait chercher le produit parmi vingt-deux. Elle amène désormais la ligne à
+   l'écran et la fait ressortir quelques secondes.
+   On ATTEND l'élément au lieu de le supposer présent : l'écran se redessine en plusieurs
+   temps (go(), puis openBox(), puis la liste des produits), et un simple setTimeout arrivait
+   parfois trop tôt, parfois trop tard. Au bout de 3 secondes on abandonne en silence — la
+   navigation a de toute façon eu lieu, on ne bloque personne pour un surlignage. */
+function cible(type,id){
+  /* type + identifiant plutôt qu'un sélecteur tout fait : ces appels vivent dans des chaînes
+     que l'application évalue, et un sélecteur y demandait trois niveaux d'échappement — la
+     première version était illisible et, surtout, fausse : le nom du produit n'était pas
+     interpolé et arrivait tel quel. Deux arguments simples, plus une quote à échapper. */
+  var sel='[data-'+type+'="'+String(id).replace(/"/g,'')+'"]';
+  var fin=Date.now()+3000;
+  (function cherche(){
+    var el=null; try{ el=document.querySelector(sel); }catch(e){ return; }
+    if(!el){ if(Date.now()<fin) setTimeout(cherche,120); return; }
+    try{
+      var sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({block:'center',behavior:sobre?'auto':'smooth'});
+      el.classList.add('cible-vue');
+      setTimeout(function(){ el.classList.remove('cible-vue'); },2600);
+    }catch(e){}
+  })();
+}
 function notifAllSeen(){ computeNotifs().forEach(n=>notifSeen.set(n.id,Date.now())); saveNotifSeen(); updateBell(); closeNotif(); toast('Notifications marquées comme lues'); }
 let notifOpen=false;
 function toggleNotif(e){ e.stopPropagation(); notifOpen?closeNotif():openNotif(); }
