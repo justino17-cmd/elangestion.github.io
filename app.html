@@ -3411,8 +3411,15 @@ html[data-refonte] .chip,html[data-refonte] .tab{scroll-snap-align:center}
    (Les 100vh du socle, hors garde, restent à corriger côté production — voir le compte rendu.) */
 @supports (height:100dvh){
   html[data-refonte] .overlay{min-height:100dvh}
-  html[data-refonte] .modal.full,html[data-refonte] .modal.plein{max-height:100dvh}
 }
+/* Il y avait ici « .modal.full{max-height:100dvh} ». Mesuré sur la fiche « Nouvel utilisateur » :
+   la fenêtre annonçait 900 px de haut pour 4 901 px de contenu, avec overflow:visible — donc le
+   contenu SORTAIT de la boîte, le fond de la carte s'arrêtait à mi-chemin, et surtout l'en-tête
+   collant cessait de coller (relevé à −3 248 px, hors écran, une fois défilé en bas). C'est ce
+   que Justin a photographié : un titre qui s'en va, des lignes qui traversent le verre du pied.
+   Borner une boîte sans lui donner de défilement ne la borne pas, ça la fait déborder. Ici c'est
+   l'OVERLAY qui défile, et l'en-tête comme le pied s'y collent : la fenêtre doit garder sa
+   hauteur réelle. (« .modal.plein » n'existe nulle part ailleurs dans la page.) */
 /* Les zones sûres de l'iPhone : l'encoche en haut, la barre d'accueil en bas, et les bords
    arrondis en paysage. Rien d'interactif ne doit jamais s'y loger. */
 html[data-refonte] .topbar{padding-top:max(12px,env(safe-area-inset-top))}
@@ -16347,11 +16354,9 @@ const _mailDesktop=()=>window.innerWidth>=960;
 /* ═══ Boîte mail — 3 volets sur ordinateur (dossiers · liste · lecture), pile sur mobile ═══ */
 views.boiteMail=function(){
   setHeader('Boîte mail','',`<button class="btn ghost" onclick="mailBoxesManage()">📬 Boîtes</button> <button class="btn" onclick="mailCompose()">✏️ Écrire</button>`);
-  const lus=_mailLus();
-  /* Le compteur ne regarde QUE la réception. Avant les dossiers il n'y avait qu'un tas, donc
-     tout compter revenait au même ; maintenant, compter large afficherait les 800 indésirables
-     de la boîte comme des mails à lire. */
-  const unread=_mailDuDossier('reception').filter(r=>!lus.has(mailKey(r))).length;
+  const lus=_mailLus(); const supp=_mailSupp();
+  const reps=_mailReplies||[];
+  const unread=reps.filter(r=>!supp.has(mailKey(r))&&!lus.has(mailKey(r))).length;
   const D=_mailDesktop();
   const dossier=(k,ic,l,n)=>D?
     `<div onclick="mailTab='${k}';mailSel=null;views.boiteMail()" style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;cursor:pointer;font-size:13.5px;font-weight:700;margin-bottom:2px;${mailTab===k?'background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc)':'color:var(--t2)'}">${ic} ${l}${n?`<span style="margin-left:auto;font-size:11px;background:var(--acc);color:var(--on-acc);border-radius:100px;padding:1px 8px;font-weight:800">${n}</span>`:''}</div>`
@@ -16364,7 +16369,6 @@ views.boiteMail=function(){
         <div style="${D?'':'display:flex;gap:6px;flex-wrap:wrap;align-items:center'}">
           ${dossier('recu','📥','Réception',unread)}
           ${dossier('envoye','📤','Envoyés',0)}
-          ${MAIL_DOSSIERS.map(function(d){ return _mailCompte(d.k)?dossier('d:'+d.k,d.ic,d.l,0):''; }).join('')}
           ${D?'':'<button class="btn ghost sm" onclick="_mailReplies=null;mailSel=null;views.boiteMail()">🔄</button>'}
         </div>
         ${D?`<div style="margin-top:18px"><div style="font-size:10.5px;font-weight:800;letter-spacing:1.2px;color:var(--t3);padding:0 12px 7px">MES BOÎTES</div><div id="mail-side-boites"><div style="padding:0 12px;font-size:12px;color:var(--t3)">Chargement…</div></div>
@@ -16423,61 +16427,22 @@ function mailRow(r,type,idx){
     </div>
   </div><div style="height:1px;background:var(--brd);margin:0 12px 3px 31px"></div>`;
 }
-/* Les dossiers rapportés par le serveur. « Envoyés » n'y est pas : l'onglet du même nom
-   existait déjà et montre ce qu'on a envoyé DEPUIS l'application — les deux se rejoignent
-   plus bas plutôt que de faire deux rubriques qui portent le même mot. */
-const MAIL_DOSSIERS=[
-  {k:'brouillons',  ic:'📝', l:'Brouillons'},
-  {k:'indesirables',ic:'🚫', l:'Indésirables'},
-  {k:'corbeille',   ic:'🗑️', l:'Corbeille'},
-  {k:'archives',    ic:'🗄️', l:'Archives'}
-];
-/* Un onglet vide ne sert à rien : il occupe la place et déçoit au clic. On ne l'affiche que
-   s'il porte au moins un mail — et la réception accepte les entrées SANS dossier, qui sont
-   toutes celles reçues avant cette mise à jour. */
-function _mailDuDossier(k){
-  const supp=_mailSupp();
-  return (_mailReplies||[]).filter(function(r){
-    if(supp.has(mailKey(r))) return false;
-    return k==='reception' ? (!r.dossier||r.dossier==='reception') : r.dossier===k;
-  });
-}
-function _mailCompte(k){ return _mailDuDossier(k).length; }
 function renderMailList(){ const el=$('mail-list'); if(!el) return;
   const q=norm(mailSearch);
-  /* Un dossier du serveur : indésirables, corbeille, brouillons, archives. Même rendu que la
-     réception — ce sont les mêmes objets, seul le dossier change. */
-  if(mailTab.indexOf('d:')===0){
-    let l=_mailDuDossier(mailTab.slice(2));
-    if(mailBoxFiltre) l=l.filter(r=>(r.boite||'')===mailBoxFiltre);
-    if(q) l=l.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')).includes(q));
-    el.innerHTML=l.length? l.sort((a,b)=>(b.ts||0)-(a.ts||0)).map(r=>mailRow(r,'recu',(_mailReplies||[]).indexOf(r))).join('')
-      : `<div style="text-align:center;color:var(--t3);padding:26px">Ce dossier est vide.</div>`;
-    return;
-  }
   if(mailTab==='envoye'){
-    /* Deux sources pour un seul mot : ce qu'on a envoyé DEPUIS l'application (db.mailSent) et
-       le dossier « Envoyés » de la vraie boîte, rapporté par le serveur. Les séparer aurait
-       donné deux rubriques nommées pareil — on les mêle, triées par date. */
     const all=(db.mailSent||[]).slice().reverse();
     let sent=all.slice();
     if(mailBoxFiltre) sent=sent.filter(m=>(m.from||'')===mailBoxFiltre);
     if(q) sent=sent.filter(m=>norm((m.to||'')+' '+(m.subject||'')+' '+(m.text||'')).includes(q));
-    let dist=_mailDuDossier('envoyes');
-    if(mailBoxFiltre) dist=dist.filter(r=>(r.boite||'')===mailBoxFiltre);
-    if(q) dist=dist.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')).includes(q));
-    const lignes=sent.map(m=>({ts:m.ts||0,h:mailRow(m,'envoye',all.indexOf(m))}))
-      .concat(dist.map(r=>({ts:r.ts||0,h:mailRow(r,'recu',(_mailReplies||[]).indexOf(r))})))
-      .sort((a,b)=>b.ts-a.ts);
-    el.innerHTML=lignes.length? lignes.map(x=>x.h).join('') : `<div style="text-align:center;color:var(--t3);padding:26px">Aucun e-mail envoyé.</div>`;
+    el.innerHTML=sent.length? sent.map(m=>mailRow(m,'envoye',all.indexOf(m))).join('') : `<div style="text-align:center;color:var(--t3);padding:26px">Aucun e-mail envoyé.</div>`;
     return;
   }
   if(_mailReplies===null){
     el.innerHTML=`<div style="padding:16px;color:var(--t2);font-size:13px;line-height:1.6">📥 Réception indisponible pour l'instant — tu peux déjà ✏️ écrire. Connecte une boîte (＋) pour recevoir ici.</div>`;
     return;
   }
-  // la réception ne montre plus TOUT : les dossiers ont leur onglet
-  let list=_mailDuDossier('reception');
+  const supp=_mailSupp();
+  let list=_mailReplies.filter(r=>!supp.has(mailKey(r)));
   if(mailBoxFiltre) list=list.filter(r=>(r.boite||'')===mailBoxFiltre);
   if(q) list=list.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')+' '+(r.bonNum||'')).includes(q));
   el.innerHTML=list.length? list.map(r=>mailRow(r,'recu',_mailReplies.indexOf(r))).join('')
@@ -16522,7 +16487,6 @@ function mailReadHtml(r,type){
         <div style="font-size:11.5px;color:var(--t3)">${d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
       </div></div>
     <div style="font-size:14.5px;line-height:1.7;white-space:pre-wrap;word-break:break-word">${esc(r.text||'')}</div>
-    ${r.coupe?`<div style="margin-top:14px;padding:10px 13px;border:1px solid var(--brd);border-radius:11px;font-size:12.5px;color:var(--t2);line-height:1.6">✂️ <b>Aperçu</b> — les mails des dossiers (indésirables, corbeille, archives…) n'arrivent ici qu'en début de texte, pour ne pas alourdir l'application. Le message entier est resté sur ta vraie boîte.</div>`:''}
     ${r.att?(bon?`<div onclick="bonPdfOpen('${bon.id}')" title="Ouvrir le PDF" style="margin-top:18px;padding:10px 13px;background:var(--bg1);border:1px solid var(--acc);border-radius:10px;font-size:13px;color:var(--acc);display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">📎 ${esc(r.att)} <span style="font-weight:400;color:var(--t3)">· clique pour ouvrir</span></div>`
       :`<div style="margin-top:18px;padding:10px 13px;background:var(--bg1);border:1px solid var(--brd);border-radius:10px;font-size:13px;color:var(--acc);display:inline-block">📎 ${esc(r.att)}</div>`):''}
     ${bonCard}
@@ -17031,7 +16995,7 @@ async function bonEnvoyerTousPrets(){
   prets.slice().forEach(b=>bonSeparer(b.id));   // aucun bon mixte ne part : séparation par fournisseur d'abord
   prets=visibleBons(db.bons).filter(b=>b.statut==='prete').sort((a,b)=>(fournName(a.fournisseurId)||a.fournisseur||'').localeCompare(fournName(b.fournisseurId)||b.fournisseur||'')||(a.numero||'').localeCompare(b.numero||''));
   const row=b=>{ const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{}; const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;
-    return `<label class="pl-row" style="cursor:pointer;align-items:center;gap:10px"><input type="checkbox" class="bte-chk" value="${b.id}" ${f.email?'checked':'disabled'} style="width:20px;height:20px;accent-color:var(--acc);flex-shrink:0">
+    return `<label class="pl-row" style="cursor:pointer;align-items:center;gap:10px"><input type="checkbox" class="bte-chk" value="${b.id}" ${bonEmailDest(b,f)?'checked':'disabled'} style="width:20px;height:20px;accent-color:var(--acc);flex-shrink:0">
       <div class="pl-info"><div class="pl-title">${esc(f.nom||b.fournisseur||'Sans fournisseur')} <span style="color:var(--t3);font-weight:400;font-size:12px">· ${esc(bonNum(b))}</span></div>
       <div class="pl-meta">${(b.lignes||[]).length} article(s) · ${bonQteTotTxt(b)}${bx?' · 📦 '+esc(bx.nom||bx.numero||''):''}<br>${bonEmailDest(b,f)?'→ <span style="color:var(--acc)">'+esc(bonEmailDest(b,f))+'</span>':'<span style="color:var(--org,#e8a33d)">⚠️ e-mail fournisseur manquant — ne peut pas partir</span>'}</div></div></label>`; };
   openModal(`<div class="modal-head"><h3>✉️ Envoyer les bons prêts</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
@@ -22861,6 +22825,7 @@ function cible(type,ids,ton){
   var fin=Date.now()+6000;
   var vu=null;            // la ligne qu'on a amenée à l'écran, pour repérer son remplacement
   var minuteur=null;
+  var marques=[];         // ce que CET appel a marqué — pour n'éteindre que ça
   function trouve(){
     var els=[];
     liste.forEach(function(id){
@@ -22882,12 +22847,18 @@ function cible(type,ids,ton){
         }catch(e){}
       }
       els.forEach(function(e){ if(!e.classList.contains('cible-vue')) e.className+=' '+classes; });
+      marques=els;
     }
     if(Date.now()<fin){ minuteur=setTimeout(poser,120); return; }
-    // fin de la mise en avant : on retire la marque partout, y compris sur des lignes refaites
+    /* On n'éteint QUE ce que CET appel a allumé. Éteindre tous les « .cible-vue » de la page
+       ferait clignoter le halo d'un second appel encore en cours — deux notifications ouvertes
+       coup sur coup, ou le rouge et le vert d'un passage mixte s'ils ne finissaient pas ensemble. */
     try{
-      [].slice.call(document.querySelectorAll('.cible-vue')).forEach(function(e){
-        e.classList.remove('cible-vue'); e.classList.remove('cible-retrait');
+      marques.forEach(function(e){ e.classList.remove('cible-vue'); e.classList.remove('cible-retrait'); });
+      // et les lignes refaites depuis, qui portent la marque de cet appel sans être dans la liste
+      liste.forEach(function(id){
+        try{ var e=document.querySelector('[data-'+type+'="'+id+'"]'); 
+          if(e&&marques.indexOf(e)<0){ e.classList.remove('cible-vue'); e.classList.remove('cible-retrait'); } }catch(x){}
       });
     }catch(e){}
   }
