@@ -4255,7 +4255,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '561-beta';
+const APP_VERSION = '562-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -15424,14 +15424,27 @@ function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const b
 function boxMvtEnvoyer(m,silencieux){ db.boxMvtAttente=db.boxMvtAttente||[];
   m.id=uid(); m.ts=Date.now(); m.statut='enAttente'; m.par=fullName(currentUser); m.parId=currentUser&&currentUser.id;
   db.boxMvtAttente.unshift(m); if(db.boxMvtAttente.length>80) db.boxMvtAttente.length=80;
-  logEvent('Mouvement box → validation DR',boxMvtLibelle(m),'stock');
+  /* Un lot NAIT VIDE et se remplit au retour de cet appel : l'inscrire au journal tout de
+     suite y grave « 0 produits ajustés », faux et definitif — le journal ne se relit pas, lui,
+     contrairement a l'ecran de validation. C'est boxAdj() qui l'inscrit, une fois sa premiere
+     ligne posee. */
+  if(!(m.type==='ajustementLot'&&!(m.lignes||[]).length)) logEvent('Mouvement box → validation DR',boxMvtLibelle(m),'stock');
   if(!silencieux) boxMvtPrevenir(m);
   save(); return m; }
 /* Prévenir les valideurs, séparé de l'envoi : un lot naît vide et se remplit au tap
    suivant. Le prévenir à sa création annoncerait « 0 produit ». */
 function boxMvtPrevenir(m){
-  try{ const dest=valideursPour((db.boxes||[]).find(x=>x.id===m.boxId)||null);
-    if(dest.length) pushNotify('🔒 À valider — mouvement de box',boxMvtLibelle(m)+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){} }
+  try{ const dest=valideursPour((db.boxes||[]).find(x=>x.id===m.boxId)||null); if(!dest.length) return;
+    /* Un lot n'est prévenu QU'UNE fois, au premier produit — reprévenir à chaque tap
+       ferait sonner le téléphone du DR dix fois pour un seul geste. Mais son contenu
+       continue de grossir après : une notification qui énumère les produits deviendrait
+       fausse en quelques secondes. Elle dit donc la box et la personne, jamais le détail ;
+       le détail se lit sur l'écran de validation, qui, lui, est toujours à jour. */
+    const bx=(db.boxes||[]).find(x=>x.id===m.boxId)||{};
+    const quoi=m.type==='ajustementLot'
+      ? 'Ajustement de stock — '+(bx.nom||bx.numero||'box')
+      : boxMvtLibelle(m);
+    pushNotify('🔒 À valider — mouvement de box',quoi+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){} }
 /* refus d'un mouvement en attente (motif du DR, box introuvable, bon déjà réceptionné…) : une seule remise en état —
    le bon lié redevient « à réceptionner », l'auteur est prévenu et le voit dans SON historique */
 function boxMvtRefuser(m,motif){
@@ -15632,7 +15645,7 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
       toast('Demande annulée (retour à zéro)'); renderBoxProdList(); return; }
     lot.ts=Date.now();
     save();
-    if(neuf){ boxMvtPrevenir(lot); toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
+    if(neuf){ logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock'); boxMvtPrevenir(lot); toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
     else toast('🔒 En attente du DR : '+boxMvtLibelle(lot));
     renderBoxProdList();
     // la question « pour qui ? » se pose UNE fois pour le lot, pas à chaque produit sorti
@@ -16393,7 +16406,12 @@ async function mailDoConnect(){ const email=(($('mb-email')||{}).value||'').trim
          pareil. Il faut un mot de passe d'application, ce que le message brut disait déjà en
          fin de ligne. L'application se contredisait elle-même, pour toute entreprise dont la
          boîte a la double authentification — c'est-à-dire le réglage par défaut de Google. */
-      const appPwd=/application[- ]specific password|mot de passe d.application|5\.7\.9|app password|application-specific/i.test(raison);
+      /* Resserré : « 5.7.9 » seul ne suffit pas. Un serveur quelconque qui renverrait ce
+         code pour une autre raison aurait fait perdre le conseil « contacte ton
+         administrateur » sans rien proposer à la place — mailMdpApplication() ne connaît que
+         Google et Yahoo. On exige donc soit le mot « application », soit le préfixe 534 qui
+         accompagne toujours ce refus chez Google. */
+      const appPwd=/application[- ]specific password|mot de passe d.application|app password|534[- ]?5\.7\.9/i.test(raison);
       const lienApp=appPwd?mailMdpApplication(email):null;
       const mdp=!appPwd&&/mot de passe|refus|auth|login|535|credential|invalid|password/i.test(raison);
       const lien=mailMdpOublie(email);
