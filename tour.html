@@ -633,7 +633,17 @@ var INJOIGNABLE='Serveur injoignable — nouvelle tentative dans un instant.';
 
 function $(i){ return document.getElementById(i); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-function jsq(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+/* jsq sert UNIQUEMENT à poser une valeur dans une chaîne JavaScript écrite à l'intérieur d'un
+   attribut HTML (onclick="…('ICI')"). Elle n'échappait que l'antislash et l'apostrophe : un
+   guillemet double dans un nom d'entreprise fermait donc l'attribut et injectait du HTML dans la
+   console du patron — celle qui porte le jeton d'administration de tous les espaces. Et ce nom
+   vient d'un formulaire d'inscription PUBLIC.
+   On échappe donc aussi pour le HTML. Les entités sont décodées par l'analyseur HTML avant que
+   le JavaScript ne soit lu : la valeur arrive intacte dans la fonction appelée. Corriger ici
+   couvre les 37 endroits d'un coup, plutôt que trois. */
+function jsq(s){ return String(s==null?'':s)
+  .replace(/\\/g,'\\\\').replace(/'/g,"\\'")
+  .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function ini(n){ return (String(n||'?').trim()[0]||'?').toUpperCase(); }
 function hAuth(){ return { 'Content-Type':'application/json', 'Authorization':'Bearer '+TOKEN }; }
 /* Le statut voyage avec l'erreur. Sans lui, un 403 « tu n'as pas ce droit » était rapporté
@@ -1178,7 +1188,7 @@ async function tourLienEntreprise(email,nom,neuf){
     '<div id="lg-acces-zone" style="display:flex;gap:8px;align-items:center;margin:6px 0 14px">'+
       '<span id="lg-acces" class="mono" style="flex:1;font-size:19px;letter-spacing:.24em;font-weight:800">…</span>'+
       '<button class="btn-fant" onclick="tourCopie(\'lg-acces\',this)">Copier</button>'+
-      '<button class="btn-fant" onclick="tourAccesNeuf(\''+esc(jsq(e.slug||e.nom))+'\')">🔄 Renouveler</button></div>'+
+      '<button class="btn-fant" onclick="tourAccesNeuf(\''+jsq(e.slug||e.nom)+'\')">🔄 Renouveler</button></div>'+
     '<div id="lg-acces-quand" style="color:var(--muted);font-size:12px;margin:-8px 0 14px"></div>'+
     '<div class="sec">SES IDENTIFIANTS DE DÉPART</div>'+
     '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(e.ident)+'</b> <span style="color:var(--muted);font-size:12px">(son prénom)</span><br>Mot de passe provisoire : <b>'+esc(mdpAff)+'</b> <span style="color:var(--muted);font-size:12px">(son nom + « !! » — l\'app lui fait choisir son vrai mot de passe à la 1re connexion)</span></div>'+

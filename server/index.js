@@ -123,7 +123,11 @@ const PLAFOND_GLOBAL = 120;    // requêtes / minute / IP
 const PLAFOND_STRICT = 20;     // idem, sur les routes sensibles
 const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
 
-const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|espaces)/;
+/* « espaces/(ouvrir|relance) » et non « espaces » tout court : /api/espaces/etat est appelé à
+   chaque reprise d'onglet par une entreprise en attente de paiement, et le palier strict est
+   partagé par IP entre toutes ces familles — plusieurs salariés derrière une seule IP de bureau
+   l'épuiseraient pour l'assistant devis en même temps. */
+const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|espaces\/(ouvrir|relance))/;
 
 let compteurs = new Map();
 setInterval(() => { compteurs = new Map(); }, 60000).unref();
@@ -586,7 +590,7 @@ const mailQuota = new Map();
 function mailQuotaRefus(req, teamId, prefixe, max) {
   prefixe = prefixe || ''; max = max || 30;
   const teamConnue = Object.values(subs).some(s => s.teamId === teamId);
-  const cle = prefixe + (teamConnue ? teamId : 'ip:' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?'));
+  const cle = prefixe + (teamConnue ? teamId : 'ip:' + (req.ip || '?'));   // req.ip, jamais l'en-tête brut : il se falsifie
   const q = mailQuota.get(cle) || { count: 0, reset: Date.now() + 3600000 };
   if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
   if (q.count >= max) {
@@ -951,7 +955,7 @@ function monLog(ident, ok, req, motif) {   // journal des connexions (réussies 
   monSave();
 }
 app.post('/api/monitor/login', (req, res) => {
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
+  const ip = req.ip || '?';   // req.ip, jamais l'en-tête brut : nginx AJOUTE à la valeur reçue, donc .split(',')[0] rend celle de l'appelant
   const q = monLoginTries.get(ip) || { count: 0, reset: Date.now() + 3600000 };
   if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
   if (q.count >= 10) return res.status(429).json({ error: 'trop d\'essais — réessaie dans une heure' });
@@ -1167,12 +1171,11 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
   const prev = espacesReg[slug] || {};
   // un nom = une seule entreprise : refus si le nom est déjà pris par un AUTRE espace
   if (prev.t && t && prev.t !== t) return res.status(409).json({ error: 'Ce nom est déjà utilisé par une autre entreprise — choisis une variante (ex. ajoute la ville)' });
-  /* Le code d'accès est reporté depuis l'entrée précédente. Sans cela, il disparaissait à chaque
-     ouverture du panneau « Lien de connexion » — qui poste ici — et toute l'équipe se retrouvait
-     dehors sans que personne ne l'ait demandé. */
+  /* Le code d'accès ne figure PAS ici : il vit dans son propre registre, indexé par l'identifiant
+     d'équipe (voir /api/espaces/ouvrir). Le reporter depuis « prev » ressuscitait un code révoqué
+     dès qu'on rouvrait le panneau d'un ancien nom du même espace. */
   espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom, email: monStr((req.body || {}).email, 120).toLowerCase() || prev.email || '',
-    formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs,
-    acces: prev.acces, accesTs: prev.accesTs, accesPar: prev.accesPar, accesVu: prev.accesVu };
+    formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs };
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
   res.json({ ok: true, slug });
 });
@@ -1634,10 +1637,27 @@ function lienEspaceCode(e) { return 'https://teamop.fr/app.html#entreprise=' + c
    Tour. Le nom AVEC le code rend le lien, et l'application demande ensuite identifiant et mot
    de passe, comme avant.
    DIX et non six : à six, 31⁶ ≈ 8,9·10⁸, et seul le compteur par espace tenait la force brute —
-   ce qui obligeait à le serrer, donc à laisser n'importe qui verrouiller un espace pour une
-   heure en tapant douze fois à côté. À dix, 31¹⁰ ≈ 8,2·10¹⁴ : la force brute n'est plus le
-   sujet, le compteur peut être large, et le code se dicte toujours en deux groupes de cinq.
-   L'alphabet écarte O/0 et I/1/L : ce code se dicte au téléphone, depuis un chantier. */
+   ce qui obligeait à le serrer, donc à laisser n'importe qui verrouiller un espace en tapant à
+   côté. À dix, 31¹⁰ ≈ 8,2·10¹⁴ : la force brute n'est plus le sujet. L'alphabet écarte O/0 et
+   I/1/L — ce code se dicte au téléphone, depuis un chantier.
+
+   IL VIT DANS SON PROPRE REGISTRE, indexé par l'identifiant d'ÉQUIPE (t), et non dans
+   espacesReg indexé par slug. Deux raisons, toutes deux mesurées :
+   · espaceAJour() ne rend pas l'objet du registre mais une COPIE (espaceParT termine par un
+     Object.assign) : écrire dessus n'écrivait nulle part, et le code affiché au patron n'a
+     jamais existé côté serveur — la Tour en montrait un neuf à chaque ouverture, aucun ne
+     fonctionnait, et « Renouveler » ne révoquait rien.
+   · un même espace peut porter PLUSIEURS noms dans l'annuaire. Rangé par nom, un code révoqué
+     ressuscitait dès que le patron rouvrait le panneau d'un ancien nom. Un espace, un code. */
+const ACCES_PATH = path.join(DATA_DIR, 'acces.json');
+let accesReg = {};
+try { accesReg = JSON.parse(fs.readFileSync(ACCES_PATH, 'utf8')); } catch (e) {}
+let accesTimer = null;
+function accesSave() {   // différée : la route publique écrit à chaque ouverture réussie
+  clearTimeout(accesTimer);
+  accesTimer = setTimeout(() => { try { fs.writeFileSync(ACCES_PATH, JSON.stringify(accesReg)); } catch (e) {} }, 800);
+  if (accesTimer.unref) accesTimer.unref();
+}
 const ACCES_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const ACCES_LONGUEUR = 10;
 function accesNeuf() {
@@ -1654,61 +1674,70 @@ setInterval(() => { ouvrirQuota = new Map(); }, 3600000).unref();
 app.post('/api/espaces/ouvrir', (req, res) => {
   /* Les deux entrées sont bornées AVANT tout traitement : espSlug fait un normalize('NFD') qui,
      sur les 6 Mo qu'accepte express.json, bloquerait la boucle d'événements. */
-  const nom = monStr((req.body || {}).nom, 80);
-  const slug = espSlug(nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));
   const donne = accesNorm(monStr((req.body || {}).acces, 32));
   if (!slug || !donne) return res.status(400).json({ error: 'Nom de l\'entreprise et code d\'accès requis' });
   if (ouvrirQuota.size > 5000) ouvrirQuota = new Map();
-  /* On résout l'espace AVANT de compter : le compteur doit porter sur l'ESPACE (son identifiant
-     d'équipe), pas sur le nom demandé — plusieurs noms peuvent désigner le même espace, et
-     compter par nom multiplierait les essais autorisés par le nombre d'alias. */
-  const e = espaceAJour(slug);
-  const cleEsp = (e && espaceT(e)) || 'inconnu:' + slug;
   const ip = req.ip || '?';   // jamais l'en-tête brut : il est fourni par le client
-  if (!quotaOk(ouvrirQuota, 'ip:' + ip, 60, 3600000) || !quotaOk(ouvrirQuota, 'esp:' + cleEsp, 30, 3600000))
+  if (!quotaOk(ouvrirQuota, 'ip:' + ip, 60, 3600000))
     return res.status(429).json({ error: 'Trop d\'essais — réessaie dans une heure, ou fais-toi renvoyer le lien par e-mail.' });
+  const e = espaceAJour(slug);
+  const t = e ? espaceT(e) : '';
+  const enr = t ? accesReg[t] : null;
   /* Une seule et même réponse quand ça ne marche pas, quelle qu'en soit la raison : sinon
      l'écran dirait qui est client de TEAM OP et qui ne l'est pas. */
   const refus = () => res.status(403).json({ error: 'Nom d\'entreprise ou code d\'accès incorrect.' });
-  if (!e || !e.code || !e.acces) return refus();
-  const attendu = Buffer.from(accesNorm(e.acces));
-  const recu = Buffer.from(donne);
-  // comparaison à durée constante : le temps de réponse ne doit pas trahir un préfixe correct
-  if (attendu.length !== recu.length || !crypto.timingSafeEqual(attendu, recu)) return refus();
-  /* Ce qu'on rend est déjà lourd — il porte « k », la clé des données. On en retire au moins ce
-     qui n'a rien à y faire par ce chemin : l'identifiant administrateur (a), l'adresse e-mail de
-     l'entreprise (e) et l'empreinte du mot de passe provisoire (mh). Le lien envoyé par e-mail,
-     lui, les garde : il part à une adresse déjà connue, pas à qui tape un code. */
+  const bon = (() => {
+    if (!e || !e.code || !enr || !enr.code) return false;
+    const attendu = Buffer.from(accesNorm(enr.code));
+    const recu = Buffer.from(donne);
+    // comparaison à durée constante : le temps de réponse ne doit pas trahir un préfixe correct
+    return attendu.length === recu.length && crypto.timingSafeEqual(attendu, recu);
+  })();
+  /* Le compteur par espace ne compte QUE les échecs, et il est consulté APRÈS la vérification.
+     Autrement, trente requêtes à vide sur un nom d'entreprise — qui est public — fermaient la
+     porte à tous ses salariés pendant une heure, code correct en main. C'est le plafond par IP
+     qui borne la force brute, et dix caractères la rendent hors de portée de toute façon. */
+  if (!bon) {
+    quotaOk(ouvrirQuota, 'esp:' + (t || slug), 30, 3600000);
+    return refus();
+  }
+  /* Ce qu'on rend porte déjà « k », la clé des données. On en retire ce qui n'a rien à y faire
+     par ce chemin : l'adresse e-mail de l'entreprise (e) et l'empreinte du mot de passe
+     provisoire (mh) — une empreinte SHA-256 sans sel d'un mot de passe prévisible se casse hors
+     ligne. L'identifiant administrateur (a) reste : c'est un prénom, et sans lui la toute
+     première connexion d'un espace neuf ne s'amorce pas. Le lien envoyé par e-mail, lui, garde
+     tout : il part à une adresse déjà connue, pas à qui tape un code. */
   let rendu = codeMdpHache(e.code);
   try {
     const o = JSON.parse(Buffer.from(rendu, 'base64').toString('utf8'));
-    delete o.a; delete o.e; delete o.mh;
+    delete o.e; delete o.mh;
     rendu = Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
   } catch (err) {}
-  e.accesVu = Date.now();
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
-  // pas d'IP au journal : donnée personnelle, et de toute façon sans valeur d'enquête ici
+  enr.vu = Date.now(); accesSave();
+  // pas d'IP au journal : donnée personnelle, et de toute façon falsifiable
   console.log('espace ouvert par code :', slug);
   res.json({ ok: true, code: rendu });
 });
-/* Le patron lit ou renouvelle le code d'accès. On travaille sur le MÊME enregistrement que la
-   route publique (espaceAJour), sinon le code affiché et le code vérifié peuvent être sur deux
-   entrées différentes et ne jamais se rencontrer. */
+/* Le patron lit ou renouvelle le code d'accès. Tout passe par l'identifiant d'ÉQUIPE : un espace,
+   un code, quel que soit le nom par lequel on arrive. */
 app.post('/api/monitor/espaces/acces', monPatronStrict, (req, res) => {
   const slug = espSlug(monStr((req.body || {}).slug || (req.body || {}).nom, 80));
   const e = espaceAJour(slug);
-  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
-  if (!e.acces || e.acces.length !== ACCES_LONGUEUR || (req.body || {}).regenerer) {
-    e.acces = accesNeuf(); e.accesTs = Date.now(); e.accesPar = req.tourUser.nom; delete e.accesVu;
-    try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  const t = e ? espaceT(e) : '';
+  if (!e || !t) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
+  let enr = accesReg[t];
+  if (!enr || !enr.code || enr.code.length !== ACCES_LONGUEUR || (req.body || {}).regenerer) {
+    enr = accesReg[t] = { code: accesNeuf(), ts: Date.now(), par: req.tourUser.nom, vu: 0 };
+    try { fs.writeFileSync(ACCES_PATH, JSON.stringify(accesReg)); } catch (err) {}
     console.log('Tour :', req.tourUser.nom, ((req.body || {}).regenerer ? 'renouvelle' : 'crée'), 'le code d\'accès de', slug);
   }
-  res.json({ ok: true, slug, acces: e.acces, ts: e.accesTs || 0, par: e.accesPar || '', vu: e.accesVu || 0 });
+  res.json({ ok: true, slug, acces: enr.code, ts: enr.ts || 0, par: enr.par || '', vu: enr.vu || 0 });
 });
 app.post('/api/espaces/relance', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
   if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
+  const ip = req.ip || '?';   // req.ip, jamais l'en-tête brut : nginx AJOUTE à la valeur reçue, donc .split(',')[0] rend celle de l'appelant
   if (!quotaOk(relanceQuota, 'ip:' + String(ip).split(',')[0].trim(), 10, 3600000))
     return res.status(429).json({ error: 'Trop de demandes — réessaie dans une heure' });
   /* La réponse part AVANT l'envoi : ni le texte ni le délai ne doivent laisser deviner
