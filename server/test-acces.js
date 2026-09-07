@@ -68,10 +68,27 @@ const post = async (chemin, corps, jeton) => {
 };
 const surDisque = () => { try { return JSON.parse(fs.readFileSync(path.join(data, 'acces.json'), 'utf8')); } catch (e) { return null; } };
 
+/* Un serveur d'essai oublié d'un lancement précédent répondrait à notre place, avec SON
+   annuaire et SON mot de passe : on mesurerait alors autre chose que ce qu'on croit — c'est
+   arrivé, et ça se manifeste par un « nom ou mot de passe incorrect » incompréhensible.
+   On refuse de démarrer plutôt que de rendre un résultat faux. */
+(async () => {
+  try {
+    const r = await fetch(BASE + '/health', { signal: AbortSignal.timeout(1500) });
+    if (r.ok) {
+      console.log('✘ le port ' + PORT + ' est déjà pris par un autre serveur.');
+      console.log('  Ferme-le avant de relancer :  ps -eo pid,args | grep "[s]erver/index.js"');
+      fs.rmSync(dir, { recursive: true, force: true });
+      process.exit(1);
+    }
+  } catch (e) { /* rien n'écoute : c'est ce qu'on veut */ }
+})();
+
 const srv = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
   env: { ...process.env, TEAMOP_CONFIG: path.join(dir, 'config.json'), TEAMOP_DATA: data, PORT: String(PORT) },
   stdio: ['ignore', 'pipe', 'pipe']
 });
+if (process.env.BAVARD) { srv.stdout.on('data', d => process.stdout.write('[srv] ' + d)); srv.stderr.on('data', d => process.stdout.write('[srv!] ' + d)); }
 const fin = (code) => { try { srv.kill(); } catch (e) {} try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} process.exit(code); };
 
 (async () => {
