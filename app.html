@@ -4485,7 +4485,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '570';
+const APP_VERSION = '571';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5682,6 +5682,11 @@ async function forfaitServeurSync(silencieux){
       alert('Cet espace a été fermé par TEAM OP.\n\nPour toute question : contact@teamop.fr');
       location.reload(); return;
     }
+    /* Les applications ouvertes à cet espace arrivent par le même aller-retour que la formule.
+       On le lit AVANT le test sur la formule : un espace sans formule attribuée sortait par le
+       « return » ci-dessous, et gardait donc la messagerie affichée sans que personne ne l'ait
+       ouverte. */
+    try{ const av=_opMsgOuvert; _opMsgOuvert=!!(j&&j.opMessages); if(av!==_opMsgOuvert&&currentUser) suiteRefresh(); }catch(e){}
     if(!(j&&j.formule&&PLANS[j.formule])) return;
     const q=Math.max(1,parseInt(j.quantite,10)||1);
     const avaitAttente=!!db.formuleAttente;
@@ -18938,7 +18943,7 @@ const USER_CAPS=[
   ['voirTout','Tout voir','Toutes les interventions et TOUTES les box de l\'entreprise. Décoché : seulement ses interventions et les box choisies pour lui (ci-dessous, ou cochées dans la fiche de la box)'],
   ['validerDR','Valider les mouvements de box et les demandes (rôle DR)','Voit « Validations DR », valide ou refuse les arrivages, réceptions, prises et demandes de commande de l\'équipe, et reçoit les alertes « à valider »'],
   ['voirCompta','Voir / gérer la comptabilité et les tarifs','Comptabilité, télécollectes, prix et marges (par défaut : administrateur, DR et gestion compta)'],
-  ['opMessages','Accès à OP MESSAGES','Affiche la messagerie de la suite TEAM OP dans sa barre latérale'],
+  ['opMessages','Accès à OP MESSAGES','Affiche OP MESSAGES dans sa barre latérale — sans effet tant que TEAM OP n\'a pas ouvert cette application à l\'entreprise (elle a son propre abonnement)'],
   ['creerUtilisateurs','Créer des utilisateurs','Peut ajouter des comptes terrain (technicien, chef d\'équipe, commercial…) dans la limite des places de l\'abonnement — la modification reste réservée à l\'administrateur'],
   ['devisIA','Utiliser Devis IA','Peut générer des devis automatiquement — l\'accès de l\'entreprise est activé par TeamOP, aucune clé ni code ne circule'],
 ];
@@ -23550,14 +23555,24 @@ function maybeProfilePhoto(){ if(!currentUser||currentUser.photo) return;
    Avec l'ancienne règle, une entreprise invitée à essayer la bêta voyait les outils internes :
    planning de démonstration, assistant IA, envoi de notification de test. */
 function equipeTeamOP(){ try{ return syncTeam()===FB_TEAM; }catch(e){ return false; } }
-function opMsgDisponible(){ return equipeTeamOP(); }
-/* Barre « SUITE » du menu : une seule règle, réutilisée à la connexion, au changement de forfait et au code promo —
-   OP MESSAGES = droit accordé + forfait + application ouverte (encore en développement pour les entreprises) ;
-   sans autre application à ouvrir, le sélecteur « Changer d'application » est retiré (il reste la déconnexion) */
+/* ── OP MESSAGES est une AUTRE application ──────────────────────────────────────────────────
+   Elle ne fait plus partie des formules d'OP GESTION : elle a son abonnement, son compte et sa
+   connexion. On ne la montre donc ici que si TEAM OP l'a ouverte à CETTE entreprise-là, et le
+   serveur seul en décide (/api/espaces/etat, champ « opMessages », posé depuis la Tour).
+   Le défaut est FERMÉ, y compris pour l'espace interne : mélanger les deux applications, c'est
+   mélanger deux abonnements et deux connexions — et c'est exactement ce qu'on veut arrêter.
+   « var » et non « let » : forfaitServeurSync peut y toucher avant que cette ligne du fichier
+   ne soit exécutée. */
+var _opMsgOuvert=false;
+function opMsgDisponible(){ return _opMsgOuvert===true; }
+/* Barre « SUITE » du menu : une seule règle, réutilisée à la connexion, au changement de forfait
+   et au code promo. Sans autre application à ouvrir, la rangée ENTIÈRE disparaît — étiquette
+   comprise : un sélecteur « Changer d'application » qui n'ouvre rien est un bouton mort, et
+   OP GESTION doit être OP GESTION. La carte utilisateur et la déconnexion, elles, restent. */
 function suiteRefresh(){ if(!currentUser) return;
   const soOn=!!(can('opMessages')&&planOpMsg()&&opMsgDisponible());
   const so=$('suite-opmsg'); if(so) so.style.display=soOn?'flex':'none';
-  try{ const sb=$('suite-box'); if(sb){ const on=soOn||currentUser.role==='admin'; sb.style.display=on?'':'none'; const lbl=sb.previousElementSibling; if(lbl) lbl.style.display=on?'':'none'; } }catch(e){} }
+  try{ const sb=$('suite-box'); if(sb){ sb.style.display=soOn?'':'none'; const lbl=sb.previousElementSibling; if(lbl) lbl.style.display=soOn?'':'none'; } }catch(e){} }
 function enterApp(u){ currentUser=u;
   /* Les comptes de l'équipe viennent d'arriver par la synchro : c'est le bon moment pour
      (re)déposer l'annuaire de connexion, sans bloquer l'ouverture. */
