@@ -24134,17 +24134,31 @@ function ongletsEcrits(l){ try{ localStorage.setItem(CLE_ONGLETS,JSON.stringify(
    menu (changement de rôle, de formule) disparaît d'elle-même de la barre. */
 function ongletsChoisis(){
   var dispo=candidates(); if(!dispo.length) return [];
-  var voulu=ongletsLus()||DEFAUT_ONGLETS;
+  /* null = jamais réglé · [] = vidé EXPRÈS. Les confondre était un vrai défaut : un tableau
+     vide est truthy en JS, donc « ongletsLus() || DEFAUT » gardait le tableau vide, la boucle
+     ne remplissait rien, et le filet de sécurité repeuplait aussitôt les quatre rubriques
+     d'origine — derrière la fenêtre encore ouverte. La personne voyait « 0 / 4 » dans la
+     feuille et retrouvait une barre pleine en la fermant, sans explication. */
+  var voulu=ongletsLus();
   var out=[];
-  voulu.forEach(function(k){ var c=dispo.find(function(x){return x.k===k;}); if(c&&out.length<4) out.push(c); });
-  if(!out.length) dispo.slice(0,4).forEach(function(c){ out.push(c); });
+  (voulu||DEFAUT_ONGLETS).forEach(function(k){
+    var c=dispo.find(function(x){ return x.k===k; });
+    // l'unicité aussi : une valeur abîmée à la main donnerait deux onglets identiques
+    if(c && out.length<4 && out.indexOf(c)<0) out.push(c);
+  });
+  // le filet ne joue QUE si rien n'a jamais été réglé, jamais après un choix explicite
+  if(!out.length && voulu===null) dispo.slice(0,4).forEach(function(c){ out.push(c); });
   return out;
 }
 var barre=null, onglets=[];
 function construire(){
   var dispo=ongletsChoisis();
-  if(!dispo.length) return false;
-  var signature=dispo.map(function(x){return x.k;}).join(',');
+  /* Une barre VIDE reste posée, avec son seul bouton de réglage. Rendre false ici retirerait
+     la barre ENTIÈRE — donc la porte qui permet d'y remettre des rubriques : celui qui vide
+     sa barre n'aurait plus aucun moyen de la reconstituer. On ne s'efface que s'il n'y a rien
+     à proposer du tout (menu vide, session non ouverte). */
+  if(!dispo.length && !candidates().length) return false;
+  var signature=dispo.map(function(x){return x.k;}).join(',')||'__vide';
   if(barre && barre.dataset.sig===signature) return true;
   if(barre) barre.remove();
   barre=document.createElement('nav');
@@ -24475,6 +24489,15 @@ if(typeof window.closeModal==='function'&&typeof window.openModal==='function'){
      la fenêtre suivante doit annuler la sortie en cours, pas arriver par-dessus son fantôme. */
   window.openModal=function(){
     clearTimeout(minuterie);
+    /* La feuille de lecture d'un mail (#mail-read) est posée en position:fixed;inset:0 à
+       z-index 400, le voile des fenêtres est à 300 : une fenêtre ouverte pendant qu'un message
+       est affiché s'ouvre DERRIÈRE lui, invisible, tout en captant le focus. C'était le cas du
+       bouton « Réglages » de la barre, qui passe par openModal() et jamais par go() — le
+       chemin le plus évident vers la fonction que cette barre vient d'apporter.
+       On nettoie donc ici, pour TOUTE fenêtre, et pas seulement dans l'enveloppe de go(). Le
+       « Retour » d'origine de la feuille continue de fonctionner : il la retire lui-même et ne
+       passe par aucune des deux enveloppes. */
+    try{ var f=document.getElementById('mail-read'); if(f) f.remove(); }catch(e){}
     var ov=voile(); if(ov) ov.classList.remove('ferme');
     return ouvrirNatif.apply(this,arguments);
   };
