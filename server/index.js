@@ -423,6 +423,7 @@ app.post('/api/mailbox/connect', async (req, res) => {
   try {
     const { ImapFlow } = require('imapflow');
     const c = new ImapFlow({ host: srv.imapHost, port: srv.imapPort, secure: true, auth: { user: email, pass }, logger: false });
+    c.on('error', () => {});   // une erreur émise en événement tuerait le processus : on l'absorbe, l'échec est déjà traité par le try/catch
     await c.connect(); await c.logout();
   } catch (e) { return res.status(400).json({ error: 'Connexion réception (IMAP) refusée : ' + String(e.message || e).slice(0, 140) }); }
   // remplace une éventuelle boîte de même adresse dans la même équipe
@@ -454,6 +455,7 @@ async function importHistorique(b, limit = 60) {
   const { ImapFlow } = require('imapflow'); const { simpleParser } = require('mailparser'); let client;
   try {
     client = new ImapFlow({ host: b.imapHost, port: b.imapPort || 993, secure: true, auth: { user: b.email, pass: b.pass }, logger: false });
+    client.on('error', () => {});   // une erreur émise en événement tuerait le processus : on l'absorbe, l'échec est déjà traité par le try/catch
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
@@ -486,6 +488,7 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
   const { ImapFlow } = require('imapflow'); let client;
   try {
     client = new ImapFlow({ host: cfg.host, port: cfg.port || 993, secure: true, auth: { user: cfg.user, pass: cfg.pass }, logger: false });
+    client.on('error', () => {});   // une erreur émise en événement tuerait le processus : on l'absorbe, l'échec est déjà traité par le try/catch
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
@@ -2917,6 +2920,7 @@ async function releveSupport(importHisto) {   // même mécanique que la relève
   const { ImapFlow } = require('imapflow'); const { simpleParser } = require('mailparser'); let client;
   try {
     client = new ImapFlow({ host: supportBox.imapHost, port: supportBox.imapPort || 993, secure: true, auth: { user: supportBox.email, pass: supportBox.pass }, logger: false });
+    client.on('error', () => {});   // une erreur émise en événement tuerait le processus : on l'absorbe, l'échec est déjà traité par le try/catch
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
@@ -2964,6 +2968,7 @@ app.post('/api/monitor/support/connect', monPatronStrict, async (req, res) => {
   try {
     const { ImapFlow } = require('imapflow');
     const c = new ImapFlow({ host: box.imapHost, port: box.imapPort, secure: true, auth: { user: box.email, pass: box.pass }, logger: false });
+    c.on('error', () => {});   // une erreur émise en événement tuerait le processus : on l'absorbe, l'échec est déjà traité par le try/catch
     await c.connect(); await c.logout();
   } catch (e) { return res.status(400).json({ error: 'Connexion réception (IMAP) refusée : ' + String(e.message || e).slice(0, 140) }); }
   // changement d'adresse : on retire les messages de l'ancienne boîte (ils restent dans la messagerie)

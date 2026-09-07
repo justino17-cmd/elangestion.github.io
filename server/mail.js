@@ -102,6 +102,7 @@ module.exports = function monterMessagerie(app, ctx) {
       const { ImapFlow } = require('imapflow');
       const client = new ImapFlow({ host: b.imapHost, port: b.imapPort || 993, secure: true,
         auth: { user: b.email, pass: b.pass }, logger: false, emitLogs: false });
+      client.on('error', () => {});   // une erreur émise en événement tuerait le processus : on l'absorbe, l'échec est déjà traité par le try/catch
       try {
         await client.connect();
         return await tache(client);
@@ -196,6 +197,7 @@ module.exports = function monterMessagerie(app, ctx) {
     try {
       const { ImapFlow } = require('imapflow');
       const c = new ImapFlow({ host: b.imapHost, port: b.imapPort, secure: true, auth: { user: b.email, pass: b.pass }, logger: false });
+      c.on('error', () => {});   // une erreur émise en événement tuerait le processus : on l'absorbe, l'échec est déjà traité par le try/catch
       await c.connect(); await c.logout();
     } catch (e) { return res.status(400).json({ error: 'Connexion de réception (IMAP) refusée : ' + String(e.message || e).slice(0, 140) }); }
     const i = boites.findIndex(x => x.email === adr);
