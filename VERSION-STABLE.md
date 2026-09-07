@@ -1,6 +1,89 @@
 # Point stable TeamOP
 
-**Version stable : v568** — gravée le 7 septembre 2026.
+**Version stable : v569** — gravée le 7 septembre 2026.
+
+v569 — chaque entreprise a son adresse, et on s'y connecte avec son identifiant.
+
+**Le problème, dit par Justin : « le lien que tu génères est bien, mais si les personnes se
+déconnectent, elles n'ont plus le code d'accès. Comment elles font ? »** Il avait raison, et le
+défaut était de fond. Le lien `app.html#entreprise=…` porte `k`, la clé qui déchiffre les
+données de l'entreprise : le lien EST le mot de passe. Le perdre, c'était perdre la porte. Le
+code d'accès à dix caractères (v567) enlevait la dépendance à l'e-mail, mais restait un secret
+d'entreprise que personne ne retient et qu'on ne peut retirer à une seule personne.
+
+**Ce qui remplace tout ça : l'adresse de l'entreprise, comme Organilog.**
+`teamop.fr/nom-de-l-entreprise` ouvre SON écran de connexion — identifiant, mot de passe, et on
+est dedans. L'adresse reste dans la barre du navigateur, se met en favori, s'écrit sur un
+camion. Rien à conserver, rien à se faire dicter, et chaque personne n'ouvre que son entreprise.
+
+**Comment le serveur peut vérifier un mot de passe qu'il ne connaît pas.** Les comptes vivent
+dans les données CHIFFRÉES de l'espace : le serveur ne sait pas les lire, et il n'en est pas
+question. L'application lui DÉPOSE donc un vérificateur par compte — un sel tiré au hasard et
+PBKDF2(empreinte du mot de passe, sel, 120 000 tours). On ne remonte pas d'un vérificateur au
+mot de passe, et il ne sert nulle part ailleurs. Le dépôt se prouve en montrant `sha256` de la
+clé d'équipe, la même preuve que `/api/espaces/lien` : sans elle, n'importe qui écraserait
+l'annuaire d'une entreprise pour entrer chez elle. Rien d'autre ne part : ni prénom, ni nom, ni
+adresse.
+
+**Ce que la route rend n'est pas nouveau, sa condition l'est.** `POST /api/espaces/connexion`
+rend le code de l'espace — donc `k` — exactement comme le fait déjà le code d'accès. Ce qui
+change, c'est qu'il faut désormais un mot de passe PERSONNEL, révocable compte par compte, au
+lieu d'un secret partagé par toute l'entreprise. Un mot de passe faux, un identifiant inconnu et
+une entreprise inexistante répondent la même chose : la route ne dit pas qui est client de
+TEAM OP. 36 cas de régression dans `server/test-connexion.js`, dont le cloisonnement (« marc »
+existe dans deux entreprises avec deux mots de passe — chacun ne reçoit que SA clé) et une
+charge de 5 Mo sur les deux routes publiques.
+
+**Pas de mot de passe à taper deux fois.** La page de connexion passe à l'application un jeton
+d'ouverture (sessionStorage, même onglet, effacé dès qu'il a servi, refusé passé deux minutes).
+L'application n'entre que si le compte existe vraiment dans les données de l'équipe et que son
+empreinte correspond : le serveur dit qui vous êtes, les données disent ce que vous avez le
+droit de voir, et c'est la seconde qui décide.
+
+**Le code d'accès reste — comme filet, plus comme chemin.** Tant qu'une entreprise n'a pas
+ouvert l'application une fois avec cette version, son annuaire est vide : l'écran le dit et
+propose le code. Ensuite, l'identifiant suffit, partout.
+
+**La Tour reprend la main sur ses accès.** Suspendre (sans rien effacer, réversible), rouvrir,
+renommer — donc changer l'adresse, avec l'avertissement qui va avec — et supprimer, en faisant
+écrire le nom. Et surtout **trois familles séparées à l'écran** : les accès bêta, les accès à la
+version publique ouverts depuis la Tour, et les entreprises inscrites sur le site. Les mélanger,
+c'était risquer de supprimer un client en croyant faire le ménage dans ses propres essais.
+
+**Ce que la relecture a trouvé, et qui n'aurait pas dû partir en production.** Ce n'est pas de
+la modestie de le noter : ces quatre-là étaient tous invisibles à l'essai, et trois auraient
+coûté cher.
+
+· **Un identifiant `__proto__` tuait le serveur entier.** `ann.c` vient d'un JSON : c'est un
+  objet ordinaire, donc `ann.c['__proto__']` rend `Object.prototype` — « vrai », avec un champ
+  vide. `Buffer.from` levait alors hors du `try`, dans un gestionnaire `async` qu'Express 4 ne
+  rattrape pas : processus mort. Une requête, sans authentification, et les 80 routes tombaient
+  pour tous les clients. La suite passait 36 cas sur 36 en ignorant celui-là. Corrigé par
+  `hasOwnProperty`, par une vérification de forme avant tout usage, et par un filet autour de la
+  vérification entière. Cinq identifiants piégés sont désormais dans la suite.
+
+· **Renommer mentait.** La route lisait `espacesReg[slug]` alors qu'un espace porte plusieurs
+  noms dans l'annuaire : elle renommait une entrée pendant que le serveur en servait une autre,
+  répondait « fait », et l'ancienne adresse continuait de marcher. Elle passe par `espaceAJour`
+  et retire TOUS les anciens noms — ce que l'écran promet.
+
+· **« Rouvrir » défaisait une fermeture d'entreprise.** La liste des espaces fermés est partagée
+  avec la fermeture définitive, celle qui exige un code de confirmation par e-mail. Un clic la
+  défaisait et rendait à nouveau le lien porteur de `k`. Les deux états sont maintenant séparés.
+
+· **L'anti-abus comptait les connexions réussies.** Soixante par heure et par adresse IP : une
+  équipe de trente personnes arrivant à 7 h derrière la même box les épuisait, mots de passe
+  corrects en main. Seuls les ÉCHECS se comptent désormais — c'est eux que la force brute
+  produit.
+
+**Trois suites, 122 cas.** `server/test-connexion.js` (51), `server/test-acces.js` (31), et
+l'essai en navigateur sur Chromium ET WebKit — le moteur de Safari — qui suit le chemin réel de
+bout en bout : adresse, mot de passe faux, mot de passe juste, entrée dans l'application sans
+retaper, et jeton qui ne correspond pas (40).
+
+---
+
+**Version précédente : v568** — gravée le 7 septembre 2026.
 
 v568 — la couleur dit la même chose partout, et la Tour reprend la main sur ses accès.
 

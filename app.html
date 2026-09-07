@@ -4485,7 +4485,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '568';
+const APP_VERSION = '569';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5042,7 +5042,7 @@ function migrate(d){
   (d.boxes||[]).forEach(b=>{ if(b.visibleTous===undefined){ b.visibleTous = !((b.techIds||[]).length); } });
   return d;
 }
-function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catch(e){ try{ toast('Stockage plein — réduis le nombre/poids des photos'); }catch(_){} } refreshBadges(); updateBell(); if(typeof syncPush==='function') syncPush(); }
+function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catch(e){ try{ toast('Stockage plein — réduis le nombre/poids des photos'); }catch(_){} } refreshBadges(); updateBell(); if(typeof syncPush==='function') syncPush(); if(typeof annuaireVeille==='function') annuaireVeille(); }
 
 /* ════════ SYNCHRONISATION TEMPS RÉEL (équipe) — Firebase Firestore, gratuit ════════
    Dormant tant qu'aucune config n'est saisie (Paramètres). Document d'équipe unique
@@ -5127,6 +5127,11 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
         try{ refreshBadges&&refreshBadges(); updateBell&&updateBell();
           if(currentUser&&views[current]){ if(planEnGlissement()&&current==='planning'){ window._planPending=true; } else views[current](); } }catch(e){}
         _syncApplying=false; if(currentUser){ try{ toast(diffMsg||'Données de l\'équipe mises à jour'); }catch(e){} }
+        /* Les comptes viennent peut-être de changer sur un AUTRE appareil : la synchro écrit
+           le stockage directement, sans passer par save(). Sans ce rappel, un compte retiré
+           ailleurs resterait dans l'annuaire de connexion tant que cet appareil ne modifie
+           rien lui-même. Ne part que si la liste a réellement bougé. */
+        try{ annuaireVeille(); }catch(e){}
         try{ seedFournisseurs(); }catch(e){}
         try{ seedPrix(); }catch(e){}
         try{ restoreFournisseurEmails(); }catch(e){}
@@ -23175,6 +23180,71 @@ function adminAnnuaireRetablir(){
 const pinClairHerite=v=>typeof v==='string'&&v.length>0&&!/^[0-9a-f]{64}$/i.test(v);
 async function sha256(str){ try{ if(window.crypto&&crypto.subtle){ const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join(''); } }catch(e){}
   let h=0; for(let i=0;i<str.length;i++) h=(Math.imul(31,h)+str.charCodeAt(i))|0; return 'fb'+(h>>>0).toString(16); }
+/* ══ L'ANNUAIRE DE CONNEXION — entrer avec son identifiant, sans le lien ══════════════════════
+   Le lien de connexion et le code d'accès sont des secrets d'ENTREPRISE : qui se déconnecte,
+   change de téléphone ou vide son navigateur les perd, et n'a plus de porte du tout. Pour
+   qu'un identifiant et un mot de passe personnels suffisent, il faut que le SERVEUR puisse les
+   vérifier — or les comptes vivent dans les données chiffrées, qu'il ne sait pas lire.
+   On lui dépose donc un VÉRIFICATEUR, jamais le mot de passe : pour chaque compte, un sel tiré
+   au hasard et PBKDF2(empreinte du mot de passe, sel, 120 000 tours). On ne remonte pas d'un
+   vérificateur au mot de passe, et il ne sert à rien ailleurs.
+   Le dépôt se prouve en montrant sha256 de la clé d'équipe — la même preuve que
+   /api/espaces/lien. Sans elle, n'importe qui écraserait l'annuaire d'une autre entreprise et
+   entrerait chez elle. Rien d'autre ne part : ni prénom, ni nom, ni adresse. */
+const ANNUAIRE_TOURS=120000;   // le même chiffre que syncKey() — un seul réglage à retenir
+async function annuairePbkdf2(motif,sel,tours){
+  const kb=await crypto.subtle.importKey('raw',new TextEncoder().encode(motif),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:sel,iterations:tours,hash:'SHA-256'},kb,256);
+  return [...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+/* « var » et non « let » : save() appelle annuaireVeille() et peut le faire avant que cette
+   ligne du fichier ne soit exécutée — une déclaration « let » lèverait alors. */
+var _annuaireTimer=null,_annuaireEnCours=false,_annuaireSig='';
+function annuaireVeille(){ try{ clearTimeout(_annuaireTimer); _annuaireTimer=setTimeout(function(){ annuaireDeposer(); },5000); }catch(e){} }
+/* Seuls les comptes à empreinte moderne (64 hexadécimaux) sont déposés. Les vieux comptes dont
+   « pinHash » porte encore le PIN EN CLAIR en sont exclus : leur vérificateur ne pourrait pas
+   correspondre à ce que la page de connexion envoie (sha256 du mot de passe tapé), et déposer
+   quelque chose qui ne marche jamais vaut moins que ne rien déposer. */
+function annuaireEmpreinte(u){ const v=String((u&&(u.pwdHash||u.pinHash))||''); return /^[0-9a-f]{64}$/i.test(v)?v.toLowerCase():''; }
+function annuaireComptes(){
+  return (db.users||[]).filter(u=>u&&u.actif!==false&&!u.essai&&String(u.login||'').trim()&&annuaireEmpreinte(u)).slice(0,200);
+}
+function annuaireSignature(l){ return l.map(u=>String(u.login).toLowerCase().trim()+':'+annuaireEmpreinte(u)).sort().join('|'); }
+async function annuaireDeposer(){
+  if(_annuaireEnCours||BETA_ESSAI) return;          // la bêta n'ouvre que la bêta : rien à déposer
+  const t=localStorage.getItem('elan_sync_team'), k=localStorage.getItem('elan_sync_secret');
+  if(!t||!k) return;                                // appareil sans espace : aucune entreprise à ouvrir
+  if(!window.crypto||!crypto.subtle) return;        // pas de PBKDF2 ici : mieux vaut rien qu'un vérificateur bancal
+  const gens=annuaireComptes(); if(!gens.length) return;
+  const sig=annuaireSignature(gens); if(sig===_annuaireSig) return;
+  _annuaireEnCours=true;
+  try{
+    /* Le cache évite de refaire 120 000 tours par compte à chaque changement : un mot de passe
+       modifié ne fait recalculer QUE le sien. Il ne garde jamais l'empreinte du mot de passe —
+       celle-là se rejouerait telle quelle sur la route de connexion — seulement sa TRACE, le
+       sel et le vérificateur, dont on ne remonte à rien. */
+    let cache={}; try{ cache=JSON.parse(localStorage.getItem('elan_annuaire_cache')||'{}')||{}; }catch(e){}
+    const neuf={}, envoi=[];
+    for(const u of gens){
+      const login=String(u.login).toLowerCase().trim(), emp=annuaireEmpreinte(u);
+      const trace=await sha256(emp+'|annuaire');
+      const c=cache[login];
+      if(c&&c.f===trace&&/^[0-9a-f]{32}$/.test(c.s||'')&&/^[0-9a-f]{64}$/.test(c.e||'')){
+        neuf[login]=c; envoi.push({login:login,s:c.s,e:c.e}); continue;
+      }
+      const selB=crypto.getRandomValues(new Uint8Array(16));
+      const selHex=[...selB].map(x=>x.toString(16).padStart(2,'0')).join('');
+      const ver=await annuairePbkdf2(emp,selB,ANNUAIRE_TOURS);
+      neuf[login]={f:trace,s:selHex,e:ver}; envoi.push({login:login,s:selHex,e:ver});
+    }
+    if(!envoi.length) return;
+    const kh=await sha256(k);
+    const r=await fetch(PUSH_API+'/api/espaces/comptes',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({t:t,kh:kh,comptes:envoi})});
+    if(r&&r.ok){ _annuaireSig=sig; try{ localStorage.setItem('elan_annuaire_cache',JSON.stringify(neuf)); }catch(e){} }
+  }catch(e){}
+  finally{ _annuaireEnCours=false; }
+}
 function getSession(){ return localStorage.getItem('elan_session')||sessionStorage.getItem('elan_session'); }
 async function boot(){
   try{ if(await teamopLienCheck()) return; }catch(e){}   // lien d'entreprise : bascule d'espace avant tout
@@ -23489,6 +23559,9 @@ function suiteRefresh(){ if(!currentUser) return;
   const so=$('suite-opmsg'); if(so) so.style.display=soOn?'flex':'none';
   try{ const sb=$('suite-box'); if(sb){ const on=soOn||currentUser.role==='admin'; sb.style.display=on?'':'none'; const lbl=sb.previousElementSibling; if(lbl) lbl.style.display=on?'':'none'; } }catch(e){} }
 function enterApp(u){ currentUser=u;
+  /* Les comptes de l'équipe viennent d'arriver par la synchro : c'est le bon moment pour
+     (re)déposer l'annuaire de connexion, sans bloquer l'ouverture. */
+  try{ setTimeout(function(){ annuaireDeposer(); },4000); }catch(e){}
   // Bêta : « coupé » depuis la Tour doit fermer aussi les sessions déjà ouvertes. On demande
   // au serveur, sans bloquer l'ouverture ; s'il dit non, on ressort proprement.
   if(BETA_ESSAI&&u&&u.essai){ try{ fetch(PUSH_API+'/api/beta/etat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:u.login})})
@@ -23548,7 +23621,7 @@ function renderLogin(){ $('app-root').style.display='none'; $('login').style.dis
     <form onsubmit="doLogin(event)" autocomplete="off">
       <div class="login-card">
         <div class="login-card-title">Connexion</div>
-        ${_surEspace?'':`<div class="field"><label>Entreprise <span style="font-weight:400;color:var(--t3)">— si ton compte est chez une entreprise TeamOP</span></label><input id="li-ent" placeholder="Nom de ton entreprise (ex : GCI)" autocomplete="organization" autocapitalize="off"><div style="font-size:11px;color:var(--t3);margin-top:4px;line-height:1.5">Le nom de ton entreprise, tel qu'il est dans son lien de connexion (ou colle le lien). Tu as reçu le lien ? Clique dessus, ce champ se remplit tout seul. Compte local sur cet appareil : laisse vide.</div></div>`}
+        ${_surEspace?'':`<div class="field"><label>Entreprise <span style="font-weight:400;color:var(--t3)">— si ton compte est chez une entreprise TeamOP</span></label><input id="li-ent" placeholder="Nom de ton entreprise (ex : GCI)" autocomplete="organization" autocapitalize="off"><div style="font-size:11px;color:var(--t3);margin-top:4px;line-height:1.5">Écris le nom de ton entreprise, puis ton identifiant et ton mot de passe : tu arrives directement dans son espace, sans lien ni code. Tu as un lien de connexion ? Colle-le ici, il marche aussi. Compte local sur cet appareil : laisse vide.</div></div>`}
         <div class="field"><label>Identifiant</label><input id="li-login" value="${esc(saved)}" placeholder="Votre identifiant" autocomplete="username" required></div>
         <div class="field"><label>Mot de passe</label><input id="li-pin" type="password" placeholder="••••••••" autocomplete="current-password" required><div style="font-size:11px;color:var(--t3);margin-top:4px">Ancien compte à code PIN ? Tape ton PIN — on te fera créer ton mot de passe juste après.</div></div>
         <label class="login-remember"><input type="checkbox" id="li-remember" ${saved?'checked':''}> Rester connecté</label>
@@ -23560,6 +23633,7 @@ function renderLogin(){ $('app-root').style.display='none'; $('login').style.dis
     <div style="text-align:center;margin-top:14px"><a onclick="teamopJoinPrompt()" style="cursor:pointer;color:var(--t3);font-size:12.5px;text-decoration:underline">Rejoindre un espace TeamOP (code entreprise)</a>${(_surEspace&&_entNom)?` · <a href="connexion.html?choix=1" style="color:var(--t3);font-size:12.5px;text-decoration:underline">changer d'entreprise</a>`:''}</div>
     <div style="text-align:center;margin-top:12px"><a href="index.html?hub=1" style="color:var(--t3);font-size:12.5px;text-decoration:none;border:1px solid var(--brd);border-radius:100px;padding:7px 14px;display:inline-block">🏠 Accueil TeamOP</a></div>`;
   setTimeout(()=>{ const el=$(saved?'li-pin':'li-login'); if(el) el.focus(); },60);
+  try{ cnxAutoTenter(); }catch(e){}
   (function tick(n){ const s=$('li-sync'); if(!s) return;
     if(_syncGotInitial||!syncEnabled()||n>50){ s.remove();
       // le nom de l'entreprise vient d'arriver avec les données de l'équipe → on l'affiche et on le retient pour la prochaine fois
@@ -23570,12 +23644,64 @@ function renderLogin(){ $('app-root').style.display='none'; $('login').style.dis
    Retourne '' si rien à faire (déjà dessus, ou champ vide), 'reload' si la bascule est lancée (la page se recharge),
    'annule' si l'utilisateur a refusé, sinon un message d'erreur à afficher. `suite` : quoi rouvrir après le
    rechargement ('mdp-oublie'). ── */
-async function espaceDepuisNom(nomTape,login,suite){
+/* ── ARRIVÉE PAR L'ADRESSE DE L'ENTREPRISE (teamop.fr/mon-entreprise) ──────────────────────
+   La page de connexion vient de faire vérifier PAR LE SERVEUR l'identifiant et le mot de passe
+   de cette personne, et l'application vient de recevoir l'espace correspondant. Lui redemander
+   le même mot de passe deux écrans plus loin n'ajoute rien : c'est le même secret, au même
+   instant, sur le même appareil — ça ne fait que donner l'air cassé à un chemin qui marche.
+   On ouvre donc directement, mais SEULEMENT si le compte existe vraiment dans les données de
+   l'équipe et que son empreinte correspond : le serveur dit qui vous êtes, les données disent
+   ce que vous avez le droit de voir, et c'est bien la seconde qui décide ici.
+   Le jeton vit dans sessionStorage (même origine, même onglet), s'efface dès qu'il a servi,
+   meurt avec l'onglet, et est refusé passé deux minutes. */
+async function cnxAutoTenter(){
+  let j=null;
+  try{ const brut=sessionStorage.getItem('elan_cnx_auto'); if(!brut) return; j=JSON.parse(brut); }catch(e){ return; }
+  try{ sessionStorage.removeItem('elan_cnx_auto'); }catch(e){}
+  if(!j||!j.login||!/^[0-9a-f]{64}$/.test(String(j.h||''))) return;
+  if(Date.now()-(+j.ts||0)>120000) return;   // ce n'est plus la même arrivée : on laisse l'écran faire
+  try{ if(!_syncOn&&!_syncDemarre&&syncEnabled()) syncInit(); }catch(e){}
+  await syncAttendre(12000);                 // les comptes de l'équipe arrivent par la synchro
+  const l=String(j.login).toLowerCase();
+  const u=(db.users||[]).find(x=>x&&x.actif!==false&&String(x.login||'').toLowerCase()===l);
+  if(!u) return;
+  const emp=String(u.pwdHash||u.pinHash||'');
+  if(!/^[0-9a-f]{64}$/i.test(emp)||emp.toLowerCase()!==String(j.h).toLowerCase()) return;
+  try{
+    sessionStorage.setItem('elan_session',u.id);
+    if(j.rester){ localStorage.setItem('elan_session',u.id); localStorage.setItem('elan_savedLogin',u.login); }
+  }catch(e){}
+  _cnxVia='adresse';   // par quel chemin on arrive — la Tour le lit
+  enterApp(u);
+}
+async function espaceDepuisNom(nomTape,login,suite,hMdp){
   const s=String(nomTape||'').trim(); if(!s) return '';
   const norm=x=>String(x||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'');
   if(localStorage.getItem('elan_sync_team') && norm(s)===norm(localStorage.getItem('elan_entreprise_nom'))) return '';
   // un lien complet collé : on le suit tel quel
   try{ const mL=s.match(/#(e|entreprise)=([A-Za-z0-9+/=_.-]{2,})/); if(mL){ if(suite) localStorage.setItem('elan_apres_bascule',suite); if(login) localStorage.setItem('elan_savedLogin',login); location.hash=mL[1]+'='+mL[2]; location.reload(); return 'reload'; } }catch(e){}
+  /* ── Connexion par IDENTIFIANT : le chemin normal depuis cette version ──
+     Le serveur vérifie l'identifiant et le mot de passe contre l'annuaire que l'entreprise a
+     déposé (voir annuaireDeposer), puis rend le code de son espace. Ni lien, ni code d'accès :
+     c'est précisément ce qui manquait à celui qui se déconnecte et ne les a plus.
+     On ne tombe sur l'envoi du lien par e-mail que si l'entreprise ne connaît pas encore ce
+     chemin (409) — un mot de passe faux, lui, se dit tout de suite. */
+  const nomPropre=s.replace(/^https?:\/\/(www\.)?teamop\.fr\/?/i,'').replace(/^app\.html#?e?=?/i,'').trim();
+  if(hMdp&&login){
+    try{
+      const rc=await fetch(PUSH_API+'/api/espaces/connexion',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({nom:nomPropre,login:login,h:hMdp})});
+      const jc=await rc.json().catch(()=>({}));
+      if(rc.ok&&jc.code){
+        if(suite) localStorage.setItem('elan_apres_bascule',suite);
+        localStorage.setItem('elan_savedLogin',login);
+        location.hash='entreprise='+jc.code; location.reload(); return 'reload';
+      }
+      if(rc.status===403) return jc.error||'Entreprise, identifiant ou mot de passe incorrect.';
+      if(rc.status===429) return jc.error||'Trop d\'essais — réessaie dans une heure.';
+      // 409 « sans-annuaire » : l'entreprise n'a pas encore ouvert l'app avec cette version → on retombe sur le lien
+    }catch(e){ return 'Serveur injoignable — vérifie ta connexion internet'; }
+  }
   /* Le nom seul ne donne plus la clé de l'espace. Il déclenche l'envoi du lien de
      connexion à l'adresse e-mail DÉJÀ enregistrée pour l'entreprise : pour entrer, il
      faut donc accéder à sa boîte aux lettres, et plus seulement savoir l'épeler. */
@@ -23593,13 +23719,15 @@ async function doLogin(e){ e.preventDefault();
   // Champ « Entreprise » (connexion à la Organilog) : si le nom tapé n'est pas l'espace
   // actuel de l'appareil, on demande son code au serveur et on bascule d'espace d'abord.
   const _entSaisi=(($('li-ent')||{}).value||'').trim();
+  /* L'empreinte se calcule AVANT : c'est elle que le serveur vérifie pour ouvrir l'espace de
+     l'entreprise tapée. Le mot de passe lui-même ne quitte jamais l'appareil. */
+  const h=await sha256(pin);
   if(_entSaisi){
-    const er=$('li-error'); const res=await espaceDepuisNom(_entSaisi,login,'');
+    const er=$('li-error'); const res=await espaceDepuisNom(_entSaisi,login,'',h);
     if(res==='reload') return;
     if(res==='annule'){ if(er) er.style.display='none'; return; }
     if(res){ if(er){ er.textContent=res; er.style.display='block'; } return; }
   }
-  const h=await sha256(pin);
   _cnxVia=localStorage.getItem('elan_lien_ok')?'lien':(_entSaisi?'entreprise':'identifiants');   // par quel chemin on arrive (pour la Tour)
   // Bêta d'essai : la porte est au serveur. Aucun compte local ne vaut sans son accord, et un
   // accès coupé depuis la Tour ne passe plus, même avec le bon mot de passe.

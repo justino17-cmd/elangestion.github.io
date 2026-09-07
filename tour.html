@@ -1075,7 +1075,7 @@ async function tourSha256(x){
   const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(x)));
   return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');
 }
-async function tourEspaceDe(email,nom,ident,mdp,neuf){
+async function tourEspaceDe(email,nom,ident,mdp,neuf,origine){
   var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
   var sp=reg[email];
   if(neuf){ try{ delete reg[email]; localStorage.setItem('tour_liens',JSON.stringify(reg)); }catch(e){} sp=null; }
@@ -1118,7 +1118,7 @@ async function tourEspaceDe(email,nom,ident,mdp,neuf){
      d'affichage — deux entreprises peuvent porter un nom qui se réduit au même slug. */
   var slug='';
   try{
-    var r=await apiPost('/api/monitor/espaces',{nom:(nom||email),code:code,email:email});
+    var r=await apiPost('/api/monitor/espaces',{nom:(nom||email),code:code,email:email,origine:(origine||'')});
     if(r&&r.ok) slug=r.slug||'';
     else toast('Attention : nom non enregistré côté serveur ('+((r&&r.d&&r.d.error)||'?')+') — le lien, lui, marche');
   }catch(e){ toast('Attention : serveur injoignable pour l\'annuaire — le lien, lui, marche'); }
@@ -1193,18 +1193,25 @@ async function tourLienEntreprise(email,nom,neuf,identConnu){
   var e=await tourEspaceDe(email,nom,ident,mdp,neuf);
   var mdpAff=e.mdp||mdp;
   var debut=neuf?'Bonjour,\n\nPour des questions de sécurité et une mise à jour exceptionnelle, ton espace OP GESTION a été RÉINITIALISÉ : tu repars sur une version toute propre, stable et finie. Tout est à recréer (utilisateurs, clients…), mais sur une base saine — et clique le nouveau lien sur CHAQUE appareil de l\'équipe.\n\n':'Bienvenue sur OP GESTION !\n\n';
-  var txt=debut+'Clique ton lien de connexion (garde-le précieusement) :\n'+e.lien+'\n\nL\'écran affichera « ✅ Ton lien de connexion est bon » — puis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nÀ ta première connexion, l\'app te fait choisir TON vrai mot de passe — ensuite ce sont tes identifiants pour toujours.\nTu crées ensuite les comptes de ton équipe (Utilisateurs) : chacun se connecte avec le même lien + son identifiant + son mot de passe.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+  var adr='teamop.fr/'+(e.slug||espSlugJs(e.nom));
+  var txt=debut+'TA PREMIÈRE CONNEXION — clique ce lien :\n'+e.lien+'\n\nL\'écran affichera « ✅ Ton lien de connexion est bon » — puis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nL\'app te fait alors choisir TON vrai mot de passe.\n\nENSUITE, ET POUR TOUTE TON ÉQUIPE — l\'adresse de ton entreprise :\n'+adr+'\n\nC\'est elle qu\'on donne aux équipes : chacun y va, tape SON identifiant et SON mot de passe, et arrive dans ton espace. Aucun lien à garder, aucun code à retenir — et ça marche sur n\'importe quel téléphone.\nTu crées les comptes de ton équipe dans Utilisateurs.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
   tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🔗 Lien de connexion — '+esc(e.nom)+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Tout est prêt. Vérifie, puis envoie-lui l\'e-mail en un clic.</div>'+
+    '<div class="sec">SON ADRESSE <span style="color:var(--muted);font-weight:400;text-transform:none">— c\'est CE lien qu\'on donne aux équipes</span></div>'+
+    /* L'adresse est ce qui remplace vraiment le lien à conserver : elle ne porte aucun
+       secret, elle se retient, elle s'écrit sur un camion. Chacun y arrive et tape son
+       identifiant et son mot de passe — l'espace de l'entreprise s'ouvre, séparé des autres. */
+    '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="lg-adr" class="mono" style="flex:1;word-break:break-all;font-size:14px;color:var(--link);font-weight:700">teamop.fr/'+esc(e.slug||espSlugJs(e.nom))+'</span><button class="btn-fant" onclick="tourCopie(\'lg-adr\',this)">Copier</button></div>'+
+    '<div style="color:var(--muted);font-size:12px;margin:-8px 0 14px">Chacun tape son identifiant et son mot de passe : ni lien ni code à conserver. Fonctionne dès que l\'entreprise a ouvert l\'application une fois avec cette version.</div>'+
     '<div class="sec">CE QUI RENTRE DANS LE LIEN</div>'+
-    '<div style="margin:6px 0 14px;font-size:15px"><b>'+esc(e.nom)+'</b> <span style="color:var(--muted);font-size:12.5px">— le nom de l\'espace. C\'est le lien qui connecte ; taper ce nom sur teamop.fr fait seulement renvoyer le lien à l\'adresse de l\'entreprise.</span></div>'+
+    '<div style="margin:6px 0 14px;font-size:15px"><b>'+esc(e.nom)+'</b> <span style="color:var(--muted);font-size:12.5px">— le nom de l\'espace. Le lien ci-dessous connecte sans rien demander : c\'est le chemin de la PREMIÈRE connexion, celle qui n\'a pas encore de compte.</span></div>'+
     '<div class="sec">LE LIEN</div>'+
     '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="lg-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'lg-lien\',this)">Copier</button></div>'+
     /* Le code d'accès : ce qui remplace l'aller-retour par e-mail. Le nom seul n'ouvre rien
        (le lien porte la clé qui déchiffre les données) ; le nom AVEC ce code rend le lien, et
        l'application demande ensuite identifiant et mot de passe. Le responsable le dicte à ses
        équipes, et le renouvelle ici quand quelqu'un part. */
-    '<div class="sec">SON CODE D\'ACCÈS <span style="color:var(--muted);font-weight:400;text-transform:none">— à taper sur teamop.fr/connexion.html avec le nom de l\'entreprise, quand le lien est perdu</span></div>'+
+    '<div class="sec">SON CODE D\'ACCÈS <span style="color:var(--muted);font-weight:400;text-transform:none">— le filet : la toute première connexion, ou un navigateur trop vieux</span></div>'+
     '<div id="lg-acces-zone" style="display:flex;gap:8px;align-items:center;margin:6px 0 14px">'+
       '<span id="lg-acces" class="mono" style="flex:1;font-size:19px;letter-spacing:.24em;font-weight:800">…</span>'+
       '<button class="btn-fant" onclick="tourCopie(\'lg-acces\',this)">Copier</button>'+
@@ -1255,6 +1262,61 @@ function tourIdentModifier(slug,nom,identActuel){
       '<div class="sec">LES IDENTIFIANTS</div>'+
       '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(ident)+'</b><br>Mot de passe provisoire : <b>'+esc(mdp)+'</b></div>'+
       '<div class="encart"><div class="encart-tx">Valable tant que personne ne s’est connecté. Dès la première connexion, le mot de passe appartient à l’entreprise et ne se change plus d’ici.</div></div>');
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+/* Couper l'accès d'un espace SANS rien effacer. La différence avec « Repartir à neuf » est
+   entière et il faut la dire à l'écran : ici les données restent en place, là-bas elles
+   partent. Suspendre vide les appareils déjà connectés à leur prochain lancement — c'est le
+   but — et rouvrir rend l'espace : les appareils repassent par le lien ou le code, leurs
+   données les attendent. */
+/* Le même calcul que espSlug() côté serveur — pour afficher l'adresse avant que le
+   serveur n'ait rendu son slug. */
+function espSlugJs(x){ return String(x||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,''); }
+/* Renommer, c'est changer l'ADRESSE — teamop.fr/ce-nom. On le dit avant, pas après : les
+   favoris et les liens déjà donnés cessent de fonctionner le jour même. */
+function tourAccesRenommer(slug,nom){
+  if(!slug){ toast('Espace sans identifiant technique'); return; }
+  var v=prompt('Nouveau nom pour « '+(nom||slug)+' »\n\n⚠️ Le nom EST l’adresse : teamop.fr/'+espSlugJs(nom||slug)+' deviendra teamop.fr/<nouveau-nom>.\nL’ancienne adresse cessera de fonctionner — préviens l’entreprise.',nom||slug);
+  if(v===null) return;
+  v=String(v).trim(); if(!v||!espSlugJs(v)){ toast('Il faut un nom avec des lettres ou des chiffres'); return; }
+  if(espSlugJs(v)===espSlugJs(nom||slug)){ toast('C’est déjà ce nom'); return; }
+  apiPost('/api/monitor/espaces/renommer',{slug:slug,nouveau:v}).then(function(r){
+    if(!(r&&r.ok)){ alert((r&&r.d&&r.d.error)||'Renommage impossible.'); return; }
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a renommé l’espace « '+(nom||slug)+' » en « '+v+' »'});
+    chargerAccesPublics(); chargerClients();
+    tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">✏️ Renommé — '+esc(v)+'</div>'+
+      '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">La nouvelle adresse marche tout de suite. L’ancienne ne marche plus : redonne celle-ci à l’entreprise.</div>'+
+      '<div class="sec">SA NOUVELLE ADRESSE</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="rn-adr" class="mono" style="flex:1;word-break:break-all;font-size:14px;color:var(--link);font-weight:700">'+esc(r.d.adresse||'')+'</span><button class="btn-fant" onclick="tourCopie(\'rn-adr\',this)">Copier</button></div>'+
+      '<div class="sec">SON LIEN DE PREMIÈRE CONNEXION</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="rn-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(r.d.lien||'')+'</span><button class="btn-fant" onclick="tourCopie(\'rn-lien\',this)">Copier</button></div>'+
+      '<div class="encart"><div class="encart-tx">Les appareils déjà connectés ne bougent pas : ils gardent leur espace et leurs données. Seule l’adresse d’entrée a changé.</div></div>');
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+function tourAccesSuspendre(slug,nom,rouvrir){
+  if(!slug){ toast('Espace sans identifiant technique'); return; }
+  if(!rouvrir && !confirm('⏸ SUSPENDRE l’accès de « '+(nom||slug)+' » ?\n\n• la connexion est refusée immédiatement (lien, code et identifiants compris)\n• les appareils déjà connectés se videront à leur prochain lancement\n• AUCUNE donnée n’est effacée : rouvrir les rend\n\nPour effacer pour de bon, c’est « Supprimer ».')) return;
+  apiPost('/api/monitor/espaces/suspendre',{slug:slug,rouvrir:!!rouvrir}).then(function(r){
+    if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+(rouvrir?' a rouvert':' a suspendu')+' l’accès « '+(nom||slug)+' »'});
+    toast(rouvrir?'▶️ Accès rouvert':'⏸ Accès suspendu');
+    chargerAccesPublics();
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+/* Supprimer, c'est effacer : l'espace quitte l'annuaire, ses données chiffrées sont détruites
+   côté Firestore, son code d'accès et son annuaire de connexion partent avec. On fait donc
+   ÉCRIRE le nom : un « OK » cliqué de travers sur un vrai client ne se rattrape pas. */
+function tourAccesSupprimer(slug,nom){
+  var cible=nom||slug; if(!cible){ toast('Espace sans nom'); return; }
+  var tape=prompt('🗑 SUPPRIMER DÉFINITIVEMENT « '+cible+' »\n\n⚠️ Cette action efface l’espace, TOUTES ses données et tous ses comptes. Elle ne se défait pas.\n\nÉcris le nom exact pour confirmer :');
+  if(tape===null) return;
+  var norm=function(x){ return String(x||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,''); };
+  if(norm(tape)!==norm(cible)){ toast('Nom différent — rien n’a été supprimé'); return; }
+  apiPost('/api/monitor/espaces/renaitre',{nom:cible}).then(function(r){
+    if(!(r&&r.ok&&r.d&&r.d.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a supprimé l’accès « '+cible+' »'});
+    toast(r.d.efface?'🗑 Espace et données supprimés':'🗑 Espace supprimé (données déjà absentes)');
+    chargerAccesPublics(); chargerClients();
   }).catch(function(){ toast('Serveur injoignable'); });
 }
 function tourAccesNeuf(slug){
@@ -2483,13 +2545,16 @@ async function pbCreer(btn){
   if(dejaLa && !confirm('Un espace existe déjà pour ' + email + '.\n\n• OK → on rouvre CE MÊME espace (ses données sont conservées) avec l’identifiant et le mot de passe ci-dessus.\n• Annuler → on ne touche à rien.\n\nPour repartir d’un espace vide, passe par Entreprises → sa fiche → « Repartir à neuf ».')) return;
   if(btn){ btn.disabled=true; btn.textContent='Création…'; }
   try{
-    var e=await tourEspaceDe(email,nom,ident,mdp,!dejaLa);
+    // « tour » : cet espace est un accès que TEAM OP s'ouvre à lui-même, pas un client du site
+    var e=await tourEspaceDe(email,nom,ident,mdp,!dejaLa,'tour');
     PB.nom=''; PB.email=''; PB.ident=''; PB.pass='';
     JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a ouvert un accès à la version publique « '+nom+' »'});
     chargerAccesPublics();   // il doit apparaître dans la liste, tout de suite
     tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🌍 Accès version publique — '+esc(e.nom)+'</div>'+
       '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">C’est un vrai espace d’entreprise sur <b>teamop.fr/app.html</b>. Ouvre le lien sur chaque appareil qui doit y accéder.</div>'+
-      '<div class="sec">LE LIEN</div>'+
+      '<div class="sec">SON ADRESSE <span style="color:var(--muted);font-weight:400;text-transform:none">— à donner aux équipes</span></div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="pb-adr" class="mono" style="flex:1;word-break:break-all;font-size:14px;color:var(--link);font-weight:700">teamop.fr/'+esc(e.slug||espSlugJs(e.nom))+'</span><button class="btn-fant" onclick="tourCopie(\'pb-adr\',this)">Copier</button></div>'+
+      '<div class="sec">LE LIEN DE PREMIÈRE CONNEXION</div>'+
       '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="pb-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'pb-lien\',this)">Copier</button></div>'+
       '<div class="sec">LES IDENTIFIANTS</div>'+
       '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(e.ident)+'</b><br>Mot de passe provisoire : <b>'+esc(e.mdp||mdp)+'</b> <span style="color:var(--muted);font-size:12px">(l’app fait choisir le vrai mot de passe à la 1re connexion)</span></div>'+
@@ -2500,7 +2565,7 @@ async function pbCreer(btn){
 }
 function vueEssais(){
   var tete=enTete('Accès',
-    'Les deux portes, au même endroit. <b>La bêta</b> (teamop.fr/beta.html) est l’outil de ceux qui développent : ces accès n’ouvrent que la bêta, jamais les données d’une entreprise. <b>La version publique</b> (teamop.fr/app.html) est l’application des clients : y ouvrir un accès crée un vrai espace, avec de vraies données.');
+    'Trois familles, à ne jamais confondre. <b>1 · Accès bêta</b> (teamop.fr/beta.html) — l’outil de ceux qui développent : ils n’ouvrent que la bêta, jamais les données d’une entreprise. <b>2 · Accès à la version publique ouverts d’ici</b> — de vrais espaces, que j’ouvre pour essayer ou faire essayer. <b>3 · Entreprises inscrites sur le site</b> — des clients : on les suspend ou on les renomme, on ne les supprime pas pour faire du ménage.');
   if(!BT.loaded) return tete+'<div class="vide">Chargement des accès…</div>';
   if(BT.err) return tete+'<div class="vide">'+esc(BT.err)+'</div>';
   var liste=(BT.comptes||[]).map(function(c){
@@ -2512,7 +2577,8 @@ function vueEssais(){
           ' <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">'+esc(c.login)+'</span></div>'+
           '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+(c.derniere?'Dernière connexion '+esc(fmtJour(c.derniere)):'Jamais connecté')+
             (c.ts?' · ouvert le '+esc(fmtJour(c.ts)):'')+(c.creePar?' par '+esc(c.creePar):'')+'</div></div>'+
-        '<span class="past '+(off?'p-gris':'p-vert')+'">'+(off?'Coupé':'Ouvert')+'</span>'+
+        '<span class="past p-gris">🧪 Bêta</span> '+
+        '<span class="past '+(off?'p-rouge':'p-vert')+'">'+(off?'Coupé':'Ouvert')+'</span>'+
         '<span style="display:flex;gap:7px">'+
           '<button class="pill-act" onclick="btToggle(\''+jsq(c.id)+'\')">'+(off?'Rouvrir':'Couper')+'</button>'+
           '<button class="pill-act" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="btSuppr(\''+jsq(c.id)+'\',\''+jsq(c.login)+'\')">Supprimer</button></span>'+
@@ -2550,11 +2616,7 @@ function vueEssais(){
   '</div>';
   /* La liste des accès PUBLICS, sous celle de la bêta et clairement séparée : les confondre
      reviendrait à croire qu'un accès bêta ouvre des données d'entreprise. */
-  var pub;
-  if(!PBL.loaded) pub='<div class="vide" style="margin-top:14px">Chargement des accès publics…</div>';
-  else if(PBL.err) pub='<div class="vide" style="margin-top:14px">'+esc(PBL.err)+'</div>';
-  else if(!PBL.liste.length) pub='<div class="vide" style="margin-top:14px">Aucun accès à la version publique pour l’instant.</div>';
-  else pub=PBL.liste.map(function(e){
+  function pubLigne(e){
     var r=e.resume||{};
     var quand=r.derniere?('Dernière connexion '+esc(fmtJour(r.derniere))):'Jamais connecté';
     var qui=(r.utilisateurs7?' · '+r.utilisateurs7+' utilisateur'+(r.utilisateurs7>1?'s':'')+' sur 7 j':'');
@@ -2564,27 +2626,55 @@ function vueEssais(){
         '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(e.nom||e.slug)+
           (e.email?' <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">'+esc(e.email)+'</span>':'')+'</div>'+
           '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+
-            (e.ident?'Identifiant <b class="mono" style="color:var(--txt);font-weight:600">'+esc(e.ident)+'</b> · ':'')+quand+qui+
-            (e.ouvertLe?' · ouvert le '+esc(fmtJour(e.ouvertLe)):'')+(e.ouvertPar?' par '+esc(e.ouvertPar):'')+'</div></div>'+
-        '<span class="past '+(r.derniere?'p-vert':'p-gris')+'">'+(r.derniere?'Actif':'Jamais ouvert')+'</span>'+
+            (e.ident?'Identifiant <b class="mono" style="color:var(--text);font-weight:600">'+esc(e.ident)+'</b> · ':'')+quand+qui+
+            (e.ouvertLe?' · ouvert le '+esc(fmtJour(e.ouvertLe)):'')+(e.ouvertPar?' par '+esc(e.ouvertPar):'')+
+            /* Sans cette ligne, impossible de savoir depuis la Tour si l'entreprise peut déjà
+               se connecter avec un simple identifiant, ou si elle dépend encore de son code. */
+            '<br>'+(e.annuaire?('🔓 Connexion par identifiant prête — '+e.annuaire+' compte'+(e.annuaire>1?'s':'')):'🔑 Connexion par identifiant pas encore active — code d’accès nécessaire une première fois')+
+            '</div></div>'+
+        '<span class="past '+(e.origine==='site'?'p-vert':'p-orange')+'">'+(e.origine==='site'?'🏢 Client du site':'🌍 Ouvert d’ici')+'</span> '+
+        '<span class="past '+(e.suspendu?'p-rouge':(r.derniere?'p-vert':'p-gris'))+'">'+(e.suspendu?'⏸ Suspendu':(r.derniere?'Actif':'Jamais ouvert'))+'</span>'+
       '</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
         (e.email?'<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(e.email)+'\',\''+jsq(e.nom||'')+'\',false,\''+jsq(e.ident||'')+'\')">🔗 Revoir le lien et le code</button>':'')+
         /* Changer identifiant et mot de passe n'a de sens QUE tant que personne ne s'est
            connecté : après, le vrai mot de passe vit dans les données chiffrées de l'espace,
            hors de portée du serveur. On ne montre donc pas un bouton qui mentirait. */
-        (r.derniere?'<span style="font-size:12px;color:var(--muted)">Déjà utilisé — le mot de passe appartient maintenant à l’entreprise (« mot de passe oublié » dans l’application).</span>'
+        (r.derniere?'<span style="font-size:12px;color:var(--muted)">Déjà utilisé — le mot de passe vit dans les données chiffrées de l’espace, le serveur ne peut plus le changer. Ouvre l’espace avec son lien et remets-le à zéro dans <b>Utilisateurs</b>.</span>'
                    :'<button class="btn-fant" onclick="tourIdentModifier(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\',\''+jsq(e.ident||'')+'\')">✏️ Changer identifiant / mot de passe</button>')+
+        '<button class="btn-fant" onclick="tourAccesSuspendre(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\','+(e.suspendu?'true':'false')+')">'+(e.suspendu?'▶️ Rouvrir':'⏸ Suspendre')+'</button>'+
+        '<button class="btn-fant" onclick="tourAccesRenommer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">✏️ Renommer (change l’adresse)</button>'+
+        '<button class="btn-fant" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="tourAccesSupprimer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">🗑 Supprimer</button>'+
       '</div>'+
     '</div>';
-  }).join('');
+  }
+  /* TROIS listes, pas une. Ce que TEAM OP s'ouvre à lui-même et ce qu'une entreprise a créé en
+     s'inscrivant sur le site sont de vrais espaces tous les deux — mais les mélanger, c'est
+     supprimer un client en croyant faire le ménage dans ses propres essais. */
+  function pubBloc(l,vide){
+    if(!PBL.loaded) return '<div class="vide" style="margin-top:10px">Chargement…</div>';
+    if(PBL.err) return '<div class="vide" style="margin-top:10px">'+esc(PBL.err)+'</div>';
+    if(!l.length) return '<div class="vide" style="margin-top:10px">'+vide+'</div>';
+    return l.map(pubLigne).join('');
+  }
+  var pubTour=(PBL.liste||[]).filter(function(e){ return e.origine!=='site'; });
+  var pubSite=(PBL.liste||[]).filter(function(e){ return e.origine==='site'; });
   /* Les deux listes portent leur titre. Sans celui du haut, on lisait une suite de cartes sans
      savoir laquelle ouvre quoi — et confondre les deux, c'est croire qu'un accès bêta touche
      des données d'entreprise. */
   var stTitre='font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)';
-  var titreBeta='<div style="'+stTitre+';margin-bottom:8px">Accès à la bêta <span style="font-weight:400;text-transform:none;letter-spacing:0">— n’ouvrent que beta.html</span></div>';
-  var titrePub='<div style="margin-top:22px;'+stTitre+'">Accès à la version publique <span style="font-weight:400;text-transform:none;letter-spacing:0">— vrais espaces, vraies données</span></div>';
-  return tete+'<div class="deux"><div class="col-liste">'+titreBeta+liste+titrePub+pub+'</div><div class="col-detail">'+form+formPub+'</div></div>';
+  var stFam='font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:12px';
+  var sTitre=function(t,ss,mt){ return '<div style="'+(mt?'margin-top:'+mt+'px;':'')+stTitre+';margin-bottom:8px">'+t+' <span style="font-weight:400;text-transform:none;letter-spacing:0">— '+ss+'</span></div>'; };
+  var famTour='<div style="'+stFam+'">🔧 Ce que j’ouvre depuis la Tour</div>';
+  var famSite='<div style="'+stFam+';margin-top:30px">🏢 Entreprises inscrites sur le site</div>';
+  return tete+'<div class="deux"><div class="col-liste">'+
+      famTour+
+      sTitre('Accès à la bêta','n’ouvrent que beta.html, jamais de données d’entreprise')+liste+
+      sTitre('Accès à la version publique','de vrais espaces, que j’ai ouverts moi-même',22)+pubBloc(pubTour,'Aucun accès ouvert depuis la Tour.')+
+      famSite+
+      '<div style="'+stTitre+';font-weight:400;text-transform:none;letter-spacing:0;margin:-4px 0 10px;line-height:1.55">Elles se sont inscrites seules sur teamop.fr. Ce sont des clients : on ne les supprime pas pour faire du ménage.</div>'+
+      pubBloc(pubSite,'Aucune entreprise inscrite depuis le site pour l’instant.')+
+    '</div><div class="col-detail">'+form+formPub+'</div></div>';
 }
 function vueEquipe(){
   var tete=enTete('Équipe',
