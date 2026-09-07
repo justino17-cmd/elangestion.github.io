@@ -1,7 +1,32 @@
 # Point stable TeamOP
 
-**Version stable : v563** — gravée le 7 septembre 2026.
+**Version stable : v564** — gravée le 7 septembre 2026.
 
+v564 — deux corrections d'affichage sur téléphone, hors du garde-fou de la refonte.
+
+**Les hauteurs ne mentent plus.** Dix déclarations du socle calculaient en `vh`, qui compte
+la barre d'adresse du navigateur comme si elle n'existait pas : sur iPhone et Android, le bas
+du menu, de l'assistant et du panneau de notifications pouvait passer dessous. Chaque
+déclaration est DOUBLÉE en `dvh`, jamais remplacée — un navigateur antérieur à Safari 15.4
+ou Chrome 108 jette la seconde et garde la première. Remplacer aurait laissé ces appareils
+sans hauteur du tout.
+
+**La barre d'état est juste dès la première image.** `applyTheme()` la corrigeait déjà, mais
+seulement une fois le JavaScript passé : l'ouverture montrait du navy même en mode jour. La
+page pose désormais trois balises — une par réglage système, plus un repli pour les
+navigateurs qui ignorent l'attribut — et l'ordre compte, le navigateur retenant la première
+dont le média correspond.
+
+Corollaire à ne pas oublier : les DEUX fonctions qui posent cette couleur (`applyTheme()` en
+production, `barreSysteme()` sous la garde) tiennent maintenant les trois balises. N'en
+corriger qu'une laissait le navigateur en lire une autre — le thème choisi dans
+l'application se faisait ignorer par la barre d'état dès que le téléphone disait le contraire.
+
+Le cache du service worker passe à v761.
+
+## Ancien point
+
+**v563**
 v563 — les notifications emmènent à la LIGNE, plus seulement à l'écran.
 
 Toucher « Sofia a pris 6 MUSKIL dans Box Démo Nord » ouvrait la box, puis laissait
