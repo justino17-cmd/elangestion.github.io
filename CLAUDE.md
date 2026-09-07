@@ -100,8 +100,25 @@ d'appels, réseau, et surtout **trace de performance**. C'est le seul moyen de m
 terrain en 4G. Le skill `performance-budget-monitor` décrit le budget ; sans cet outil,
 personne ne pouvait le vérifier.
 
-Prérequis, sur la machine qui l'utilise : Node LTS et Chrome stable installés. Rien à
-configurer de plus, aucune clé API — la première utilisation télécharge le serveur via `npx`.
+**Le navigateur doit exister LÀ OÙ TOURNE LA SESSION**, pas sur le Mac de qui la pilote. Une
+session distante (Claude Code sur le web ou l'app) tourne dans un conteneur Linux : c'est lui
+qui doit avoir un navigateur. D'où `--executablePath /opt/pw-browsers/chromium` dans
+`.mcp.json` — un lien symbolique vers le Chromium de l'image, stable d'une version à l'autre.
+Sur un Mac où Chrome est installé, remplacer cette ligne par le chemin de Chrome
+(`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`) ou retirer les deux lignes :
+il est alors trouvé tout seul.
+
+⚠️ **Dans un environnement distant, viser `127.0.0.1`, jamais `teamop.fr`.** Le proxy sortant
+coupe les connexions du navigateur (`ERR_CONNECTION_RESET`) ; seul le local passe. On sert donc
+le dépôt et on pointe dessus :
+
+```bash
+node -e "const h=require('http'),f=require('fs'),p=require('path');h.createServer((q,r)=>{const x=p.join(process.cwd(),q.url.split('?')[0]);f.readFile(x,(e,d)=>e?(r.writeHead(404),r.end()):(r.writeHead(200,{'Content-Type':x.endsWith('.js')?'text/javascript':'text/html;charset=utf-8'}),r.end(d)))}).listen(8123,'127.0.0.1')" &
+# puis viser http://127.0.0.1:8123/beta.html
+```
+
+C'est même préférable pour concevoir : on juge le fichier qu'on vient de modifier, pas la
+version publiée il y a deux heures.
 
 ⛔ **Bêta uniquement, sans exception.** Le serveur expose au client MCP **tout** le contenu
 de la page ouverte. Sur `app.html` en production, ce sont des noms, des adresses et des

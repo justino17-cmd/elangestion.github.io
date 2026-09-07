@@ -7,25 +7,45 @@
 <title>TEAM OP</title>
 <link rel="icon" href="/icons/teamop-512.png">
 <script>
-/* ══ L'ADRESSE DE CHAQUE ENTREPRISE : teamop.fr/son-nom ═════════════════════════════════════
-   GitHub Pages n'a pas de sous-domaines par entreprise (pas de elan.teamop.fr sans quitter
+/* ══ L'ADRESSE DE CHAQUE ENTREPRISE : teamop.fr/e/son-nom ═══════════════════════════════════
+   GitHub Pages n'a pas de sous-domaine par entreprise (pas de elan.teamop.fr sans quitter
    Pages) mais il sert CE fichier pour toute adresse qu'il ne connaît pas. On s'en sert donc
-   comme d'un aiguillage : « teamop.fr/elan » ouvre la connexion de l'entreprise « elan ».
+   comme d'un aiguillage.
+
+   POURQUOI UN PRÉFIXE « /e/ » ET PLUS teamop.fr/nom TOUT COURT.
+   Parce que ça s'est cassé en production le soir même : le site porte un fichier elan.html
+   (la page produit d'OP GESTION, nom hérité d'ELAN GESTION), et GitHub Pages sert /elan
+   depuis ce fichier AVANT que ce script n'existe. Le client qui s'appelle ELAN tombait donc
+   sur une page commerciale au lieu de sa connexion. Vingt-sept noms du site avaient le même
+   piège — app, tarifs, espace, metiers, creer, dev, merci… Un préfixe qui n'est pas un fichier
+   ferme la question pour toujours, au lieu d'entretenir une liste de mots interdits.
+
+   La forme courte teamop.fr/nom continue de marcher quand elle ne heurte rien, et renvoie sur
+   la forme longue : l'adresse affichée reste la même partout.
 
    Prudence : cette page répond aussi quand une IMAGE ou un SCRIPT manque. On n'aiguille donc
-   que ce qui ressemble vraiment à un nom d'entreprise — un seul segment, sans extension, sans
-   point — et on laisse tout le reste sur une page d'erreur honnête. Autrement, un fichier
-   absent renverrait le visiteur sur un écran de connexion, ce qui n'aide personne. */
+   que ce qui ressemble vraiment à un nom d'entreprise — sans extension, sans point — et on
+   laisse tout le reste sur une page d'erreur honnête. */
 (function(){
+  /* La liste des mots réservés ne vaut QUE pour la forme courte : là, un nom peut heurter un
+     dossier du dépôt. Sous /e/, rien ne peut être heurté — et une entreprise a le droit de
+     s'appeler « Beta » ou « Static ». L'appliquer aux deux formes bloquait 27 noms sans raison,
+     ce que le contrôle scripts/verifier-adresses.js a montré tout de suite. */
+  var RESERVES=/^(api|assets|icons|img|images|css|js|static|sons|screenshots|scripts|apercu|admin|www|robots|sitemap|favicon|manifest|sw)$/i;
+  function forme(x){ return !!x && !/\./.test(x) && /^[a-z0-9][a-z0-9-]{1,59}$/i.test(x); }
+  function bon(x){ return forme(x) && !RESERVES.test(x); }
   try{
     var p=decodeURIComponent(location.pathname||'').replace(/^\/+|\/+$/g,'');
     if(!p) return;                                   // la racine a son index.html
-    if(p.indexOf('/')>=0) return;                    // sous-dossier (apercu/…, icons/…) : ce n'est pas une entreprise
-    if(/\./.test(p)) return;                         // un point = un fichier (.js, .png, .html) qui manque vraiment
-    if(!/^[a-z0-9][a-z0-9-]{1,59}$/i.test(p)) return;
-    // les mots réservés du site ne sont jamais des noms d'entreprise
-    if(/^(api|assets|icons|img|images|css|js|static|apercu|beta|admin|www|robots|sitemap|favicon|manifest|sw|app|tour|messages|espace|index|connexion|reinit|cgv|cgu|contact|tarifs|blog)$/i.test(p)) return;
-    location.replace('/connexion.html?e='+encodeURIComponent(p));
+    var m=p.split('/');
+    // forme longue, celle qu'on donne partout : /e/nom-entreprise
+    if(m.length===2 && m[0].toLowerCase()==='e' && forme(m[1])){
+      location.replace('/connexion.html?e='+encodeURIComponent(m[1])); return;
+    }
+    // forme courte : /nom-entreprise — pratique, mais elle ne peut pas heurter un fichier du site
+    if(m.length===1 && bon(m[0])){
+      location.replace('/connexion.html?e='+encodeURIComponent(m[0])); return;
+    }
   }catch(e){}
 })();
 </script>
@@ -36,7 +56,7 @@
   .logo img{width:46px;height:46px;border-radius:12px}
   .logo b{font-size:21px;letter-spacing:2px;font-family:ui-monospace,'Space Mono',monospace}
   h1{font-size:19px;margin-bottom:10px}
-  p{color:#93a9d4;font-size:14px;line-height:1.7;max-width:420px}
+  p{color:#93a9d4;font-size:14px;line-height:1.7;max-width:440px}
   a.btn{display:inline-block;margin-top:22px;background:#34d399;color:#08251a;border-radius:12px;padding:12px 22px;font-size:14.5px;font-weight:800;text-decoration:none}
   a.lien{color:#7cc6ff;text-decoration:none}
 </style>
@@ -44,7 +64,7 @@
 <body>
   <div class="logo"><img src="/icons/teamop-512.png" alt=""><b>TEAM OP</b></div>
   <h1>Cette page n'existe pas</h1>
-  <p>L'adresse demandée est introuvable. Si tu cherchais la connexion de ton entreprise, son adresse ressemble à <b style="color:#eef2fa">teamop.fr/nom-de-ton-entreprise</b>.</p>
+  <p>L'adresse demandée est introuvable. Si tu cherchais la connexion de ton entreprise, son adresse ressemble à <b style="color:#eef2fa">teamop.fr/e/nom-de-ton-entreprise</b>.</p>
   <a class="btn" href="/connexion.html">Aller à la connexion</a>
   <p style="margin-top:18px;font-size:12.5px"><a class="lien" href="/index.html">← Site TeamOP</a></p>
 </body>

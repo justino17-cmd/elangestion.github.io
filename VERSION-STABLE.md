@@ -1,6 +1,41 @@
 # Point stable TeamOP
 
-**Version stable : v569** — gravée le 7 septembre 2026.
+**Version stable : v570** — gravée le 7 septembre 2026.
+
+v570 — l'adresse d'une entreprise ne peut plus tomber sur une page du site.
+
+**La panne, une heure après la livraison.** Justin tape « Elan » — le nom de son plus gros
+client — et arrive sur la page commerciale d'OP GESTION au lieu de l'écran de connexion de son
+entreprise. Ce n'était pas le code : le dépôt porte un fichier `elan.html` (la page produit,
+nom hérité d'ELAN GESTION), et **GitHub Pages sert `/elan` depuis ce fichier avant que
+`404.html` n'ait la moindre chance de s'exécuter**. Vingt-sept noms du site avaient le même
+piège — `app`, `tarifs`, `espace`, `metiers`, `creer`, `dev`, `merci`…
+
+**Ce que ça devient : `teamop.fr/e/nom-entreprise`.** Un préfixe qui n'est pas un fichier ferme
+la question pour toujours, au lieu d'entretenir une liste de mots interdits qu'on oubliera de
+tenir à jour le jour où on ajoutera une page au site. La forme courte `teamop.fr/nom` continue
+de marcher quand elle ne heurte rien, et **renvoie sur la forme longue** : l'adresse affichée
+reste la même partout, il n'y a donc qu'une seule adresse à retenir.
+
+Contrepartie payée ici et pas ailleurs : sous `/e/`, une adresse relative comme `app.html` se
+résoudrait en `/e/app.html`. Toutes les adresses de `connexion.html` sont donc devenues
+absolues.
+
+**Le contrôle qui manquait — `scripts/verifier-adresses.js`.** Il exécute le VRAI script de
+`404.html`, pas une copie, et il **nomme** les 27 noms que la forme courte ne peut pas servir.
+Ajouter une page au site ne pourra plus recréer la panne en silence. Il a d'ailleurs pris son
+auteur en défaut dès le premier passage : la liste de mots réservés s'appliquait aussi à la
+forme longue, ce qui bloquait sans raison une entreprise qui se serait appelée « Beta ».
+
+**Trois suites entrent dans la CI.** `verifier-adresses.js`, `server/test-connexion.js` (51 cas)
+et `server/test-acces.js` (31 cas) tournaient à la main ; elles tournent désormais à chaque
+proposition de modification. Le délai du job passe de 5 à 10 minutes : la suite de connexion
+attend une minute pleine pour laisser retomber le plafond anti-abus, et c'est le prix de
+l'éprouver sur le vrai serveur plutôt que sur une copie.
+
+---
+
+**Version précédente : v569** — gravée le 7 septembre 2026.
 
 v569 — chaque entreprise a son adresse, et on s'y connecte avec son identifiant.
 

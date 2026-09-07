@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Connexion — TEAM OP</title>
-<link rel="icon" href="icons/teamop-512.png">
+<link rel="icon" href="/icons/teamop-512.png">
 <script>
 /* Porte d'entrée directe : si l'appareil connaît déjà son application, on y va tout de suite.
    ?choix=1 pour re-choisir. EXCEPTION : une adresse d'entreprise (?e=…) doit s'ouvrir même sur
    un appareil déjà réglé — c'est justement par là qu'on change d'entreprise. */
 try{
   const d=localStorage.getItem('teamop_app');
-  if((d==='app.html'||d==='messages.html')&&!/choix|[?&]e=/.test(location.search)) location.replace(d);
+  if((d==='app.html'||d==='messages.html')&&!/choix|[?&]e=/.test(location.search)) location.replace('/'+d);
 }catch(e){}
 </script>
 <style>
@@ -59,7 +59,7 @@ try{
 </style>
 </head>
 <body>
-  <div class="logo"><img src="icons/teamop-512.png" alt=""><b>TEAM OP</b></div>
+  <div class="logo"><img src="/icons/teamop-512.png" alt=""><b>TEAM OP</b></div>
   <div class="sous" id="sous">Chaque entreprise a sa propre adresse et son propre espace, séparé de tous les autres.</div>
 
   <!-- ══ ÉTAPE 1 — l'adresse de l'entreprise ══════════════════════════════════════════════
@@ -68,10 +68,10 @@ try{
        faisaient pas la même chose. -->
   <div class="bloc" id="etape-adresse" style="display:none">
     <div class="titre">Comment te connecter ?</div>
-    <div class="aide">Entre l'<b style="color:#eef2fa">adresse de ton entreprise</b>. Tu la retrouves dans l'e-mail reçu à l'inscription, ou auprès de ton responsable.</div>
+    <div class="aide">Entre l'<b style="color:#eef2fa">adresse de ton entreprise</b> — juste son nom, après <b style="color:#eef2fa">teamop.fr/e/</b>. Tu la retrouves dans l'e-mail reçu à l'inscription, ou auprès de ton responsable.</div>
     <label class="lbl" for="adr-nom">Adresse de ton espace</label>
     <div class="adr">
-      <span class="pre">https://teamop.fr/</span>
+      <span class="pre">https://teamop.fr/e/</span>
       <input id="adr-nom" placeholder="ton-entreprise" autocapitalize="off" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')adrAller()">
     </div>
     <div id="adr-err" style="display:none;color:#f87171;font-size:12.5px;margin-top:10px;line-height:1.55"></div>
@@ -90,7 +90,7 @@ try{
   <div class="bloc" id="etape-connexion" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
       <span class="chip">🏢 <span id="cx-adr">teamop.fr/…</span></span>
-      <a href="connexion.html" style="color:#7cc6ff;font-size:12px;text-decoration:none">ce n'est pas mon entreprise</a>
+      <a href="/connexion.html" style="color:#7cc6ff;font-size:12px;text-decoration:none">ce n'est pas mon entreprise</a>
     </div>
     <div class="titre">Connexion</div>
     <div class="aide">Ton identifiant et ton mot de passe — les mêmes que dans l'application, sur n'importe quel appareil.</div>
@@ -124,8 +124,11 @@ try{
      adresse qu'on met en favori et qu'on redonne à son équipe, pas « connexion.html?e=… ». */
   function adresseDemandee(){
     try{
-      var m=location.pathname.replace(/^\/+|\/+$/g,'');
-      if(m&&m.indexOf('/')<0&&!/\./.test(m)) return slugDe(m);
+      var m=location.pathname.replace(/^\/+|\/+$/g,'').split('/');
+      // la forme longue, celle qu'on donne partout : /e/nom-entreprise
+      if(m.length===2&&m[0].toLowerCase()==='e'&&!/\./.test(m[1])) return slugDe(m[1]);
+      // la forme courte, quand elle ne heurte aucun fichier du site
+      if(m.length===1&&m[0]&&!/\./.test(m[0])&&m[0].toLowerCase()!=='e') return slugDe(m[0]);
       var q=location.search.match(/[?&]e=([^&]{1,80})/);
       if(q) return slugDe(decodeURIComponent(q[1]));
     }catch(e){}
@@ -134,7 +137,7 @@ try{
   function adrAller(){
     var v=slugDe(($id('adr-nom')||{}).value);
     if(!v){ adrMsg('#f87171','Écris l\'adresse de ton entreprise — la partie après teamop.fr/'); return; }
-    location.href='/'+encodeURIComponent(v);
+    location.href='/e/'+encodeURIComponent(v);
   }
   function adrOubliee(){
     adrMsg('#93a9d4','Ton adresse figure dans l\'e-mail de bienvenue TEAM OP. Sinon, ton responsable la retrouve dans l\'application (Paramètres → Entreprise), et tu peux aussi te faire renvoyer ton lien de connexion :<br><a href="#" onclick="entRelance();return false" style="color:#7cc6ff">me renvoyer le lien par e-mail</a>');
@@ -164,7 +167,7 @@ try{
         var r0=await fetch('https://api.teamop.fr/api/espaces/ouvrir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:ADRESSE,acces:acces})});
         var d0=await r0.json().catch(function(){ return {}; });
         btn.textContent='Se connecter';
-        if(r0.ok&&d0.code){ cxRetenir(lg); location.href='app.html#entreprise='+d0.code; return; }
+        if(r0.ok&&d0.code){ cxRetenir(lg); location.href='/app.html#entreprise='+d0.code; return; }
         cxMsg('#f87171',d0.error||'Adresse ou code d\'accès incorrect.');
       }catch(e){ btn.textContent='Se connecter'; cxMsg('#f87171','Connexion internet requise — réessaie.'); }
       return;
@@ -186,7 +189,7 @@ try{
            même onglet, effacé dès qu'il a servi, et mort avec l'onglet. */
         try{ localStorage.setItem('elan_savedLogin',login); }catch(e){}
         try{ sessionStorage.setItem('elan_cnx_auto',JSON.stringify({login:login,h:h,rester:!!($id('cx-souvenir')||{}).checked,ts:Date.now()})); }catch(e){}
-        location.href='app.html#entreprise='+d.code; return;
+        location.href='/app.html#entreprise='+d.code; return;
       }
       if(d.motif==='sans-annuaire'){
         cxCodeAfficher();
@@ -213,9 +216,9 @@ try{
     var l=prompt('Colle ton lien de connexion :\n(il ressemble à teamop.fr/app.html#entreprise=…)');
     if(l===null) return;
     var m=String(l).match(/#entreprise=([A-Za-z0-9+\/=_-]{8,})/);
-    if(m){ location.href='app.html#entreprise='+m[1]; return; }
+    if(m){ location.href='/app.html#entreprise='+m[1]; return; }
     var s=slugDe(l);
-    if(s){ location.href='/'+encodeURIComponent(s); return; }
+    if(s){ location.href='/e/'+encodeURIComponent(s); return; }
     adrMsg('#f87171','Ce lien ne porte pas de code d\'espace. Redemande-le à ton entreprise, ou entre son adresse ci-dessus.');
   }
   /* Le même bloc que sur les autres pages du site, à l'identique : les champs apparaissent au
@@ -264,12 +267,14 @@ try{
     }catch(e){}
     if(adr){
       ADRESSE=adr;
-      $id('cx-adr').textContent='teamop.fr/'+adr;
+      $id('cx-adr').textContent='teamop.fr/e/'+adr;
       $id('etape-connexion').style.display='block';
       $id('cx-favori').style.display='block';
       $id('sous').textContent='L\'espace de ton entreprise, séparé de tous les autres.';
-      /* L'adresse revient dans la barre : c'est elle qu'on met en favori, pas connexion.html. */
-      try{ if(location.pathname.indexOf('/connexion')===0||location.search) history.replaceState(null,'','/'+adr); }catch(e){}
+      /* L'adresse revient dans la barre, TOUJOURS sous sa forme longue : c'est elle qu'on met
+         en favori et qu'on redonne à son équipe. Quelqu'un arrivé par la forme courte repart
+         donc avec la bonne — une seule adresse à retenir, pas deux. */
+      try{ if(location.pathname!=='/e/'+adr) history.replaceState(null,'','/e/'+adr); }catch(e){}
       try{ var sv=localStorage.getItem('elan_savedLogin'); if(sv) $id('cx-login').value=sv; }catch(e){}
       setTimeout(function(){ var el=$id($id('cx-login').value?'cx-mdp':'cx-login'); if(el) el.focus(); },80);
     } else {
@@ -280,23 +285,23 @@ try{
   </script>
 
   <div class="cartes" id="cartes-apps" style="display:none">
-    <a class="carte" id="carte-gestion" href="app.html" onclick="try{localStorage.setItem('teamop_app','app.html')}catch(e){}">
+    <a class="carte" id="carte-gestion" href="/app.html" onclick="try{localStorage.setItem('teamop_app','app.html')}catch(e){}">
       <span class="ico" style="background:rgba(52,211,153,.14)">🧰</span>
       <span class="txt"><b>OP GESTION</b><span>Interventions, planning, clients, stock, devis &amp; factures — pour toute l'équipe.</span></span>
       <span class="fleche">›</span>
     </a>
-    <a class="carte" id="carte-messages" href="messages.html" onclick="try{localStorage.setItem('teamop_app','messages.html')}catch(e){}">
+    <a class="carte" id="carte-messages" href="/messages.html" onclick="try{localStorage.setItem('teamop_app','messages.html')}catch(e){}">
       <span class="ico" style="background:rgba(59,130,246,.14)">💬</span>
       <span class="txt"><b>OP MESSAGES</b><span>La messagerie — compte personnel, abonnement à part.</span></span>
       <span class="fleche">›</span>
     </a>
-    <a class="carte" href="espace.html">
+    <a class="carte" href="/espace.html">
       <span class="ico" style="background:rgba(167,139,250,.14)">👤</span>
       <span class="txt"><b>Espace client</b><span>Ton compte TeamOP : abonnement, factures, documents.</span></span>
       <span class="fleche">›</span>
     </a>
   </div>
-  <div id="lien-espace-client" style="margin-top:18px;display:none"><a href="espace.html" style="color:#7cc6ff;font-size:13px;text-decoration:none">👤 Espace client TeamOP (abonnement, factures)</a></div>
-  <div class="note">💡 Chaque entreprise a son adresse : <b>teamop.fr/son-nom</b>. Donne-la à tes équipes — identifiant et mot de passe suffisent, sur n'importe quel téléphone.<br><a href="index.html?hub=1">← Revenir au site TeamOP</a> · <a href="connexion.html?choix=1">Changer d'application</a></div>
+  <div id="lien-espace-client" style="margin-top:18px;display:none"><a href="/espace.html" style="color:#7cc6ff;font-size:13px;text-decoration:none">👤 Espace client TeamOP (abonnement, factures)</a></div>
+  <div class="note">💡 Chaque entreprise a son adresse : <b>teamop.fr/e/son-nom</b>. Donne-la à tes équipes — identifiant et mot de passe suffisent, sur n'importe quel téléphone.<br><a href="/index.html?hub=1">← Revenir au site TeamOP</a> · <a href="/connexion.html?choix=1">Changer d'application</a></div>
 </body>
 </html>
