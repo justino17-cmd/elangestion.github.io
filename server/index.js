@@ -1431,12 +1431,12 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '563',
-  sujet: '🔔 Vos notifications vous emmènent droit au bon endroit',
-  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Un seul point change, et il fait gagner du temps chaque jour.',
+  version: '564',
+  sujet: '📱 L\'application tient mieux dans l\'écran de votre téléphone',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Deux corrections d\'affichage sur téléphone, invisibles quand tout va bien, gênantes quand ça n\'allait pas.',
   points: [
-    ['🎯 La ligne concernée, tout de suite', 'Jusqu\'ici, toucher une notification ouvrait le bon écran et vous laissait chercher. « Sofia a pris 6 flacons dans la Box Nord » ouvrait la box… et ses vingt-deux produits. Désormais la ligne vient <b>se placer au milieu de l\'écran</b> et <b>ressort quelques secondes</b>, le temps que l\'œil l\'attrape.'],
-    ['📦 Sur les box, les validations et les demandes', 'Le produit qu\'on a pris ou ajouté dans une box, le mouvement qui attend votre accord, la demande de commande à valider : dans les trois cas, vous arrivez sur la bonne ligne et non sur une liste.']
+    ['📏 Plus rien ne passe sous la barre du navigateur', 'Sur iPhone et sur Android, la barre d\'adresse se rétracte quand on fait défiler. L\'application calculait ses hauteurs sans en tenir compte : le bas du menu, de l\'assistant ou du panneau de notifications pouvait se retrouver caché dessous. C\'est corrigé, et les téléphones plus anciens gardent l\'ancien calcul, qui leur convient.'],
+    ['🌓 La barre d\'état s\'accorde dès l\'ouverture', 'Elle suivait déjà votre thème, mais seulement une fois l\'application chargée : la toute première image restait sombre, même en mode jour. Elle est maintenant juste dès la première seconde.']
   ],
   fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };
