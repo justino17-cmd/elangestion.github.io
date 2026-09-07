@@ -1447,13 +1447,14 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '566',
-  sujet: '🎯 Le surlignage tient enfin, et il a une couleur',
+  version: '567',
+  sujet: '🔍 Une loupe dans le menu, et le lot de produits qui dit ce qu\'il attend',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['🎯 Le surlignage ne disparaît plus', 'En touchant une notification, la ligne concernée s\'entourait d\'un anneau — qui s\'effaçait dès que l\'écran se redessinait, c\'est-à-dire presque à chaque fois sur un ordinateur relié à la synchronisation. C\'est corrigé : l\'anneau tient le temps qu\'il faut, sur téléphone comme sur ordinateur, et il respire pour attraper l\'œil.'],
-    ['🔴 Rouge pour ce qui sort, vert pour ce qui entre', 'Sur un passage où quelqu\'un a repris deux produits et en a reposé un, les produits <b>retirés</b> s\'entourent de rouge et ceux qui sont revenus de vert. La couleur dit lequel est lequel sans rien relire.'],
-    ['\u2709\uFE0F Un bon de commande sans e-mail fournisseur', 'L\'application vous renvoyait vers la fiche du fournisseur : il fallait quitter le bon, ouvrir un autre écran, revenir. Elle vous demande maintenant l\'adresse <b>sur place</b>, propose de l\'enregistrer pour les prochains bons, et vous emmène droit à l\'aperçu du mail avec le PDF de la commande en pièce jointe.']
+    ['🔍 Trouver une rubrique sans la chercher', 'Le menu compte jusqu\'à quarante rubriques. Un champ discret en haut les filtre à la frappe : tapez « box », vous avez les box ; validez, vous y êtes. Chacun ne voit filtrer que les rubriques auxquelles il a déjà accès.'],
+    ['🔒 La box dit ce qui attend le DR', 'Quand vos mouvements passent par la validation du DR, les quantités ne bougeaient pas et rien ne l\'expliquait — ce qui pousse à re-taper. La fiche annonce maintenant « 5 produits en attente de validation DR », l\'heure d\'envoi, et sur chaque ligne ce qui est demandé, avec un bouton pour retirer une ligne ou annuler l\'ensemble.'],
+    ['🔴 Rouge et vert dans le même passage', 'Un passage où l\'on reprend trois produits et où l\'on en repose deux était surligné d\'une seule couleur, fausse pour la moitié. Chaque produit porte désormais la sienne. Et le téléphone du DR ne sonne plus qu\'UNE fois par passage, au lieu d\'une fois par produit.'],
+    ['📧 La boîte mail se range', '« Connecter une boîte » descend en pied de colonne, avec « Gérer mes boîtes » à côté — là où on va les chercher, et non plus au milieu de la liste.']
   ],
   fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };
