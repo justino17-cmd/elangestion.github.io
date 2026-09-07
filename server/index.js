@@ -53,7 +53,12 @@ app.use((req, res, next) => {
   if (o && ORIGINS.includes(o)) {
     res.setHeader('Access-Control-Allow-Origin', o);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Teamop-Devis');
+    /* Tout en-tête personnalisé DOIT figurer ici. L'app est servie par teamop.fr et appelle
+       api.teamop.fr : une origine différente, donc un en-tête hors liste blanche déclenche une
+       requête préalable que le navigateur refuse — et il bloque l'appel réel, silencieusement.
+       Un test en ligne de commande ne peut pas l'attraper : CORS n'existe que dans le navigateur.
+       X-Teamop-Kh porte la preuve de possession de la clé d'équipe sur les routes mail. */
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Teamop-Devis, X-Teamop-Kh');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -66,6 +71,11 @@ app.use((req, res, next) => {
 //    état périmé — par exemple « Stripe non configuré » alors que Stripe vient d'être relié.
 //    Cela évite aussi de laisser des données privées de clients dans le cache disque.
 app.use('/api/monitor', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+/*    La même raison vaut, mot pour mot, pour les routes qui rendent de la correspondance :
+      corps d'e-mails de fournisseurs, adresses des boîtes connectées, fiches clients. Sans
+      cet en-tête, Express ne pose qu'un ETag et ces réponses se rangent dans le cache disque
+      du navigateur — et dans celui de tout intermédiaire sur le chemin. */
+app.use(['/api/replies', '/api/mailboxes', '/api/clients/sync'], (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 /* ── Journal des e-mails sortants + copie dans la boîte contact ──
    Chaque envoi est noté (date, destinataire, sujet) pour l'onglet Journal de la
    Tour, et reçoit une copie cachée (bcc) dans la boîte contact — SAUF les mails
@@ -410,8 +420,41 @@ function mailServers(email) {
   return { imapHost: P.host, imapPort: P.imap, smtpHost: 'ssl0.ovh.net', smtpPort: 465 };   // OVH & domaines pro par défaut
 }
 // Connecter / tester une boîte (une équipe peut en connecter plusieurs)
+/* ══ PREUVE DE POSSESSION DE LA CLÉ D'ÉQUIPE — PHASE 1 : ON OBSERVE, ON NE REFUSE RIEN ══
+   Le teamId n'autorise rien et ne l'a jamais pu : il voyage dans les URL, donc dans les
+   journaux nginx, l'historique du navigateur et l'en-tête Referer ; il est écrit en clair
+   dans le localStorage de chaque appareil ; et il ne se révoque pas — un ancien salarié ou
+   un téléphone revendu le gardent à vie. Les six routes ci-dessous s'en contentaient
+   pourtant : lire les messages reçus, lister les boîtes, ENVOYER depuis la boîte de
+   l'entreprise, la déconnecter, en connecter une, s'abonner aux notifications. Connaître
+   le teamId suffisait pour les six.
+
+   Rien de neuf n'est inventé pour refermer : la preuve existe déjà des deux côtés. app.html
+   détient la clé de synchro et sait en calculer le sha256 (« kh »), et /api/espaces/comptes
+   vérifie déjà ce kh contre la clé de l'espace. Le verdict est rendu par cleEquipeVerdict(),
+   défini plus bas avec espaceParT() dont il dépend.
+
+   POURQUOI ON N'EXIGE ENCORE RIEN. cleEquipeVerdict() s'appuie sur espaceParT(), qui ne
+   trouve que ce qui est inscrit dans espacesReg — le registre alimenté à la main, quand
+   cnxData, lui, se remplit tout seul à chaque connexion. Des entreprises actives et payantes
+   ont donc un t sans entrée d'annuaire. Refuser d'emblée les renverrait en 403, que
+   loadMailReplies() (app.html) avale dans son catch : Réception vide, aucun message d'erreur.
+   C'est exactement le mode de panne silencieuse que ce dépôt a déjà payé. On mesure d'abord
+   — /api/mail/cles, protégée — et on ne ferme que lorsque le compte « sans preuve » est à
+   zéro pour les espaces vivants. */
+app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox/disconnect', '/api/sendmail', '/api/subscribe'], cleEquipeObserve);
+
 app.post('/api/mailbox/connect', async (req, res) => {
-  const { teamId, email, pass, name } = req.body || {};
+  /* Bornes posées AVANT la vérification SMTP/IMAP, pas au moment d'écrire : ce qui est
+     vérifié doit être exactement ce qui est enregistré — tronquer après coup stockerait
+     un mot de passe qui ne s'authentifie plus. Sans ces bornes, express.json({limit:'6mb'})
+     laisse écrire plusieurs mégaoctets par appel dans mailboxes.json, réécrit en entier à
+     chaque saveMailboxes(). */
+  const _b = req.body || {};
+  const teamId = String(_b.teamId || '').slice(0, 80);
+  const email = String(_b.email || '').slice(0, 160);
+  const pass = String(_b.pass || '').slice(0, 200);
+  const name = String(_b.name || '').slice(0, 80);
   if (!teamId || !email || !pass) return res.status(400).json({ error: 'champs requis manquants' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email))) return res.status(400).json({ error: 'adresse invalide' });
   const srv = mailServers(email);
@@ -505,7 +548,27 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
         const m = (subj + ' ' + text).match(/BC-\d{4}-\d{2,4}/i);
         const bonNum = m ? m[0].toUpperCase() : '';
         let teamId = tag ? tag.teamId : '';
-        if (!teamId) { let map = bonNum ? sentMap.slice().reverse().find(x => x.bonNum === bonNum) : null; if (!map) map = sentMap.slice().reverse().find(x => x.to === fromAddr); if (map) { teamId = map.teamId; } }
+        /* PIÈGE LATENT, PAS UNE FUITE EN COURS — à lire avant de simplifier.
+           Ce bloc n'est atteint que si tag est nul, c'est-à-dire pour la seule boîte commandes
+           partagée de config.imap (ligne ~560) ; une boîte connectée par une entreprise porte
+           déjà son tag.teamId, et importHistorique écrit b.teamId. Or config.imap n'est pas
+           configuré en production (/health : "boite":false), donc ce chemin est mort aujourd'hui.
+           Il s'arme à la première boîte partagée configurée, et c'est là que le rattachement
+           d'origine devenait dangereux : il retenait le PREMIER indice venu. Le numéro de bon
+           ne vaut rien seul — nextNum() est un compteur local à chaque entreprise, toutes
+           démarrent à BC-2026-001, donc deux clients portent couramment le même numéro.
+           L'adresse d'expéditeur non plus : deux entreprises de nettoyage partagent leurs
+           fournisseurs. D'où la règle ci-dessous : un indice n'est retenu que s'il ne désigne
+           QU'UNE équipe, sinon teamId reste vide. Un message non rattaché reste invisible dans
+           l'app ; un message mal rattaché part chez un concurrent avec son corps et une
+           notification push, sans laisser trace d'erreur. */
+        if (!teamId) {
+          const seuleEquipe = (liste) => { const eq = new Set(liste.map(x => x.teamId)); return eq.size === 1 ? liste[liste.length - 1].teamId : ''; };
+          const conjoint = bonNum ? sentMap.filter(x => x.bonNum === bonNum && x.to === fromAddr) : [];
+          if (conjoint.length) teamId = seuleEquipe(conjoint);
+          if (!teamId && bonNum) teamId = seuleEquipe(sentMap.filter(x => x.bonNum === bonNum));
+          if (!teamId) teamId = seuleEquipe(sentMap.filter(x => x.to === fromAddr));
+        }
         const entry = { ts: Date.now(), teamId, boite: tag ? tag.email : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid };
         try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); } catch (_) {}
         if (mid) seenMids.add(mid);
@@ -1601,6 +1664,62 @@ function espaceParT(t) {
   const slug = slugs.sort((a, b) => (espacesReg[b].ts || 0) - (espacesReg[a].ts || 0))[0];   // plusieurs noms pour le même espace : le plus récent
   return Object.assign({ slug }, espacesReg[slug]);
 }
+
+/* ── Verdict de clé d'équipe : la mécanique derrière le point de passage de la famille mail.
+   Même vérification que /api/espaces/comptes, en un seul endroit plutôt que recopiée, et
+   comparée en temps constant comme memeSecret() d'agent-devis.js — un !== sur une empreinte
+   se mesure. Quatre verdicts, et ils ne disent pas la même chose :
+     valide   — la clé est prouvée ;
+     absent   — aucun kh envoyé (une version d'app.html antérieure à la phase 2) ;
+     invalide — un kh envoyé qui ne correspond pas : à regarder de près ;
+     inconnu  — l'espace n'est pas dans espacesReg, donc on ne PEUT PAS vérifier. C'est le
+                verdict décisif : tant qu'il n'est pas à zéro, fermer la porte couperait la
+                Réception d'entreprises parfaitement légitimes. */
+const cleEquipeVu = { valide: 0, absent: 0, invalide: 0, inconnu: 0, depuis: Date.now() };
+const cleEquipeParEspace = new Map();   // t -> { slug, valide, absent, invalide, inconnu, vu }
+
+function cleEquipeVerdict(t, kh) {
+  const khn = String(kh || '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(khn)) return 'absent';
+  const e = espaceParT(String(t || ''));
+  if (!e || !e.code) return 'inconnu';
+  let cle = '';
+  try { cle = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) {}
+  if (!cle) return 'inconnu';
+  const attendu = Buffer.from(crypto.createHash('sha256').update(cle).digest('hex'));
+  const recu = Buffer.from(khn);
+  return (attendu.length === recu.length && crypto.timingSafeEqual(attendu, recu)) ? 'valide' : 'invalide';
+}
+
+/* Le point de passage lui-même. Il compte et laisse passer — req.cleEquipe est posé pour la
+   phase 3, où les routes s'en serviront pour refuser. Rien n'est écrit dans les journaux :
+   ni adresse, ni objet, ni corps. Le comptage reste en mémoire et se lit par une route
+   protégée ; il repart donc à zéro au redémarrage, ce qui suffit pour la mesure visée. */
+function cleEquipeObserve(req, res, next) {
+  const src = (req.method === 'GET') ? (req.query || {}) : (req.body || {});
+  const t = String(src.teamId || src.t || '');
+  const v = cleEquipeVerdict(t, src.kh || req.headers['x-teamop-kh'] || '');
+  cleEquipeVu[v]++;
+  if (t) {
+    if (cleEquipeParEspace.size > 3000) cleEquipeParEspace.clear();   // borne mémoire, comme comptesQuota
+    const e = cleEquipeParEspace.get(t) || { slug: '', valide: 0, absent: 0, invalide: 0, inconnu: 0 };
+    if (!e.slug) { const x = espaceParT(t); e.slug = x ? x.slug : '(hors annuaire)'; }
+    e[v]++; e.vu = Date.now();
+    cleEquipeParEspace.set(t, e);
+  }
+  req.cleEquipe = v;
+  next();
+}
+
+/* Ce que la phase 1 sert à lire. Protégée par la clé du serveur, comme /api/bugs.
+   « inconnu » et « absent » non nuls = fermer maintenant casserait ces espaces. */
+app.get('/api/mail/cles', (req, res) => {
+  if ((req.query.key || '') !== config.apiKey) return res.status(403).json({ error: 'clé invalide' });
+  const espaces = Array.from(cleEquipeParEspace.entries())
+    .map(([t, e]) => ({ t, slug: e.slug, valide: e.valide, absent: e.absent, invalide: e.invalide, inconnu: e.inconnu, vu: e.vu }))
+    .sort((a, b) => (b.vu || 0) - (a.vu || 0)).slice(0, 300);
+  res.json({ total: cleEquipeVu, espaces });
+});
 app.post('/api/espaces/etat', (req, res) => {
   const t = monStr((req.body || {}).t, 80);
   if (!t) return res.status(400).json({ error: 't requis' });
