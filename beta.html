@@ -16347,11 +16347,9 @@ const _mailDesktop=()=>window.innerWidth>=960;
 /* ═══ Boîte mail — 3 volets sur ordinateur (dossiers · liste · lecture), pile sur mobile ═══ */
 views.boiteMail=function(){
   setHeader('Boîte mail','',`<button class="btn ghost" onclick="mailBoxesManage()">📬 Boîtes</button> <button class="btn" onclick="mailCompose()">✏️ Écrire</button>`);
-  const lus=_mailLus();
-  /* Le compteur ne regarde QUE la réception. Avant les dossiers il n'y avait qu'un tas, donc
-     tout compter revenait au même ; maintenant, compter large afficherait les 800 indésirables
-     de la boîte comme des mails à lire. */
-  const unread=_mailDuDossier('reception').filter(r=>!lus.has(mailKey(r))).length;
+  const lus=_mailLus(); const supp=_mailSupp();
+  const reps=_mailReplies||[];
+  const unread=reps.filter(r=>!supp.has(mailKey(r))&&!lus.has(mailKey(r))).length;
   const D=_mailDesktop();
   const dossier=(k,ic,l,n)=>D?
     `<div onclick="mailTab='${k}';mailSel=null;views.boiteMail()" style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;cursor:pointer;font-size:13.5px;font-weight:700;margin-bottom:2px;${mailTab===k?'background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc)':'color:var(--t2)'}">${ic} ${l}${n?`<span style="margin-left:auto;font-size:11px;background:var(--acc);color:var(--on-acc);border-radius:100px;padding:1px 8px;font-weight:800">${n}</span>`:''}</div>`
@@ -16364,7 +16362,6 @@ views.boiteMail=function(){
         <div style="${D?'':'display:flex;gap:6px;flex-wrap:wrap;align-items:center'}">
           ${dossier('recu','📥','Réception',unread)}
           ${dossier('envoye','📤','Envoyés',0)}
-          ${MAIL_DOSSIERS.map(function(d){ return _mailCompte(d.k)?dossier('d:'+d.k,d.ic,d.l,0):''; }).join('')}
           ${D?'':'<button class="btn ghost sm" onclick="_mailReplies=null;mailSel=null;views.boiteMail()">🔄</button>'}
         </div>
         ${D?`<div style="margin-top:18px"><div style="font-size:10.5px;font-weight:800;letter-spacing:1.2px;color:var(--t3);padding:0 12px 7px">MES BOÎTES</div><div id="mail-side-boites"><div style="padding:0 12px;font-size:12px;color:var(--t3)">Chargement…</div></div>
@@ -16423,61 +16420,22 @@ function mailRow(r,type,idx){
     </div>
   </div><div style="height:1px;background:var(--brd);margin:0 12px 3px 31px"></div>`;
 }
-/* Les dossiers rapportés par le serveur. « Envoyés » n'y est pas : l'onglet du même nom
-   existait déjà et montre ce qu'on a envoyé DEPUIS l'application — les deux se rejoignent
-   plus bas plutôt que de faire deux rubriques qui portent le même mot. */
-const MAIL_DOSSIERS=[
-  {k:'brouillons',  ic:'📝', l:'Brouillons'},
-  {k:'indesirables',ic:'🚫', l:'Indésirables'},
-  {k:'corbeille',   ic:'🗑️', l:'Corbeille'},
-  {k:'archives',    ic:'🗄️', l:'Archives'}
-];
-/* Un onglet vide ne sert à rien : il occupe la place et déçoit au clic. On ne l'affiche que
-   s'il porte au moins un mail — et la réception accepte les entrées SANS dossier, qui sont
-   toutes celles reçues avant cette mise à jour. */
-function _mailDuDossier(k){
-  const supp=_mailSupp();
-  return (_mailReplies||[]).filter(function(r){
-    if(supp.has(mailKey(r))) return false;
-    return k==='reception' ? (!r.dossier||r.dossier==='reception') : r.dossier===k;
-  });
-}
-function _mailCompte(k){ return _mailDuDossier(k).length; }
 function renderMailList(){ const el=$('mail-list'); if(!el) return;
   const q=norm(mailSearch);
-  /* Un dossier du serveur : indésirables, corbeille, brouillons, archives. Même rendu que la
-     réception — ce sont les mêmes objets, seul le dossier change. */
-  if(mailTab.indexOf('d:')===0){
-    let l=_mailDuDossier(mailTab.slice(2));
-    if(mailBoxFiltre) l=l.filter(r=>(r.boite||'')===mailBoxFiltre);
-    if(q) l=l.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')).includes(q));
-    el.innerHTML=l.length? l.sort((a,b)=>(b.ts||0)-(a.ts||0)).map(r=>mailRow(r,'recu',(_mailReplies||[]).indexOf(r))).join('')
-      : `<div style="text-align:center;color:var(--t3);padding:26px">Ce dossier est vide.</div>`;
-    return;
-  }
   if(mailTab==='envoye'){
-    /* Deux sources pour un seul mot : ce qu'on a envoyé DEPUIS l'application (db.mailSent) et
-       le dossier « Envoyés » de la vraie boîte, rapporté par le serveur. Les séparer aurait
-       donné deux rubriques nommées pareil — on les mêle, triées par date. */
     const all=(db.mailSent||[]).slice().reverse();
     let sent=all.slice();
     if(mailBoxFiltre) sent=sent.filter(m=>(m.from||'')===mailBoxFiltre);
     if(q) sent=sent.filter(m=>norm((m.to||'')+' '+(m.subject||'')+' '+(m.text||'')).includes(q));
-    let dist=_mailDuDossier('envoyes');
-    if(mailBoxFiltre) dist=dist.filter(r=>(r.boite||'')===mailBoxFiltre);
-    if(q) dist=dist.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')).includes(q));
-    const lignes=sent.map(m=>({ts:m.ts||0,h:mailRow(m,'envoye',all.indexOf(m))}))
-      .concat(dist.map(r=>({ts:r.ts||0,h:mailRow(r,'recu',(_mailReplies||[]).indexOf(r))})))
-      .sort((a,b)=>b.ts-a.ts);
-    el.innerHTML=lignes.length? lignes.map(x=>x.h).join('') : `<div style="text-align:center;color:var(--t3);padding:26px">Aucun e-mail envoyé.</div>`;
+    el.innerHTML=sent.length? sent.map(m=>mailRow(m,'envoye',all.indexOf(m))).join('') : `<div style="text-align:center;color:var(--t3);padding:26px">Aucun e-mail envoyé.</div>`;
     return;
   }
   if(_mailReplies===null){
     el.innerHTML=`<div style="padding:16px;color:var(--t2);font-size:13px;line-height:1.6">📥 Réception indisponible pour l'instant — tu peux déjà ✏️ écrire. Connecte une boîte (＋) pour recevoir ici.</div>`;
     return;
   }
-  // la réception ne montre plus TOUT : les dossiers ont leur onglet
-  let list=_mailDuDossier('reception');
+  const supp=_mailSupp();
+  let list=_mailReplies.filter(r=>!supp.has(mailKey(r)));
   if(mailBoxFiltre) list=list.filter(r=>(r.boite||'')===mailBoxFiltre);
   if(q) list=list.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')+' '+(r.bonNum||'')).includes(q));
   el.innerHTML=list.length? list.map(r=>mailRow(r,'recu',_mailReplies.indexOf(r))).join('')
@@ -16522,7 +16480,6 @@ function mailReadHtml(r,type){
         <div style="font-size:11.5px;color:var(--t3)">${d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
       </div></div>
     <div style="font-size:14.5px;line-height:1.7;white-space:pre-wrap;word-break:break-word">${esc(r.text||'')}</div>
-    ${r.coupe?`<div style="margin-top:14px;padding:10px 13px;border:1px solid var(--brd);border-radius:11px;font-size:12.5px;color:var(--t2);line-height:1.6">✂️ <b>Aperçu</b> — les mails des dossiers (indésirables, corbeille, archives…) n'arrivent ici qu'en début de texte, pour ne pas alourdir l'application. Le message entier est resté sur ta vraie boîte.</div>`:''}
     ${r.att?(bon?`<div onclick="bonPdfOpen('${bon.id}')" title="Ouvrir le PDF" style="margin-top:18px;padding:10px 13px;background:var(--bg1);border:1px solid var(--acc);border-radius:10px;font-size:13px;color:var(--acc);display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">📎 ${esc(r.att)} <span style="font-weight:400;color:var(--t3)">· clique pour ouvrir</span></div>`
       :`<div style="margin-top:18px;padding:10px 13px;background:var(--bg1);border:1px solid var(--brd);border-radius:10px;font-size:13px;color:var(--acc);display:inline-block">📎 ${esc(r.att)}</div>`):''}
     ${bonCard}

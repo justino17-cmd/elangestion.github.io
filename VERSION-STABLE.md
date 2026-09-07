@@ -2,52 +2,55 @@
 
 **Version stable : v566** — gravée le 7 septembre 2026.
 
-v566 — les dossiers de la boîte mail, et un surlignage qui tient vraiment.
+v566 — un surlignage qui tient vraiment, et une couleur qui dit ce qui sort.
 
-**La boîte mail a enfin ses dossiers.** Envoyés, Brouillons, Indésirables, Corbeille,
-Archives : le serveur les repère par leur RÔLE IMAP (`specialUse`) et non par leur nom, parce
-que Gmail en français appelle sa boîte d'envoi « [Gmail]/Messages envoyés » là où OVH dit
-« Sent ». Vingt-cinq mails par dossier, pas plus : la boîte de Justin compte 830 indésirables
-et personne ne les relit sur un téléphone en 4G. Un dossier vide ne s'affiche pas. « Envoyés »
-mêle ce qui est parti depuis l'application et le dossier de la vraie boîte, triés par date —
-deux rubriques portant le même mot auraient été absurdes.
-
-**Ce qu'on a corrigé au passage, et qu'on n'avait pas vu.** La pastille de la Réception
-comptait TOUS les mails, dossiers compris : avec les indésirables, elle aurait annoncé des
-centaines de messages à lire. Et le plafond de `/api/replies` était global : 250 archives plus
-récentes auraient chassé la réception de la liste. Le plafond est désormais par dossier ET par
-boîte, la réception garde ses 200, et le corps des mails de dossier part en extrait de 400
-caractères — mesuré : sinon la réponse passait de 425 Ko à 955 Ko sur un téléphone de chantier.
-Le texte entier reste sur le disque du serveur, seul l'envoi est allégé.
-
-**Le surlignage ne tenait pas — et c'est pour ça qu'il « ne marchait pas sur Mac ».**
-`cible()` posait sa marque une fois. Or la liste se redessine (une synchro qui arrive, un
-`save()`, un retour de réseau) et le redessin remplace les lignes : la marque partait avec
-elles. Sur un ordinateur relié à la synchro ça tombait presque à chaque fois ; sur un poste
-d'essai sans réseau, jamais — d'où un défaut invisible en test et constant à l'usage. La
-marque est maintenant reposée toutes les 120 ms pendant 6 secondes : une ligne reconstruite la
-retrouve dans la foulée. On ne recentre pas l'écran à chaque tour, seulement quand la ligne
-visée a été remplacée, pour ne pas ramener de force quelqu'un qui fait défiler.
+**« Ça ne marche pas sur Mac » : le surlignage ne tenait nulle part.** `cible()` posait sa
+marque une seule fois. Or la liste se redessine — une synchro qui arrive, un `save()`, un
+retour de réseau — et le redessin remplace les lignes : la marque partait avec elles. Sur un
+ordinateur relié à la synchro ça tombait presque à chaque fois ; sur un poste d'essai sans
+réseau, jamais. D'où un défaut invisible en test et constant à l'usage. La marque est
+maintenant reposée toutes les 120 ms pendant 6 secondes : une ligne reconstruite la retrouve
+dans la foulée. On ne recentre pas l'écran à chaque tour, seulement quand la ligne visée a été
+remplacée — sinon quelqu'un qui fait défiler serait ramené de force.
 
 **Le halo ne respirait sur aucun navigateur.** Le `!important` posé sur `box-shadow` battait
-l'animation — une déclaration importante l'emporte sur une animation dans la cascade. Retiré,
-mesures à l'appui : aucune des lignes visées ne pose d'ombre en style direct, l'anneau gagne
-sans forcer. Et il porte enfin une couleur : **rouge pour ce qui est SORTI** de la box, vert
-pour ce qui y est entré. Sur un passage mixte, deux appels distincts marquent chaque produit
-de la bonne couleur.
+l'animation : une déclaration importante l'emporte sur une animation dans la cascade. Retiré,
+mesures à l'appui — aucune des lignes visées (produit, demande, mouvement, enveloppe) ne pose
+d'ombre en style direct, l'anneau gagne sans forcer. Une repli sans `color-mix()` est déclarée
+avant, pour les navigateurs qui ne la connaissent pas.
+
+**Rouge pour ce qui sort.** La couleur du halo passe par une variable `--halo` ; `.cible-retrait`
+la met au rouge. `mvtRetrait(m)` décide, en lisant le signe des quantités (`du`, `dc`, ou les
+lignes d'un lot). Sur un passage mixte, la notification fait deux appels — un rouge pour les
+produits repris, un vert pour ceux remis — et chaque ligne porte la bonne couleur.
 
 **Un bon de commande sans e-mail fournisseur ne renvoie plus ailleurs.** Il affichait « Ajoute
-un e-mail au fournisseur (menu Fournisseurs → ✎) » : il fallait quitter le bon, ouvrir un
-autre écran, revenir. L'adresse se saisit désormais sur place, avec le choix de l'enregistrer
-sur la fiche du fournisseur ou de ne la garder que pour ce bon (`b.emailDest`), et on repart
-droit vers l'aperçu du mail avec le PDF joint. L'envoi groupé honore la même adresse.
+un e-mail au fournisseur (menu Fournisseurs → ✎) » : il fallait quitter le bon, ouvrir un autre
+écran, revenir. L'adresse se saisit désormais sur place, avec le choix de l'enregistrer sur la
+fiche du fournisseur ou de ne la garder que pour ce bon (`b.emailDest`), et on repart droit vers
+l'aperçu du mail avec le PDF joint. La liste des bons prêts et l'envoi groupé honorent la même
+adresse. En envoi groupé, un bon sans adresse est sauté en le disant — pas de fenêtre par bon.
 
-**Vérifié en navigateur, pas sur parole** — surlignage : marques posées, couleurs, survie à un
-redessin, extinction à 6 s, sur 1400 px et 390 px. Dossiers : six onglets, comptes exacts,
-pastille à 3 et non à 11. Chaîne DR d'un bon réceptionné : le stock ne bouge pas avant la
-validation, le mouvement part en file avec son `bcId`, le DR est prévenu (sauf s'il a
-réceptionné lui-même), la double réception est bloquée, la validation crédite la box et passe
-le bon en « livrée », le refus remet tout en état avec son motif.
+**Ce qui N'EST PAS dans cette version, et pourquoi.** Les dossiers de la boîte mail (Envoyés,
+Indésirables, Corbeille, Archives) sont écrits, testés et gardés sur la branche
+`mail/dossiers-en-attente-auth`. Le gardien les a bloqués : `GET /api/replies` n'a aucune
+authentification et son cloisonnement repose sur un `teamId` fourni par l'appelant, bâti sur le
+slug public du nom d'entreprise plus quatre caractères. Aujourd'hui le butin serait « les
+réponses des fournisseurs » ; avec les dossiers, ce serait le contenu entier des boîtes des
+clients. La route doit prouver l'appartenance à l'équipe avant que les dossiers partent. Les
+brouillons, eux, ne reviendront pas tels quels : un brouillon est un message que personne n'a
+décidé d'envoyer.
+
+**Vérifié en navigateur, pas sur parole** — surlignage sur 1400 px et 390 px : marques posées,
+couleurs rouge/vert conformes, survie à un redessin de la liste, extinction à 6 s, zéro erreur
+JS. E-mail fournisseur : la fenêtre s'ouvre, refuse une adresse invalide, mène à l'aperçu avec
+le PDF, et laisse la fiche du fournisseur intacte quand la case n'est pas cochée.
+
+**Vérifié aussi, sans rien changer** — la chaîne DR d'un bon réceptionné, question posée : le
+stock ne bouge pas avant la validation, le mouvement part en file avec son `bcId`, le DR est
+prévenu (sauf s'il a réceptionné lui-même), une seconde réception du même bon est bloquée, la
+validation crédite la box et passe le bon en « livrée », le refus remet tout en état avec son
+motif. Rien à corriger.
 
 v565 — une notification par PASSAGE, et le surlignage devient multiple.
 

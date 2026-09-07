@@ -440,67 +440,6 @@ app.get('/api/mailboxes', (req, res) => {
 // Message-ID déjà enregistrés (évite les doublons entre l'import d'historique et la relève)
 let seenMids = new Set();
 try { fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n').forEach(l => { try { const r = JSON.parse(l); if (r.mid) seenMids.add(r.mid); } catch (_) {} }); } catch (e) {}
-/* ── LES DOSSIERS D'UNE BOÎTE ──────────────────────────────────────────────────────────────
-   Repérés par leur RÔLE (specialUse), jamais par leur nom : Gmail en français appelle sa
-   boîte d'envoi « [Gmail]/Messages envoyés », un serveur OVH l'appelle « Sent », Orange
-   encore autrement. Le nom sert seulement de repli quand le serveur ne déclare pas de rôle.
-   On ne descend PAS dans tous les dossiers : la boîte de Justin compte 830 indésirables et
-   500 archives, et tout rapatrier chargerait l'application sur un téléphone en 4G pour des
-   mails que personne ne relit. Un plafond par dossier, et c'est tout. */
-const DOSSIERS = [
-  { cle: 'envoyes',      use: '\\Sent',    noms: ['sent', 'envoy'] },
-  { cle: 'brouillons',   use: '\\Drafts',  noms: ['draft', 'brouillon'] },
-  { cle: 'indesirables', use: '\\Junk',    noms: ['junk', 'spam', 'ind\u00e9sirable', 'indesirable'] },
-  { cle: 'corbeille',    use: '\\Trash',   noms: ['trash', 'corbeille', 'deleted'] },
-  { cle: 'archives',     use: '\\Archive', noms: ['archive'] }
-];
-const DOSSIER_MAX = 25;   // par dossier, à la connexion — la réception garde ses 60
-async function dossiersDe(client) {
-  const out = [];
-  let liste = [];
-  try { liste = await client.list(); } catch (e) { return out; }
-  for (const d of DOSSIERS) {
-    let f = liste.find(x => x.specialUse === d.use);
-    if (!f) f = liste.find(x => d.noms.some(n => String(x.name || '').toLowerCase().includes(n)));
-    if (f && f.path) out.push({ cle: d.cle, path: f.path });
-  }
-  return out;
-}
-/* Les dossiers d'une boîte, un par un, plafonnés. Écrit UNE fois : appelé à la connexion
-   (juste après la réception) et au rattrapage des boîtes déjà connectées. Ce dépôt a déjà
-   connu une panne silencieuse causée par deux chemins jumeaux — on n'en refait pas.
-   Le verrou de la réception doit être relâché AVANT d'appeler : imapflow n'autorise qu'une
-   boîte ouverte à la fois, et deux getMailboxLock imbriqués s'attendraient indéfiniment. */
-async function avalerDossiers(client, b) {
-    for (const d of await dossiersDe(client)) {
-      let lock2 = null;
-      try {
-        lock2 = await client.getMailboxLock(d.path);
-        const tot = (client.mailbox && client.mailbox.exists) || 0;
-        if (!tot) continue;
-        const plage = Math.max(1, tot - DOSSIER_MAX + 1) + ':*';
-        let k = 0;
-        for await (const msg of client.fetch(plage, { envelope: true, source: { maxLength: 150000 } })) {
-          const env = msg.envelope || {};
-          const mid = String(env.messageId || '').slice(0, 200);
-          if (mid && seenMids.has(mid)) continue;
-          let text = '';
-          try { const { simpleParser } = require('mailparser'); const p = await simpleParser(msg.source); text = String(p.text || '').slice(0, 2000); } catch (e) {}
-          /* Dans « Envoyés » et « Brouillons », l'interlocuteur est le DESTINATAIRE, pas
-             l'expéditeur — sans ça la liste afficherait partout la propre adresse du client. */
-          const sortant = (d.cle === 'envoyes' || d.cle === 'brouillons');
-          const qui = ((sortant ? (env.to || []) : (env.from || []))[0] || {});
-          const entry = { dossier: d.cle, ts: env.date ? new Date(env.date).getTime() : Date.now(), teamId: b.teamId, boite: b.email,
-            bonNum: '', from: String(qui.address || '').toLowerCase().slice(0, 160), fromName: String(qui.name || '').slice(0, 80),
-            subject: String(env.subject || '').slice(0, 200), text, mid };
-          try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); k++; } catch (_) {}
-          if (mid) seenMids.add(mid);
-        }
-        if (k) console.log('dossier importé:', d.cle, masqueMail(b.email), '(' + k + ' mails)');
-      } catch (e) { console.error('dossier ' + d.cle + ':', e.message); }
-      finally { if (lock2) { try { lock2.release(); } catch (_) {} } }
-    }
-}
 // 📜 Import de l'historique d'une boîte à sa connexion : les ~60 derniers mails (lus ou non)
 //    arrivent dans l'app avec leur vraie date — sans notification, sans toucher aux drapeaux lu/non-lu.
 async function importHistorique(b, limit = 60) {
@@ -523,31 +462,16 @@ async function importHistorique(b, limit = 60) {
           const from = ((env.from || [])[0] || {});
           const subj = String(env.subject || '');
           const m = (subj + ' ' + text).match(/BC-\d{4}-\d{2,4}/i);
-          const entry = { dossier: 'reception', ts: env.date ? new Date(env.date).getTime() : Date.now(), teamId: b.teamId, boite: b.email, bonNum: m ? m[0].toUpperCase() : '', from: String(from.address || '').toLowerCase(), fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid, histo: 1 };
+          const entry = { ts: env.date ? new Date(env.date).getTime() : Date.now(), teamId: b.teamId, boite: b.email, bonNum: m ? m[0].toUpperCase() : '', from: String(from.address || '').toLowerCase(), fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid, histo: 1 };
           try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); n++; } catch (_) {}
           if (mid) seenMids.add(mid);
         }
         console.log('historique importé:', masqueMail(b.email), '(' + n + ' mails)');
       }
     } finally { lock.release(); }
-    await avalerDossiers(client, b);
     await client.logout();
-    if (b.id && mailboxes[b.id]) { mailboxes[b.id].histoDone = true; mailboxes[b.id].dossiersDone = true; saveMailboxes(); }   // une seule fois par boîte
+    if (b.id && mailboxes[b.id]) { mailboxes[b.id].histoDone = true; saveMailboxes(); }   // une seule fois par boîte
   } catch (e) { console.error('histo', masqueMail(b.email) + ':', e.message); try { if (client) client.close(); } catch (_) {} }
-}
-/* Rattrapage : les dossiers seuls, pour une boîte dont l'historique est déjà là. Le corps est
-   celui d'importHistorique, sans la partie réception — écrit une fois, appelé des deux
-   endroits, pour ne pas laisser deux copies diverger (ce dépôt a déjà connu une panne
-   silencieuse à cause de deux chemins jumeaux). */
-async function importDossiers(b) {
-  const { ImapFlow } = require('imapflow'); let client;
-  try {
-    client = new ImapFlow({ host: b.imapHost, port: b.imapPort || 993, secure: true, auth: { user: b.email, pass: b.pass }, logger: false });
-    await client.connect();
-    await avalerDossiers(client, b);
-    await client.logout();
-    if (b.id && mailboxes[b.id]) { mailboxes[b.id].dossiersDone = true; saveMailboxes(); }
-  } catch (e) { console.error('dossiers', masqueMail(b.email) + ':', e.message); try { if (client) client.close(); } catch (_) {} }
 }
 let boiteBusy = false;
 async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag = {teamId, userId} pour le rattachement
@@ -571,7 +495,7 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
         const bonNum = m ? m[0].toUpperCase() : '';
         let teamId = tag ? tag.teamId : '';
         if (!teamId) { let map = bonNum ? sentMap.slice().reverse().find(x => x.bonNum === bonNum) : null; if (!map) map = sentMap.slice().reverse().find(x => x.to === fromAddr); if (map) { teamId = map.teamId; } }
-        const entry = { dossier: 'reception', ts: Date.now(), teamId, boite: tag ? tag.email : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid };
+        const entry = { ts: Date.now(), teamId, boite: tag ? tag.email : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid };
         try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); } catch (_) {}
         if (mid) seenMids.add(mid);
         try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {}
@@ -591,42 +515,18 @@ async function releveBoite() {
     if (config.imap && config.imap.user && config.imap.pass) await releveUneBoite({ host: config.imap.host || 'ssl0.ovh.net', port: config.imap.port || 993, user: config.imap.user, pass: config.imap.pass }, null);
     for (const k of Object.keys(mailboxes)) { const b = mailboxes[k];
       if (!b.histoDone) await importHistorique(b).catch(() => {});   // boîtes connectées avant cette mise à jour : historique importé au premier passage
-      /* Une boîte connectée AVANT l'arrivée des dossiers a bien son historique, mais pas ses
-         dossiers : histoDone est vrai, dossiersDone ne l'est pas. On ne relance pas tout
-         l'historique pour autant — seulement les dossiers, une fois. */
-      else if (!b.dossiersDone) await importDossiers(b).catch(() => {});
       await releveUneBoite({ host: b.imapHost, port: b.imapPort, user: b.email, pass: b.pass }, { teamId: b.teamId, email: b.email }); }
   } catch (e) { console.error('releveBoite:', e.message); }
   boiteBusy = false;
 }
 setInterval(() => { releveBoite().catch(() => {}); }, 120000);
 setTimeout(() => { releveBoite().catch(() => {}); }, 8000);
-/* Réponses d'une équipe. Le plafond est PAR dossier et PAR boîte, jamais global : un plafond
-   global ferait chasser la réception — celle qu'on ouvre tous les jours — par les archives et
-   les indésirables d'une autre boîte, simplement parce qu'ils sont plus récents. */
-const RECEPTION_MAX = 200;
-const EXTRAIT_MAX = 400;   // corps servi pour un mail de dossier
+// réponses d'une équipe (les 100 dernières)
 app.get('/api/replies', (req, res) => {
   const teamId = String(req.query.teamId || ''); if (!teamId) return res.status(400).json({ error: 'teamId requis' });
   let list = [];
-  try { list = fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.teamId === teamId).sort((a, b) => (b.ts || 0) - (a.ts || 0)); } catch (e) {}
-  const vus = {}; const out = [];
-  for (const r of list) {
-    // pas de champ dossier = reçu avant cette mise à jour, donc réception
-    const d = (r.dossier && r.dossier !== 'reception') ? r.dossier : 'reception';
-    const cle = d + '|' + (d === 'reception' ? '' : (r.boite || ''));
-    vus[cle] = (vus[cle] || 0) + 1;
-    if (vus[cle] > (d === 'reception' ? RECEPTION_MAX : DOSSIER_MAX)) continue;
-    /* Le corps des mails de DOSSIER part en extrait. Mesuré : 250 entrées de dossier avec un
-       corps entier ajoutent 530 Ko à cette réponse, sur des téléphones de chantier en 4G, pour
-       des indésirables et des archives que personne ne relit ligne à ligne. La réception, elle,
-       garde son corps complet — c'est celle qu'on ouvre pour travailler.
-       Le corps entier reste sur le disque : rien n'est perdu, seul l'envoi est allégé. */
-    if (d !== 'reception' && r.text && r.text.length > EXTRAIT_MAX) {
-      out.push(Object.assign({}, r, { text: r.text.slice(0, EXTRAIT_MAX), coupe: 1 }));
-    } else out.push(r);
-  }
-  res.json({ replies: out });
+  try { list = fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.teamId === teamId).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 200); } catch (e) {}
+  res.json({ replies: list });
 });
 // journal des bugs (protégé par la clé API du serveur)
 app.get('/api/bugs', (req, res) => {
@@ -1532,12 +1432,12 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
   version: '566',
-  sujet: '📨 Les dossiers de votre boîte mail, et le surlignage qui tient',
+  sujet: '🎯 Le surlignage tient enfin, et il a une couleur',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['📁 Toute votre boîte mail, pas seulement la réception', 'Envoyés, Brouillons, Indésirables, Corbeille, Archives : les dossiers de votre vraie boîte apparaissent dans l\'application. Un dossier vide ne s\'affiche pas, et la pastille de la Réception ne compte que la réception — pas vos indésirables. La déconnexion d\'une boîte est aussi à portée de main, à côté de la liste de vos boîtes.'],
-    ['🎯 Le surlignage tient, et il a une couleur', 'En touchant une notification, la ligne concernée s\'entourait d\'un anneau — qui disparaissait dès que l\'écran se redessinait. C\'est corrigé : l\'anneau reste le temps qu\'il faut, sur tous les appareils. Et il est désormais <b>rouge pour ce qui est sorti</b> de la box, vert pour ce qui y est entré.'],
-    ['\u2709\uFE0F Un bon de commande sans e-mail fournisseur', 'L\'application vous renvoyait vers la fiche du fournisseur. Elle vous demande maintenant l\'adresse <b>sur place</b>, propose de l\'enregistrer pour les prochains bons, et vous emmène directement à l\'aperçu du mail avec le PDF de la commande en pièce jointe.']
+    ['🎯 Le surlignage ne disparaît plus', 'En touchant une notification, la ligne concernée s\'entourait d\'un anneau — qui s\'effaçait dès que l\'écran se redessinait, c\'est-à-dire presque à chaque fois sur un ordinateur relié à la synchronisation. C\'est corrigé : l\'anneau tient le temps qu\'il faut, sur téléphone comme sur ordinateur, et il respire pour attraper l\'œil.'],
+    ['🔴 Rouge pour ce qui sort, vert pour ce qui entre', 'Sur un passage où quelqu\'un a repris deux produits et en a reposé un, les produits <b>retirés</b> s\'entourent de rouge et ceux qui sont revenus de vert. La couleur dit lequel est lequel sans rien relire.'],
+    ['\u2709\uFE0F Un bon de commande sans e-mail fournisseur', 'L\'application vous renvoyait vers la fiche du fournisseur : il fallait quitter le bon, ouvrir un autre écran, revenir. Elle vous demande maintenant l\'adresse <b>sur place</b>, propose de l\'enregistrer pour les prochains bons, et vous emmène droit à l\'aperçu du mail avec le PDF de la commande en pièce jointe.']
   ],
   fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };
