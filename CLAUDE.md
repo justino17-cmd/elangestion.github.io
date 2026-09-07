@@ -90,6 +90,28 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
 - **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante
+- ⛔ **NE JAMAIS TOUCHER À `SYNC_SECRET_DEFAULT` NI À `SYNC_SALT`** (`app.html`, vers la
+  ligne 5059). Ce ne sont pas des noms, malgré les apparences :
+  - `SYNC_SECRET_DEFAULT='ELAN-GESTION-7F3A9C2E-cloud-2026'` est **le mot de passe lui-même**,
+    celui que PBKDF2 transforme en clé AES-256 pour chiffrer les données de toutes les
+    entreprises qui n'ont jamais reçu de clé personnalisée.
+  - `SYNC_SALT='RUxBTi1HRVNUSU9OLXNhbHQtdjE='` est le sel — c'est le base64 de
+    `ELAN-GESTION-salt-v1`.
+
+  Modifier l'un des deux rend **les données de ces entreprises définitivement illisibles, sur
+  tous leurs appareils à la fois.** Le cloud ne stocke que du chiffré : sans la bonne clé
+  dérivée, rien n'est récupérable.
+
+  Le sel est doublement traître lors d'un renommage : invisible à une recherche de « elan »
+  (donc laissé en place par un remplacement automatique), mais évident pour qui décode le
+  base64 (donc « corrigé » par une relecture consciencieuse). **Le piège se referme dans les
+  deux sens.** Changer ces valeurs n'est pas un renommage : c'est un déménagement de données
+  chiffrées, qui se conçoit, se teste et se publie seul.
+- **Ne pas renommer les clés de stockage `elan_*` à la légère.** `elan_vierge_v1` en
+  particulier : si ce drapeau manque, `load()` vide 28 collections d'une base pleine,
+  l'enregistre, et la synchro propage le vide à tous les appareils de l'entreprise. Neuf
+  autres clés sont construites à la volée (`elan_rappels_`+id, `elan_onboarded_`+id…) — une
+  liste fixe les raterait toutes.
 
 ## Chrome DevTools MCP — mesurer pour de vrai, sur la bêta seulement
 
@@ -218,6 +240,20 @@ manifeste de l'app). La pastille verte « OP » de la Tour n'est qu'un repère d
   alimenté que par une inscription manuelle ; `cnxData` se remplit tout seul à
   chaque connexion. C'est le second qui sert de source de vérité.
 - **Le champ de configuration s'appelle `anthropic.cleApi`**, pas `apiKey`.
+- **Ne jamais attendre une tâche de fond avec une boucle `until … done`.** Le harnais
+  réveille tout seul quand une tâche se termine ; la boucle n'apporte rien et fuit. Le
+  7 septembre 2026, six boucles attendaient des conditions devenues impossibles — l'une
+  guettait un motif jamais écrit dans un journal, deux surveillaient des fichiers de sortie
+  périmés, trois attendaient un fichier `.jamais` que personne ne crée. Jusqu'à 3 h 51
+  d'attente pour des résultats déjà reçus.
+- **Une commande qui dépasse son délai et bascule en arrière-plan reçoit un NOUVEL
+  identifiant.** Sa sortie va dans le nouveau fichier ; l'ancien reste figé sur une capture
+  partielle. Surveiller l'ancien, c'est attendre pour toujours.
+- **`pkill -f <motif>` se tue lui-même** quand le motif figure dans sa propre ligne de
+  commande — le reste de la ligne n'est jamais exécuté (code 144). Passer par le PID.
+- **`FOURNISSEURS_ELAN` (`app.html:4496`) est la même faute que `REPORT_TEMPLATES`, encore
+  armée** : la liste des fournisseurs d'une entreprise, écrite en dur et servie à tous les
+  clients. Repérée le 8 septembre 2026, à corriger à part — pas au milieu d'un autre chantier.
 
 ## Modèle et effort par agent
 
