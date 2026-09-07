@@ -1285,8 +1285,14 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
       /* L'identifiant de départ vit DÉJÀ dans le code de l'espace (champ « a »). La Tour le
          redemandait à chaque fois et proposait « admin » par défaut, alors que le serveur l'a
          sous la main : elle n'a plus à deviner. Le mot de passe, lui, n'y est pas — seulement
-         son empreinte, et c'est voulu. */
-      ident: (() => { try { return String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).a || ''); } catch (err) { return ''; } })(),
+         son empreinte, et c'est voulu.
+         Au PATRON seulement : cette route est ouverte aux collaborateurs, et le commentaire
+         d'/api/espaces/lien promet que cet identifiant ne sort que contre une preuve de
+         possession de la clé d'équipe. Le servir plus largement ferait mentir cette promesse,
+         pour un champ qui n'alimente qu'une action réservée au patron. */
+      ident: (req.tourUser && req.tourUser.role === 'patron')
+        ? (() => { try { return String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).a || ''); } catch (err) { return ''; } })()
+        : '',
       aboStatut: e.aboStatut || 'auto', aboFin: e.aboFin || '' });
   }
   sortie.sort((a, b) => (b.attribueLe || 0) - (a.attribueLe || 0));
@@ -1817,22 +1823,40 @@ app.post('/api/monitor/espaces/identifiants', monPatronStrict, (req, res) => {
   const e = espaceAJour(slug);
   if (!e || !e.code) return res.status(404).json({ error: 'Espace inconnu' });
   const t = espaceT(e);
+  /* Sans identifiant d'équipe, on ne peut PAS savoir si l'espace a servi : cnxResume('') rend
+     un compteur vide, donc « jamais connecté », donc on écrirait. « Je ne sais pas » doit
+     refuser. */
+  if (!t) return res.status(409).json({ error: 'Cet espace n\'a pas d\'identifiant d\'équipe lisible : impossible de savoir s\'il a déjà servi, donc impossible de changer ses identifiants sans risque.' });
   const vu = cnxResume(t);
-  if (vu && vu.derniere) return res.status(409).json({
+  if (vu.derniere) return res.status(409).json({
     error: 'Cet espace a déjà servi (dernière connexion enregistrée) : son mot de passe vit désormais dans ses données chiffrées, le serveur ne peut plus le changer. C\'est à la personne de passer par « mot de passe oublié » dans l\'application.' });
   const ident = monStr((req.body || {}).ident, 40).toLowerCase().replace(/[^a-z0-9.]/g, '');
   const mdp = monStr((req.body || {}).mdp, 200);
   if (!ident || mdp.length < 8) return res.status(400).json({ error: 'Un identifiant et un mot de passe d\'au moins 8 caractères sont requis' });
   let o;
-  try { o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); } catch (err) { return res.status(500).json({ error: 'Code d\'espace illisible' }); }
+  try { o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); } catch (err) { o = null; }
+  /* Le test du TYPE n'est pas de la coquetterie : sans « use strict », écrire une propriété sur
+     un primitif (un code qui décoderait vers 123) échoue SANS lever, puis on réécrirait le code
+     avec ce primitif — « t » et « k » perdus, données de l'entreprise irrécupérables. Le voisin
+     codeMdpHache porte déjà exactement cette garde. */
+  if (!o || typeof o !== 'object' || Array.isArray(o) || !o.t || !o.k)
+    return res.status(500).json({ error: 'Code d\'espace illisible ou incomplet — rien n\'a été touché.' });
   o.a = ident; o.mh = mdpEmpreinte(mdp); delete o.m;
   const neuf = Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
   /* On écrit sur l'entrée VIVANTE du registre, pas sur la copie que rend espaceAJour. */
   const vraiSlug = e.slug || slug;
   if (!espacesReg[vraiSlug]) return res.status(500).json({ error: 'Entrée d\'annuaire introuvable' });
+  /* On mémorise l'ancien code AVANT de muter : si l'écriture échoue, le serveur servirait le
+     nouveau jusqu'au redémarrage tout en répondant « rien n'a changé ». Le patron croirait
+     l'opération annulée. Même motif que /api/monitor/espaces/acces. */
+  const avant = espacesReg[vraiSlug].code;
   espacesReg[vraiSlug].code = neuf;
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); }
-  catch (err) { console.error('identifiants : espaces.json non écrit :', err.message); return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' }); }
+  catch (err) {
+    espacesReg[vraiSlug].code = avant;
+    console.error('identifiants : espaces.json non écrit :', err.message);
+    return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' });
+  }
   console.log('Tour :', req.tourUser.nom, 'change les identifiants de départ de l\'espace', t);
   res.json({ ok: true, ident: ident, lien: 'https://teamop.fr/app.html#entreprise=' + neuf });
 });
