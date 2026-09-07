@@ -15414,15 +15414,24 @@ function validDRTousSet(on){
 function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
   if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); const bcN=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||{}).numero:''; return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn+(bcN?' · bon '+bcN:''); }
   if(m.type==='retrait'){ const p=produit(m.produitId); return 'Retrait de '+(p.nom||'produit')+' — '+bn; }
+  if(m.type==='ajustementLot'){ const ls=m.lignes||[];
+    const dit=l=>{ const pl=produit(l.produitId); const q=[]; if(l.du) q.push((l.du>0?'+':'')+l.du+' u'); if(l.dc) q.push((l.dc>0?'+':'')+l.dc+' ctn');
+      return (pl.nom||'Produit')+' '+(q.join(' · ')||'±0'); };
+    const tete=ls.length===1?dit(ls[0]):ls.length+' produits ajustés';
+    return tete+' — '+bn+(ls.length>1?' ('+ls.map(dit).join(' · ')+')':'')+(m.pourQui?' · remis à : '+m.pourQui:''); }
   const p=produit(m.produitId); const parts=[]; if(m.du) parts.push((m.du>0?'+':'')+m.du+' u'); if(m.dc) parts.push((m.dc>0?'+':'')+m.dc+' ctn');
   return (p.nom||'Produit')+' '+(parts.join(' · ')||'±0')+' — '+bn+(m.note?' · '+m.note:'')+(m.pourQui?' · remis à : '+m.pourQui:''); }
 function boxMvtEnvoyer(m,silencieux){ db.boxMvtAttente=db.boxMvtAttente||[];
   m.id=uid(); m.ts=Date.now(); m.statut='enAttente'; m.par=fullName(currentUser); m.parId=currentUser&&currentUser.id;
   db.boxMvtAttente.unshift(m); if(db.boxMvtAttente.length>80) db.boxMvtAttente.length=80;
   logEvent('Mouvement box → validation DR',boxMvtLibelle(m),'stock');
-  if(!silencieux) try{ const dest=valideursPour((db.boxes||[]).find(x=>x.id===m.boxId)||null);
-    if(dest.length) pushNotify('🔒 À valider — mouvement de box',boxMvtLibelle(m)+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){}
+  if(!silencieux) boxMvtPrevenir(m);
   save(); return m; }
+/* Prévenir les valideurs, séparé de l'envoi : un lot naît vide et se remplit au tap
+   suivant. Le prévenir à sa création annoncerait « 0 produit ». */
+function boxMvtPrevenir(m){
+  try{ const dest=valideursPour((db.boxes||[]).find(x=>x.id===m.boxId)||null);
+    if(dest.length) pushNotify('🔒 À valider — mouvement de box',boxMvtLibelle(m)+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){} }
 /* refus d'un mouvement en attente (motif du DR, box introuvable, bon déjà réceptionné…) : une seule remise en état —
    le bon lié redevient « à réceptionner », l'auteur est prévenu et le voit dans SON historique */
 function boxMvtRefuser(m,motif){
@@ -15449,6 +15458,20 @@ function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('V
       if(bonV){ bonV.statut='livree'; bonV.valideDrNom=fullName(currentUser); bonV.livreLe=todayISO(); bonV.dateReception=bonV.dateReception||todayISO();
         if(bonV.arrivage&&bonV.arrivage.enAttenteDR){ delete bonV.arrivage.enAttenteDR; bonV.arrivage.valideDrNom=fullName(currentUser); }
         logEvent('Commande livrée',bonNum(bonV)+' — réception validée par le DR','commande',m.parId); } }
+  } else if(m.type==='ajustementLot'){
+    /* Toutes les lignes s'appliquent ensemble, ou aucune. C'est tout l'intérêt du lot :
+       le DR juge un geste complet, pas trois fragments qu'il faudrait recoudre. */
+    const mot=(m.note||'Ajustement')+' (validé DR)';
+    (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0};
+      if(l.du){ cur.u=Math.max(0,(cur.u||0)+l.du); traceBox(b,l.produitId,l.du,'u',mot,m.par,fullName(currentUser),l.du<0?m.pourQui:''); }
+      if(l.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+l.dc); traceBox(b,l.produitId,l.dc,'ctn',mot,m.par,fullName(currentUser),l.dc<0?m.pourQui:''); }
+      b.stock[l.produitId]=cur;
+      /* Le bon de remise se tient par PRODUIT : remiseAjoute() lit m.produitId, qu'un lot
+         n'a pas. Lui passer le lot tel quel aurait écrasé toutes les quantités sur une seule
+         ligne sans produit. On l'appelle donc ligne à ligne, ce qui donne au passage un bon
+         de remise détaillé plutôt qu'un total opaque. */
+      const d=(l.du||0)+(l.dc||0);
+      if(m.pourQui&&d<0) remiseAjoute(Object.assign({},m,{produitId:l.produitId}),Math.abs(d)); });
   } else if(m.type==='retrait'){
     const s=(b.stock||{})[m.produitId]||{ctn:0,u:0};
     const totR=(s.u||0)+(s.ctn||0);
@@ -15583,18 +15606,38 @@ function addBoxProd(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; i
 function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; b.stock[pid]=b.stock[pid]||{ctn:0,u:0}; const prevU=b.stock[pid].u||0;
   if(delta<0&&(b.stock[pid][field]||0)<=0){ toast('Déjà à 0'); return; }
   if(boxValidRequis()){
-    // les taps successifs sur le même produit se REGROUPENT dans une seule demande
+    /* UN SEUL LOT par (box, personne), et non plus une demande par produit.
+       Avant : les taps sur un MÊME produit se regroupaient, mais chaque produit différent
+       créait sa propre entrée. Retirer trois produits donnait trois validations à traiter
+       une par une au DR. On regroupe désormais tout ce que cette personne ajuste dans CETTE
+       box en une seule demande à plusieurs lignes — le circuit sait déjà faire, c'est
+       exactement la forme des arrivages (m.lignes). Le DR valide une fois, tout s'applique ;
+       il refuse une fois, rien ne bouge.
+       Rien n'attend d'être « envoyé » : le lot part au premier tap et s'enrichit ensuite.
+       C'est volontaire — un panier qu'il faut penser à valider, c'est un panier qu'on oublie
+       en quittant la fiche. */
     db.boxMvtAttente=db.boxMvtAttente||[];
-    const ex=db.boxMvtAttente.find(x=>x.statut==='enAttente'&&x.type==='ajustement'&&x.boxId===b.id&&x.produitId===pid&&x.parId===(currentUser&&currentUser.id));
-    if(ex){ if(field==='u') ex.du=(ex.du||0)+delta; else ex.dc=(ex.dc||0)+delta;
-      if(!ex.du&&!ex.dc){ db.boxMvtAttente=db.boxMvtAttente.filter(x=>x!==ex); save(); toast('Demande annulée (retour à zéro)'); }
-      else { save(); toast('🔒 En attente du DR : '+boxMvtLibelle(ex));
-        if(((ex.du||0)+(ex.dc||0))<0&&!ex.pourQui) setTimeout(()=>remiseDestModal(ex.id),150); }
-      renderBoxProdList(); return; }
-    const mNv=boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:pid,du:field==='u'?delta:0,dc:field==='ctn'?delta:0});
-    toast('📨 Envoyé au DR pour validation — le stock bougera après son accord');
+    const moi=currentUser&&currentUser.id;
+    let lot=db.boxMvtAttente.find(x=>x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
+    const neuf=!lot;
+    if(neuf){ lot=boxMvtEnvoyer({type:'ajustementLot',boxId:b.id,lignes:[]},true); }
+    lot.lignes=lot.lignes||[];
+    let li=lot.lignes.find(l=>l.produitId===pid);
+    if(!li){ li={produitId:pid,du:0,dc:0}; lot.lignes.push(li); }
+    if(field==='u') li.du=(li.du||0)+delta; else li.dc=(li.dc||0)+delta;
+    // une ligne revenue à zéro ne veut plus rien dire : on la retire, et un lot vide disparaît
+    if(!li.du&&!li.dc) lot.lignes=lot.lignes.filter(l=>l!==li);
+    if(!lot.lignes.length){
+      db.boxMvtAttente=db.boxMvtAttente.filter(x=>x!==lot); save();
+      toast('Demande annulée (retour à zéro)'); renderBoxProdList(); return; }
+    lot.ts=Date.now();
+    save();
+    if(neuf){ boxMvtPrevenir(lot); toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
+    else toast('🔒 En attente du DR : '+boxMvtLibelle(lot));
     renderBoxProdList();
-    if(delta<0&&mNv&&!mNv.pourQui) setTimeout(()=>remiseDestModal(mNv.id),150);
+    // la question « pour qui ? » se pose UNE fois pour le lot, pas à chaque produit sorti
+    const totLot=lot.lignes.reduce((t,l)=>t+(l.du||0)+(l.dc||0),0);
+    if(totLot<0&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),150);
     return; }
   b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
   traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box');
@@ -16299,6 +16342,14 @@ function mailConnect(pre){
   if(pre&&typeof pre==='string'){ const e=$('mb-email'); if(e){ e.value=pre; mailConnHelp(); } }
 }
 /* Lien « mot de passe oublié » selon le fournisseur */
+/* La page des mots de passe d'application — à ne PAS confondre avec la récupération de
+   compte de mailMdpOublie(). Celle-ci crée une clé de 16 caractères propre à une seule
+   application, révocable sans toucher au compte ; celle-là remplace le mot de passe
+   principal, ce qui ne débloque rien quand la double authentification est en cause. */
+function mailMdpApplication(email){ const dom=String(email||'').split('@')[1]||'';
+  if(/gmail|googlemail/.test(dom)) return {url:'https://myaccount.google.com/apppasswords',txt:'Créer un mot de passe d’application Google',qui:'Google'};
+  if(/yahoo\./.test(dom)) return {url:'https://login.yahoo.com/account/security/app-passwords',txt:'Créer un mot de passe d’application Yahoo',qui:'Yahoo'};
+  return null; }
 function mailMdpOublie(email){ const dom=String(email||'').split('@')[1]||'';
   if(/gmail|googlemail/.test(dom)) return {url:'https://accounts.google.com/signin/recovery',txt:'Réinitialiser mon mot de passe Google'};
   if(/yahoo\./.test(dom)) return {url:'https://login.yahoo.com/forgot',txt:'Réinitialiser mon mot de passe Yahoo'};
@@ -16334,12 +16385,25 @@ async function mailDoConnect(){ const email=(($('mb-email')||{}).value||'').trim
       if(current==='boiteMail') views.boiteMail(); }
     else{ if(btn){ btn.textContent='Connecter et vérifier'; btn.disabled=false; }
       const raison=d.error||'Connexion refusée';
-      const mdp=/mot de passe|refus|auth|login|535|credential|invalid|password/i.test(raison);
+      /* Google et Yahoo refusent le mot de passe habituel dès que la validation en deux
+         étapes est active, et le disent précisément : « 534-5.7.9 Application-specific
+         password required ». Ce cas tombait dans le test générique ci-dessous — « invalid »,
+         « login » et « password » y figurent tous les trois — et l'application proposait de
+         RÉINITIALISER le mot de passe du compte. Ça ne change rien : le nouveau sera refusé
+         pareil. Il faut un mot de passe d'application, ce que le message brut disait déjà en
+         fin de ligne. L'application se contredisait elle-même, pour toute entreprise dont la
+         boîte a la double authentification — c'est-à-dire le réglage par défaut de Google. */
+      const appPwd=/application[- ]specific password|mot de passe d.application|5\.7\.9|app password|application-specific/i.test(raison);
+      const lienApp=appPwd?mailMdpApplication(email):null;
+      const mdp=!appPwd&&/mot de passe|refus|auth|login|535|credential|invalid|password/i.test(raison);
       const lien=mailMdpOublie(email);
       const pro=!/gmail|googlemail|yahoo|orange\.fr|wanadoo|sfr\.fr|neuf\.fr|free\.fr|laposte/.test(email.split('@')[1]||'');
       openModal(`<div class="modal-head"><h3>❌ Connexion refusée</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
         <div class="detail-desc" style="margin-bottom:12px">${esc(raison)}</div>
-        ${mdp?`<p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:12px">Le plus souvent, c'est un <b>mot de passe incorrect</b> (faute de frappe) ou un mot de passe qui a changé.</p>
+        ${appPwd?`<p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:12px">Ce n'est <b>pas</b> une faute de frappe. ${lienApp?esc(lienApp.qui):'Ta messagerie'} refuse le mot de passe habituel dès que la <b>validation en deux étapes</b> est active. Il faut un <b>mot de passe d'application</b> : une clé de 16 caractères qui ne sert qu'ici.</p>
+          ${lienApp?`<a class="btn block" style="margin-bottom:10px" href="${lienApp.url}" target="_blank" rel="noopener">${esc(lienApp.txt)}</a>`:''}
+          <p style="color:var(--t3);font-size:12px;line-height:1.55;margin-bottom:10px">Donne-lui un nom (« OP GESTION »), colle les 16 caractères ici à la place de ton mot de passe habituel. Tu peux le révoquer quand tu veux, sans toucher à ton compte. Si la page refuse, c'est que la validation en deux étapes n'est pas encore activée.</p>`
+        :mdp?`<p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:12px">Le plus souvent, c'est un <b>mot de passe incorrect</b> (faute de frappe) ou un mot de passe qui a changé.</p>
           ${lien?`<a class="btn block" style="margin-bottom:10px" href="${lien.url}" target="_blank">🔑 ${lien.txt}</a><p style="color:var(--t3);font-size:12px;line-height:1.55;margin-bottom:10px">Une fois réinitialisé, reviens ici et réessaie avec le nouveau mot de passe.</p>`
           :pro?`<p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:10px">🔑 Pour une boîte d'entreprise (OVH…), c'est <b>l'administrateur</b> qui peut réinitialiser le mot de passe dans l'espace OVH → E-mails.</p>`
           :`<p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:10px">🔑 Va sur le site de ta messagerie → <b>« Mot de passe oublié »</b>, réinitialise-le, puis reviens ici.</p>`}`:''}
