@@ -23491,9 +23491,26 @@ function passage(){
     ['content','page-head','overlay','overlay2','assistant','nav','topbar-actions','login','topbar']
       .forEach(function(id){ icones(document.getElementById(id)); });
     icones(document.querySelector('.sidebar-foot'));
+    nommer();
     if(construire()){ marquer(); compteurs(); icones(barre); }
   }catch(e){}
   occupe=false;
+}
+/* Au doigt, l'infobulle CSS de [data-tip] est retirée : elle restait plantée à l'écran après
+   le tap, sans moyen de la chasser. Mais sur les 47 éléments qui en portent une, AUCUN n'a de
+   title ni d'aria-label — plusieurs sont des boutons à icône seule, sans le moindre texte
+   (‹ › de période, − + de zoom, flèches d'une fenêtre). Les priver de l'infobulle sans rien
+   mettre à la place, c'est les rendre muets pour tout le monde : à l'œil comme au lecteur
+   d'écran. On recopie donc data-tip en nom accessible. Jamais d'écrasement : si l'application
+   a déjà nommé l'élément, c'est elle qui a raison. */
+function nommer(){
+  try{
+    var l=document.querySelectorAll('[data-tip]:not([aria-label]):not([title])');
+    for(var i=0;i<l.length;i++){
+      var t=(l[i].getAttribute('data-tip')||'').trim();
+      if(t){ l[i].setAttribute('aria-label',t); l[i].setAttribute('title',t); }
+    }
+  }catch(e){}
 }
 function planifier(){ clearTimeout(attente); attente=setTimeout(passage,40); }
 try{
@@ -23540,11 +23557,36 @@ try{
       try{ marquer(); }catch(e){}
       return r;
     };
+    /* L'application a DEUX boutons « ‹ » bien visibles — #topbar-back et .ph-back, posé par
+       setHeader() sur presque tous les écrans — qui appellent goBack() sans jamais passer par
+       popstate. Le drapeau ne vivait que dans l'écouteur : un tap sur ce retour empilait donc
+       une entrée de PLUS alors que l'écran, lui, reculait. Mesuré : pile 3 -> 2, historique
+       6 -> 7. Ces entrées mortes s'accumulent, et le retour système doit toutes les consommer
+       avant de faire quoi que ce soit — très exactement le piège que ce bloc promet d'éviter.
+       On enveloppe donc goBack() elle-même, et on recule aussi l'historique pour qu'il suive
+       l'écran. Le drapeau « nous » distingue ce recul-là du geste de l'utilisateur. */
+    var nous=false;
+    if(typeof window.goBack==='function'){
+      var retourNatif=window.goBack;
+      window.goBack=function(){
+        var avait=(window._viewStack||[]).length;
+        enRetour=true;
+        var r; try{ r=retourNatif.apply(this,arguments); } finally { enRetour=false; }
+        // on ne recule l'historique que si l'écran a VRAIMENT reculé, et que l'entrée est de nous
+        try{
+          if(avait && (window._viewStack||[]).length<avait && history.state && history.state.rf){
+            nous=true; history.back();
+          }
+        }catch(e){}
+        return r;
+      };
+    }
     window.addEventListener('popstate',function(){
+      if(nous){ nous=false; return; }          // c'est nous qui avons reculé, pas l'utilisateur
       var pile=window._viewStack||[];
       if(pile.length && typeof goBack==='function'){
         enRetour=true;
-        try{ goBack(); }catch(e){}
+        try{ retourNatif ? retourNatif() : goBack(); }catch(e){}
         enRetour=false;
       }
     });
