@@ -2163,12 +2163,25 @@ body{font-size:14.5px;line-height:1.45;text-rendering:optimizeLegibility;letter-
    Hors du bloc de refonte, parce que la fonction, elle, sert aussi aux entreprises. */
 .cible-vue{
   position:relative;z-index:1;
-  box-shadow:0 0 0 2px var(--acc), 0 0 0 7px color-mix(in srgb,var(--acc) 26%,transparent)!important;
+  /* La couleur passe par --halo, jamais en dur : c'est ce qui permet de dire, sans changer une
+     ligne de dessin, « ce produit est SORTI » en rouge et « celui-ci est entré » en vert. */
+  --halo:var(--acc);
+  /* Deux déclarations, pas une : un navigateur qui ne connaît pas color-mix() laisse tomber la
+     seconde et garde la première — un anneau plein plutôt que rien du tout. */
+  box-shadow:0 0 0 2px var(--halo), 0 0 0 7px var(--halo);
+  box-shadow:0 0 0 2px var(--halo), 0 0 0 7px color-mix(in srgb,var(--halo) 26%,transparent);
   border-radius:12px;
   animation:cibleRespire 1.3s ease-in-out 2}
+/* Ce qu'on a RETIRÉ s'entoure de rouge. Sur une fiche de box où deux produits sont partis et
+   un troisième est arrivé, la couleur dit lequel est lequel sans rien lire. */
+.cible-vue.cible-retrait{--halo:var(--red)}
+/* Le !important a été retiré de box-shadow ci-dessus, et c'est volontaire : une déclaration
+   !important bat l'ANIMATION dans la cascade, donc le halo restait figé — mesuré, il ne
+   respirait sur aucun navigateur. Aucune des lignes visées (produit, demande, mouvement,
+   enveloppe) ne pose d'ombre en style direct, donc l'anneau gagne sans forcer. */
 @keyframes cibleRespire{
-  0%,100%{box-shadow:0 0 0 2px var(--acc), 0 0 0 7px color-mix(in srgb,var(--acc) 26%,transparent)}
-  50%    {box-shadow:0 0 0 2px var(--acc), 0 0 0 12px color-mix(in srgb,var(--acc) 6%,transparent)}}
+  0%,100%{box-shadow:0 0 0 2px var(--halo), 0 0 0 7px color-mix(in srgb,var(--halo) 26%,transparent)}
+  50%    {box-shadow:0 0 0 2px var(--halo), 0 0 0 12px color-mix(in srgb,var(--halo) 6%,transparent)}}
 @media (prefers-reduced-motion: reduce){
   .cible-vue{animation:none!important}
 }
@@ -4426,7 +4439,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '565-beta';
+const APP_VERSION = '566-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -15582,6 +15595,17 @@ function validDRTousSet(on){
     on?'toute sortie de stock passe désormais par le DR':'la validation redevient réglable fiche par fiche','stock');
   save(); toast(on?'✔ Toute sortie de stock passe par le DR':'Validation DR réglée fiche par fiche');
   if(current==='parametres') views.parametres(); }
+/* Ce mouvement SORT-il de la matière de la box ? Sert à choisir la couleur du surlignage :
+   rouge pour ce qui part, vert pour ce qui arrive. Un ajustement porte des quantités signées
+   (du = unités, dc = cartons), un lot en porte plusieurs — on regarde le total. */
+function mvtRetrait(m){
+  if(!m) return false;
+  if(m.type==='retrait') return true;
+  if(m.type==='arrivage') return false;
+  var l=m.lignes||[{du:m.du,dc:m.dc}];
+  var t=l.reduce(function(s,x){ return s+(+x.du||0)+(+x.dc||0); },0);
+  return t<0;
+}
 function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
   if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); const bcN=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||{}).numero:''; return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn+(bcN?' · bon '+bcN:''); }
   if(m.type==='retrait'){ const p=produit(m.produitId); return 'Retrait de '+(p.nom||'produit')+' — '+bn; }
@@ -16297,7 +16321,7 @@ function renderBonsList(){
     return `<div class="pl-row" onclick="ficheBon('${b.id}')" style="align-items:center">
     <span style="width:12px;height:12px;border-radius:50%;background:${c};flex-shrink:0"></span>
     <div class="pl-info"><div class="pl-title">${esc(fn)} <span style="color:var(--t3);font-weight:400;font-size:12px">· ${esc(bonNum(b))}</span></div>
-      <div class="pl-meta">${(b.lignes||[]).length} article(s) · ${bonQteTotTxt(b)} · ${fmtShort(b.date)}${f.email?`<br>→ <span style="color:var(--acc)">${esc(f.email)}</span>`:'<br>⚠️ e-mail fournisseur manquant'}</div></div>${badge(STATBC,b.statut)}
+      <div class="pl-meta">${(b.lignes||[]).length} article(s) · ${bonQteTotTxt(b)} · ${fmtShort(b.date)}${bonEmailDest(b,f)?`<br>→ <span style="color:var(--acc)">${esc(bonEmailDest(b,f))}</span>`:'<br>⚠️ e-mail fournisseur manquant'}</div></div>${badge(STATBC,b.statut)}
     <span onclick="event.stopPropagation()" style="display:flex;gap:4px;flex-shrink:0">
       <button class="btn ghost sm" title="Voir le PDF" onclick="bonPdfOpen('${b.id}')">📄</button>
       ${b.statut==='brouillon'?`<button class="btn sm" onclick="bonStatut('${b.id}','prete')">✓ Prêt</button>`:b.statut==='prete'?`<button class="btn sm" onclick="envoiBonApercu('${b.id}')">✉️ Envoyer</button>`:''}
@@ -16323,9 +16347,11 @@ const _mailDesktop=()=>window.innerWidth>=960;
 /* ═══ Boîte mail — 3 volets sur ordinateur (dossiers · liste · lecture), pile sur mobile ═══ */
 views.boiteMail=function(){
   setHeader('Boîte mail','',`<button class="btn ghost" onclick="mailBoxesManage()">📬 Boîtes</button> <button class="btn" onclick="mailCompose()">✏️ Écrire</button>`);
-  const lus=_mailLus(); const supp=_mailSupp();
-  const reps=_mailReplies||[];
-  const unread=reps.filter(r=>!supp.has(mailKey(r))&&!lus.has(mailKey(r))).length;
+  const lus=_mailLus();
+  /* Le compteur ne regarde QUE la réception. Avant les dossiers il n'y avait qu'un tas, donc
+     tout compter revenait au même ; maintenant, compter large afficherait les 800 indésirables
+     de la boîte comme des mails à lire. */
+  const unread=_mailDuDossier('reception').filter(r=>!lus.has(mailKey(r))).length;
   const D=_mailDesktop();
   const dossier=(k,ic,l,n)=>D?
     `<div onclick="mailTab='${k}';mailSel=null;views.boiteMail()" style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;cursor:pointer;font-size:13.5px;font-weight:700;margin-bottom:2px;${mailTab===k?'background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc)':'color:var(--t2)'}">${ic} ${l}${n?`<span style="margin-left:auto;font-size:11px;background:var(--acc);color:var(--on-acc);border-radius:100px;padding:1px 8px;font-weight:800">${n}</span>`:''}</div>`
@@ -16338,10 +16364,17 @@ views.boiteMail=function(){
         <div style="${D?'':'display:flex;gap:6px;flex-wrap:wrap;align-items:center'}">
           ${dossier('recu','📥','Réception',unread)}
           ${dossier('envoye','📤','Envoyés',0)}
+          ${MAIL_DOSSIERS.map(function(d){ return _mailCompte(d.k)?dossier('d:'+d.k,d.ic,d.l,0):''; }).join('')}
           ${D?'':'<button class="btn ghost sm" onclick="_mailReplies=null;mailSel=null;views.boiteMail()">🔄</button>'}
         </div>
         ${D?`<div style="margin-top:18px"><div style="font-size:10.5px;font-weight:800;letter-spacing:1.2px;color:var(--t3);padding:0 12px 7px">MES BOÎTES</div><div id="mail-side-boites"><div style="padding:0 12px;font-size:12px;color:var(--t3)">Chargement…</div></div>
-          <button class="btn ghost sm" style="width:calc(100% - 4px);justify-content:center;margin:10px 2px 0" onclick="mailConnect()">＋ Connecter</button></div>`:''}
+          <div style="display:flex;gap:6px;margin:10px 2px 0">
+            <button class="btn ghost sm" style="flex:1;justify-content:center" onclick="mailConnect()">＋ Connecter</button>
+            <!-- La déconnexion vit dans cette fenêtre. Sur ordinateur, le bouton « 📬 Boîtes » de
+                 l'en-tête passe inaperçu à côté de la liste des boîtes : on la redonne ici, là où
+                 on regarde ses boîtes. -->
+            <button class="btn ghost sm" style="flex:0 0 auto" onclick="mailBoxesManage()" title="Gérer mes boîtes (déconnecter)">⚙️</button>
+          </div></div>`:''}
       </div>
       <div id="mail-mid" style="${D?'border-right:1px solid var(--brd);overflow-y:auto;padding:10px':''}">
         <div style="display:flex;gap:6px;margin-bottom:9px;align-items:center">
@@ -16390,22 +16423,61 @@ function mailRow(r,type,idx){
     </div>
   </div><div style="height:1px;background:var(--brd);margin:0 12px 3px 31px"></div>`;
 }
+/* Les dossiers rapportés par le serveur. « Envoyés » n'y est pas : l'onglet du même nom
+   existait déjà et montre ce qu'on a envoyé DEPUIS l'application — les deux se rejoignent
+   plus bas plutôt que de faire deux rubriques qui portent le même mot. */
+const MAIL_DOSSIERS=[
+  {k:'brouillons',  ic:'📝', l:'Brouillons'},
+  {k:'indesirables',ic:'🚫', l:'Indésirables'},
+  {k:'corbeille',   ic:'🗑️', l:'Corbeille'},
+  {k:'archives',    ic:'🗄️', l:'Archives'}
+];
+/* Un onglet vide ne sert à rien : il occupe la place et déçoit au clic. On ne l'affiche que
+   s'il porte au moins un mail — et la réception accepte les entrées SANS dossier, qui sont
+   toutes celles reçues avant cette mise à jour. */
+function _mailDuDossier(k){
+  const supp=_mailSupp();
+  return (_mailReplies||[]).filter(function(r){
+    if(supp.has(mailKey(r))) return false;
+    return k==='reception' ? (!r.dossier||r.dossier==='reception') : r.dossier===k;
+  });
+}
+function _mailCompte(k){ return _mailDuDossier(k).length; }
 function renderMailList(){ const el=$('mail-list'); if(!el) return;
   const q=norm(mailSearch);
+  /* Un dossier du serveur : indésirables, corbeille, brouillons, archives. Même rendu que la
+     réception — ce sont les mêmes objets, seul le dossier change. */
+  if(mailTab.indexOf('d:')===0){
+    let l=_mailDuDossier(mailTab.slice(2));
+    if(mailBoxFiltre) l=l.filter(r=>(r.boite||'')===mailBoxFiltre);
+    if(q) l=l.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')).includes(q));
+    el.innerHTML=l.length? l.sort((a,b)=>(b.ts||0)-(a.ts||0)).map(r=>mailRow(r,'recu',(_mailReplies||[]).indexOf(r))).join('')
+      : `<div style="text-align:center;color:var(--t3);padding:26px">Ce dossier est vide.</div>`;
+    return;
+  }
   if(mailTab==='envoye'){
+    /* Deux sources pour un seul mot : ce qu'on a envoyé DEPUIS l'application (db.mailSent) et
+       le dossier « Envoyés » de la vraie boîte, rapporté par le serveur. Les séparer aurait
+       donné deux rubriques nommées pareil — on les mêle, triées par date. */
     const all=(db.mailSent||[]).slice().reverse();
     let sent=all.slice();
     if(mailBoxFiltre) sent=sent.filter(m=>(m.from||'')===mailBoxFiltre);
     if(q) sent=sent.filter(m=>norm((m.to||'')+' '+(m.subject||'')+' '+(m.text||'')).includes(q));
-    el.innerHTML=sent.length? sent.map(m=>mailRow(m,'envoye',all.indexOf(m))).join('') : `<div style="text-align:center;color:var(--t3);padding:26px">Aucun e-mail envoyé.</div>`;
+    let dist=_mailDuDossier('envoyes');
+    if(mailBoxFiltre) dist=dist.filter(r=>(r.boite||'')===mailBoxFiltre);
+    if(q) dist=dist.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')).includes(q));
+    const lignes=sent.map(m=>({ts:m.ts||0,h:mailRow(m,'envoye',all.indexOf(m))}))
+      .concat(dist.map(r=>({ts:r.ts||0,h:mailRow(r,'recu',(_mailReplies||[]).indexOf(r))})))
+      .sort((a,b)=>b.ts-a.ts);
+    el.innerHTML=lignes.length? lignes.map(x=>x.h).join('') : `<div style="text-align:center;color:var(--t3);padding:26px">Aucun e-mail envoyé.</div>`;
     return;
   }
   if(_mailReplies===null){
     el.innerHTML=`<div style="padding:16px;color:var(--t2);font-size:13px;line-height:1.6">📥 Réception indisponible pour l'instant — tu peux déjà ✏️ écrire. Connecte une boîte (＋) pour recevoir ici.</div>`;
     return;
   }
-  const supp=_mailSupp();
-  let list=_mailReplies.filter(r=>!supp.has(mailKey(r)));
+  // la réception ne montre plus TOUT : les dossiers ont leur onglet
+  let list=_mailDuDossier('reception');
   if(mailBoxFiltre) list=list.filter(r=>(r.boite||'')===mailBoxFiltre);
   if(q) list=list.filter(r=>norm((r.fromName||'')+' '+(r.from||'')+' '+(r.subject||'')+' '+(r.text||'')+' '+(r.bonNum||'')).includes(q));
   el.innerHTML=list.length? list.map(r=>mailRow(r,'recu',_mailReplies.indexOf(r))).join('')
@@ -16450,6 +16522,7 @@ function mailReadHtml(r,type){
         <div style="font-size:11.5px;color:var(--t3)">${d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
       </div></div>
     <div style="font-size:14.5px;line-height:1.7;white-space:pre-wrap;word-break:break-word">${esc(r.text||'')}</div>
+    ${r.coupe?`<div style="margin-top:14px;padding:10px 13px;border:1px solid var(--brd);border-radius:11px;font-size:12.5px;color:var(--t2);line-height:1.6">✂️ <b>Aperçu</b> — les mails des dossiers (indésirables, corbeille, archives…) n'arrivent ici qu'en début de texte, pour ne pas alourdir l'application. Le message entier est resté sur ta vraie boîte.</div>`:''}
     ${r.att?(bon?`<div onclick="bonPdfOpen('${bon.id}')" title="Ouvrir le PDF" style="margin-top:18px;padding:10px 13px;background:var(--bg1);border:1px solid var(--acc);border-radius:10px;font-size:13px;color:var(--acc);display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">📎 ${esc(r.att)} <span style="font-weight:400;color:var(--t3)">· clique pour ouvrir</span></div>`
       :`<div style="margin-top:18px;padding:10px 13px;background:var(--bg1);border:1px solid var(--brd);border-radius:10px;font-size:13px;color:var(--acc);display:inline-block">📎 ${esc(r.att)}</div>`):''}
     ${bonCard}
@@ -16960,7 +17033,7 @@ async function bonEnvoyerTousPrets(){
   const row=b=>{ const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{}; const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;
     return `<label class="pl-row" style="cursor:pointer;align-items:center;gap:10px"><input type="checkbox" class="bte-chk" value="${b.id}" ${f.email?'checked':'disabled'} style="width:20px;height:20px;accent-color:var(--acc);flex-shrink:0">
       <div class="pl-info"><div class="pl-title">${esc(f.nom||b.fournisseur||'Sans fournisseur')} <span style="color:var(--t3);font-weight:400;font-size:12px">· ${esc(bonNum(b))}</span></div>
-      <div class="pl-meta">${(b.lignes||[]).length} article(s) · ${bonQteTotTxt(b)}${bx?' · 📦 '+esc(bx.nom||bx.numero||''):''}<br>${f.email?'→ <span style="color:var(--acc)">'+esc(f.email)+'</span>':'<span style="color:var(--org,#e8a33d)">⚠️ e-mail fournisseur manquant — ne peut pas partir</span>'}</div></div></label>`; };
+      <div class="pl-meta">${(b.lignes||[]).length} article(s) · ${bonQteTotTxt(b)}${bx?' · 📦 '+esc(bx.nom||bx.numero||''):''}<br>${bonEmailDest(b,f)?'→ <span style="color:var(--acc)">'+esc(bonEmailDest(b,f))+'</span>':'<span style="color:var(--org,#e8a33d)">⚠️ e-mail fournisseur manquant — ne peut pas partir</span>'}</div></div></label>`; };
   openModal(`<div class="modal-head"><h3>✉️ Envoyer les bons prêts</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <p style="color:var(--t2);font-size:13.5px;line-height:1.55;margin-bottom:10px">Coche les bons à envoyer : <b>seuls les bons cochés</b> partent, chacun chez son fournisseur avec son PDF. Les autres restent « Prêts à envoyer ».</p>
     <div style="display:flex;gap:8px;margin-bottom:8px"><button type="button" class="btn ghost sm" onclick="document.querySelectorAll('.bte-chk:not(:disabled)').forEach(c=>c.checked=true)">Tout cocher</button><button type="button" class="btn ghost sm" onclick="document.querySelectorAll('.bte-chk').forEach(c=>c.checked=false)">Tout décocher</button></div>
@@ -16971,20 +17044,21 @@ async function bonEnvoyerCoches(){
   const ids=[...document.querySelectorAll('.bte-chk:checked')].map(c=>c.value);
   const prets=ids.map(id=>db.bons.find(b=>b.id===id&&b.statut==='prete')).filter(Boolean);
   if(!prets.length){ toast('Coche au moins un bon à envoyer'); return; }
-  const sans=prets.filter(b=>{ const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{}; return !f.email; });
+  const sans=prets.filter(b=>{ const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{}; return !bonEmailDest(b,f); });
   closeModal();
   await loadMailboxes();
   mailChoisirBoite('Envoyer '+prets.length+' bon(s) avec quelle adresse ?',(o)=>{ _bonTousEnvoi(prets,sans,o); });
 }
 async function _bonTousEnvoi(prets,sans,mbId){
   const envoyes=[];
-  for(const b of prets){ const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{}; if(!f.email||!(b.lignes||[]).length) continue;
-    const ok=await envoiBonEmail(b.id,true,mbId); if(ok) envoyes.push({b,f}); }
+  for(const b of prets){ const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{}; const dest=bonEmailDest(b,f);
+    if(!dest||!(b.lignes||[]).length) continue;
+    const ok=await envoiBonEmail(b.id,true,mbId); if(ok) envoyes.push({b,f,dest}); }
   if(current==='bons') views.bons();
   if(envoyes.length){
     openModal(`<div class="modal-head"><h3>✅ ${envoyes.length} bon(s) envoyé(s)</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div style="text-align:center;font-size:44px;padding:4px 0 2px">📬</div>
-      ${envoyes.map(x=>`<div class="pl-row"><span style="font-size:18px">✅</span><div class="pl-info"><div class="pl-title">${esc(x.f.nom||'Fournisseur')}</div><div class="pl-meta">${esc(bonNum(x.b))} → ${esc(x.f.email)} · PDF joint 📎</div></div></div>`).join('')}
+      ${envoyes.map(x=>`<div class="pl-row"><span style="font-size:18px">✅</span><div class="pl-info"><div class="pl-title">${esc(x.f.nom||'Fournisseur')}</div><div class="pl-meta">${esc(bonNum(x.b))} → ${esc(x.dest||x.f.email||'')} · PDF joint 📎</div></div></div>`).join('')}
       <p style="text-align:center;color:var(--t3);font-size:12.5px;margin-top:8px">Chaque fournisseur a reçu son bon directement dans sa boîte mail.${sans.length?'<br>⚠️ '+sans.length+' bon(s) sans e-mail fournisseur restés en « Prêts ».':''}</p>
       <div class="modal-foot"><button class="btn" onclick="closeModal()">Fermer</button></div>`);
   } else toast('Aucun bon envoyé — vérifie les e-mails des fournisseurs et le contenu des bons');
@@ -17544,16 +17618,46 @@ function bonPdfDownload(id){ const b=db.bons.find(x=>x.id===id); if(!b) return;
 async function bonEnvoiChoix(id){ await loadMailboxes();
   mailChoisirBoite('Envoyer avec quelle adresse ?',(o)=>{ envoiBonEmail(id,false,o); });
 }
+/* ═══ L'ADRESSE OÙ PART UN BON ═══════════════════════════════════════════════════════════
+   La fiche fournisseur d'abord : c'est la source de vérité, elle sert à tous ses bons. À
+   défaut, l'adresse saisie à la main pour CE bon — elle est rangée sur le bon, pas sur le
+   fournisseur, parce qu'elle ne vaut que pour cet envoi : un bon sans fournisseur en fiche,
+   une adresse de dépannage, un contact ponctuel. */
+function bonEmailDest(b,f){ return String((f&&f.email)||(b&&b.emailDest)||'').trim(); }
+/* Avant, un bon sans adresse s'arrêtait sur un message qui disait d'aller la chercher ailleurs :
+   il fallait quitter le bon, ouvrir Fournisseurs, modifier, revenir. On la demande ici, sur
+   place, et on repart tout de suite vers l'aperçu du mail avec le PDF joint. */
+function bonEmailSaisir(id){ const b=db.bons.find(x=>x.id===id); if(!b) return;
+  const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||null;
+  const nomF=(f&&f.nom)||b.fournisseur||'';
+  openModal(`<div class="modal-head"><h3>✉️ Envoyer ${esc(bonNum(b))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:12px">${nomF?`<b>${esc(nomF)}</b> n'a pas encore d'adresse e-mail`:`Ce bon n'a pas de fournisseur en fiche`} — saisis celle où envoyer la commande. Le <b>PDF du bon</b> sera joint automatiquement.</p>
+    <div class="field"><label>E-mail du fournisseur</label><input id="bde-mail" type="email" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="commandes@fournisseur.fr" value="${esc(b.emailDest||'')}"></div>
+    ${f?`<label style="display:flex;align-items:center;gap:9px;font-size:13px;color:var(--t2);margin:2px 2px 4px;cursor:pointer"><input type="checkbox" id="bde-garder" checked style="width:17px;height:17px;flex-shrink:0"> Enregistrer sur la fiche de <b>${esc(nomF)}</b> (les prochains bons partiront tout seuls)</label>`:''}
+    <button class="btn block ghost" style="margin-top:10px" onclick="bonPdfOpen('${b.id}')">📄 Aperçu du PDF qui sera joint</button>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal();ficheBon('${b.id}')">Annuler</button><button class="btn" onclick="bonEmailSaisirOk('${b.id}')">Continuer →</button></div>`);
+  setTimeout(function(){ const e=$('bde-mail'); if(e) e.focus(); },120);
+}
+function bonEmailSaisirOk(id){ const b=db.bons.find(x=>x.id===id); if(!b) return;
+  const v=String((($('bde-mail')||{}).value)||'').trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ toast('⚠️ Adresse e-mail incomplète'); const e=$('bde-mail'); if(e) e.focus(); return; }
+  b.emailDest=v;
+  const f=db.fournisseurs.find(x=>x.id===b.fournisseurId);
+  const garder=(($('bde-garder')||{}).checked)!==false;
+  if(f&&garder){ f.email=v; logEvent('E-mail fournisseur ajouté',(f.nom||'')+' — '+v,'commande'); }
+  save(); closeModal(); envoiBonApercu(id);
+}
 async function envoiBonApercu(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
   const sep=bonSeparer(id);
   if(sep){ alert('✂️ Cette commande mélangeait plusieurs fournisseurs :\nelle vient d\'être séparée en '+(sep+1)+' bons (un par fournisseur).\n\nEnvoie-les un par un (bouton ✉️ Envoyer de chaque bon) ou avec « Envoyer les bons prêts… » en cochant lesquels.'); if(current==='bons') views.bons(); return; }
   const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{};
   if(!(b.lignes||[]).length){ toast('⚠️ Ce bon est vide — ajoute des produits avant de l\'envoyer'); return; }
-  if(!f.email){ toast('Ajoute un e-mail au fournisseur (menu Fournisseurs → ✎)'); return; }
+  const dest=bonEmailDest(b,f);
+  if(!dest){ bonEmailSaisir(id); return; }   // on la demande sur place, puis on revient ici
   const feat=await srvFeatures();
   openModal(`<div class="modal-head"><h3>✉️ Envoyer ${esc(bonNum(b))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="detail-grid">
-      <div><div class="dt-lbl">Destinataire</div><div class="dt-val">${esc(f.nom||'')}<br><span style="color:var(--acc)">${esc(f.email)}</span> <button type="button" class="btn ghost sm" style="padding:2px 8px;font-size:11px" title="Modifier l'e-mail du fournisseur" onclick="fourEditRelance('${f.id}','${b.id}')">✎</button></div></div>
+      <div><div class="dt-lbl">Destinataire</div><div class="dt-val">${esc(f.nom||b.fournisseur||'')}<br><span style="color:var(--acc)">${esc(dest)}</span> <button type="button" class="btn ghost sm" style="padding:2px 8px;font-size:11px" title="Changer l'adresse" onclick="${f.id?`fourEditRelance('${f.id}','${b.id}')`:`bonEmailSaisir('${b.id}')`}">✎</button>${!f.email?'<div style="font-size:11.5px;color:var(--t3);margin-top:3px">adresse saisie pour ce bon</div>':''}</div></div>
       <div><div class="dt-lbl">Commande</div><div class="dt-val">${(b.lignes||[]).length} article(s)<br>${bonQteTotTxt(b)}</div></div>
     </div>
     <div class="form-sec" style="margin-top:14px">Message du mail</div>
@@ -17570,7 +17674,10 @@ ${esc(fullName(currentUser))} — ${esc(mailBrandName())}</div>
 }
 async function envoiBonEmail(id,quiet,mbId){ const b=db.bons.find(x=>x.id===id); if(!b)return false; const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{};
   if(!(b.lignes||[]).length){ toast('⚠️ Ce bon est vide — ajoute des produits avant de l\'envoyer'); return false; }
-  if(!f.email){ toast('Ajoute un e-mail au fournisseur (fiche)'); return false; }
+  const dest=bonEmailDest(b,f);
+  /* En envoi groupé (quiet) on ne peut pas ouvrir une fenêtre par bon : on saute celui-ci en
+     le disant, les autres partent. Seul l'envoi à l'unité propose la saisie. */
+  if(!dest){ if(quiet){ toast('⚠️ '+bonNum(b)+' : pas d\'adresse fournisseur — non envoyé'); return false; } bonEmailSaisir(id); return false; }
   const nl='\n'; const ent=mailBrandName();
   const detail=(b.lignes||[]).map(l=>`- ${l.designation} : ${bonQteTxt(l)}${l.commentaire?` — ${l.commentaire}`:''}`).join(nl);
   const liv=b.nomSiteLivraison?('Livraison : '+b.nomSiteLivraison+' '+(b.adresseLivraison||'')+' '+(b.villeLivraison||'')+nl+nl):'';
@@ -17588,18 +17695,18 @@ async function envoiBonEmail(id,quiet,mbId){ const b=db.bons.find(x=>x.id===id);
     try{ fetch(PUSH_API+'/api/bug',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:(localStorage.getItem('elanB_sync_team')||'inconnu'),app:'opgestion',version:String(typeof APP_VERSION!=='undefined'?APP_VERSION:''),msg:'Génération du PDF de bon impossible : '+((e&&e.message)||e),src:'bonPdfStr',line:0,stack:String((e&&e.stack)||'').slice(0,800),ua:navigator.userAgent.slice(0,150)})}).catch(()=>{}); }catch(_){}
     toast('⚠️ PDF non joint (erreur de génération signalée) — le détail part dans le texte du mail'); }
   if(opts.atts) body=`Bonjour,${nl}${nl}Veuillez trouver ci-joint notre bon de commande ${bonNum(b)} (${(b.lignes||[]).length} article(s) — ${bonQteTotTxt(b)}).${nl}Voir le PDF joint pour le détail de la commande.${nl}${nl}${liv}Cordialement,${nl}${fullName(currentUser)}${nl}${ent}`;
-  const ok=await srvMail(f.email,subject,body,'✉️ Bon '+bonNum(b)+' envoyé à '+f.email+(opts.atts?' (PDF joint)':''),'bon',null,opts);
+  const ok=await srvMail(dest,subject,body,'✉️ Bon '+bonNum(b)+' envoyé à '+dest+(opts.atts?' (PDF joint)':''),'bon',null,opts);
   if(ok){ // le bon envoyé apparaît aussi dans 📤 Envoyés de la Boîte mail, avec tout son détail
     let fromLbl=mailBrandName();
     if(selEnv&&selEnv.kind==='mb'){ const mb=(_mailboxes||[]).find(x=>x.id===selEnv.id); if(mb) fromLbl=mb.email; }
-    db.mailSent=db.mailSent||[]; db.mailSent.push({ts:Date.now(),to:f.email,subject,text:body,att:opts.atts?opts.atts[0].filename:'',from:fromLbl,bonNum:bonNum(b)});
+    db.mailSent=db.mailSent||[]; db.mailSent.push({ts:Date.now(),to:dest,subject,text:body,att:opts.atts?opts.atts[0].filename:'',from:fromLbl,bonNum:bonNum(b)});
     if(db.mailSent.length>200) db.mailSent=db.mailSent.slice(-200); save(); }
   if(ok&&(b.statut==='brouillon'||b.statut==='prete')){ b.statut='envoyee'; b.dateEnvoi=todayISO(); logEvent('Bon envoyé (e-mail)',bonNum(b),'commande'); save(); }
   closeModal(); if(current==='bons') views.bons();
   if(ok&&!quiet){
     openModal(`<div class="modal-head"><h3>✅ Bon envoyé</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div style="text-align:center;font-size:46px;padding:6px 0 2px">📬</div>
-      <p style="text-align:center;color:var(--t2);font-size:14.5px;line-height:1.65;margin:6px 0 4px">Le bon <b>${esc(bonNum(b))}</b> est parti chez <b>${esc(f.nom||'le fournisseur')}</b><br><span style="color:var(--acc);font-weight:700">${esc(f.email)}</span><br>${opts.atts?'avec le <b>PDF de la commande en pièce jointe</b> 📎':''}</p>
+      <p style="text-align:center;color:var(--t2);font-size:14.5px;line-height:1.65;margin:6px 0 4px">Le bon <b>${esc(bonNum(b))}</b> est parti chez <b>${esc(f.nom||b.fournisseur||'le fournisseur')}</b><br><span style="color:var(--acc);font-weight:700">${esc(dest)}</span><br>${opts.atts?'avec le <b>PDF de la commande en pièce jointe</b> 📎':''}</p>
       <p style="text-align:center;color:var(--t3);font-size:12.5px;margin-bottom:6px">Le fournisseur l'a reçu directement dans sa boîte mail — rien d'autre à faire.<br>Tu le retrouves dans l'onglet ✉️ Envoyés, en attente de réception.</p>
       <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Fermer</button><button class="btn ghost" onclick="bonPdfDownload('${b.id}')">⬇️ Télécharger</button><button class="btn" onclick="closeModal();bonPdfOpen('${b.id}')">📄 Voir le PDF envoyé</button></div>`);
   }
@@ -22617,7 +22724,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
       db.demandes.filter(d=>d.statut==='enAttente').forEach(d=>out.push({id:'dem:'+d.id,ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>${(d.chefNom||d.chefId)?' · '+esc(d.chefNom||userName(d.chefId)):''}`,act:"go('validations');cible('dem','"+d.id+"')"}));
       // mouvements de box (arrivages, réceptions de bons, ajustements…) en attente de la validation du DR
       (db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente'&&!m.bcId&&!notifMoi(m.par)).forEach(m=>{   // tout ce qui attend SA validation, quelle que soit la box (les réceptions de bons sont portées par « bonarr » ci-dessous)
-        out.push({id:'mvatt:'+m.id,ts:m.ts||0,ic:'🔒',txt:`<b>À valider</b> — ${esc(boxMvtLibelle(m))} · par <b>${esc(m.par||'')}</b>`,act:"go('validations');cible('mvt','"+m.id+"')"}); });
+        out.push({id:'mvatt:'+m.id,ts:m.ts||0,ic:'🔒',txt:`<b>À valider</b> — ${esc(boxMvtLibelle(m))} · par <b>${esc(m.par||'')}</b>`,act:"go('validations');cible('mvt','"+m.id+"'"+(mvtRetrait(m)?",'retrait'":"")+")"}); });
     }
     if(estDir && notifVoitModule('enveloppes')) db.enveloppes.filter(e=>(e.paiements||[]).some(p=>p.statut==='attente')).forEach(e=>out.push({id:'env:'+e.id,ic:'📮',txt:`Enveloppe avec paiement en attente : <b>${esc(e.numero)}</b>`,act:"go('enveloppes');cible('env','"+e.id+"')"}));
     if(estDir && notifVoitModule('interventions')) db.interventions.filter(i=>i.date>=today&&i.statut!=='terminee'&&i.statut!=='annulee').forEach(i=>{ const k=keyForClient(i.clientId); if(k&&!techForKey(k)) out.push({id:'sect:'+i.id,ic:'🗺️',txt:`Secteur non couvert : <b>${esc(i.titre)}</b> (${esc(keyLabel(k))})`,act:"detailIntervention('"+i.id+"')"}); });
@@ -22680,10 +22787,16 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
           var noms=dit(g).slice(0,3).join(', ')+(g.length>3?'…':'');
           txt='<b>'+qui+'</b> a '+bouts.join(' et ')+' dans <b>'+nomBox+'</b> : '+noms;
         }
-        var ids=g.map(function(x){ return x.produitId; }).filter(Boolean);
+        /* Deux appels plutôt qu'un : ce qui est SORTI s'entoure de rouge, ce qui est ENTRÉ de
+           vert. Sur un passage mixte — on reprend deux produits, on en repose un — la couleur
+           dit lequel est lequel sans relire la notification. */
+        var idPris=pris.map(function(x){ return x.produitId; }).filter(Boolean);
+        var idMis=mis.map(function(x){ return x.produitId; }).filter(Boolean);
+        var marque=(idPris.length?"cible('pid','"+idPris.join(',')+"','retrait');":"")
+                  +(idMis.length?"cible('pid','"+idMis.join(',')+"');":"");
         out.push({id:'boxmv:'+g.map(function(x){ return x.id; }).sort().join('.'),ts:g[0].ts||0,
           ic:(!mis.length?'📤':(!pris.length?'📥':'🔁')),txt:txt,
-          act:bx?("go('boxes');setTimeout(()=>openBox('"+g[0].boxId+"'),120);cible('pid','"+ids.join(',')+"')"):"go('mouvements')"});
+          act:bx?("go('boxes');setTimeout(()=>openBox('"+g[0].boxId+"'),120);"+marque):"go('mouvements')"});
       });
     })();
   }
@@ -22695,7 +22808,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
   { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
     (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
-      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?"go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);cible('pid','"+(m.lignes?m.lignes.map(function(l){return l.produitId;}):[m.produitId]).filter(Boolean).join(",")+"')":"go('validations')"}); });
+      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?"go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);cible('pid','"+(m.lignes?m.lignes.map(function(l){return l.produitId;}):[m.produitId]).filter(Boolean).join(",")+"'"+(mvtRetrait(m)?",'retrait'":"")+")":"go('validations')"}); });
     if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&!notifMoi(d.drNom)&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
       out.push({id:'demv:'+d.id+':'+d.statut,ts:new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes');cible('dem','"+d.id+"')"}); });
   }
@@ -22722,7 +22835,7 @@ function notifSee(id){ notifSeen.set(id,Date.now()); saveNotifSeen(); updateBell
    temps (go(), puis openBox(), puis la liste des produits), et un simple setTimeout arrivait
    parfois trop tôt, parfois trop tard. Au bout de 3 secondes on abandonne en silence — la
    navigation a de toute façon eu lieu, on ne bloque personne pour un surlignage. */
-function cible(type,ids){
+function cible(type,ids,ton){
   /* type + identifiant(s) plutôt qu'un sélecteur tout fait : ces appels vivent dans des
      chaînes que l'application évalue, et un sélecteur y demandait trois niveaux
      d'échappement — la première version était illisible et, surtout, fausse.
@@ -22732,23 +22845,53 @@ function cible(type,ids){
      rouvrir la notification dix fois. On les marque TOUS et on amène le PREMIER à l'écran —
      les autres sont juste au-dessus ou en dessous, dans la même liste.
 
-     On attend l'élément au lieu de le supposer présent : l'écran se redessine en plusieurs
-     temps. Au bout de 3 secondes on abandonne en silence — la navigation a eu lieu de toute
-     façon, on ne bloque personne pour un surlignage. */
+     ton='retrait' entoure de rouge au lieu du vert : ce qui est SORTI de la box se distingue
+     de ce qui y est entré, sans avoir à relire la notification.
+
+     ON REPOSE LA MARQUE EN BOUCLE, on ne la pose pas une fois. C'était le vrai défaut, et il
+     ne se voyait qu'en conditions réelles : la liste se redessine (une synchro qui arrive, un
+     save(), un retour de réseau) et le redessin remplace les lignes — la marque partait avec
+     elles. Sur un ordinateur relié à la synchro, ça tombait presque à chaque fois ; sur un
+     poste d'essai sans réseau, jamais. D'où « ça ne marche pas sur Mac ».
+     On tient donc la marque 6 secondes en la reposant toutes les 120 ms : une ligne
+     reconstruite la retrouve dans la foulée. */
   var liste=String(ids).split(',').map(function(x){ return x.trim().replace(/"/g,''); }).filter(Boolean);
   if(!liste.length) return;
-  var fin=Date.now()+3000;
-  (function cherche(){
+  var classes='cible-vue'+(ton==='retrait'?' cible-retrait':'');
+  var fin=Date.now()+6000;
+  var vu=null;            // la ligne qu'on a amenée à l'écran, pour repérer son remplacement
+  var minuteur=null;
+  function trouve(){
     var els=[];
-    try{ liste.forEach(function(id){ var e=document.querySelector('[data-'+type+'="'+id+'"]'); if(e) els.push(e); }); }catch(e){ return; }
-    if(!els.length){ if(Date.now()<fin) setTimeout(cherche,120); return; }
+    liste.forEach(function(id){
+      try{ var e=document.querySelector('[data-'+type+'="'+id+'"]'); if(e) els.push(e); }catch(e){}
+    });
+    return els;
+  }
+  function poser(){
+    var els=trouve();
+    if(els.length){
+      /* On ne recentre PAS à chaque tour : quelqu'un qui fait défiler pendant ces 6 secondes
+         serait ramené de force. On recentre seulement si la ligne visée a disparu du document
+         — c'est-à-dire quand le redessin l'a remplacée par une autre. */
+      if(!vu || !document.contains(vu)){
+        vu=els[0];
+        try{
+          var sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+          vu.scrollIntoView({block:'center',behavior:sobre?'auto':'smooth'});
+        }catch(e){}
+      }
+      els.forEach(function(e){ if(!e.classList.contains('cible-vue')) e.className+=' '+classes; });
+    }
+    if(Date.now()<fin){ minuteur=setTimeout(poser,120); return; }
+    // fin de la mise en avant : on retire la marque partout, y compris sur des lignes refaites
     try{
-      var sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
-      els[0].scrollIntoView({block:'center',behavior:sobre?'auto':'smooth'});
-      els.forEach(function(e){ e.classList.add('cible-vue'); });
-      setTimeout(function(){ els.forEach(function(e){ e.classList.remove('cible-vue'); }); },2600);
+      [].slice.call(document.querySelectorAll('.cible-vue')).forEach(function(e){
+        e.classList.remove('cible-vue'); e.classList.remove('cible-retrait');
+      });
     }catch(e){}
-  })();
+  }
+  poser();
 }
 function notifAllSeen(){ computeNotifs().forEach(n=>notifSeen.set(n.id,Date.now())); saveNotifSeen(); updateBell(); closeNotif(); toast('Notifications marquées comme lues'); }
 let notifOpen=false;
