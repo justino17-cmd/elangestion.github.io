@@ -30,7 +30,13 @@ if (s.indexOf("const BETA_ESSAI=true;") < 0) { console.error('ÉCHEC : la porte 
 if (s.indexOf('<html lang="fr">') < 0) { console.error('ÉCHEC : la balise <html> de la page est introuvable'); process.exit(1); }
 s = s.replace('<html lang="fr">', '<html lang="fr" data-refonte>');
 s = s.replace(/<link rel="manifest"[^>]*>/, '');
-s = s.split('<div class="topbar-brand mono">OP GESTION</div>').join('<div class="topbar-brand mono" style="color:var(--org)">OP GESTION · 🧪 BÊTA</div>');
+/* La barre du haut ne porte QUE le nom — demande de Justin, 7 septembre 2026. Sur un
+   téléphone il ne reste que 142 px entre le menu et les trois ronds, et « · 🧪 BÊTA » y
+   mangeait la moitié du nom, tronqué en « OP GEST… ». Le repère de bêta ne disparaît pas
+   pour autant : la couleur orange reste ici, la tête du menu affiche « BÊTA TESTE » en
+   toutes lettres, l'écran de connexion aussi (ligne suivante), et l'adresse dit beta.html.
+   Quatre marques valent mieux qu'une qui rend le nom illisible. */
+s = s.split('<div class="topbar-brand mono">OP GESTION</div>').join('<div class="topbar-brand mono" style="color:var(--org)">OP GESTION</div>');
 s = s.split('<h2>OP GESTION</h2>').join('<h2>OP GESTION <span style="font-size:12px;color:var(--org);vertical-align:middle">🧪 BÊTA</span></h2>');
 if (s.indexOf("'elanB_gestion_v2'") < 0) { console.error('ÉCHEC : le stockage local de la bêta n\'est pas isolé (STORE_KEY)'); process.exit(1); }
 if (s.indexOf("FB_TEAM='elan-gestion-beta'") < 0) { console.error('ÉCHEC : l\'espace de synchro bêta n\'est pas isolé (FB_TEAM)'); process.exit(1); }
