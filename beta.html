@@ -15211,25 +15211,55 @@ function notifyDrBoxLow(b,pid,prevU){ try{
   if(now==='epuise') pushNotify('🟥 Produit épuisé — '+bn, p.nom+' : plus aucune unité dans cette box. Réapprovisionnement nécessaire.','/app.html#v=boxes',dest);
   else pushNotify('🟠 Stock bientôt épuisé — '+bn, p.nom+' : plus que '+u+' unité'+(u>1?'s':'')+' dans cette box.','/app.html#v=boxes',dest);
 }catch(e){} }
-/* Notification au DR (+ admins) à chaque prise / ajout dans une box.
-   Les clics rapprochés sur le même produit sont regroupés (une seule notification
-   avec le total, envoyée 4 s après le dernier clic) pour éviter le spam. */
+/* ── UNE SEULE NOTIFICATION POUSSÉE PAR PASSAGE ──────────────────────────────────────────
+   Le regroupement se faisait par (box, PRODUIT, sens, unité) : quelqu'un qui vide sa box en
+   reprenant cinq produits faisait sonner cinq fois le téléphone du DR. La cloche de
+   l'application, elle, regroupait déjà par passage — les deux ne disaient pas la même chose.
+   On regroupe donc au même endroit : par (box, personne). Quatre secondes après le DERNIER
+   geste, un seul message part, qui porte tout le passage : « Sofia a pris 3 produits et
+   ajouté 2 dans Box Nord ». Un seul produit reste dit en toutes lettres, avec le reste en
+   box — c'est le cas courant et l'information utile.
+   Le compte à rebours repart à chaque geste : c'est ce qui fait qu'un passage entier tient
+   dans un seul message, quel que soit le nombre de produits. */
 let _bxMovePend={};
 function notifyDrBoxMove(b,pid,type,qte,unit){ try{
   if(!b||!pid||!qte) return;
-  const key=b.id+'|'+pid+'|'+type+'|'+(unit||'u');
-  const e=_bxMovePend[key]=_bxMovePend[key]||{qte:0,t:null};
-  e.qte+=qte; clearTimeout(e.t);
-  e.t=setTimeout(()=>{ try{ delete _bxMovePend[key];
-    const p=produit(pid); if(!p.id) return;
-    const dest=valideursPour(b);
-    if(!dest.length) return;
-    const bn=b.nom||b.numero||'Box'; const who=(currentUser&&fullName(currentUser))||'Quelqu\'un';
-    const un=(unit==='ctn')?' carton'+(e.qte>1?'s':''):' ×';
-    const q=(unit==='ctn')?e.qte+un+' de '+p.nom:e.qte+un+' '+p.nom;
-    const reste=((b.stock||{})[pid]||{}); const rTxt=(unit==='ctn')?(reste.ctn||0)+' ctn':(reste.u||0)+' u';
-    if(type==='sortie') pushNotify('📤 Sortie de box — '+bn, who+' a pris '+q+' (reste '+rTxt+')','/app.html#v=boxes',dest);
-    else pushNotify('📥 Ajout en box — '+bn, who+' a ajouté '+q+' ('+rTxt+' en box)','/app.html#v=boxes',dest);
+  const moi=(currentUser&&currentUser.id)||'?';
+  const key=b.id+'|'+moi;
+  const e=_bxMovePend[key]=_bxMovePend[key]||{lignes:{},t:null};
+  const kl=pid+'|'+type+'|'+(unit||'u');
+  e.lignes[kl]=e.lignes[kl]||{pid:pid,type:type,unit:(unit||'u'),qte:0};
+  e.lignes[kl].qte+=qte;
+  clearTimeout(e.t);
+  e.t=setTimeout(()=>{ try{
+    const lot=_bxMovePend[key]; delete _bxMovePend[key];
+    if(!lot) return;
+    const dest=valideursPour(b); if(!dest.length) return;
+    const lignes=Object.keys(lot.lignes).map(k=>lot.lignes[k]).filter(l=>produit(l.pid).id);
+    if(!lignes.length) return;
+    const bn=b.nom||b.numero||'Box';
+    const who=(currentUser&&fullName(currentUser))||'Quelqu\'un';
+    const dit=(l)=>{ const p=produit(l.pid);
+      const un=(l.unit==='ctn')?(' carton'+(l.qte>1?'s':'')+' de '):' × ';
+      return l.qte+un+p.nom; };
+    if(lignes.length===1){
+      const l=lignes[0], reste=((b.stock||{})[l.pid]||{});
+      const rTxt=(l.unit==='ctn')?(reste.ctn||0)+' ctn':(reste.u||0)+' u';
+      if(l.type==='sortie') pushNotify('📤 Sortie de box — '+bn, who+' a pris '+dit(l)+' (reste '+rTxt+')','/app.html#v=boxes',dest);
+      else pushNotify('📥 Ajout en box — '+bn, who+' a ajouté '+dit(l)+' ('+rTxt+' en box)','/app.html#v=boxes',dest);
+      return;
+    }
+    const pris=lignes.filter(l=>l.type==='sortie'), mis=lignes.filter(l=>l.type!=='sortie');
+    const bouts=[];
+    if(pris.length) bouts.push('pris '+pris.length+' produit'+(pris.length>1?'s':''));
+    if(mis.length) bouts.push('ajouté '+mis.length+' produit'+(mis.length>1?'s':''));
+    /* Signé, sinon la liste ne dit pas lequel est parti et lequel est arrivé : « 3 × Muskil,
+       2 × Gants » se lit pareil dans les deux sens. Les sorties d'abord — c'est ce qu'un DR
+       regarde en premier. */
+    const dits=pris.concat(mis).slice(0,3).map(l=>(l.type==='sortie'?'−':'+')+dit(l));
+    const noms=dits.join(', ')+(lignes.length>3?'…':'');
+    const ic=(!mis.length?'📤':(!pris.length?'📥':'🔁'));
+    pushNotify(ic+' Passage en box — '+bn, who+' a '+bouts.join(' et ')+' : '+noms,'/app.html#v=boxes',dest);
   }catch(_){} },4000);
 }catch(e){} }
 /* Numéros uniques DC-AAAA-NNN / BC-AAAA-NNN : basés sur le plus grand numéro
