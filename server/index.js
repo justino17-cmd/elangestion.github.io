@@ -127,7 +127,7 @@ const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
    chaque reprise d'onglet par une entreprise en attente de paiement, et le palier strict est
    partagé par IP entre toutes ces familles — plusieurs salariés derrière une seule IP de bureau
    l'épuiseraient pour l'assistant devis en même temps. */
-const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|espaces\/(ouvrir|relance))/;
+const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|espaces\/(ouvrir|relance|libre))/;
 
 let compteurs = new Map();
 setInterval(() => { compteurs = new Map(); }, 60000).unref();
@@ -1381,6 +1381,7 @@ app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
   const e = espacesReg[slug];
   if (!e) return res.json({ ok: true, rien: true });
   let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  if (t && accesReg[t]) { delete accesReg[t]; accesEcrire(); }   // l'espace repart à neuf : son code aussi
   delete espacesReg[slug];
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
   let efface = false;
@@ -1651,11 +1652,27 @@ function lienEspaceCode(e) { return 'https://teamop.fr/app.html#entreprise=' + c
      ressuscitait dès que le patron rouvrait le panneau d'un ancien nom. Un espace, un code. */
 const ACCES_PATH = path.join(DATA_DIR, 'acces.json');
 let accesReg = {};
-try { accesReg = JSON.parse(fs.readFileSync(ACCES_PATH, 'utf8')); } catch (e) {}
+/* Un registre illisible se dit : sinon on repart avec {} en silence, tous les codes morts, et
+   personne ne l'apprend avant qu'un client appelle. */
+try { accesReg = JSON.parse(fs.readFileSync(ACCES_PATH, 'utf8')); }
+catch (e) { if (e.code !== 'ENOENT') console.error('acces.json illisible — registre vide :', e.message); }
+/* Écriture ATOMIQUE : writeFileSync sur le fichier final peut laisser un JSON tronqué si le
+   disque se remplit ou si le service tombe au mauvais moment — et un registre tronqué, c'est
+   tous les codes de tous les clients perdus. On écrit à côté, puis on renomme : rename est
+   atomique, le fichier est toujours entier. Rend true si c'est écrit, pour que l'appelant
+   puisse refuser plutôt que d'annoncer une révocation qui n'a pas eu lieu. */
+function accesEcrire() {
+  try {
+    const tmp = ACCES_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(accesReg));
+    fs.renameSync(tmp, ACCES_PATH);
+    return true;
+  } catch (e) { console.error('acces.json non écrit :', e.message); return false; }
+}
 let accesTimer = null;
-function accesSave() {   // différée : la route publique écrit à chaque ouverture réussie
+function accesSave() {   // différée : la route publique n'écrit qu'une date de dernier usage
   clearTimeout(accesTimer);
-  accesTimer = setTimeout(() => { try { fs.writeFileSync(ACCES_PATH, JSON.stringify(accesReg)); } catch (e) {} }, 800);
+  accesTimer = setTimeout(accesEcrire, 800);
   if (accesTimer.unref) accesTimer.unref();
 }
 const ACCES_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -1671,6 +1688,13 @@ const accesNorm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
    fin, et la route étant publique, c'est de la mémoire offerte à qui la demande. */
 let ouvrirQuota = new Map();
 setInterval(() => { ouvrirQuota = new Map(); }, 3600000).unref();
+/* Le compteur par ESPACE n'est plus tenu du tout : il ne bornait rien (le code fait dix
+   caractères, c'est lui qui protège, pas un compteur), il ne servait qu'à remplir la table —
+   et une table pleine remettait à zéro les compteurs par IP, qui eux comptent vraiment.
+   Ce qui reste utile, c'est de VOIR une entreprise se faire tâter : on compte les échecs par
+   espace pour le journal, dans une table à part, et on le dit une fois passé un seuil. */
+let echecsEspace = new Map();
+setInterval(() => { echecsEspace = new Map(); }, 3600000).unref();
 app.post('/api/espaces/ouvrir', (req, res) => {
   /* Les deux entrées sont bornées AVANT tout traitement : espSlug fait un normalize('NFD') qui,
      sur les 6 Mo qu'accepte express.json, bloquerait la boucle d'événements. */
@@ -1687,6 +1711,10 @@ app.post('/api/espaces/ouvrir', (req, res) => {
   /* Une seule et même réponse quand ça ne marche pas, quelle qu'en soit la raison : sinon
      l'écran dirait qui est client de TEAM OP et qui ne l'est pas. */
   const refus = () => res.status(403).json({ error: 'Nom d\'entreprise ou code d\'accès incorrect.' });
+  /* Une entreprise fermée ne se rouvre pas par ce chemin. /api/espaces/etat le vérifiait déjà ;
+     ici, l'oublier laissait un ex-client — ou quiconque a reçu le code — continuer d'obtenir la
+     clé de ses anciennes données. */
+  if (t && entFermes.espaces.includes(t)) return res.status(403).json({ error: 'Nom d\'entreprise ou code d\'accès incorrect.' });
   const bon = (() => {
     if (!e || !e.code || !enr || !enr.code) return false;
     const attendu = Buffer.from(accesNorm(enr.code));
@@ -1699,24 +1727,33 @@ app.post('/api/espaces/ouvrir', (req, res) => {
      porte à tous ses salariés pendant une heure, code correct en main. C'est le plafond par IP
      qui borne la force brute, et dix caractères la rendent hors de portée de toute façon. */
   if (!bon) {
-    quotaOk(ouvrirQuota, 'esp:' + (t || slug), 30, 3600000);
+    if (echecsEspace.size > 5000) echecsEspace = new Map();
+    const cle = t || slug;
+    const n = (echecsEspace.get(cle) || 0) + 1;
+    echecsEspace.set(cle, n);
+    if (n === 20) console.warn('code d\'accès : 20 échecs en une heure sur l\'espace', cle);
     return refus();
   }
-  /* Ce qu'on rend porte déjà « k », la clé des données. On en retire ce qui n'a rien à y faire
-     par ce chemin : l'adresse e-mail de l'entreprise (e) et l'empreinte du mot de passe
-     provisoire (mh) — une empreinte SHA-256 sans sel d'un mot de passe prévisible se casse hors
-     ligne. L'identifiant administrateur (a) reste : c'est un prénom, et sans lui la toute
-     première connexion d'un espace neuf ne s'amorce pas. Le lien envoyé par e-mail, lui, garde
-     tout : il part à une adresse déjà connue, pas à qui tape un code. */
+  /* Ce qu'on rend porte déjà « k », la clé des données. On en retire l'adresse e-mail de
+     l'entreprise (e) : c'est la coordonnée d'un tiers, elle n'a rien à faire dans une réponse
+     rendue contre un code partagé.
+     « a » et « mh » RESTENT, et c'est un choix mesuré, pas un oubli. Sans « mh », l'application
+     renomme bien le compte d'amorçage avec « a » mais laisse son mot de passe à celui du
+     démarrage — sha256('1234'). Un espace neuf ouvert par ce chemin se serait donc ouvert avec
+     « prénom / 1234 », pendant que la Tour affiche au patron un tout autre mot de passe
+     provisoire. Rendre une empreinte d'un mot de passe à usage unique, que l'application force
+     à changer dès la première connexion, est moins grave que laisser 1234. */
   let rendu = codeMdpHache(e.code);
   try {
     const o = JSON.parse(Buffer.from(rendu, 'base64').toString('utf8'));
-    delete o.e; delete o.mh;
+    delete o.e;
     rendu = Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
   } catch (err) {}
   enr.vu = Date.now(); accesSave();
-  // pas d'IP au journal : donnée personnelle, et de toute façon falsifiable
-  console.log('espace ouvert par code :', slug);
+  /* Ni IP ni nom : l'IP est une donnée personnelle et se falsifie, et pour une entreprise
+     individuelle le nom commercial EST le nom de la personne. L'identifiant d'équipe suffit à
+     retrouver l'espace si on doit enquêter. */
+  console.log('espace ouvert par code · espace', t);
   res.json({ ok: true, code: rendu });
 });
 /* Le patron lit ou renouvelle le code d'accès. Tout passe par l'identifiant d'ÉQUIPE : un espace,
@@ -1728,9 +1765,15 @@ app.post('/api/monitor/espaces/acces', monPatronStrict, (req, res) => {
   if (!e || !t) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
   let enr = accesReg[t];
   if (!enr || !enr.code || enr.code.length !== ACCES_LONGUEUR || (req.body || {}).regenerer) {
+    const avant = enr;
     enr = accesReg[t] = { code: accesNeuf(), ts: Date.now(), par: req.tourUser.nom, vu: 0 };
-    try { fs.writeFileSync(ACCES_PATH, JSON.stringify(accesReg)); } catch (err) {}
-    console.log('Tour :', req.tourUser.nom, ((req.body || {}).regenerer ? 'renouvelle' : 'crée'), 'le code d\'accès de', slug);
+    /* Si l'écriture échoue, on ne dit surtout pas que c'est fait : le patron dicterait un code
+       qui mourrait au prochain redémarrage, en croyant l'ancien révoqué. */
+    if (!accesEcrire()) {
+      if (avant) accesReg[t] = avant; else delete accesReg[t];
+      return res.status(500).json({ error: 'Le code n\'a pas pu être enregistré — rien n\'a changé. Réessaie.' });
+    }
+    console.log('Tour :', req.tourUser.nom, ((req.body || {}).regenerer ? 'renouvelle' : 'crée'), 'le code d\'accès de l\'espace', t);
   }
   res.json({ ok: true, slug, acces: enr.code, ts: enr.ts || 0, par: enr.par || '', vu: enr.vu || 0 });
 });
@@ -1943,11 +1986,13 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
     if ((e.email || '').toLowerCase() === email) {
       let t = e.t;
       try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
-      if (t) { if (!entFermes.espaces.includes(t)) entFermes.espaces.push(t); espacesAEffacer.push(t); }
+      if (t) { if (!entFermes.espaces.includes(t)) entFermes.espaces.push(t); espacesAEffacer.push(t);
+        delete accesReg[t]; }   // le code d'accès s'en va avec l'espace, sinon il ouvre encore
       delete espacesReg[slug];
     }
   }
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+  accesEcrire();
   fermesSave();
   delete clientsData[email]; cliSave();
   // Effacement DÉFINITIF des données chiffrées de l'entreprise sur Firestore :
