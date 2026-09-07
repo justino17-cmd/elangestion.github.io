@@ -90,6 +90,28 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
 - **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante
+- ⛔ **NE JAMAIS TOUCHER À `SYNC_SECRET_DEFAULT` NI À `SYNC_SALT`** (`app.html`, vers la
+  ligne 5059). Ce ne sont pas des noms, malgré les apparences :
+  - `SYNC_SECRET_DEFAULT='ELAN-GESTION-7F3A9C2E-cloud-2026'` est **le mot de passe lui-même**,
+    celui que PBKDF2 transforme en clé AES-256 pour chiffrer les données de toutes les
+    entreprises qui n'ont jamais reçu de clé personnalisée.
+  - `SYNC_SALT='RUxBTi1HRVNUSU9OLXNhbHQtdjE='` est le sel — c'est le base64 de
+    `ELAN-GESTION-salt-v1`.
+
+  Modifier l'un des deux rend **les données de ces entreprises définitivement illisibles, sur
+  tous leurs appareils à la fois.** Le cloud ne stocke que du chiffré : sans la bonne clé
+  dérivée, rien n'est récupérable.
+
+  Le sel est doublement traître lors d'un renommage : invisible à une recherche de « elan »
+  (donc laissé en place par un remplacement automatique), mais évident pour qui décode le
+  base64 (donc « corrigé » par une relecture consciencieuse). **Le piège se referme dans les
+  deux sens.** Changer ces valeurs n'est pas un renommage : c'est un déménagement de données
+  chiffrées, qui se conçoit, se teste et se publie seul.
+- **Ne pas renommer les clés de stockage `elan_*` à la légère.** `elan_vierge_v1` en
+  particulier : si ce drapeau manque, `load()` vide 28 collections d'une base pleine,
+  l'enregistre, et la synchro propage le vide à tous les appareils de l'entreprise. Neuf
+  autres clés sont construites à la volée (`elan_rappels_`+id, `elan_onboarded_`+id…) — une
+  liste fixe les raterait toutes.
 
 ## Chrome DevTools MCP — mesurer pour de vrai, sur la bêta seulement
 
