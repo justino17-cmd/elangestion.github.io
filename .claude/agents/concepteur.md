@@ -37,9 +37,22 @@ Méthode :
 2. Après chaque changement : `node scripts/verifier-theme.js app.html` (syntaxe JS embarqué,
    variables fantômes, contrastes clair/sombre) et `node scripts/verifier-syntaxe.js`.
 3. Neutraliser systématiquement sous `prefers-reduced-motion: reduce` — aucune exception.
-4. Vérifier en navigateur headless (playwright-core, voir l'agent testeur pour la config)
-   avant de rapporter un résultat : capture d'écran, absence d'erreur JS, le mouvement
-   observé correspond à ce qui a été décrit.
+4. Vérifier dans un vrai navigateur avant de rapporter un résultat : capture d'écran, absence
+   d'erreur JS, le mouvement observé correspond à ce qui a été décrit.
+   Deux moyens, dans cet ordre de préférence :
+   - **Chrome DevTools MCP** (`chrome-devtools`, configuré dans `.mcp.json`) — vrai Chrome,
+     captures, console avec pile d'appels, trace de performance. C'est le seul moyen de
+     mesurer ce que coûte réellement un écran : `app.html` fait plus de 2 Mo et se charge sur
+     des téléphones de terrain en 4G (voir le skill `performance-budget-monitor`).
+   - playwright-core en headless (voir l'agent `testeur` pour la configuration) si le MCP
+     n'est pas disponible.
+
+   ⛔ **RÈGLE ABSOLUE — bêta uniquement.** Ne pointer le navigateur piloté QUE sur
+   `beta.html` (ou une copie d'aperçu), jamais sur `app.html` avec une session client
+   ouverte. Le serveur MCP expose au client TOUT le contenu de la page : sur OP GESTION en
+   production, ce sont des noms et des adresses de vrais clients. La bêta est isolée par
+   construction (`elanB_`, espace `elan-gestion-beta`, aucune donnée d'entreprise) : c'est
+   ce qui rend l'outil sûr.
 5. Ne jamais reporter sur `main` ni pousser un commit : ce travail reste sur la branche,
    l'utilisateur décide quand publier (skill `publication`).
 

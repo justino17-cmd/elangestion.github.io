@@ -14,7 +14,8 @@ Pas de compilation, pas de bundler. Ce qui est écrit est ce qui est servi.
 
 ## Le serveur
 
-`server/index.js` — environ 1 300 lignes, 43 routes. Écoute sur `127.0.0.1:8080`,
+`server/index.js` — environ 3 270 lignes, 80 routes (vérifié le 6 septembre 2026 ; il a
+doublé depuis la première rédaction de cette fiche). Écoute sur `127.0.0.1:8080`,
 **derrière nginx** (d'où `app.set('trust proxy', 1)`).
 
 Dépendances : `express`, `imapflow` + `mailparser` (réception des courriels),
@@ -88,6 +89,27 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
 - Ne pas modifier l'anti-abus (`server/index.js`) sans relire pourquoi il lit
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
+- **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante
+
+## Chrome DevTools MCP — mesurer pour de vrai, sur la bêta seulement
+
+`.mcp.json` déclare un seul serveur : `chrome-devtools` (lancé par `npx`, avec
+`--no-usage-statistics`). Il donne un vrai Chrome piloté — captures, console avec pile
+d'appels, réseau, et surtout **trace de performance**. C'est le seul moyen de mesurer ce que
+`app.html` coûte réellement : plus de 2 Mo en fichier unique, chargés sur des téléphones de
+terrain en 4G. Le skill `performance-budget-monitor` décrit le budget ; sans cet outil,
+personne ne pouvait le vérifier.
+
+Prérequis, sur la machine qui l'utilise : Node LTS et Chrome stable installés. Rien à
+configurer de plus, aucune clé API — la première utilisation télécharge le serveur via `npx`.
+
+⛔ **Bêta uniquement, sans exception.** Le serveur expose au client MCP **tout** le contenu
+de la page ouverte. Sur `app.html` en production, ce sont des noms, des adresses et des
+coordonnées de vrais clients — un flux de données qui n'est pas couvert par
+`sous-traitance.html`. On ne pointe donc le navigateur piloté que sur `beta.html` ou une
+copie d'aperçu : la bêta est isolée par construction (préfixe `elanB_`, espace
+`elan-gestion-beta`, jamais de données d'entreprise). Cette règle est écrite aussi dans les
+agents `concepteur` et `testeur`, qui sont les deux à s'en servir.
 
 ## Attention : deux copies de travail
 
@@ -183,6 +205,14 @@ Le choix est donc écrit, agent par agent, dans le frontmatter de `.claude/agent
 | `testeur` | `sonnet` | `medium` | Écrit du Playwright et lit des échecs — du raisonnement, pas le plus cher |
 | `deployeur` | `sonnet` | `high` | Le rituel est écrit (skill `publication`), mais une erreur se paie en clients |
 | `concepteur` | `opus` | `high` | Refonte visuelle et mouvement : un jugement de goût, pas un contrôle mécanique |
+| `gardien` | `opus` | `high` | Penser comme un attaquant se juge aussi. Une route qui fuit ne plante pas — le coût se compare à celui d'une fuite |
+| `relecteur` | `sonnet` | `high` | Applique des critères écrits à un diff : systématique, pas créatif. Mais il passe après chaque changement, donc son coût unitaire compte |
+
+Les deux derniers comblent ce que la CI ne fait pas : elle ne vérifie que les secrets commités
+et les failles des dépendances — **pas même la syntaxe**, et personne ne relisait ce qu'une
+route renvoie. `gardien` relit `server/` (80 routes exposées sur Internet, données de clients
+réels) ; `relecteur` relit le diff avant qu'il parte sur `main`, qui est servi aux clients en
+quelques minutes.
 
 Tout autre sous-agent (recherche, revue de code, exploration) retombe sur
 `CLAUDE_CODE_SUBAGENT_MODEL` dans `.claude/settings.json` — Sonnet. La session
