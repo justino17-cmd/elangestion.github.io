@@ -2270,7 +2270,10 @@ html[data-refonte]{
   --bg:#080D18; --bg1:#101A2E; --bg2:#18233A; --bg3:#202C46;
   --card:#101A2E; --card2:#18233A; --cardline:rgba(239,242,247,.06); --brd:rgba(239,242,247,.06); --brd2:rgba(239,242,247,.12);
   --deep:#0A1120; --toolbar:rgba(8,13,24,.72);
-  --side:rgba(11,17,31,.78); --side-ink:#EFF2F7; --side-mut:#8FA3BC;
+  /* Assez translucide pour que le voile du fond transparaisse et que le contenu se devine
+     quand il passe dessous (tiroir du téléphone) ; assez dense pour que le menu reste lisible
+     dans le pire cas — une carte blanche qui défile derrière. Mesuré, pas estimé. */
+  --side:rgba(9,14,27,.74); --side-ink:#EFF2F7; --side-mut:#8FA3BC;
   /* La rubrique active n'est plus un aplat vert : c'est une pastille EN RELIEF sur la matière de
      la barre — la grammaire des contrôles segmentés, déjà partout ailleurs. Le vert redevient une
      encre : il dit « ici », il ne pèse pas 40 px de couleur pleine. */
@@ -2311,7 +2314,7 @@ html[data-refonte][data-theme="light"]{
   --bg:#EDF0F6; --bg1:#FFFFFF; --bg2:#F5F7FA; --bg3:#E7EBF2;
   --card:#FFFFFF; --card2:#F3F5F9; --cardline:rgba(16,26,46,.07); --brd:rgba(16,26,46,.08); --brd2:rgba(16,26,46,.14);
   --deep:#F1F4F9; --toolbar:rgba(237,240,246,.72);
-  --side:rgba(213,220,233,.88); --side-ink:#0D1526; --side-mut:#495871;
+  --side:rgba(204,212,229,.78); --side-ink:#0D1526; --side-mut:#3E4B64;
   /* Rubrique active : une pastille BLANCHE en relief sur le gris de la barre, le libellé à l'encre
      verte. Le bloc vert foncé pesait autant que le titre de la page pour dire « vous êtes ici ». */
   --side-active:#FFFFFF; --side-active-ink:#0A6B45; --side-hover:rgba(16,26,46,.055); --side-avatar:#0A6B45;
@@ -2356,7 +2359,7 @@ html[data-refonte][data-theme="light"]{
     --bg:#EDF0F6; --bg1:#FFFFFF; --bg2:#F5F7FA; --bg3:#E7EBF2;
     --card:#FFFFFF; --card2:#F3F5F9; --cardline:rgba(16,26,46,.07); --brd:rgba(16,26,46,.08); --brd2:rgba(16,26,46,.14);
     --deep:#F1F4F9; --toolbar:rgba(237,240,246,.72);
-    --side:rgba(213,220,233,.88); --side-ink:#0D1526; --side-mut:#495871;
+    --side:rgba(204,212,229,.78); --side-ink:#0D1526; --side-mut:#3E4B64;
     /* Rubrique active : une pastille BLANCHE en relief sur le gris de la barre, le libellé à l'encre
        verte. Le bloc vert foncé pesait autant que le titre de la page pour dire « vous êtes ici ». */
     --side-active:#FFFFFF; --side-active-ink:#0A6B45; --side-hover:rgba(16,26,46,.055); --side-avatar:#0A6B45;
@@ -3734,9 +3737,13 @@ html[data-refonte] #mail-mid{background:var(--rf-mail-liste)!important}
 
 /* ── LA LISTE ── la ligne choisie n'a plus besoin d'un aplat lourd qui l'isole du groupe :
    un ton d'accent léger et un filet au bord la DÉSIGNENT sans la découper. */
+/* La ligne choisie se LÈVE au lieu de s'assombrir : c'est la grammaire de toutes les sélections
+   de l'application, et c'est aussi ce que la mesure impose. Sur un ton gris (--rf-2nd), l'aperçu
+   du message en --t3 tombait à 4,46:1 — mesuré sur les pixels rendus, pas sur les jetons. Sur la
+   surface blanche il remonte à 5,4, et le filet d'accent au bord suffit à désigner. */
 html[data-refonte] #mail-list [style*="var(--acc) 16%"]{
-  background:var(--tint)!important;border-color:transparent!important;
-  box-shadow:inset 3px 0 0 var(--acc)}
+  background:var(--card)!important;border-color:transparent!important;
+  box-shadow:inset 3px 0 0 var(--acc),var(--rf-pastille)}
 /* La pastille d'expéditeur, posée par le bloc JS : la liste et la lecture parlent des mêmes
    objets, elles se ressemblent enfin. */
 html[data-refonte] .rf-pastille-mail{
@@ -3826,6 +3833,172 @@ html[data-refonte] #mail-pane div[style*="border:1px solid var(--acc);border-rad
   html[data-refonte] #mail-pane > div[style*="max-width:760px"]{padding:18px 16px calc(40px + env(safe-area-inset-bottom))!important}
   html[data-refonte] .rf-corps{font-size:15.5px!important}
   html[data-refonte] #mail-list > div[onclick]{padding:13px 12px!important}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   ██  LA BARRE LATÉRALE : DU VERRE, ET UN REPLI
+   Le socle posait déjà blur(24px) saturate(180%) sur .sidebar — la matière était là depuis la
+   v561. Ce qui l'annulait, c'était le jeton --side, un aplat opaque : un verre sur lequel on
+   pose une couleur pleine ne filtre plus rien. Il est maintenant translucide dans les deux
+   thèmes, sans jamais défaire la hiérarchie du mode jour (la barre reste le plan le plus
+   sombre : c'est du chrome, il s'enfonce).
+   Sur ordinateur, ce qui passe derrière est le voile du fond de page, ancré précisément sous
+   elle — la matière varie donc du haut vers le bas au lieu d'être un aplat. Sur téléphone, où
+   la barre est un tiroir POSÉ SUR le contenu, le verre filtre vraiment ce qui défile dessous.
+
+   Le repli, lui, n'existait pas du tout au-dessus de 780 px : .menu-btn y est masqué et la
+   barre est un membre fixe de la rangée flex. On ajoute une commande visible, et la barre
+   rend sa largeur au contenu — c'est tout l'intérêt. Dépliée par défaut, toujours.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+html[data-refonte] .rf-plier{
+  display:none;align-items:center;justify-content:center;flex:0 0 auto;
+  width:38px;height:38px;border:0;border-radius:50%;cursor:pointer;
+  background:var(--tint-gris);color:var(--t2);
+  -webkit-tap-highlight-color:transparent;
+  transition:background-color var(--d-1) var(--e-sortie),color var(--d-1) var(--e-sortie),
+             transform var(--d-3) var(--ressort-vif)}
+html[data-refonte] .rf-plier svg{width:19px;height:19px}
+html[data-refonte] .rf-plier:hover{background:var(--hover);color:var(--t1)}
+html[data-refonte] .rf-plier:active{transform:scale(.92);transition-duration:var(--d-0)}
+html[data-refonte] .rf-plier:focus-visible{box-shadow:var(--anneau)}
+/* La colonne active du bouton se remplit quand la barre est là, se vide quand elle est repliée :
+   l'icône DIT l'état, elle ne se contente pas de le changer. */
+html[data-refonte] .rf-plier .rf-volet{fill:currentColor;opacity:.55;transition:opacity var(--d-2) var(--e-sortie)}
+html[data-refonte] body.rf-repliee .rf-plier .rf-volet{opacity:0}
+@media (min-width:781px){
+  html[data-refonte] .rf-plier{display:inline-flex}
+  html[data-refonte] .sidebar{
+    transition:width var(--d-3) var(--ressort),opacity var(--d-2) var(--e-sortie);
+    will-change:width}
+  /* La barre est un membre de la rangée flex : lui retirer sa largeur suffit, le contenu
+     (.main, en flex:1) reprend la place sans qu'on ait à la lui donner. */
+  html[data-refonte] body.rf-repliee .sidebar{
+    width:0!important;min-width:0!important;opacity:0;pointer-events:none;
+    overflow:hidden;border-right-color:transparent!important}
+  html[data-refonte] body.rf-repliee .sidebar *{visibility:hidden}
+}
+@media (pointer:coarse){
+  html[data-refonte] .rf-plier{width:44px;height:44px}
+}
+@media (prefers-reduced-motion: reduce){
+  html[data-refonte] .sidebar{transition:none!important;will-change:auto}
+  html[data-refonte] .rf-plier:active{transform:none!important}
+  html[data-refonte] .rf-plier .rf-volet{transition:none}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   ██  INTERVENTIONS — LE CONTENU D'ABORD
+   Avant le moindre créneau, l'écran empilait TROIS rangées de mobilier qui disent toutes la même
+   chose : une carte « Septembre 2026 » de 180 px avec la bande des sept jours, un bouton
+   « Aujourd'hui » seul au centre d'un étage à lui, une pastille « Lun. 07 Sept. », puis les
+   compteurs. Quatre étages pour une date. Or le sujet de cet écran, c'est « qu'est-ce que je
+   fais aujourd'hui » — pas le sélecteur de date. On le range, on ne le supprime pas.
+   (Rapports et Carte interventions, les deux voisines du menu, ne portent PAS cette bande :
+   la première est une liste au motif commun, la seconde met sa navigation de date dans les
+   actions du titre. Aucun troisième dialecte n'est créé ici.)
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── LA BANDE DE DATES ── deux lignes au lieu de quatre : le mois et « Aujourd'hui » se partagent
+   la première (ils appartiennent tous les deux à la navigation), les sept jours prennent la
+   seconde. Le bouton cesse d'occuper un étage pour lui seul. */
+html[data-refonte] .card[style*="padding:10px 8px;margin-bottom:12px"]{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+  padding:12px 14px!important;margin-bottom:14px!important}
+html[data-refonte] .card[style*="padding:10px 8px;margin-bottom:12px"] > div:first-child{
+  order:0;flex:0 0 auto;text-align:left!important;margin-bottom:0!important;
+  font-size:14px!important;font-weight:650!important;color:var(--t1)!important;letter-spacing:-.014em}
+html[data-refonte] .card[style*="padding:10px 8px;margin-bottom:12px"] > div:last-child{
+  order:1;flex:0 0 auto;margin:0 0 0 auto!important;text-align:right!important}
+html[data-refonte] .card[style*="padding:10px 8px;margin-bottom:12px"] > div:nth-child(2){
+  order:2;flex:1 1 100%}
+/* Les sept cases vivent dans une PISTE EN CREUX : sans elle, la pastille blanche du jour choisi
+   se poserait sur le blanc de la carte et ne se verrait plus. C'est la même mécanique que tous
+   les contrôles segmentés de l'application — creux dessous, relief dessus. */
+html[data-refonte] .card[style*="padding:10px 8px;margin-bottom:12px"] > div:nth-child(2) > div[style*="flex:1;display:flex"]{
+  background:var(--rf-creux);border-radius:14px;padding:3px;gap:3px!important}
+html[data-refonte] [onclick^="intSelDay='"]{padding:8px 0!important}
+html[data-refonte] [onclick^="intSelDay='"] > div:last-child{height:14px!important;font-size:12px!important}
+
+/* ── LE JOUR REGARDÉ, DIT UNE SEULE FOIS ── la pastille du jour et les compteurs disaient deux
+   choses sur deux étages ; ils tiennent sur une ligne, alignés à gauche comme le reste de la
+   page. Et le compte AFFICHÉ y est écrit noir sur blanc (posé par le bloc JS) : le sous-titre
+   annonce « 6 au total » pendant que la liste en montre 2, et rien ne disait que le reste est
+   ailleurs dans la semaine — on peut croire que des interventions ont disparu. */
+html[data-refonte] #content > div[style*="text-align:center;margin:2px 0 14px"]{
+  display:inline-flex;vertical-align:middle;margin:0 10px 14px 0!important;text-align:left!important}
+html[data-refonte] #content > div[style*="text-align:center;margin:2px 0 14px"] > span{
+  background:var(--rf-2nd)!important;color:var(--t1)!important;
+  font-size:13.5px!important;font-weight:650!important;padding:7px 15px!important}
+html[data-refonte] #content > div[style*="justify-content:center;gap:8px"]{
+  display:inline-flex!important;justify-content:flex-start!important;
+  vertical-align:middle;margin:0 0 14px!important}
+html[data-refonte] #content > div[style*="justify-content:center;gap:8px"] > span{
+  border:0!important;font-weight:600!important;font-size:12.5px!important;padding:6px 13px!important}
+html[data-refonte] .rf-jour-ligne{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 16px}
+html[data-refonte] .rf-jour-ligne > *{margin:0!important}
+html[data-refonte] .rf-compte-jour{
+  display:inline-flex;align-items:center;font-size:12.5px;color:var(--t3)}
+/* Le jour CHOISI reprend la grammaire de toutes les sélections de l'application : une pastille
+   en relief, l'accent réduit à l'encre. Un aplat vert plein de 60 px, c'était un troisième vert
+   sur un écran qui en a déjà un pour son action principale. Le jour COURANT, lui, se signale
+   par son encre — comme dans le planning, pour ne pas inventer un signe de plus. */
+html[data-refonte] [onclick^="intSelDay='"][style*="background:var(--acc)"]{
+  background:var(--card)!important;color:var(--acc-txt)!important;box-shadow:var(--rf-pastille)}
+html[data-refonte] [onclick^="intSelDay='"][style*="var(--acc) 14%"]{
+  background:var(--rf-auj)!important;color:var(--acc-txt)!important}
+
+/* ── LA LIGNE DE LISTE ── on la lit debout, sur un chantier : l'HEURE d'abord, le client ensuite.
+   Elle était en dernier, sous l'adresse, au même poids que tout le reste. */
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"]{
+  padding:15px 17px!important;margin-bottom:0!important;border-left-width:3px!important}
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] > div > div:first-child{
+  display:flex;flex-direction:column;gap:7px}
+/* l'horaire remonte en tête et prend le poids */
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] > div > div:first-child > div:last-child{
+  order:-1;font-size:15px!important;margin-bottom:2px!important}
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] > div > div:first-child > div:last-child b,
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] > div > div:first-child > div:last-child span{
+  font-size:15px!important;font-weight:650!important;color:var(--t1)!important}
+/* le titre cesse d'être vert : une ligne sur deux en accent, ce n'est plus un accent */
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] > div > div:first-child > div:first-child{
+  color:var(--t1)!important;font-size:15.5px!important;letter-spacing:.005em!important;margin-bottom:0!important}
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] > div > div:first-child > div{margin-bottom:0!important}
+/* la colonne de droite : un vrai bouton d'icône, et l'état sous lui */
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] > div > div:last-child{
+  align-items:flex-end!important;gap:8px!important}
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] span[title="Voir au planning"]{
+  width:36px;height:36px;border-radius:50%;background:var(--rf-2nd);color:var(--t2)!important;
+  display:inline-flex;align-items:center;justify-content:center;font-size:0!important;
+  transition:background-color var(--d-1) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] span[title="Voir au planning"] .rf-ic{
+  width:19px;height:19px}
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] span[title="Voir au planning"]:active{
+  transform:scale(.9);transition-duration:var(--d-0)}
+/* Une suite de cartes cliquables EST une liste : filets entre elles, coins ronds aux extrémités,
+   exactement la grammaire posée pour les autres écrans. */
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"] + .card[draggable]{
+  border-top:1px solid var(--rf-filet)!important;border-top-left-radius:0!important;border-top-right-radius:0!important}
+html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"]:has(+ .card[draggable]){
+  border-bottom-left-radius:0!important;border-bottom-right-radius:0!important}
+
+/* ── LA PLACE PERDUE ── en 1400 px et au-delà, les deux tiers bas de l'écran étaient vides
+   pendant que la liste restait sur une colonne étroite. Elle passe à deux colonnes : la page
+   tient sur un écran au lieu de deux, et la largeur sert enfin à quelque chose. */
+@media (min-width:1240px){
+  html[data-refonte] #content:has(> .card[draggable][style*="padding:15px 16px;margin-bottom:12px"]){
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;align-content:start}
+  html[data-refonte] #content:has(> .card[draggable][style*="padding:15px 16px;margin-bottom:12px"]) > *:not(.card[draggable]){
+    grid-column:1/-1}
+  /* En deux colonnes, chaque carte redevient une carte : les filets de liste n'ont plus de sens. */
+  html[data-refonte] #content:has(> .card[draggable][style*="padding:15px 16px;margin-bottom:12px"]) > .card[draggable]{
+    border-radius:var(--rf-r-carte)!important;border-top:0!important;margin-bottom:16px!important}
+}
+@media (max-width:1239px){
+  html[data-refonte] .card[draggable][style*="padding:15px 16px;margin-bottom:12px"]:last-child{margin-bottom:16px!important}
+}
+@media (prefers-reduced-motion: reduce){
+  html[data-refonte] .card[draggable] span[title="Voir au planning"]:active{transform:none!important}
 }
 
 /* ══ MOUVEMENT RÉDUIT ══ aucune exception. « Réduire les animations » ne veut pas dire « plus de
@@ -23635,7 +23808,13 @@ var TRAITS={
  regle:'<rect x="2.6" y="8" width="18.8" height="8" rx="2"/><path d="M7 8v3.4M11 8v4.6M15 8v3.4M19 8v4.6"/>',
  medaille:'<circle cx="12" cy="14.6" r="5.4"/><path d="M8.6 9.4 6.4 3h11.2l-2.2 6.4"/>',
  balance:'<path d="M12 3.4v17.2"/><path d="M6 6.6h12"/><path d="M6 6.6 3 13.4h6zM18 6.6l3 6.8h-6z"/><path d="M8 20.6h8"/>',
- ecrire:'<path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/><path d="M3 21.6h18"/>'
+ ecrire:'<path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/><path d="M3 21.6h18"/>',
+ oeil:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+ baisse:'<path d="M3 6.4l5.2 5.2 3.4-3.4L20.5 17"/><path d="M15.6 17h4.9v-4.9"/>',
+ doigtbas:'<path d="M12 3.6v12.8"/><path d="M6.6 11l5.4 5.4 5.4-5.4"/><path d="M6.6 20.4h10.8"/>',
+ doigthaut:'<path d="M12 20.4V7.6"/><path d="M6.6 13 12 7.6 17.4 13"/><path d="M6.6 3.6h10.8"/>',
+ melange:'<path d="M3.4 7h3.8l9.6 10h3.8M3.4 17h3.8l3-3.2M13.8 10.2l2.9-3.2h3.9"/><path d="M17.8 3.6 21 7l-3.2 3.4M17.8 13.6 21 17l-3.2 3.4"/>',
+ tour:'<path d="M12 2.6v3.2"/><path d="M8.6 5.8h6.8l-1.2 4.4h-4.4z"/><path d="M9.8 10.2 6.4 21.4h11.2L14.2 10.2"/><path d="M8.4 16.6h7.2"/>'
 };
 /* La table de correspondance : à gauche ce que l'application écrit aujourd'hui, à droite le
    trait qui le remplace. Un émoji absent d'ici n'est pas touché. */
@@ -23674,6 +23853,8 @@ var EMO={
  '🧴':'flacon','🧽':'eponge','⏹':'stop','⏹️':'stop','▶️':'lecture','🎬':'lecture',
  '📐':'regle','📏':'regle','🎖':'medaille','🎖️':'medaille','⚖':'balance','⚖️':'balance',
  '✍':'ecrire','✍️':'ecrire','🧑':'personne','🧑‍🔧':'casque','🛠':'cle','⚒':'cle','🔨':'cle',
+ '👁':'oeil','👁️':'oeil','🕒':'horloge','🕐':'horloge','📉':'baisse','👇':'doigtbas','👆':'doigthaut',
+ '🔀':'melange','🗼':'tour',
  '🔧':'cle','🔨':'cle','🛠':'cle','🛠️':'cle','🔑':'cadenas','💶':'argent','💵':'argent','💸':'argent',
  '⭐':'etoile','🌟':'etoile','📶':'courbe','🏗':'casque','🏗️':'casque','🖨':'imprimante','🖨️':'imprimante',
  '📷':'photo','📸':'photo','🖼':'photo','🖼️':'photo','📁':'dossiers','📂':'dossiers','🔗':'lien','🔍':'loupe','🔎':'loupe','☀':'soleil','☀️':'soleil','🌙':'lune','←':'retour','→':'fleche'
@@ -23829,8 +24010,11 @@ function balayerRacines(){
 function passage(){
   if(occupe) return; occupe=true;
   try{
+    jourNomme();
     balayerRacines();
+    poserPlier();
     courrier();
+    compteJour();
     nommer();
     if(construire()){ marquer(); compteurs(); icones(barre); }
   }catch(e){}
@@ -23959,6 +24143,130 @@ if(typeof window.closeModal==='function'&&typeof window.openModal==='function'){
     var ov=voile(); if(ov) ov.classList.remove('ferme');
     return ouvrirNatif.apply(this,arguments);
   };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════
+   7. INTERVENTIONS : DIRE CE QUI EST AFFICHÉ, ET NOMMER LES SIGNES
+   Deux manques que le CSS ne peut pas combler, parce qu'ils demandent du TEXTE.
+
+   a) Le sous-titre annonce « 6 au total · 2 à venir » pendant que la liste en montre 2 : le
+      filtre par jour est implicite et rien ne dit que les quatre autres sont ailleurs dans la
+      semaine. On peut croire qu'elles ont disparu. On écrit le rapprochement — et on le lit
+      dans le DOM, pas dans les données : le total est déjà dans le sous-titre, l'affiché est
+      le nombre de cartes rendues.
+   b) Les petites croix rouges sous les jours 8 et 9 de la bande sont un signe qu'on ne peut pas
+      lire : ni légende, ni infobulle. Un signe illisible ne vaut pas mieux que pas de signe.
+      On nomme chaque case — libellé accessible ET infobulle — à partir de ce qu'elle contient
+      déjà. Ce passage tourne AVANT le remplacement des émojis, tant que ✓ et ✕ sont encore là. */
+function jourNomme(){
+  try{
+    var cases=document.querySelectorAll('[onclick^="intSelDay=\'"]');
+    for(var i=0;i<cases.length;i++){
+      var c=cases[i]; if(c.dataset.rfNom) continue;
+      var num=c.querySelector('div:nth-child(2)'); if(!num) continue;
+      var marque=(c.querySelector('div:nth-child(3)')||{}).textContent||'';
+      marque=marque.trim();
+      var etat = marque==='✓' ? 'tout est fait'
+               : marque==='✕' ? 'il reste des interventions à faire'
+               : 'aucune intervention';
+      var t='Jour '+(num.textContent||'').trim()+' — '+etat;
+      c.dataset.rfNom='1'; c.title=t; c.setAttribute('aria-label',t); c.setAttribute('role','button');
+    }
+  }catch(e){}
+}
+/* Le jour et ses compteurs se rangent sur une ligne, même quand il n'y a pas de reste à
+   expliquer : la mise en page ne doit pas dépendre du contenu. */
+function regrouperJour(contenu){
+  try{
+    var pastille=contenu.querySelector(':scope > div[style*="text-align:center;margin:2px 0 14px"]');
+    var compteurs=contenu.querySelector(':scope > div[style*="justify-content:center;gap:8px"]');
+    if(!pastille&&!compteurs) return;
+    var ligne=contenu.querySelector(':scope > .rf-jour-ligne');
+    if(!ligne){
+      ligne=document.createElement('div'); ligne.className='rf-jour-ligne';
+      (pastille||compteurs).parentNode.insertBefore(ligne, pastille||compteurs);
+    }
+    if(pastille&&pastille.parentNode!==ligne) ligne.appendChild(pastille);
+    if(compteurs&&compteurs.parentNode!==ligne) ligne.appendChild(compteurs);
+  }catch(e){}
+}
+function compteJour(){
+  try{
+    var contenu=document.getElementById('content'); if(!contenu) return;
+    var cartes=contenu.querySelectorAll(':scope > .card[draggable]');
+    var vieux=contenu.querySelector('.rf-compte-jour');
+    /* On ne s'invite que sur l'écran qui a la bande de jours ET des cartes de tournée. */
+    if(!cartes.length || !document.querySelector('[onclick^="intSelDay=\'"]')){ if(vieux) vieux.remove(); return; }
+    var sub=document.querySelector('.ph-sub'); if(!sub) return;
+    var m=/(\d+)\s+au total/.exec(sub.textContent||''); if(!m) { if(vieux) vieux.remove(); return; }
+    var total=parseInt(m[1],10), vues=cartes.length;
+    if(!(total>vues)){ if(vieux) vieux.remove(); regrouperJour(contenu); return; }   // rien à expliquer si tout est là
+    var txt=vues+' affichée'+(vues>1?'s':'')+' ce jour · '+(total-vues)+' autre'+(total-vues>1?'s':'')+' à d’autres dates';
+    if(vieux){ if(vieux.textContent!==txt) vieux.textContent=txt; return; }
+    var d=document.createElement('span');
+    d.className='rf-compte-jour'; d.textContent=txt;
+    /* Une seule ligne pour tout ce qui décrit le jour regardé : le jour, ce qui est fait, ce qui
+       reste, et ce qui est ailleurs. Trois étages de mobilier, c'était le premier reproche.
+       Le regroupement se fait ici parce que le CSS ne peut pas rassembler des frères que rien
+       n'entoure — surtout quand #content devient une grille en deux colonnes. */
+    var pastille=contenu.querySelector(':scope > div[style*="text-align:center;margin:2px 0 14px"]');
+    var compteurs=contenu.querySelector(':scope > div[style*="justify-content:center;gap:8px"]');
+    var ligne=contenu.querySelector(':scope > .rf-jour-ligne');
+    if(!ligne){
+      ligne=document.createElement('div'); ligne.className='rf-jour-ligne';
+      (pastille||compteurs||cartes[0]).parentNode.insertBefore(ligne, pastille||compteurs||cartes[0]);
+    }
+    if(pastille&&pastille.parentNode!==ligne) ligne.appendChild(pastille);
+    if(compteurs&&compteurs.parentNode!==ligne) ligne.appendChild(compteurs);
+    ligne.appendChild(d);
+  }catch(e){}
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════
+   7. REPLIER LA BARRE LATÉRALE
+   Il n'existait aucun repli au-dessus de 780 px : .menu-btn y est masqué et la barre est un
+   membre fixe de la rangée. On pose une commande à nous — pas un raccourci clavier caché, un
+   bouton qu'on voit — à la place où macOS la met : tout à gauche de la barre d'outils.
+
+   On n'enveloppe pas .menu-btn : il porte déjà le tiroir du téléphone, et deux comportements
+   sur un même bouton selon la largeur, c'est deux fois l'occasion de se tromper. Un bouton,
+   un rôle.
+
+   Le choix est retenu par NAVIGATEUR (préférence d'affichage, jamais une donnée d'entreprise),
+   et le défaut, sans rien de stocké, est DÉPLIÉE — c'est la demande explicite. */
+var CLE_BARRE='elanB_barre_repliee';
+function barreLue(){ try{ return localStorage.getItem(CLE_BARRE)==='1'; }catch(e){ return false; } }
+function barreEcrite(v){ try{ localStorage.setItem(CLE_BARRE, v?'1':'0'); }catch(e){} }
+var boutonPlier=null;
+function majPlier(replie){
+  document.body.classList.toggle('rf-repliee',replie);
+  if(boutonPlier){
+    var t=replie?'Déplier le menu':'Replier le menu';
+    boutonPlier.setAttribute('aria-pressed',String(replie));
+    boutonPlier.setAttribute('aria-label',t);
+    boutonPlier.title=t;
+  }
+  /* La pastille de sélection du menu est positionnée en pixels : quand la barre change de
+     largeur, elle doit se replacer, sinon elle reste accrochée à l'ancienne mesure. */
+  try{ if(typeof placerGlisse==='function') setTimeout(function(){ placerGlisse(false); },330); }catch(e){}
+}
+function poserPlier(){
+  if(boutonPlier&&document.body.contains(boutonPlier)) return;
+  var barre=document.querySelector('.topbar'); if(!barre) return;
+  var b=document.createElement('button');
+  b.type='button'; b.className='rf-plier';
+  b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+    +'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+    +'<rect x="3" y="4.4" width="18" height="15.2" rx="2.6"/>'
+    +'<path class="rf-volet" d="M3.6 7A2.6 2.6 0 0 1 6.2 4.4h3V19.6h-3A2.6 2.6 0 0 1 3.6 17z" stroke="none"/>'
+    +'<path d="M9.2 4.4v15.2"/></svg>';
+  b.addEventListener('click',function(){
+    var v=!document.body.classList.contains('rf-repliee');
+    majPlier(v); barreEcrite(v);
+  });
+  barre.insertBefore(b, barre.firstChild);
+  boutonPlier=b;
+  majPlier(barreLue());
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════
