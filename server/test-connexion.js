@@ -210,6 +210,43 @@ const fin = (code) => { try { srv.kill(); } catch (e) {} try { fs.rmSync(dir, { 
   dit('renommer vers l\'adresse d\'une autre entreprise est refusé',
     (await post('/api/monitor/espaces/renommer', { slug: 'nouveaunomsas', nouveau: 'Autre Boite' }, T)).statut === 409);
 
+  /* OP MESSAGES est sorti des formules d'OP GESTION : c'est une application à part, ouverte
+     entreprise par entreprise. Le DÉFAUT doit être fermé — un espace jamais touché ne doit pas
+     ouvrir une seconde application, et surtout pas un second abonnement. */
+  console.log('\n── OP MESSAGES s\'ouvre et se ferme par entreprise ──');
+  const etat0 = await post('/api/espaces/etat', { t: 'autre-t2' });
+  dit('par défaut, fermé', etat0.opMessages === false, JSON.stringify(etat0).slice(0, 80));
+  dit('sans jeton, refus', (await post('/api/monitor/espaces/apps', { slug: 'autreboite', opMessages: true })).statut === 403);
+  const ouv = await post('/api/monitor/espaces/apps', { slug: 'autreboite', opMessages: true }, T);
+  dit('le patron ouvre', ouv.statut === 200 && ouv.opMessages === true, JSON.stringify(ouv).slice(0, 80));
+  dit('l\'application l\'apprend par /api/espaces/etat', (await post('/api/espaces/etat', { t: 'autre-t2' })).opMessages === true);
+  dit('c\'est écrit sur le disque', (() => { try { return JSON.parse(fs.readFileSync(path.join(data, 'espaces.json'), 'utf8')).autreboite.opMessages === true; } catch (e) { return false; } })());
+  dit('la formule de l\'entreprise n\'a pas bougé', (() => { try { const x = JSON.parse(fs.readFileSync(path.join(data, 'espaces.json'), 'utf8')).autreboite; return x.formule === undefined || x.formule === null; } catch (e) { return false; } })());
+  const fer = await post('/api/monitor/espaces/apps', { slug: 'autreboite', opMessages: false }, T);
+  dit('le patron ferme', fer.statut === 200 && fer.opMessages === false);
+  dit('et l\'application le voit', (await post('/api/espaces/etat', { t: 'autre-t2' })).opMessages === false);
+  dit('un espace inconnu est refusé', (await post('/api/monitor/espaces/apps', { slug: 'nexistepas', opMessages: true }, T)).statut === 404);
+  /* Le chemin qui sort AVANT la formule doit rendre le champ lui aussi : l'oublier laissait la
+     messagerie affichée chez toute entreprise sans formule attribuée. */
+  dit('un espace SANS formule rend quand même le champ', typeof (await post('/api/espaces/etat', { t: 'autre-t2' })).opMessages === 'boolean');
+
+  /* Les deux défauts trouvés par le gardien, transformés en régressions.
+     1) « Revoir le lien de connexion » repasse par /api/monitor/espaces, qui reconstruit
+        l'entrée de zéro : sans report, le geste le plus banal de la Tour refermait une
+        application facturée à part, en silence. */
+  await post('/api/monitor/espaces/apps', { slug: 'autreboite', opMessages: true }, T);
+  await post('/api/monitor/espaces', { nom: 'Autre Boite', code: blob('autre-t2', 'Autre Boite'), email: 'autre@exemple.fr' }, T);
+  dit('réenregistrer l\'espace ne referme PAS OP MESSAGES',
+    (await post('/api/espaces/etat', { t: 'autre-t2' })).opMessages === true);
+  /* 2) « !! » sur le corps de la requête : {"opMessages":"false"} OUVRAIT l'application.
+        Sur une option facturée, la direction de l'échec doit être la fermeture. */
+  await post('/api/monitor/espaces/apps', { slug: 'autreboite', opMessages: false }, T);
+  const flou = await post('/api/monitor/espaces/apps', { slug: 'autreboite', opMessages: 'false' }, T);
+  dit('la chaîne « false » n\'ouvre pas', flou.opMessages === false, JSON.stringify(flou).slice(0, 70));
+  const flou2 = await post('/api/monitor/espaces/apps', { slug: 'autreboite', opMessages: 1 }, T);
+  dit('le nombre 1 n\'ouvre pas non plus', flou2.opMessages === false, JSON.stringify(flou2).slice(0, 70));
+  dit('et l\'application le voit fermé', (await post('/api/espaces/etat', { t: 'autre-t2' })).opMessages === false);
+
   console.log('\n── un espace qui repart à neuf perd son annuaire ──');
   await post('/api/espaces/comptes', { t: 'neuve-t5', kh: sha(CLE['neuve-t5']), comptes: [compte('chef', 'Neuve-1234')] });
   dit('il s\'ouvre avant', (await post('/api/espaces/connexion', { nom: 'Entreprise Neuve', login: 'chef', h: sha('Neuve-1234') })).statut === 200);

@@ -1192,7 +1192,12 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
      vrais espaces — mais les mélanger à l'écran, c'est risquer de supprimer un client en
      croyant faire le ménage. Seul l'appelant sait : la fiche d'un client ne l'envoie pas. */
   const origine = ((req.body || {}).origine === 'tour') ? 'tour' : (prev.origine || 'site');
+  /* « opMessages » se reporte, comme la formule. Cette route reconstruit l'entrée de zéro, et
+     elle est appelée par « Revoir le lien de connexion » aussi bien que par l'ouverture d'un
+     accès : sans ce report, redonner son lien à une entreprise lui REFERMAIT OP MESSAGES —
+     sans erreur, sans journal, sans que rien à l'écran ne le dise. Mesuré par le gardien. */
   espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom, origine, email: monStr((req.body || {}).email, 120).toLowerCase() || prev.email || '',
+    opMessages: prev.opMessages,
     formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs };
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
   res.json({ ok: true, slug });
@@ -1295,6 +1300,12 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
       /* Deux états que la Tour ne pouvait pas connaître : un accès coupé ressemblait à un accès
          ouvert, et rien ne disait si l'entreprise savait déjà se connecter sans son lien. */
       suspendu: entFermes.espaces.includes(espaceT(e)),
+      /* Quelles applications sont OUVERTES à cette entreprise (décidé), à ne pas confondre avec
+         celles qu'elle utilise vraiment — celles-là se lisent dans « resume.apps ».
+         On lit l'entrée EFFECTIVE (espaceAJour), pas l'entrée brute de la boucle : un espace
+         porte plusieurs noms, et lire chacun séparément affichait le même espace « ouvert » sur
+         une ligne et « fermé » sur l'autre. Les autres champs passent déjà par espaceT(e). */
+      opMessages: !!((espaceAJour(slug) || e).opMessages),
       /* Un accès coupé d'ici se rouvre ; une entreprise fermée définitivement, non. Les
          confondre à l'écran ferait cliquer « Rouvrir » sur une fermeture, et croire à un bogue
          quand le serveur refuse. */
@@ -1483,7 +1494,7 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '570',
+  version: '571',
   sujet: '🔗 Votre entreprise a maintenant son adresse',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
@@ -1592,9 +1603,18 @@ app.post('/api/espaces/etat', (req, res) => {
   if (!t) return res.status(400).json({ error: 't requis' });
   const e = espaceParT(t);
   if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
-  if (!e || !e.formule) return res.json({ ok: true });
-  espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif }))
-    .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible' }));
+  /* OP MESSAGES ne fait plus partie des formules d'OP GESTION. C'est une application à part,
+     avec son propre abonnement : on l'ouvre entreprise par entreprise depuis la Tour, et son
+     absence ici veut dire « pas accordée ». Le défaut est donc FERMÉ, pour tout le monde —
+     mélanger les deux applications, c'est mélanger deux abonnements et deux connexions.
+     Ce champ est rendu sur les deux chemins qui décrivent un espace VIVANT — celui qui part
+     avant la formule compris : l'y oublier laissait la messagerie ouverte chez toute entreprise
+     sans formule attribuée. Le chemin « ferme » sort plus haut sans le rendre, et c'est juste :
+     l'application y vide son stockage et se recharge avant même de regarder ce champ. */
+  const opMessages = !!(e && e.opMessages);
+  if (!e || !e.formule) return res.json({ ok: true, opMessages });
+  espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif, opMessages }))
+    .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible', opMessages }));
 });
 /* ── Création AUTOMATIQUE d'un espace à la demande d'application ──
    Dès qu'un client fait une demande sur teamop.fr, son espace est créé, inscrit à
@@ -2094,6 +2114,34 @@ function espacesEcrire() {
     return true;
   } catch (e) { console.error('espaces.json non écrit :', e.message); return false; }
 }
+/* ══ LES APPLICATIONS OUVERTES À UNE ENTREPRISE ═════════════════════════════════════════════
+   OP MESSAGES est sorti des formules d'OP GESTION : ce n'est plus une case d'un forfait, c'est
+   une application à part qu'on ouvre à qui la demande. Une seule route, un seul drapeau — pas
+   de seconde liste à tenir à jour à côté de l'annuaire, qui finirait par diverger.
+   Ce que ça change chez le client : la rangée « SUITE » d'OP GESTION n'apparaît que si c'est
+   ouvert. Fermé, OP GESTION redevient OP GESTION, et rien d'autre. */
+app.post('/api/monitor/espaces/apps', monPatronStrict, (req, res) => {
+  const slug = espSlug(monStr((req.body || {}).slug || (req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
+  const e = espaceAJour(slug);
+  const t = e ? espaceT(e) : '';
+  if (!e || !t) return res.status(404).json({ error: 'Espace inconnu, ou sans identifiant d\'équipe lisible' });
+  /* On écrit sur l'entrée VIVANTE du registre, pas sur la copie que rend espaceAJour — c'est
+     exactement l'erreur qui avait rendu le code d'accès invisible côté serveur. */
+  const vraiSlug = e.slug || slug;
+  if (!espacesReg[vraiSlug]) return res.status(500).json({ error: 'Entrée d\'annuaire introuvable' });
+  /* Comparaison stricte, pas « !! » : avec un booléen relâché, {"opMessages":"false"} OUVRAIT
+     l'application. Sur une option facturée à part, la direction de l'échec doit être la
+     fermeture, jamais l'ouverture. */
+  const veut = (req.body || {}).opMessages === true;
+  const avant = espacesReg[vraiSlug].opMessages;
+  if (veut) espacesReg[vraiSlug].opMessages = true; else delete espacesReg[vraiSlug].opMessages;
+  if (!espacesEcrire()) {
+    if (avant) espacesReg[vraiSlug].opMessages = avant; else delete espacesReg[vraiSlug].opMessages;
+    return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' });
+  }
+  console.log('Tour :', req.tourUser.nom, (veut ? 'ouvre' : 'ferme'), 'OP MESSAGES pour l\'espace', t);
+  res.json({ ok: true, slug: vraiSlug, opMessages: veut });
+});
 /* ══ RENOMMER UN ESPACE — donc changer son ADRESSE ══════════════════════════════════════════
    Le nom de l'espace n'est pas décoratif : c'est teamop.fr/ce-nom, l'adresse que l'entreprise
    donne à ses équipes et met en favori. La changer se fait donc les yeux ouverts — l'ancienne

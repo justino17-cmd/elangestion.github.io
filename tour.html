@@ -888,8 +888,14 @@ function chargerAccesPublics(){
   PBL.loaded=false; PBL.err='';
   apiGet('/api/monitor/espaces/liste').then(function(d){
     PBL.liste=(d&&d.espaces)||(Array.isArray(d)?d:[])||[];
-    PBL.loaded=true; if(TAB==='essais') renderVue('essais');
-  }).catch(function(){ PBL.err='Serveur injoignable — impossible de lister les accès publics.'; PBL.loaded=true; if(TAB==='essais') renderVue('essais'); });
+    /* La fiche d'une entreprise (onglet Entreprises) porte elle aussi l'interrupteur
+       OP MESSAGES : sans elle dans cette condition, le clic marchait côté serveur mais le badge
+       restait figé, et on recliquait en croyant que ça n'avait pas pris. */
+    PBL.loaded=true; rafraichirSiConcerne();
+  }).catch(function(){ PBL.err='Serveur injoignable — impossible de lister les accès publics.'; PBL.loaded=true; rafraichirSiConcerne(); });
+}
+function rafraichirSiConcerne(){
+  try{ if(TAB==='essais') renderVue('essais'); else if(TAB==='entreprises') render(); }catch(e){}
 }
 var JR={cnx:[],loaded:false,err:'',actions:[]};
 /* ── Connexions des applications : toutes les entreprises, le moindre détail ── */
@@ -937,7 +943,7 @@ function cnxLigne(e){ var ev=CNX_EV[e.ev]||['•',e.ev];
     '<td>'+esc((e.app&&e.app!=='gestion')?e.app+' ':'')+(e.version?'v'+esc(e.version):'—')+'</td></tr>'; }
 function cnxResumeHtml(r,nom){ if(!r) return '';
   var versions=Object.keys(r.versions||{}).sort().map(function(v){ return 'v'+esc(v)+' ×'+r.versions[v]; }).join(', ')||'—';
-  var apps=Object.keys(r.apps||{}).map(function(a){ return esc(a)+' ('+r.apps[a]+')'; }).join(', ')||'—';
+  var apps=Object.keys(r.apps||{}).map(function(a){ return esc(appNom(a))+' ('+r.apps[a]+')'; }).join(', ')||'—';
   var appareils=Object.keys(r.appareils||{}).map(function(a){ return esc(a)+' ('+r.appareils[a]+')'; }).join(', ')||'—';
   var kpi=function(v,l,c){ return '<div style="flex:1;min-width:110px;background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="font-size:20px;font-weight:800;color:'+(c||'inherit')+'">'+v+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
   return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
@@ -1269,6 +1275,29 @@ function tourIdentModifier(slug,nom,identActuel){
    partent. Suspendre vide les appareils déjà connectés à leur prochain lancement — c'est le
    but — et rouvrir rend l'espace : les appareils repassent par le lien ou le code, leurs
    données les attendent. */
+/* Les applications, en clair. Le journal des connexions enregistre la clé technique envoyée
+   par l'application ('gestion', 'elan' pour les anciennes versions, 'messages'…) ; l'afficher
+   telle quelle obligeait à la traduire de tête à chaque lecture. */
+var APP_NOMS={gestion:'OP GESTION',elan:'OP GESTION','elan-gestion':'OP GESTION',elangestion:'OP GESTION',opgestion:'OP GESTION',
+  messages:'OP MESSAGES',opmessages:'OP MESSAGES',opmsg:'OP MESSAGES',espace:'Espace client',site:'Site TEAM OP'};
+function appsUtilisees(r){
+  var a=(r&&r.apps)||{};
+  return Object.keys(a).map(function(k){ return appNom(k)+' ('+a[k]+')'; }).join(' · ');
+}
+function appNom(a){ var k=String(a||'').toLowerCase().trim(); return APP_NOMS[k]||(k?k.toUpperCase():'—'); }
+/* Ouvrir ou fermer OP MESSAGES pour une entreprise. C'est une application À PART, avec son
+   propre abonnement : elle ne fait plus partie des formules d'OP GESTION, et la fermer ne
+   touche à rien d'autre chez le client. */
+function tourApps(slug,nom,ouvrir){
+  if(!slug){ toast('Espace sans identifiant technique'); return; }
+  if(!ouvrir && !confirm('Fermer OP MESSAGES pour « '+(nom||slug)+' » ?\n\nLa rangée disparaît de son OP GESTION à la prochaine ouverture. Rien d’autre ne change : ni ses données, ni sa formule, ni ses connexions.')) return;
+  apiPost('/api/monitor/espaces/apps',{slug:slug,opMessages:!!ouvrir}).then(function(r){
+    if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
+    JR.actions.unshift({ts:Date.now(),tx:MYNOM+(ouvrir?' a ouvert':' a fermé')+' OP MESSAGES pour « '+(nom||slug)+' »'});
+    toast(ouvrir?'💬 OP MESSAGES ouvert':'💬 OP MESSAGES fermé');
+    chargerAccesPublics();
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
 /* Le même calcul que espSlug() côté serveur — pour afficher l'adresse avant que le
    serveur n'ait rendu son slug. */
 function espSlugJs(x){ return String(x||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,''); }
@@ -2398,7 +2427,18 @@ function ficheClient(){
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">'+
       '<input id="pack-promo" placeholder="Code promo (ex. TEAMOP3MOIS)" class="inp" style="width:230px;text-transform:uppercase">'+
       '<button class="btn-fant" onclick="tourPromoEntreprise(\''+jsq(nm)+'\',this)">🎁 Activer le code</button></div></div>'+
-    sect('UTILISATION',[['Applications',apps],['Dernière visite',esc(fmtDate(c.majTs))]])+
+    /* Les applications de cette entreprise : ce qu'elle a DÉCLARÉ à l'inscription (chips), ce
+       qui lui est OUVERT par TEAM OP, et ce qu'elle UTILISE vraiment (bloc CONNEXIONS plus bas).
+       OP MESSAGES est une application à part, avec son propre abonnement : elle s'ouvre et se
+       ferme ici, sans toucher à la formule OP GESTION. */
+    sect('UTILISATION',[['Déclaré à l’inscription',apps],['Dernière visite',esc(fmtDate(c.majTs))],
+      ['OP MESSAGES',(function(){
+        var es=(PBL.liste||[]).filter(function(x){ return (x.email&&c.email&&String(x.email).toLowerCase()===String(c.email).toLowerCase())||espSlugJs(x.nom||'')===espSlugJs(nm); })[0];
+        if(!es) return '<span style="color:var(--muted)">espace inconnu du serveur — génère d’abord son « Lien de connexion »</span>';
+        return '<span class="past '+(es.opMessages?'p-vert':'p-gris')+'">'+(es.opMessages?'ouvert':'fermé')+'</span> '+
+          '<button class="btn-fant" style="margin-left:8px;padding:3px 10px;font-size:12px" onclick="tourApps(\''+jsq(es.slug||'')+'\',\''+jsq(es.nom||nm)+'\','+(es.opMessages?'false':'true')+')">'+(es.opMessages?'Fermer':'Ouvrir')+'</button>'+
+          '<div style="font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.5">Application séparée, abonnement séparé. Fermée, elle disparaît de la barre d’OP GESTION ; rien d’autre ne change.</div>';
+      })()]])+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">CONNEXIONS</div><div id="fiche-connexions" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ PAR ONGLET & PROBLÈMES</div><div id="fiche-activite" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>'],['Téléphone',c.tel?('<a href="tel:'+esc(String(c.tel).replace(/[^0-9+]/g,''))+'">'+esc(c.tel)+'</a>'):'—']])+
@@ -2631,8 +2671,13 @@ function vueEssais(){
             /* Sans cette ligne, impossible de savoir depuis la Tour si l'entreprise peut déjà
                se connecter avec un simple identifiant, ou si elle dépend encore de son code. */
             '<br>'+(e.annuaire?('🔓 Connexion par identifiant prête — '+e.annuaire+' compte'+(e.annuaire>1?'s':'')):'🔑 Connexion par identifiant pas encore active — code d’accès nécessaire une première fois')+
+            /* Ce que l'entreprise UTILISE vraiment (mesuré sur 30 jours) et ce qui lui est
+               OUVERT (décidé) sont deux choses : les afficher côte à côte évite de croire
+               qu'une application est en service parce qu'on l'a autorisée. */
+            '<br>'+(appsUtilisees(r)?('📊 Utilise : '+appsUtilisees(r)):'📊 Aucune connexion enregistrée sur 30 jours')+
             '</div></div>'+
         '<span class="past '+(e.origine==='site'?'p-vert':'p-orange')+'">'+(e.origine==='site'?'🏢 Client du site':'🌍 Ouvert d’ici')+'</span> '+
+        '<span class="past '+(e.opMessages?'p-vert':'p-gris')+'" title="OP MESSAGES est une application à part, avec son propre abonnement">'+(e.opMessages?'💬 OP MESSAGES ouvert':'💬 OP MESSAGES fermé')+'</span> '+
         '<span class="past '+(e.suspendu?'p-rouge':(r.derniere?'p-vert':'p-gris'))+'">'+(e.suspendu?'⏸ Suspendu':(r.derniere?'Actif':'Jamais ouvert'))+'</span>'+
       '</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
@@ -2643,6 +2688,7 @@ function vueEssais(){
         (r.derniere?'<span style="font-size:12px;color:var(--muted)">Déjà utilisé — le mot de passe vit dans les données chiffrées de l’espace, le serveur ne peut plus le changer. Ouvre l’espace avec son lien et remets-le à zéro dans <b>Utilisateurs</b>.</span>'
                    :'<button class="btn-fant" onclick="tourIdentModifier(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\',\''+jsq(e.ident||'')+'\')">✏️ Changer identifiant / mot de passe</button>')+
         '<button class="btn-fant" onclick="tourAccesSuspendre(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\','+(e.suspendu?'true':'false')+')">'+(e.suspendu?'▶️ Rouvrir':'⏸ Suspendre')+'</button>'+
+        '<button class="btn-fant" onclick="tourApps(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\','+(e.opMessages?'false':'true')+')">'+(e.opMessages?'💬 Fermer OP MESSAGES':'💬 Ouvrir OP MESSAGES')+'</button>'+
         '<button class="btn-fant" onclick="tourAccesRenommer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">✏️ Renommer (change l’adresse)</button>'+
         '<button class="btn-fant" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="tourAccesSupprimer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">🗑 Supprimer</button>'+
       '</div>'+

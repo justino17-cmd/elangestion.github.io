@@ -1,6 +1,71 @@
 # Point stable TeamOP
 
-**Version stable : v570** — gravée le 7 septembre 2026.
+**Version stable : v571** — gravée le 7 septembre 2026.
+
+v571 — OP GESTION est OP GESTION, OP MESSAGES est OP MESSAGES.
+
+**La demande, mot pour mot : « je veux que OP GESTION soit OP GESTION et OP MESSAGES soit
+OP MESSAGES ».** La rangée « SUITE » en bas de la barre latérale proposait d'ouvrir OP MESSAGES
+depuis OP GESTION — écran partagé, nouvelle fenêtre. Deux applications, deux abonnements et deux
+connexions dans le même écran : c'est de là que viennent les mélanges, et c'est ce qu'on arrête.
+
+**OP MESSAGES sort des formules.** Ce n'est plus une case d'un forfait OP GESTION, c'est une
+application à part qu'on ouvre entreprise par entreprise depuis la Tour. Le **défaut est fermé**,
+pour tout le monde et y compris pour l'espace interne : sans décision explicite, OP GESTION ne
+montre rien d'autre que lui-même. Fermé, la rangée disparaît **entièrement** — étiquette
+comprise, parce qu'un sélecteur « Changer d'application » qui n'ouvre rien est un bouton mort.
+La carte utilisateur et la déconnexion, elles, restent.
+
+**La règle a changé de main.** Avant : `syncTeam()===FB_TEAM` — autrement dit « es-tu sur
+l'espace interne ? », une règle écrite dans la page, que personne ne pouvait changer sans
+republier. Maintenant : un champ `opMessages` porté par l'espace, rendu par `/api/espaces/etat`,
+posé depuis la Tour. Il est rendu sur **tous** les chemins de sortie de cette route — l'oublier
+sur celui qui part avant la formule laissait la messagerie affichée chez toute entreprise sans
+formule attribuée.
+
+**La Tour montre enfin ce qu'une entreprise utilise vraiment.** Les connexions enregistrent la
+clé technique de l'application (`gestion`, `elan` pour les anciennes versions, `messages`…) ; on
+l'affichait telle quelle, il fallait la traduire de tête. Elle est désormais lisible, et surtout
+posée **à côté** de ce qui est ouvert : ce qu'on autorise et ce qui sert sont deux choses, et les
+confondre fait croire qu'une application tourne parce qu'on l'a cochée. L'interrupteur est sur
+chaque ligne de l'onglet Accès et dans la fiche de chaque entreprise.
+
+**Éprouvé.** 10 cas de régression ajoutés (61 au total dans `server/test-connexion.js`) : le
+défaut fermé, l'ouverture et la fermeture par le patron, le refus sans jeton, l'écriture sur le
+disque, la formule qui ne bouge pas, et le chemin qui sort avant la formule. Plus 26 cas en
+navigateur sur **Chromium et WebKit** — la barre disparaît quand le serveur dit non, revient
+quand il dit oui, et la déconnexion reste joignable dans les deux cas.
+
+Deux défauts de harnais trouvés au passage, et corrigés dans le harnais et non dans le produit :
+la rangée vit dans un volet replié (`#suite-fly{display:none}`, ouvert au survol), et le service
+worker d'`app.html` s'interpose entre la page et le réseau — Playwright ne l'intercepte pas de la
+même façon selon le moteur, ce qui faisait échouer WebKit sur du code pourtant identique.
+
+**Ce que la relecture a arrêté, et qui aurait coûté cher.**
+
+· **« Revoir le lien de connexion » refermait OP MESSAGES en silence.** `/api/monitor/espaces`
+  reconstruit l'entrée d'annuaire de zéro et ne reportait de l'ancienne que la formule. Or ce
+  geste-là est le plus banal de la Tour — redonner son lien à une entreprise lui coupait une
+  application facturée à part. Aucune erreur, aucun journal, aucun écran ne l'aurait dit : la
+  pastille serait simplement repassée à « fermé » sans que personne n'y touche.
+
+· **Un espace à plusieurs noms rendait deux états contradictoires.** La liste de la Tour lisait
+  chaque entrée brute au lieu de l'entrée effective : le même espace s'affichait « ouvert » sur
+  une ligne et « fermé » sur l'autre, et le bouton de la ligne périmée restait mort. Exactement
+  le motif déjà corrigé sur le renommage en v569.
+
+· **`{"opMessages":"false"}` ouvrait l'application.** Un booléen relâché (`!!`) sur le corps de
+  la requête. L'interface livrée envoie un vrai booléen, mais la direction de l'échec était la
+  mauvaise : sur une option facturée à part, on ferme quand on ne comprend pas, on n'ouvre pas.
+
+· **La fiche entreprise ne se rafraîchissait pas après le clic.** Le serveur enregistrait, le
+  badge restait figé, et on recliquait en croyant que ça n'avait pas pris.
+
+Les deux premiers sont désormais des cas de régression (65 au total).
+
+---
+
+**Version précédente : v570** — gravée le 7 septembre 2026.
 
 v570 — l'adresse d'une entreprise ne peut plus tomber sur une page du site.
 
