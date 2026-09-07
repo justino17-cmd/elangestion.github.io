@@ -92,6 +92,33 @@
   .nav{padding:10px 12px;flex:1;overflow-y:auto;}
   .nav::-webkit-scrollbar{width:6px;} .nav::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:3px;}
   .nav-label{font-family:'Archivo',sans-serif;font-size:10.5px;font-weight:800;letter-spacing:.14em;color:var(--t3);text-transform:uppercase;padding:14px 12px 7px;}
+  /* ── La loupe du menu ── discrète par défaut : un simple creux, sans bordure marquée, qui
+     ne se réveille qu'au focus. Elle emprunte les jetons du thème (--bg2, --t3, --acc) donc
+     elle suit le jour, la nuit et la refonte sans une ligne de plus. */
+  .nav-loupe{display:flex;align-items:center;gap:8px;margin:2px 4px 6px;padding:7px 10px;
+    border-radius:10px;background:var(--bg2);border:1px solid transparent;transition:.15s;}
+  .nav-loupe:focus-within{border-color:color-mix(in srgb,var(--acc) 45%,transparent);
+    background:color-mix(in srgb,var(--acc) 7%,var(--bg2));}
+  .nav-loupe-ic{font-size:12.5px;opacity:.62;flex-shrink:0;line-height:1;}
+  .nav-loupe input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--t1);
+    font-size:13px;font-family:inherit;padding:0;}
+  .nav-loupe input::placeholder{color:var(--t3);}
+  /* C'est le CONTENANT qui s'allume au focus (voir :focus-within ci-dessus) : le champ ne doit
+     pas poser son propre anneau par-dessus, sinon on en voit deux emboîtés — mesuré, on lisait
+     bien un rectangle vert à l'intérieur de la pilule grise.
+     « html body » n'est pas de la coquetterie : le bloc de refonte pose plus bas
+     « html[data-refonte] :focus-visible{box-shadow:var(--anneau)!important} », de même poids et
+     plus tardif dans la feuille. À poids égal, c'est le dernier qui gagne — il faut donc peser
+     plus lourd, pas seulement écrire !important. */
+  html body .nav-loupe input:focus,
+  html body .nav-loupe input:focus-visible{outline:0!important;box-shadow:none!important;}
+  .nav-loupe input::-webkit-search-cancel-button{display:none;}
+  /* 24 px au moins : le reste de l'application pose ses boutons d'icône à 34 px, et 44 en
+     refonte. Un ✕ de 16 px se rate au doigt. */
+  .nav-loupe button{background:transparent;border:0;color:var(--t3);cursor:pointer;font-size:12px;
+    line-height:1;padding:0;border-radius:7px;flex-shrink:0;
+    min-width:26px;min-height:26px;display:flex;align-items:center;justify-content:center;}
+  .nav-loupe button:hover{color:var(--t1);background:var(--bg1);}
   .nav-item{display:flex;align-items:center;gap:13px;padding:10px 14px;border-radius:10px;color:var(--t2);font-size:14px;font-weight:500;cursor:pointer;transition:.15s;margin-bottom:1px;user-select:none;}
   .nav-item:hover{background:var(--bg2);color:var(--t1);}
   .nav-item.active{background:color-mix(in srgb,var(--acc) 15%,transparent);color:var(--acc);font-weight:600;}
@@ -3820,7 +3847,16 @@ html[data-refonte] #msg-photo-prev + div > .btn:last-child{min-height:var(--rf-t
 @media (min-width:781px){
   html[data-refonte] #msg-photo-prev + div{padding-right:76px}
 }
-@media (max-width:780px){
+/* ── LE SEUIL DU COURRIER EST 959, PAS 780 ────────────────────────────────────────────────
+   Ce bloc relâchait la hauteur imposée au cadre de la boîte mail à partir de 780 px. Or
+   _mailDesktop() ne bascule en trois volets qu'à 960 px. Entre les deux — 781 à 959, la largeur
+   d'une fenêtre Safari qu'on n'a pas mise en plein écran, celle de Justin — l'application
+   empilait en un seul bloc DANS un cadre de 642 px en overflow:hidden, sans conteneur qui
+   défile : mesuré sur WebKit, 4 messages atteignables sur 197, et 19 875 px de contenu hors de
+   portée. C'est le « quand je clique sur Réception, ça fait un bug ».
+   959 est le complément exact de _mailDesktop() (>= 960) : les deux nombres se répondent, et
+   c'est pour ça qu'il faut les lire ensemble malgré les 800 lignes qui les séparent. */
+@media (max-width:959px){
   html[data-refonte] #msg-list{height:calc(100dvh - 430px)!important;padding:14px!important}
   html[data-refonte] #mail-app{height:auto!important;min-height:0!important;
     background:transparent!important;box-shadow:none!important;overflow:visible!important}
@@ -3934,10 +3970,13 @@ html[data-refonte] #mail-pane div[style*="border:1px solid var(--acc);border-rad
   background:var(--tint)!important;border:0!important;border-radius:var(--rf-r-champ)!important;
   color:var(--acc-txt)!important;padding:10px 14px!important}
 
-/* ── TÉLÉPHONE ── trois colonnes n'en font aucune sur 390 px : l'application empile déjà
+/* ── EN PILE ── trois colonnes n'en font aucune sous 960 px : l'application empile déjà
    (les dossiers deviennent des pastilles, la lecture s'ouvre en plein écran). On enlève le
-   cadre qui n'a plus rien à cadrer et on rend au message la mesure et les marges du pouce. */
-@media (max-width:780px){
+   cadre qui n'a plus rien à cadrer et on rend au message la mesure et les marges du pouce.
+   Même seuil que le bloc ci-dessus, et pour la même raison : à 900 px, laisser ce bloc à 780
+   donnait une pile habillée en trois volets — un filet vertical qui ne sépare plus rien et un
+   aplat de liste sur un bloc pleine largeur. Un seul seuil pour tout l'écran Courrier. */
+@media (max-width:959px){
   html[data-refonte] #mail-side{background:transparent!important;padding:0 0 10px!important;border:0!important}
   html[data-refonte] #mail-mid{background:transparent!important;border:0!important}
   html[data-refonte] #mail-read [style*="max-width:760px"],
@@ -4446,7 +4485,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '566';
+const APP_VERSION = '567';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5909,6 +5948,43 @@ function verrouMessage(){
   toast('🔒 Réservé à ta formule '+((PLANS[att.formule]||{}).l||'')+' — paye ton abonnement (ou active un code promo) pour débloquer');
   try{ bandeauFormule(); }catch(e){}
 }
+/* ── LA LOUPE DU MENU ────────────────────────────────────────────────────────────────────
+   Le menu compte jusqu'à 44 rubriques réparties en huit groupes : sur un écran d'ordinateur il
+   faut le parcourir des yeux, et sur un téléphone le faire défiler. Un champ discret en tête
+   filtre les rubriques à la frappe — on tape « box », on a les box. Il ne fait que MASQUER des
+   lignes existantes : les droits restent ceux du menu, rien n'apparaît qui n'y était pas.
+   Il ne s'affiche que si le menu est assez long pour qu'on ait à le chercher. */
+function navFiltrer(q){
+  var nav=document.getElementById('nav'); if(!nav) return;
+  var m=norm(q||'').trim();
+  var vide=document.getElementById('nav-rien');
+  var n=0;
+  // on masque d'abord chaque rubrique, puis chaque titre de groupe qui n'a plus rien sous lui
+  Array.prototype.forEach.call(nav.querySelectorAll('.nav-item'),function(el){
+    var ok=!m||norm(el.textContent||'').indexOf(m)>=0;
+    el.style.display=ok?'':'none'; if(ok) n++;
+  });
+  Array.prototype.forEach.call(nav.querySelectorAll('.nav-label'),function(lab){
+    var voit=false, e=lab.nextElementSibling;
+    while(e&&!e.classList.contains('nav-label')){
+      if(e.classList.contains('nav-item')&&e.style.display!=='none'){ voit=true; break; }
+      e=e.nextElementSibling;
+    }
+    lab.style.display=voit?'':'none';
+  });
+  if(vide) vide.style.display=(m&&!n)?'':'none';
+  var eff=document.getElementById('nav-loupe-x');
+  if(eff) eff.style.display=m?'':'none';
+}
+/* Entrée ouvre la première rubrique encore visible : on tape trois lettres, on valide, on y est. */
+function navFiltreEntree(ev){
+  if(ev.key==='Escape'){ var c=document.getElementById('nav-loupe'); if(c){ c.value=''; navFiltrer(''); } return; }
+  if(ev.key!=='Enter') return;
+  var nav=document.getElementById('nav'); if(!nav) return;
+  var prem=Array.prototype.filter.call(nav.querySelectorAll('.nav-item[data-view]'),function(e){ return e.style.display!=='none'; })[0];
+  if(prem&&prem.dataset.view) go(prem.dataset.view);
+}
+function navFiltreVider(){ var c=document.getElementById('nav-loupe'); if(c){ c.value=''; c.focus(); } navFiltrer(''); }
 function renderNav(){ try{ applyBrand(); }catch(e){}
   const att=db.formuleAttente;
   $('nav').innerHTML = NAV.map(sec=>{
@@ -5923,6 +5999,19 @@ function renderNav(){ try{ applyBrand(); }catch(e){}
       : `<div class="nav-item" data-view="${r.it.k}" onclick="if(event.ctrlKey||event.metaKey){window.open('app.html#v=${r.it.k}','_blank');return;}go('${r.it.k}')" onauxclick="if(event.button===1)window.open('app.html#v=${r.it.k}','_blank')">${esc(t(r.it.l))}${r.it.b?` <span class="badge" data-badge="${r.it.b}">0</span>`:''}</div>`
     ).join('');
   }).join('');
+  /* La loupe seulement quand il y a de quoi chercher : sous une dizaine de rubriques, elle
+     ferait perdre plus de place qu'elle n'en fait gagner. */
+  if($('nav').querySelectorAll('.nav-item').length>=10){
+    $('nav').insertAdjacentHTML('afterbegin',
+      `<div class="nav-loupe">
+         <span class="nav-loupe-ic" aria-hidden="true">🔍</span>
+         <input id="nav-loupe" type="search" autocomplete="off" spellcheck="false" placeholder="Rechercher une rubrique"
+                aria-label="Rechercher une rubrique du menu"
+                oninput="navFiltrer(this.value)" onkeydown="navFiltreEntree(event)">
+         <button id="nav-loupe-x" type="button" style="display:none" aria-label="Effacer la recherche" onclick="navFiltreVider()">✕</button>
+       </div>
+       <div id="nav-rien" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--t3)">Aucune rubrique ne correspond.</div>`);
+  }
   refreshBadges();
   navGlisseInit();
 }
@@ -15211,25 +15300,55 @@ function notifyDrBoxLow(b,pid,prevU){ try{
   if(now==='epuise') pushNotify('🟥 Produit épuisé — '+bn, p.nom+' : plus aucune unité dans cette box. Réapprovisionnement nécessaire.','/app.html#v=boxes',dest);
   else pushNotify('🟠 Stock bientôt épuisé — '+bn, p.nom+' : plus que '+u+' unité'+(u>1?'s':'')+' dans cette box.','/app.html#v=boxes',dest);
 }catch(e){} }
-/* Notification au DR (+ admins) à chaque prise / ajout dans une box.
-   Les clics rapprochés sur le même produit sont regroupés (une seule notification
-   avec le total, envoyée 4 s après le dernier clic) pour éviter le spam. */
+/* ── UNE SEULE NOTIFICATION POUSSÉE PAR PASSAGE ──────────────────────────────────────────
+   Le regroupement se faisait par (box, PRODUIT, sens, unité) : quelqu'un qui vide sa box en
+   reprenant cinq produits faisait sonner cinq fois le téléphone du DR. La cloche de
+   l'application, elle, regroupait déjà par passage — les deux ne disaient pas la même chose.
+   On regroupe donc au même endroit : par (box, personne). Quatre secondes après le DERNIER
+   geste, un seul message part, qui porte tout le passage : « Sofia a pris 3 produits et
+   ajouté 2 dans Box Nord ». Un seul produit reste dit en toutes lettres, avec le reste en
+   box — c'est le cas courant et l'information utile.
+   Le compte à rebours repart à chaque geste : c'est ce qui fait qu'un passage entier tient
+   dans un seul message, quel que soit le nombre de produits. */
 let _bxMovePend={};
 function notifyDrBoxMove(b,pid,type,qte,unit){ try{
   if(!b||!pid||!qte) return;
-  const key=b.id+'|'+pid+'|'+type+'|'+(unit||'u');
-  const e=_bxMovePend[key]=_bxMovePend[key]||{qte:0,t:null};
-  e.qte+=qte; clearTimeout(e.t);
-  e.t=setTimeout(()=>{ try{ delete _bxMovePend[key];
-    const p=produit(pid); if(!p.id) return;
-    const dest=valideursPour(b);
-    if(!dest.length) return;
-    const bn=b.nom||b.numero||'Box'; const who=(currentUser&&fullName(currentUser))||'Quelqu\'un';
-    const un=(unit==='ctn')?' carton'+(e.qte>1?'s':''):' ×';
-    const q=(unit==='ctn')?e.qte+un+' de '+p.nom:e.qte+un+' '+p.nom;
-    const reste=((b.stock||{})[pid]||{}); const rTxt=(unit==='ctn')?(reste.ctn||0)+' ctn':(reste.u||0)+' u';
-    if(type==='sortie') pushNotify('📤 Sortie de box — '+bn, who+' a pris '+q+' (reste '+rTxt+')','/app.html#v=boxes',dest);
-    else pushNotify('📥 Ajout en box — '+bn, who+' a ajouté '+q+' ('+rTxt+' en box)','/app.html#v=boxes',dest);
+  const moi=(currentUser&&currentUser.id)||'?';
+  const key=b.id+'|'+moi;
+  const e=_bxMovePend[key]=_bxMovePend[key]||{lignes:{},t:null};
+  const kl=pid+'|'+type+'|'+(unit||'u');
+  e.lignes[kl]=e.lignes[kl]||{pid:pid,type:type,unit:(unit||'u'),qte:0};
+  e.lignes[kl].qte+=qte;
+  clearTimeout(e.t);
+  e.t=setTimeout(()=>{ try{
+    const lot=_bxMovePend[key]; delete _bxMovePend[key];
+    if(!lot) return;
+    const dest=valideursPour(b); if(!dest.length) return;
+    const lignes=Object.keys(lot.lignes).map(k=>lot.lignes[k]).filter(l=>produit(l.pid).id);
+    if(!lignes.length) return;
+    const bn=b.nom||b.numero||'Box';
+    const who=(currentUser&&fullName(currentUser))||'Quelqu\'un';
+    const dit=(l)=>{ const p=produit(l.pid);
+      const un=(l.unit==='ctn')?(' carton'+(l.qte>1?'s':'')+' de '):' × ';
+      return l.qte+un+p.nom; };
+    if(lignes.length===1){
+      const l=lignes[0], reste=((b.stock||{})[l.pid]||{});
+      const rTxt=(l.unit==='ctn')?(reste.ctn||0)+' ctn':(reste.u||0)+' u';
+      if(l.type==='sortie') pushNotify('📤 Sortie de box — '+bn, who+' a pris '+dit(l)+' (reste '+rTxt+')','/app.html#v=boxes',dest);
+      else pushNotify('📥 Ajout en box — '+bn, who+' a ajouté '+dit(l)+' ('+rTxt+' en box)','/app.html#v=boxes',dest);
+      return;
+    }
+    const pris=lignes.filter(l=>l.type==='sortie'), mis=lignes.filter(l=>l.type!=='sortie');
+    const bouts=[];
+    if(pris.length) bouts.push('pris '+pris.length+' produit'+(pris.length>1?'s':''));
+    if(mis.length) bouts.push('ajouté '+mis.length+' produit'+(mis.length>1?'s':''));
+    /* Signé, sinon la liste ne dit pas lequel est parti et lequel est arrivé : « 3 × Muskil,
+       2 × Gants » se lit pareil dans les deux sens. Les sorties d'abord — c'est ce qu'un DR
+       regarde en premier. */
+    const dits=pris.concat(mis).slice(0,3).map(l=>(l.type==='sortie'?'−':'+')+dit(l));
+    const noms=dits.join(', ')+(lignes.length>3?'…':'');
+    const ic=(!mis.length?'📤':(!pris.length?'📥':'🔁'));
+    pushNotify(ic+' Passage en box — '+bn, who+' a '+bouts.join(' et ')+' : '+noms,'/app.html#v=boxes',dest);
   }catch(_){} },4000);
 }catch(e){} }
 /* Numéros uniques DC-AAAA-NNN / BC-AAAA-NNN : basés sur le plus grand numéro
@@ -15527,6 +15646,90 @@ function savePassage(ev,boxId){ ev.preventDefault(); const b=db.boxes.find(x=>x.
   passPhoto=''; logEvent('Relevé de passage',`${b.nom||b.numero} — ${(APPAT_ETATS[d.etat]||{}).l||''}`,'intervention'); save(); closeModal(); renderBoxDetail(); toast('Relevé enregistré'+(dd?' · prochaine visite mise à jour':''));
 }
 function delPassage(boxId,pid){ const b=db.boxes.find(x=>x.id===boxId); if(!b)return; if(!confirm('Supprimer ce relevé de passage ?')) return; b.passages=(b.passages||[]).filter(p=>p.id!==pid); logEvent('Relevé de passage supprimé',b.nom||b.numero||'','intervention'); save(); renderBoxDetail(); toast('Relevé supprimé'); }
+/* ── CE QUI ATTEND LE DR, VISIBLE SUR LA FICHE ───────────────────────────────────────────
+   Mesuré : quelqu'un qui ajuste des produits sous validation DR voyait les chiffres ne PAS
+   bouger et rien ne le lui disait. Le geste a bien été enregistré — il attend un accord — mais
+   la fiche restait muette, ce qui donne exactement l'impression que ça n'a pas marché, et
+   pousse à re-taper.
+   TOUS les chemins comptent, pas seulement les boutons ＋/− : l'écran « Quantité »
+   (saveBoxQte) crée un mouvement « ajustement », « Retirer de la box » (removeBoxProd) un
+   « retrait », l'arrivage un « arrivage ». Ne regarder que les lots laissait ces trois-là
+   invisibles — le défaut même qu'on prétend corriger. */
+function boxAttentes(boxId){
+  var moi=currentUser&&currentUser.id;
+  return (db.boxMvtAttente||[]).filter(function(x){
+    return x&&x.statut==='enAttente'&&x.boxId===boxId&&x.parId===moi; });
+}
+/* Le lot de CETTE personne sur CETTE box — celui que les boutons ＋/− enrichissent. */
+function boxLotEnAttente(boxId){
+  return boxAttentes(boxId).find(function(x){ return x.type==='ajustementLot'; })||null;
+}
+/* Les produits touchés par tout ce qui attend, sans doublon. */
+function boxAttentePids(boxId){
+  var out=[];
+  boxAttentes(boxId).forEach(function(m){
+    var lg=m.lignes||[{produitId:m.produitId}];
+    lg.forEach(function(l){ if(l.produitId&&out.indexOf(l.produitId)<0) out.push(l.produitId); });
+  });
+  return out;
+}
+/* Ce qui est demandé pour UN produit, tous mouvements confondus. « vide » marque un retrait
+   complet : on ne demande pas une quantité, on demande à tout sortir. */
+function boxAttenteProduit(boxId,pid){
+  var du=0, dc=0, vide=false, trouve=false;
+  boxAttentes(boxId).forEach(function(m){
+    if(m.type==='retrait'){ if(m.produitId===pid){ vide=true; trouve=true; } return; }
+    if(m.type==='arrivage'){ (m.lignes||[]).forEach(function(l){ if(l.produitId===pid){ du+=(+l.qte||0); trouve=true; } }); return; }
+    var lg=m.lignes||[{produitId:m.produitId,du:m.du,dc:m.dc}];
+    lg.forEach(function(l){ if(l.produitId===pid){ du+=(+l.du||0); dc+=(+l.dc||0); trouve=true; } });
+  });
+  return trouve?{du:du,dc:dc,vide:vide}:null;
+}
+/* Annuler tout ce qui attend : le geste n'est pas encore appliqué, il n'y a donc rien à défaire
+   dans le stock — on retire les demandes, et le DR ne les verra jamais. */
+function boxLotAnnuler(boxId){
+  var att=boxAttentes(boxId); if(!att.length) return;
+  var n=boxAttentePids(boxId).length;
+  if(!confirm('Annuler ce qui attend le DR ?\n\n'+n+' produit'+(n>1?'s ne partiront':' ne partira')+' pas. Le stock n\'a pas encore bougé, rien ne sera défait.')) return;
+  att.forEach(function(m){ logEvent('Demande de mouvement annulée',boxMvtLibelle(m),'stock'); });
+  db.boxMvtAttente=(db.boxMvtAttente||[]).filter(function(x){ return att.indexOf(x)<0; });
+  save(); toast('Demande annulée'); renderBoxProdList();
+}
+/* Retirer un seul produit de ce qui attend. Dans un lot, on enlève la ligne — le lot se vide et
+   disparaît tout seul s'il ne reste rien. Un mouvement isolé (« Quantité », « Retirer de la
+   box ») ne porte qu'un produit : on retire le mouvement entier. */
+function boxLotLigneAnnuler(boxId,pid){
+  var reste=[], partis=[];
+  boxAttentes(boxId).forEach(function(m){
+    if(m.type==='ajustementLot'){
+      var av=(m.lignes||[]).length;
+      m.lignes=(m.lignes||[]).filter(function(l){ return l.produitId!==pid; });
+      if(m.lignes.length!==av && !m.lignes.length) partis.push(m);
+      return;
+    }
+    var touche=(m.lignes||[{produitId:m.produitId}]).some(function(l){ return l.produitId===pid; });
+    if(touche) partis.push(m);
+  });
+  if(partis.length){
+    partis.forEach(function(m){ logEvent('Demande de mouvement annulée',boxMvtLibelle(m),'stock'); });
+    db.boxMvtAttente=(db.boxMvtAttente||[]).filter(function(x){ return partis.indexOf(x)<0; });
+  }
+  save(); toast('Retiré de la demande'); renderBoxProdList();
+}
+function boxLotBandeau(boxId){
+  var att=boxAttentes(boxId); if(!att.length) return '';
+  var n=boxAttentePids(boxId).length; if(!n) return '';
+  var dernier=att.reduce(function(t,m){ return Math.max(t,m.ts||0); },0);
+  var heure=new Date(dernier||Date.now()).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  return `<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 14px;margin-bottom:10px;border-radius:12px;background:color-mix(in srgb,var(--org,#e8a33d) 12%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 34%,transparent)">
+    <span style="font-size:17px;flex-shrink:0;line-height:1.3">🔒</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13.5px;font-weight:800;color:var(--t1)">${n} produit${n>1?'s':''} en attente de validation DR</div>
+      <div style="font-size:12px;color:var(--t2);line-height:1.55;margin-top:2px">Envoyé à ${heure}. Les quantités ci-dessous ne bougeront qu'après l'accord du DR — inutile de re-taper.</div>
+    </div>
+    <button class="btn ghost sm" style="flex-shrink:0" onclick="event.stopPropagation();boxLotAnnuler('${boxId}')">Annuler</button>
+  </div>`;
+}
 function renderBoxProdList(){
   const el=$('boxprod-list'); if(!el) return; const b=db.boxes.find(x=>x.id===boxView); if(!b) return; b.stock=b.stock||{};
   const q=norm(boxProdSearch);
@@ -15539,15 +15742,21 @@ function renderBoxProdList(){
     const ea=boxEtat(a.s.u),eb=boxEtat(b2.s.u); if(ord[ea.k]!==ord[eb.k]) return ord[ea.k]-ord[eb.k];
     if(qa!==qb) return qb-qa; return (a.p.nom||'').localeCompare(b2.p.nom||''); });
   if(!entries.length){ el.innerHTML=`<div style="color:var(--t3);font-size:13px;padding:18px;text-align:center">${boxProdSearch?'Aucun résultat.':'Aucun produit dans cette box. Touche ＋ Ajouter.'}</div>`; return; }
-  el.innerHTML=entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
+  el.innerHTML=boxLotBandeau(b.id)+entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
+    const li=boxAttenteProduit(b.id,pid);
+    /* Court, et sur UNE ligne : le bandeau au-dessus dit déjà « en attente de validation DR »,
+       la ligne n'a plus qu'à dire combien. Vrai signe moins (−), comme le bouton de la fiche. */
+    const sgn=(n,u)=>(n>0?'+':'−')+Math.abs(n)+' '+u;
+    const dem=li?(li.vide?'tout retiré':((li.du?sgn(li.du,'u'):'')+(li.du&&li.dc?' · ':'')+(li.dc?sgn(li.dc,'ctn'):''))||'±0'):'';
     const fours=(p.fournisseurs||[]).map(fourBadge).join(' ');
-    return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${low?e.c:'transparent'};border-radius:12px;margin-bottom:8px;overflow:hidden">
+    return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${li?'var(--org,#e8a33d)':(low?e.c:'transparent')};border-radius:12px;margin-bottom:8px;overflow:hidden">
       <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="editBoxQte('${pid}')">
         <div style="flex:1;min-width:0">
           <div style="font-size:15px;font-weight:800;color:var(--t1)">${esc(p.nom)}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:13px;font-weight:600;color:${e.c}"><span style="width:8px;height:8px;border-radius:50%;background:${e.c};flex-shrink:0"></span>${e.l}</div>
           ${p.categorie?`<div style="font-size:12px;color:var(--t3);margin-top:3px">${esc(p.categorie)}</div>`:''}
           ${(s.ctn||0)?`<div style="font-size:11.5px;color:var(--blue);margin-top:3px">${s.ctn} carton${s.ctn>1?'s':''} en réserve</div>`:''}
+          ${li?`<div style="display:flex;align-items:center;gap:7px;margin-top:5px;font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);white-space:nowrap"><span>🔒 ${esc(dem)} en attente</span><button class="btn ghost sm" style="padding:1px 8px;font-size:10.5px;min-height:0;line-height:1.6" onclick="event.stopPropagation();boxLotLigneAnnuler('${b.id}','${pid}')">retirer</button></div>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
           <button class="btn ghost sm" style="width:38px;height:38px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:11px" onclick="boxAdj('${pid}','u',-1)">−</button>
@@ -15602,16 +15811,39 @@ function validDRTousSet(on){
     on?'toute sortie de stock passe désormais par le DR':'la validation redevient réglable fiche par fiche','stock');
   save(); toast(on?'✔ Toute sortie de stock passe par le DR':'Validation DR réglée fiche par fiche');
   if(current==='parametres') views.parametres(); }
-/* Ce mouvement SORT-il de la matière de la box ? Sert à choisir la couleur du surlignage :
-   rouge pour ce qui part, vert pour ce qui arrive. Un ajustement porte des quantités signées
-   (du = unités, dc = cartons), un lot en porte plusieurs — on regarde le total. */
+/* ── LES LIGNES D'UN MOUVEMENT, SÉPARÉES PAR LEUR SIGNE ──────────────────────────────────
+   Un lot MÊLE : on repose deux produits et on en reprend trois, en un seul geste. Mesuré :
+   avec un seul verdict pour tout le lot, les cinq lignes partaient en rouge — faux pour les
+   deux qui venaient d'être AJOUTÉES. On sépare donc produit par produit.
+   Chaque type porte son signe autrement : un arrivage n'apporte que du stock (qte positive),
+   un retrait vide la ligne, un ajustement porte des quantités signées (du = unités,
+   dc = cartons). */
+function mvtLignesSignees(m){
+  var pris=[], mis=[];
+  if(!m) return {pris:pris,mis:mis};
+  var lg=m.lignes||[{produitId:m.produitId,du:m.du,dc:m.dc,qte:m.qte}];
+  lg.forEach(function(l){
+    if(!l.produitId) return;
+    if(m.type==='retrait'){ pris.push(l.produitId); return; }
+    if(m.type==='arrivage'){ mis.push(l.produitId); return; }
+    var d=(+l.du||0)+(+l.dc||0);
+    if(d<0) pris.push(l.produitId); else if(d>0) mis.push(l.produitId);
+  });
+  return {pris:pris,mis:mis};
+}
+/* L'acte de surlignage d'un mouvement : deux appels plutôt qu'un, pour que chaque produit
+   porte SA couleur. Sert dans les chaînes que la cloche évalue au clic. */
+function mvtMarqueActe(m){
+  var g=mvtLignesSignees(m);
+  return (g.pris.length?"cible('pid','"+g.pris.join(',')+"','retrait');":"")
+       + (g.mis.length?"cible('pid','"+g.mis.join(',')+"');":"");
+}
+/* Ce mouvement ne fait-il QUE sortir de la matière ? Sert à colorer une LIGNE UNIQUE — celle
+   d'une demande dans Validations, qui représente le geste entier. Un lot mixte n'est pas un
+   retrait : il n'est ni rouge ni vert, on le laisse neutre plutôt que de mentir sur la moitié. */
 function mvtRetrait(m){
-  if(!m) return false;
-  if(m.type==='retrait') return true;
-  if(m.type==='arrivage') return false;
-  var l=m.lignes||[{du:m.du,dc:m.dc}];
-  var t=l.reduce(function(s,x){ return s+(+x.du||0)+(+x.dc||0); },0);
-  return t<0;
+  var g=mvtLignesSignees(m);
+  return g.pris.length>0 && g.mis.length===0;
 }
 function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
   if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); const bcN=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||{}).numero:''; return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn+(bcN?' · bon '+bcN:''); }
@@ -15848,11 +16080,19 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
     lot.ts=Date.now();
     save();
     if(neuf){ logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock'); boxMvtPrevenir(lot); toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
-    else toast('🔒 En attente du DR : '+boxMvtLibelle(lot));
+    /* Le libellé complet du lot fait trois lignes et se répète à CHAQUE tap : au cinquième
+       produit, l'écran n'est plus qu'une pile de messages identiques. Le détail est désormais
+       écrit en permanence sur la fiche (bandeau + mention par ligne) — le message se contente
+       donc de compter. */
+    else { var nl=lot.lignes.length; toast('🔒 '+nl+' produit'+(nl>1?'s':'')+' en attente du DR'); }
     renderBoxProdList();
     // la question « pour qui ? » se pose UNE fois pour le lot, pas à chaque produit sorti
-    const totLot=lot.lignes.reduce((t,l)=>t+(l.du||0)+(l.dc||0),0);
-    if(totLot<0&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),150);
+    /* On regarde s'il SORT quelque chose, pas si le total est négatif. Un lot où l'on repose
+       dix unités et où l'on en reprend deux a un total POSITIF — mais deux unités partent quand
+       même avec quelqu'un, et le bon de remise doit les porter. Le bon lui-même ne retient déjà
+       que les lignes négatives (voir boxMvtValider), il ne restait qu'à poser la question. */
+    const sortQqc=lot.lignes.some(l=>((+l.du||0)+(+l.dc||0))<0);
+    if(sortQqc&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),150);
     return; }
   b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
   traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box');
@@ -16345,6 +16585,9 @@ function renderBonsList(){
    et recevoir les réponses dans l'app — sans jamais ouvrir une boîte mail externe. */
 let mailTab='recu'; let _mailboxes=[]; let _mailReplies=null; let mailSearch=''; let mailSel=null; let mailBoxFiltre='';
 async function loadMailboxes(){ try{ const r=await fetch(PUSH_API+'/api/mailboxes?teamId='+encodeURIComponent(syncTeam())); const d=await r.json(); _mailboxes=d.mailboxes||[]; }catch(e){ _mailboxes=[]; } return _mailboxes; }
+/* _mailChargeEnCours empêche la boucle décrite plus bas, à l'endroit où la Réception se
+   recharge. Il vit ici pour être lisible à côté de la fonction qu'il garde. */
+let _mailChargeEnCours=false;
 async function loadMailReplies(){ try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam())); const d=await r.json(); _mailReplies=d.replies||[]; }catch(e){ _mailReplies=null; } return _mailReplies; }
 function _mailLus(){ try{ return new Set(JSON.parse(localStorage.getItem('elan_mail_lus')||'[]')); }catch(e){ return new Set(); } }
 function _mailMarquerLu(k){ const st=_mailLus(); if(st.has(k)) return; st.add(k); localStorage.setItem('elan_mail_lus',JSON.stringify([...st].slice(-600))); }
@@ -16364,21 +16607,24 @@ views.boiteMail=function(){
   $('content').innerHTML=`
     <div id="mail-connbar"></div>
     <div id="mail-app" style="${D?'display:grid;grid-template-columns:212px minmax(290px,390px) 1fr;border:1px solid var(--brd);border-radius:14px;overflow:hidden;height:calc(100dvh - 165px);min-height:460px;background:var(--bg1)':''}">
-      <div id="mail-side" style="${D?'border-right:1px solid var(--brd);padding:12px 10px;overflow-y:auto':'margin-bottom:10px'}">
+      <div id="mail-side" style="${D?'border-right:1px solid var(--brd);padding:12px 10px;display:flex;flex-direction:column;min-height:0':'margin-bottom:10px'}">
         ${D?`<button class="btn" style="width:100%;justify-content:center;margin-bottom:14px" onclick="mailCompose()">✏️ Nouveau message</button>`:''}
         <div style="${D?'':'display:flex;gap:6px;flex-wrap:wrap;align-items:center'}">
           ${dossier('recu','📥','Réception',unread)}
           ${dossier('envoye','📤','Envoyés',0)}
           ${D?'':'<button class="btn ghost sm" onclick="_mailReplies=null;mailSel=null;views.boiteMail()">🔄</button>'}
         </div>
-        ${D?`<div style="margin-top:18px"><div style="font-size:10.5px;font-weight:800;letter-spacing:1.2px;color:var(--t3);padding:0 12px 7px">MES BOÎTES</div><div id="mail-side-boites"><div style="padding:0 12px;font-size:12px;color:var(--t3)">Chargement…</div></div>
-          <div style="display:flex;gap:6px;margin:10px 2px 0">
-            <button class="btn ghost sm" style="flex:1;justify-content:center" onclick="mailConnect()">＋ Connecter</button>
-            <!-- La déconnexion vit dans cette fenêtre. Sur ordinateur, le bouton « 📬 Boîtes » de
-                 l'en-tête passe inaperçu à côté de la liste des boîtes : on la redonne ici, là où
-                 on regarde ses boîtes. -->
-            <button class="btn ghost sm" style="flex:0 0 auto" onclick="mailBoxesManage()" title="Gérer mes boîtes (déconnecter)">⚙️</button>
-          </div></div>`:''}
+        ${D?`<div style="margin-top:18px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column">
+          <div style="font-size:10.5px;font-weight:800;letter-spacing:1.2px;color:var(--t3);padding:0 12px 7px;flex:0 0 auto">MES BOÎTES</div>
+          <div id="mail-side-boites" style="flex:1 1 auto;min-height:0;overflow-y:auto"><div style="padding:0 12px;font-size:12px;color:var(--t3)">Chargement…</div></div></div>
+        <!-- Le pied de colonne : « ajouter une boîte » se range EN BAS, là où on va le chercher
+             quand on a fini de lire, et pas au milieu de la liste des boîtes. Les deux boutons
+             portent un vrai libellé — un bouton réduit à une icône se rend vide quand l'icône
+             manque, ce qui donnait un rectangle gris sans rien dedans. -->
+        <div style="flex:0 0 auto;border-top:1px solid var(--brd);margin:10px -10px 0;padding:10px 12px 2px;display:grid;gap:6px">
+          <button class="btn ghost sm" style="width:100%;justify-content:center" onclick="mailBoxesManage()">Gérer mes boîtes</button>
+          <button class="btn ghost sm" style="width:100%;justify-content:center" onclick="mailConnect()">＋ Connecter une boîte</button>
+        </div>`:''}
       </div>
       <div id="mail-mid" style="${D?'border-right:1px solid var(--brd);overflow-y:auto;padding:10px':''}">
         <div style="display:flex;gap:6px;margin-bottom:9px;align-items:center">
@@ -16401,9 +16647,21 @@ views.boiteMail=function(){
         <button class="btn" style="padding:12px 24px;font-weight:800" onclick="mailConnect()">🔗 Connecter ma boîte mail</button>
         <p style="color:var(--t3);font-size:11px;margin-top:12px">Boîte pro/OVH : mot de passe habituel · Gmail/Yahoo : mot de passe d'application (guidé)</p></div>`; }
   });
-  if(mailTab==='recu'&&_mailReplies===null){
+  /* ── LA RÉCEPTION NE TOURNE PLUS EN ROND ──────────────────────────────────────────────
+     loadMailReplies() laisse _mailReplies à null quand l'appel échoue. On redessinait alors
+     l'écran, qui retrouvait null, et relançait l'appel : mesuré, 317 requêtes en dix secondes
+     sur un 502, page figée, et le message « Réception indisponible » jamais affiché.
+     Un drapeau suffit — mais l'ORDRE compte : on redessine D'ABORD, on le baisse ENSUITE.
+     L'inverse rearme la garde avant le rendu et la boucle repart, identique (vérifié : 317
+     appels contre 316 sans garde). Le try/finally protège le cas où le rendu jette : sans lui,
+     le drapeau resterait levé et le bouton 🔄 ne retenterait plus rien de la session. */
+  if(mailTab==='recu'&&_mailReplies===null&&!_mailChargeEnCours){
+    _mailChargeEnCours=true;
     $('mail-list').innerHTML='<div style="text-align:center;color:var(--t3);padding:26px">Chargement…</div>';
-    loadMailReplies().then(()=>{ if(current==='boiteMail') views.boiteMail(); });
+    loadMailReplies().finally(()=>{
+      try{ if(current==='boiteMail') views.boiteMail(); }
+      finally{ _mailChargeEnCours=false; }
+    });
     return;
   }
   renderMailList(); renderMailPane();
@@ -22740,7 +22998,10 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
         var qui=esc(g[0].technicien||'Quelqu\'un');
         var pris=g.filter(function(x){ return x.type==='sortie'; });
         var mis=g.filter(function(x){ return x.type!=='sortie'; });
-        var dit=function(l){ return l.map(function(x){ return (x.qte||1)+' '+esc((produit(x.produitId)||{}).nom||'produit'); }); };
+        /* Signé, et les sorties d'abord — comme la notification poussée. Sans le signe,
+           « 2 Muskil, 1 Gants » se lit pareil qu'on les ait pris ou reposés. */
+        var dit=function(l){ return l.map(function(x){
+          return (x.type==='sortie'?'−':'+')+(x.qte||1)+' '+esc((produit(x.produitId)||{}).nom||'produit'); }); };
         var txt;
         if(g.length===1){
           txt='<b>'+qui+'</b> a '+(g[0].type==='sortie'?'pris':'ajouté')+' '+(g[0].qte||1)+' '+esc((produit(g[0].produitId)||{}).nom||'produit')+' dans <b>'+nomBox+'</b>';
@@ -22748,7 +23009,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
           var bouts=[];
           if(pris.length) bouts.push('<b>pris '+pris.length+' produit'+(pris.length>1?'s':'')+'</b>');
           if(mis.length) bouts.push('<b>ajouté '+mis.length+' produit'+(mis.length>1?'s':'')+'</b>');
-          var noms=dit(g).slice(0,3).join(', ')+(g.length>3?'…':'');
+          var noms=dit(pris.concat(mis)).slice(0,3).join(', ')+(g.length>3?'…':'');
           txt='<b>'+qui+'</b> a '+bouts.join(' et ')+' dans <b>'+nomBox+'</b> : '+noms;
         }
         /* Deux appels plutôt qu'un : ce qui est SORTI s'entoure de rouge, ce qui est ENTRÉ de
@@ -22767,12 +23028,16 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   // Essai gratuit (code promo) : rappel dans la cloche la dernière semaine
   if(currentUser.role==='admin'&&db.forfaitEssai&&!db.forfaitEssai.termine&&db.forfaitEssai.finLe){
     const rest=Math.ceil((new Date(db.forfaitEssai.finLe+'T00:00:00')-new Date(today+'T00:00:00'))/86400000);
-    if(rest>=0&&rest<=7){ const fEss=db.forfaitEssai.formule, cible=(fEss==='gratuit')?'pro':fEss;
-      out.push({id:'essai:'+db.forfaitEssai.finLe,ic:'🎁',txt:`Ton essai <b>${(PLANS[fEss]||{}).l||''}</b> se termine ${rest===0?"<b>aujourd'hui</b>":'dans <b>'+rest+' jour(s)</b>'} — aucune carte n'est enregistrée : pense à prendre l'abonnement pour continuer sans coupure.`,act:"window.open('https://teamop.fr/recap-abonnement.html?formule="+cible+"&utilisateurs='+db.users.length,'_blank')"}); } }
+    /* « formuleVisee » et non « cible » : dans CETTE fonction, cible est la fonction qui pose le
+       surlignage, appelée par presque tous les actes voisins. Une variable locale du même nom la
+       masquait dans ce bloc — inoffensif aujourd'hui, mais la prochaine notification ajoutée ici
+       serait tombée sur « cible is not a function », en silence, au clic seulement. */
+    if(rest>=0&&rest<=7){ const fEss=db.forfaitEssai.formule, formuleVisee=(fEss==='gratuit')?'pro':fEss;
+      out.push({id:'essai:'+db.forfaitEssai.finLe,ic:'🎁',txt:`Ton essai <b>${(PLANS[fEss]||{}).l||''}</b> se termine ${rest===0?"<b>aujourd'hui</b>":'dans <b>'+rest+' jour(s)</b>'} — aucune carte n'est enregistrée : pense à prendre l'abonnement pour continuer sans coupure.`,act:"window.open('https://teamop.fr/recap-abonnement.html?formule="+formuleVisee+"&utilisateurs='+db.users.length,'_blank')"}); } }
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
   { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
     (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
-      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?"go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);cible('pid','"+(m.lignes?m.lignes.map(function(l){return l.produitId;}):[m.produitId]).filter(Boolean).join(",")+"'"+(mvtRetrait(m)?",'retrait'":"")+")":"go('validations')"}); });
+      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);"+mvtMarqueActe(m)):"go('validations')"}); });
     if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&!notifMoi(d.drNom)&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
       out.push({id:'demv:'+d.id+':'+d.statut,ts:new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes');cible('dem','"+d.id+"')"}); });
   }

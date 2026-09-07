@@ -1,6 +1,72 @@
 # Point stable TeamOP
 
-**Version stable : v566** — gravée le 7 septembre 2026.
+**Version stable : v567** — gravée le 7 septembre 2026.
+
+v567 — une loupe dans le menu, un lot qui dit ce qu'il attend, et la connexion par nom.
+
+**Une loupe dans le menu.** Quarante rubriques en dix groupes : il fallait les parcourir des yeux
+sur ordinateur, les faire défiler sur téléphone. Un champ discret en tête filtre à la frappe,
+masque les titres de groupe devenus vides, et Entrée ouvre la première rubrique restante.
+Il ne fait que MASQUER des lignes existantes — les droits restent ceux du menu, rien n'apparaît
+qui n'y était pas : un compte restreint voit filtrer 27 rubriques là où l'administrateur en voit
+44. Mesuré : 0,4 ms de filtrage, casse et accents indifférents, sur quatre combinaisons
+largeur × thème.
+
+**Le lot de produits, jusqu'au bout.** Ajouter et déduire plusieurs produits d'un coup, une seule
+notification, tout en surbrillance au clic — la demande était déjà tenue pour l'essentiel. Trois
+choses ne l'étaient pas, et la mesure les a sorties :
+
+- *Un lot MIXTE était peint d'une seule couleur.* `mvtRetrait()` rendait un verdict unique pour
+  tout le mouvement : deux produits reposés et trois repris donnent un total négatif, donc les
+  cinq lignes partaient en rouge — faux pour les deux qui venaient d'être ajoutées.
+  `mvtLignesSignees()` sépare désormais par le signe, chaque type portant le sien, et la
+  notification fait deux appels au surlignage plutôt qu'un.
+- *La fiche de la box ne disait rien pendant l'attente.* Sous validation DR, le geste part mais
+  les quantités ne bougent pas, et rien ne l'expliquait — ce qui pousse à re-taper. Un bandeau
+  annonce « 5 produits en attente de validation DR » avec l'heure d'envoi, chaque ligne porte
+  « +2 u en attente » et un bouton « retirer », et le lot entier s'annule d'un bouton.
+- *Le téléphone du DR sonnait une fois par produit.* La cloche regroupait déjà par passage ; la
+  notification poussée, elle, se regroupait par produit. Cinq produits repris = cinq sonneries.
+  Elle regroupe maintenant par (box, personne) : un seul message, quantités signées, sorties
+  d'abord.
+
+Et le bon de remise ne se perd plus : la question « pour qui ? » se déclenchait sur le TOTAL du
+lot, donc jamais sur un lot au total positif contenant pourtant un retrait.
+
+**La connexion par nom d'entreprise.** L'écran disait « ton lien, OU le nom de l'entreprise »
+dans une seule case, pour deux comportements opposés — le lien connectait, le nom envoyait un
+e-mail. Deux champs nommés (Entreprise, Code d'accès) mènent maintenant à l'écran des
+identifiants ; le lien a sa ligne, le renvoi par e-mail la sienne.
+
+Le nom seul ne peut pas ouvrir un espace : le lien porte la CLÉ qui déchiffre les données, et un
+nom se lit sur un camion. D'où un code de dix caractères que le patron donne à ses équipes depuis
+la Tour et renouvelle quand il veut. **Quatre passages du gardien** ont été nécessaires, et
+chacun a trouvé quelque chose que le précédent n'avait pas vu :
+
+1. le code n'était jamais persisté — `espaceAJour()` rend une COPIE, pas l'objet du registre ;
+2. un code révoqué ressuscitait quand le patron rouvrait le panneau d'un autre nom du même
+   espace ; il vit désormais dans `acces.json`, indexé par l'identifiant d'ÉQUIPE ;
+3. trente requêtes à vide sur un nom public fermaient la porte à tous les salariés d'une
+   entreprise : le compteur ne compte plus que les échecs, et seulement après vérification ;
+4. `jsq()` n'échappait pas le guillemet double — un nom d'entreprise venu d'un formulaire PUBLIC
+   sortait de son attribut `onclick` et exécutait du script dans la console du patron, celle qui
+   porte le jeton d'administration de tous les espaces. Corrigé dans la fonction : 37 endroits
+   d'un coup ;
+5. trois routes publiques appelaient `espSlug` sur l'entrée brute — son `normalize('NFD')` sur
+   5 Mo gèle la boucle d'événements, donc TOUTE l'API : 426 ms par requête, trois IP suffisaient
+   à immobiliser la production.
+
+**`server/test-acces.js`** — 31 cas, sur une fixture qui porte un `t` et DEUX noms pour un seul
+espace : c'est l'absence de ces deux traits qui avait validé à tort une version cassée. Il
+démarre un serveur isolé dans un dossier temporaire et ne touche ni la production ni la
+configuration. `node server/test-acces.js`. Deux de ses assertions ne vérifiaient d'ailleurs
+rien au premier jet — l'une portait sur un champ que la fixture ne créait jamais, l'autre
+annonçait 6 Mo et en mesurait 0,2, sur le caractère le moins coûteux.
+
+**La colonne de la boîte mail.** « ＋ Connecter » était au milieu, flanqué d'un bouton réduit à
+une icône qui se rendait VIDE — un rectangle gris de 183 px, visible sur la capture. Les deux
+boutons descendent en pied de colonne avec un vrai libellé : un bouton réduit à une icône se rend
+vide dès que l'icône manque, un libellé jamais.
 
 v566 — un surlignage qui tient vraiment, et une couleur qui dit ce qui sort.
 
