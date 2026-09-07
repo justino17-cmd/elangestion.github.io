@@ -1621,6 +1621,60 @@ function espaceT(e) {
    (#e=nom) : un nom se devine, un code non. Le mot de passe provisoire n'y figure
    pas — codeMdpHache l'a remplacé par son empreinte. */
 function lienEspaceCode(e) { return 'https://teamop.fr/app.html#entreprise=' + codeMdpHache(e.code); }
+/* ══ OUVRIR SON ESPACE AVEC UN CODE D'ACCÈS ═══════════════════════════════════════════════
+   Taper le nom de l'entreprise ne peut pas suffire : le lien de connexion porte la CLÉ qui
+   déchiffre les données de l'espace (syncKey la dérive en PBKDF2), et un nom se lit sur un
+   camion, une facture, un devis. Mais l'aller-retour par e-mail était un cul-de-sac : une
+   entreprise dont la boîte n'est plus relevée ne pouvait plus entrer du tout.
+   D'où ce code : six caractères que le responsable donne à ses équipes, et qu'il renouvelle
+   quand il veut depuis la Tour. Le nom seul n'ouvre rien ; le nom AVEC le code rend le lien,
+   et l'application demande ensuite identifiant et mot de passe, comme avant.
+   L'alphabet écarte O/0 et I/1/L : ce code se dicte au téléphone, depuis un chantier. */
+const ACCES_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function accesNeuf() {
+  let c = '';
+  const buf = crypto.randomBytes(6);
+  for (let i = 0; i < 6; i++) c += ACCES_ALPHABET[buf[i] % ACCES_ALPHABET.length];
+  return c;
+}
+const accesNorm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const ouvrirQuota = new Map();
+app.post('/api/espaces/ouvrir', (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const donne = accesNorm((req.body || {}).acces);
+  if (!slug || !donne) return res.status(400).json({ error: 'Nom de l\'entreprise et code d\'accès requis' });
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?').split(',')[0].trim();
+  /* Deux compteurs, et le second est le vrai garde-fou : limiter par IP seule laisserait
+     essayer les 31^6 codes depuis un parc de machines. On borne aussi PAR ESPACE. */
+  if (!quotaOk(ouvrirQuota, 'ip:' + ip, 20, 3600000) || !quotaOk(ouvrirQuota, 'esp:' + slug, 12, 3600000))
+    /* Le compteur par espace peut aussi être épuisé par quelqu'un qui essaie au hasard sur le
+       nom d'une entreprise : c'est le prix à payer, et c'est pour cela que l'envoi du lien par
+       e-mail reste en place — il ne dépend pas de ce compteur. Le message le dit. */
+    return res.status(429).json({ error: 'Trop d\'essais sur cette entreprise — réessaie dans une heure, ou fais-toi renvoyer le lien par e-mail.' });
+  const e = espaceAJour(slug);
+  /* Une seule et même réponse quand ça ne marche pas, quelle qu'en soit la raison : sinon
+     l'écran dirait qui est client de TEAM OP et qui ne l'est pas. */
+  const refus = () => res.status(403).json({ error: 'Nom d\'entreprise ou code d\'accès incorrect.' });
+  if (!e || !e.code || !e.acces) return refus();
+  const attendu = Buffer.from(accesNorm(e.acces));
+  const recu = Buffer.from(donne);
+  // comparaison à durée constante : le temps de réponse ne doit pas trahir un préfixe correct
+  if (attendu.length !== recu.length || !crypto.timingSafeEqual(attendu, recu)) return refus();
+  console.log('espace ouvert par code :', slug, '· ip', ip);
+  res.json({ ok: true, code: codeMdpHache(e.code), nom: espNomPropre(e) || '' });
+});
+// le patron lit ou renouvelle le code d'accès d'un espace, depuis la Tour
+app.post('/api/monitor/espaces/acces', monPatronStrict, (req, res) => {
+  const slug = espSlug((req.body || {}).nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
+  if (!e.acces || (req.body || {}).regenerer) {
+    e.acces = accesNeuf(); e.accesTs = Date.now(); e.accesPar = req.tourUser.nom;
+    try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+    console.log('Tour :', req.tourUser.nom, ((req.body || {}).regenerer ? 'renouvelle' : 'crée'), 'le code d\'accès de', slug);
+  }
+  res.json({ ok: true, slug, acces: e.acces, ts: e.accesTs || 0, par: e.accesPar || '' });
+});
 app.post('/api/espaces/relance', (req, res) => {
   const slug = espSlug((req.body || {}).nom);
   if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
