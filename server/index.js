@@ -1431,12 +1431,13 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '564',
-  sujet: '📱 L\'application tient mieux dans l\'écran de votre téléphone',
-  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Deux corrections d\'affichage sur téléphone, invisibles quand tout va bien, gênantes quand ça n\'allait pas.',
+  version: '565',
+  sujet: '🔔 Une notification par passage, et tous les produits d\'un coup',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['📏 Plus rien ne passe sous la barre du navigateur', 'Sur iPhone et sur Android, la barre d\'adresse se rétracte quand on fait défiler. L\'application calculait ses hauteurs sans en tenir compte : le bas du menu, de l\'assistant ou du panneau de notifications pouvait se retrouver caché dessous. C\'est corrigé, et les téléphones plus anciens gardent l\'ancien calcul, qui leur convient.'],
-    ['🌓 La barre d\'état s\'accorde dès l\'ouverture', 'Elle suivait déjà votre thème, mais seulement une fois l\'application chargée : la toute première image restait sombre, même en mode jour. Elle est maintenant juste dès la première seconde.']
+    ['📦 Une seule notification par visite', 'Quand quelqu\'un reprend cinq produits dans une box, la cloche affichait cinq lignes — cinq fois le même nom, la même box. Elle en affiche maintenant <b>une seule</b> : « Sofia a pris 4 produits et ajouté 1 dans Box Nord », avec la liste. Le regroupement se fait par box, par personne et par demi-heure — le temps d\'une visite.'],
+    ['🎯 Tous les produits ressortent ensemble', 'En touchant cette notification, vous arrivez dans la box et <b>tous les produits concernés</b> s\'entourent d\'un anneau en même temps. Plus besoin de les chercher un par un.'],
+    ['🔎 Et partout ailleurs', 'Le même principe s\'applique maintenant à un arrivage (tous les produits reçus), à une box à réapprovisionner (tous ceux qui manquent), au stock bas, aux demandes et aux mouvements validés ou refusés par le DR.']
   ],
   fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };

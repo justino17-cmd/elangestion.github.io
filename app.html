@@ -4426,7 +4426,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '564';
+const APP_VERSION = '565';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -14770,7 +14770,7 @@ function renderStockList(){ const el=$('stock-list'); if(!el)return; let lines=s
   const grp={epuise:[],aCommander:[],enStock:[]};
   lines.forEach(l=>grp[boxEtat(l.eff).k].push(l));
   const ligne=l=>{ const e=boxEtat(l.eff);
-    return `<div class="pl-row" style="border-left:3px solid ${e.k!=='enStock'?e.c:'transparent'}">
+    return `<div class="pl-row" data-pid="${l.p.id}" style="border-left:3px solid ${e.k!=='enStock'?e.c:'transparent'}">
       <div class="pl-info"><div class="pl-title">${esc(l.p.nom)}</div>
         <div class="pl-meta">${l.p.ref?'<span class="mono">'+esc(l.p.ref)+'</span> · ':''}${esc(l.p.categorie||'')}</div>
         <div style="font-size:11px;color:var(--t3);margin-top:3px">${l.boxes.map(bx=>esc(bx.nom)+' : '+((bx.ctn||0)?bx.ctn+' ctn + ':'')+bx.u+' u').join(' · ')}</div></div>
@@ -16045,7 +16045,7 @@ views.enveloppes=function(){
   setHeader('Enveloppes','Encaissements clients',`<button class="btn" onclick="formEnv()">＋ Enveloppe</button>`);
   const list=[...db.enveloppes].sort((a,b)=>(b.dateCreation||'').localeCompare(a.dateCreation||''));
   const rows=list.map(e=>{ const n=envPaie(e).length;
-    return `<div class="pl-row" onclick="ficheEnv('${e.id}')" style="${e.actif===false?'opacity:.5':''}">
+    return `<div class="pl-row" data-env="${e.id}" onclick="ficheEnv('${e.id}')" style="${e.actif===false?'opacity:.5':''}">
       <span style="width:44px;height:44px;border-radius:11px;background:color-mix(in srgb,var(--org) 16%,transparent);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📮</span>
       <div class="pl-info"><div class="pl-title">${esc(e.clientNom)||esc(e.numero)||'Client'}${e.actif===false?' <span class="st st-red">Inactive</span>':''}</div>
         <div class="pl-meta mono" style="color:var(--org)">${esc(e.numero)}</div>
@@ -16153,7 +16153,7 @@ views.demandes=function(){
   setHeader('Mes demandes','Demandes de commande au Directeur Régional',`<button class="btn" onclick="formDemande()">＋ Demande</button>`);
   let list=visibleDemandes([...db.demandes]).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   list=visibleDemandes(list);   // les siennes (ou celles de ses box) — tout pour qui « voit tout » ou valide
-  const rows=list.map(d=>`<tr class="row-clk" onclick="ficheDemande('${d.id}')"><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(d.boxNom||boxLabel(d.boxId))}</td><td>${(d.lignes||[]).length} produit(s) · ${demTotal(d)} u.</td><td>${esc(d.chefNom||userName(d.chefId))}</td><td>${fmtShort(d.date)}</td><td>${badgeEtat(demandeEtat(d))}</td>
+  const rows=list.map(d=>`<tr class="row-clk" data-dem="${d.id}" onclick="ficheDemande('${d.id}')"><td class="strong mono">${esc(d.num)}</td><td class="strong">${esc(d.boxNom||boxLabel(d.boxId))}</td><td>${(d.lignes||[]).length} produit(s) · ${demTotal(d)} u.</td><td>${esc(d.chefNom||userName(d.chefId))}</td><td>${fmtShort(d.date)}</td><td>${badgeEtat(demandeEtat(d))}</td>
     <td style="text-align:right" onclick="event.stopPropagation()">${((d.statut==='enAttente'&&d.chefId===currentUser.id)||currentUser.role==='admin')?`<button class="btn danger sm" onclick="delItem('demandes','${d.id}')">🗑</button>`:'—'}</td></tr>`).join('');
   $('content').innerHTML=list.length? tableCard(['N°','Box','Produits','Demandeur','Date','Statut',''],rows):`<div class="card">${emptyState('✈️','Aucune demande.','Nouvelle','formDemande()')}</div>`;
 };
@@ -22177,7 +22177,7 @@ views.histoDemandes=function(){
   let list=visibleDemandes([...db.demandes]).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   if(hdFilter!=='all') list=list.filter(d=>d.statut===hdFilter);
   const chips=['all','enAttente','valide','refuse']; const lbl={all:'Toutes',enAttente:'En attente',valide:'Validées',refuse:'Refusées'};
-  const rows=list.map(d=>`<div class="pl-row" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))}</div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${(d.lignes||[]).length} produit(s) · ${fmtShort(d.date)}</div></div>${badge(STATV,d.statut)}</div>`).join('');
+  const rows=list.map(d=>`<div class="pl-row" data-dem="${d.id}" onclick="ficheDemande('${d.id}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))}</div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${(d.lignes||[]).length} produit(s) · ${fmtShort(d.date)}</div></div>${badge(STATV,d.statut)}</div>`).join('');
   $('content').innerHTML=`<div class="filters">${chips.map(c=>`<div class="chip ${hdFilter===c?'active':''}" onclick="hdFilter='${c}';views.histoDemandes()">${lbl[c]}</div>`).join('')}</div>
     ${list.length? rows:`<div class="card">${emptyState('🗂️','Aucune demande.','','')}</div>`}`;
 };
@@ -22602,8 +22602,8 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   const vBox=notifVoitModule('boxes'), vStock=notifVoitModule('stock')||notifVoitModule('produits');
   if(vBox){ const recent=Date.now()-3*86400000;
     db.boxes.filter(notifBoxConcerne).forEach(b=>(b.arrivages||[]).filter(a=>(a.ts||0)>=recent&&!notifMoi(a.par)).forEach(a=>{ const tot=(a.lignes||[]).reduce((t,l)=>t+(l.qte||0),0);
-      out.push({id:'arr:'+a.id,ts:a.ts||0,ic:'📦',txt:`<b>Arrivage box</b> — ${esc(b.nom||b.numero||'Box')} par <b>${esc(a.par||'')}</b> : ${tot} produit(s) (${esc(a.fournisseur||'')})`,act:"openBox('"+b.id+"')"}); })); }
-  if(vStock) db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).forEach(p=>out.push({id:'stock:'+p.id,ic:'📦',txt:`Stock bas : <b>${esc(p.nom)}</b> (${p.qte}/${p.seuil})`,act:"go('stock')"}));
+      out.push({id:'arr:'+a.id,ts:a.ts||0,ic:'📦',txt:`<b>Arrivage box</b> — ${esc(b.nom||b.numero||'Box')} par <b>${esc(a.par||'')}</b> : ${tot} produit(s) (${esc(a.fournisseur||'')})`,act:"openBox('"+b.id+"');cible('pid','"+(a.lignes||[]).map(function(l){return l.produitId;}).filter(Boolean).join(",")+"')"}); })); }
+  if(vStock) db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).forEach(p=>out.push({id:'stock:'+p.id,ic:'📦',txt:`Stock bas : <b>${esc(p.nom)}</b> (${p.qte}/${p.seuil})`,act:"go('stock');cible('pid','"+p.id+"')"}));
   const estDir=!!(currentUser && (currentUser.role==='admin'||currentUser.role==='dr'));
   if(estDir || can('validerDR')){
     // Produits de box bientôt épuisés / épuisés → alerte au DR (regroupée par box)
@@ -22611,7 +22611,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
       const lows=Object.keys(st).map(pid=>({pid,p:produit(pid),u:(st[pid]||{}).u||0})).filter(x=>x.p&&x.p.id&&x.u<=2);
       if(!lows.length) return; const nEp=lows.filter(x=>x.u<=0).length;
       const names=lows.slice(0,3).map(x=>esc(x.p.nom)+(x.u<=0?' <b>épuisé</b>':' ('+x.u+' u)')).join(', ')+(lows.length>3?'…':'');
-      out.push({id:'boxlow:'+b.id+':'+lows.map(x=>x.pid+'.'+x.u).join('|'),ic:nEp?'🟥':'🟠',txt:`Box <b>${esc(b.nom||b.numero||'')}</b> — ${lows.length} produit(s) à réapprovisionner${nEp?` dont <b>${nEp} épuisé(s)</b>`:''} : ${names}`,act:"openBox('"+b.id+"')"});
+      out.push({id:'boxlow:'+b.id+':'+lows.map(x=>x.pid+'.'+x.u).join('|'),ic:nEp?'🟥':'🟠',txt:`Box <b>${esc(b.nom||b.numero||'')}</b> — ${lows.length} produit(s) à réapprovisionner${nEp?` dont <b>${nEp} épuisé(s)</b>`:''} : ${names}`,act:"openBox('"+b.id+"');cible('pid','"+lows.map(function(x){return x.pid;}).join(",")+"')"});
     });
     if(can('validerDR') && notifVoitModule('validations')){   // toute personne qui a le droit de valider (DR, admin, ou droit accordé)
       db.demandes.filter(d=>d.statut==='enAttente').forEach(d=>out.push({id:'dem:'+d.id,ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>${(d.chefNom||d.chefId)?' · '+esc(d.chefNom||userName(d.chefId)):''}`,act:"go('validations');cible('dem','"+d.id+"')"}));
@@ -22619,7 +22619,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
       (db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente'&&!m.bcId&&!notifMoi(m.par)).forEach(m=>{   // tout ce qui attend SA validation, quelle que soit la box (les réceptions de bons sont portées par « bonarr » ci-dessous)
         out.push({id:'mvatt:'+m.id,ts:m.ts||0,ic:'🔒',txt:`<b>À valider</b> — ${esc(boxMvtLibelle(m))} · par <b>${esc(m.par||'')}</b>`,act:"go('validations');cible('mvt','"+m.id+"')"}); });
     }
-    if(estDir && notifVoitModule('enveloppes')) db.enveloppes.filter(e=>(e.paiements||[]).some(p=>p.statut==='attente')).forEach(e=>out.push({id:'env:'+e.id,ic:'📮',txt:`Enveloppe avec paiement en attente : <b>${esc(e.numero)}</b>`,act:"go('enveloppes')"}));
+    if(estDir && notifVoitModule('enveloppes')) db.enveloppes.filter(e=>(e.paiements||[]).some(p=>p.statut==='attente')).forEach(e=>out.push({id:'env:'+e.id,ic:'📮',txt:`Enveloppe avec paiement en attente : <b>${esc(e.numero)}</b>`,act:"go('enveloppes');cible('env','"+e.id+"')"}));
     if(estDir && notifVoitModule('interventions')) db.interventions.filter(i=>i.date>=today&&i.statut!=='terminee'&&i.statut!=='annulee').forEach(i=>{ const k=keyForClient(i.clientId); if(k&&!techForKey(k)) out.push({id:'sect:'+i.id,ic:'🗺️',txt:`Secteur non couvert : <b>${esc(i.titre)}</b> (${esc(keyLabel(k))})`,act:"detailIntervention('"+i.id+"')"}); });
   }
   if(notifVoitModule('interventions')||notifVoitModule('planning')) visibleInts(db.interventions).filter(i=>i.date===today&&i.statut!=='terminee'&&i.statut!=='annulee').forEach(i=>out.push({id:'today:'+i.id,ic:'🧰',txt:`Aujourd'hui : <b>${esc(i.titre)}</b> à ${i.heure}`,act:"detailIntervention('"+i.id+"')"}));
@@ -22646,8 +22646,46 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   // Matériel pris OU ajouté dans une box → notification (PAS de validation) pour DR / Admin / Chef d'équipe — seulement leurs box
   if(vBox && currentUser && ['admin','dr','chefEquipe'].includes(currentUser.role)){
     const recent=Date.now()-3*86400000;
-    (db.mouvements||[]).filter(m=>m.boxId&&m.ts>=recent&&(m.type==='sortie'||(m.type==='entree'&&!/^Arrivage/.test(m.motif||'')))&&!notifMoi(m.technicien)&&notifBoxConcerne((db.boxes||[]).find(b=>b.id===m.boxId))).forEach(m=>{ const p=produit(m.produitId); const bx=(db.boxes||[]).find(b=>b.id===m.boxId);
-      out.push({id:'boxmv:'+m.id,ts:m.ts||0,ic:m.type==='sortie'?'📤':'📥',txt:`<b>${esc(m.technicien||'Quelqu\'un')}</b> a ${m.type==='sortie'?'pris':'ajouté'} ${m.qte||1} ${esc(p.nom||'produit')} dans <b>${esc(bx?(bx.nom||bx.numero||'une box'):'une box')}</b>`,act:bx?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);cible('pid','"+m.produitId+"')"):"go('mouvements')"}); });
+    /* UNE notification par PASSAGE, et non par produit. Une personne qui vide sa box en
+       reprend cinq ou six d'affilée : ca faisait six lignes dans la cloche pour un seul
+       geste, six fois le meme nom et la meme box. On regroupe par box, par personne et par
+       tranche de 30 minutes — le temps d'une visite — et la notification porte TOUS les
+       produits. Au clic, ils ressortent tous ensemble dans la fiche de la box.
+       L'identifiant est bati sur les identifiants des mouvements TRIES : il reste le meme
+       tant que le groupe ne change pas, donc « lu » reste lu. Un mouvement de plus dans la
+       demi-heure fait un nouveau groupe, donc une notification qui redevient non lue — c'est
+       voulu : il s'est passe quelque chose de nouveau. */
+    (function(){
+      var brut=(db.mouvements||[]).filter(m=>m.boxId&&m.ts>=recent&&(m.type==='sortie'||(m.type==='entree'&&!/^Arrivage/.test(m.motif||'')))&&!notifMoi(m.technicien)&&notifBoxConcerne((db.boxes||[]).find(b=>b.id===m.boxId)));
+      var lots={};
+      brut.forEach(function(m){
+        var cle=m.boxId+'|'+(m.technicien||'')+'|'+Math.floor((m.ts||0)/1800000);
+        (lots[cle]=lots[cle]||[]).push(m);
+      });
+      Object.keys(lots).forEach(function(cle){
+        var g=lots[cle].slice().sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+        var bx=(db.boxes||[]).find(function(b){ return b.id===g[0].boxId; });
+        var nomBox=esc(bx?(bx.nom||bx.numero||'une box'):'une box');
+        var qui=esc(g[0].technicien||'Quelqu\'un');
+        var pris=g.filter(function(x){ return x.type==='sortie'; });
+        var mis=g.filter(function(x){ return x.type!=='sortie'; });
+        var dit=function(l){ return l.map(function(x){ return (x.qte||1)+' '+esc((produit(x.produitId)||{}).nom||'produit'); }); };
+        var txt;
+        if(g.length===1){
+          txt='<b>'+qui+'</b> a '+(g[0].type==='sortie'?'pris':'ajouté')+' '+(g[0].qte||1)+' '+esc((produit(g[0].produitId)||{}).nom||'produit')+' dans <b>'+nomBox+'</b>';
+        } else {
+          var bouts=[];
+          if(pris.length) bouts.push('<b>pris '+pris.length+' produit'+(pris.length>1?'s':'')+'</b>');
+          if(mis.length) bouts.push('<b>ajouté '+mis.length+' produit'+(mis.length>1?'s':'')+'</b>');
+          var noms=dit(g).slice(0,3).join(', ')+(g.length>3?'…':'');
+          txt='<b>'+qui+'</b> a '+bouts.join(' et ')+' dans <b>'+nomBox+'</b> : '+noms;
+        }
+        var ids=g.map(function(x){ return x.produitId; }).filter(Boolean);
+        out.push({id:'boxmv:'+g.map(function(x){ return x.id; }).sort().join('.'),ts:g[0].ts||0,
+          ic:(!mis.length?'📤':(!pris.length?'📥':'🔁')),txt:txt,
+          act:bx?("go('boxes');setTimeout(()=>openBox('"+g[0].boxId+"'),120);cible('pid','"+ids.join(',')+"')"):"go('mouvements')"});
+      });
+    })();
   }
   // Essai gratuit (code promo) : rappel dans la cloche la dernière semaine
   if(currentUser.role==='admin'&&db.forfaitEssai&&!db.forfaitEssai.termine&&db.forfaitEssai.finLe){
@@ -22657,14 +22695,14 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
   { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
     (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
-      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?"go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120)":"go('validations')"}); });
+      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?"go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);cible('pid','"+(m.lignes?m.lignes.map(function(l){return l.produitId;}):[m.produitId]).filter(Boolean).join(",")+"')":"go('validations')"}); });
     if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&!notifMoi(d.drNom)&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
-      out.push({id:'demv:'+d.id+':'+d.statut,ts:new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes')"}); });
+      out.push({id:'demv:'+d.id+':'+d.statut,ts:new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes');cible('dem','"+d.id+"')"}); });
   }
   // Bons réceptionnés en attente de la validation du DR (admin / DR, sur les box qu'ils voient)
   if(can('validerDR')&&(notifVoitModule('commandes')||notifVoitModule('validations'))){
     (db.bons||[]).filter(b=>b.statut==='arrivageNote'&&bonAttenteDR(b)&&!notifMoi(b.recuPar)).forEach(b=>{ const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;
-      out.push({id:'bonarr:'+b.id,ic:'📥',txt:`Bon <b>${esc(bonNum(b))}</b> réceptionné${b.recuPar?' par <b>'+esc(b.recuPar)+'</b>':''} — <b>en attente de ta validation</b>${bx?' · '+esc(bx.nom||bx.numero||''):''}`,act:"go('validations')"}); });
+      out.push({id:'bonarr:'+b.id,ic:'📥',txt:`Bon <b>${esc(bonNum(b))}</b> réceptionné${b.recuPar?' par <b>'+esc(b.recuPar)+'</b>':''} — <b>en attente de ta validation</b>${bx?' · '+esc(bx.nom||bx.numero||''):''}`,act:"go('validations');cible('mvt','"+(((db.boxMvtAttente||[]).find(function(x){return x.bcId===b.id&&x.statut==='enAttente';})||{}).id||"")+"')"}); });
   }
   // élague les éléments « vus » qui n'existent plus
   const ids=new Set(out.map(n=>n.id)); let ch=false; for(const id of [...notifSeen.keys()]) if(!ids.has(id)){ notifSeen.delete(id); ch=true; } if(ch) saveNotifSeen();
@@ -22684,21 +22722,31 @@ function notifSee(id){ notifSeen.set(id,Date.now()); saveNotifSeen(); updateBell
    temps (go(), puis openBox(), puis la liste des produits), et un simple setTimeout arrivait
    parfois trop tôt, parfois trop tard. Au bout de 3 secondes on abandonne en silence — la
    navigation a de toute façon eu lieu, on ne bloque personne pour un surlignage. */
-function cible(type,id){
-  /* type + identifiant plutôt qu'un sélecteur tout fait : ces appels vivent dans des chaînes
-     que l'application évalue, et un sélecteur y demandait trois niveaux d'échappement — la
-     première version était illisible et, surtout, fausse : le nom du produit n'était pas
-     interpolé et arrivait tel quel. Deux arguments simples, plus une quote à échapper. */
-  var sel='[data-'+type+'="'+String(id).replace(/"/g,'')+'"]';
+function cible(type,ids){
+  /* type + identifiant(s) plutôt qu'un sélecteur tout fait : ces appels vivent dans des
+     chaînes que l'application évalue, et un sélecteur y demandait trois niveaux
+     d'échappement — la première version était illisible et, surtout, fausse.
+
+     PLUSIEURS identifiants, séparés par des virgules : un arrivage apporte dix produits d'un
+     coup, une box en signale six à réapprovisionner. Les surligner un par un aurait obligé à
+     rouvrir la notification dix fois. On les marque TOUS et on amène le PREMIER à l'écran —
+     les autres sont juste au-dessus ou en dessous, dans la même liste.
+
+     On attend l'élément au lieu de le supposer présent : l'écran se redessine en plusieurs
+     temps. Au bout de 3 secondes on abandonne en silence — la navigation a eu lieu de toute
+     façon, on ne bloque personne pour un surlignage. */
+  var liste=String(ids).split(',').map(function(x){ return x.trim().replace(/"/g,''); }).filter(Boolean);
+  if(!liste.length) return;
   var fin=Date.now()+3000;
   (function cherche(){
-    var el=null; try{ el=document.querySelector(sel); }catch(e){ return; }
-    if(!el){ if(Date.now()<fin) setTimeout(cherche,120); return; }
+    var els=[];
+    try{ liste.forEach(function(id){ var e=document.querySelector('[data-'+type+'="'+id+'"]'); if(e) els.push(e); }); }catch(e){ return; }
+    if(!els.length){ if(Date.now()<fin) setTimeout(cherche,120); return; }
     try{
       var sobre=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
-      el.scrollIntoView({block:'center',behavior:sobre?'auto':'smooth'});
-      el.classList.add('cible-vue');
-      setTimeout(function(){ el.classList.remove('cible-vue'); },2600);
+      els[0].scrollIntoView({block:'center',behavior:sobre?'auto':'smooth'});
+      els.forEach(function(e){ e.classList.add('cible-vue'); });
+      setTimeout(function(){ els.forEach(function(e){ e.classList.remove('cible-vue'); }); },2600);
     }catch(e){}
   })();
 }
