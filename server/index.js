@@ -1431,13 +1431,13 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '565',
-  sujet: '🔔 Une notification par passage, et tous les produits d\'un coup',
+  version: '566',
+  sujet: '🎯 Le surlignage tient enfin, et il a une couleur',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['📦 Une seule notification par visite', 'Quand quelqu\'un reprend cinq produits dans une box, la cloche affichait cinq lignes — cinq fois le même nom, la même box. Elle en affiche maintenant <b>une seule</b> : « Sofia a pris 4 produits et ajouté 1 dans Box Nord », avec la liste. Le regroupement se fait par box, par personne et par demi-heure — le temps d\'une visite.'],
-    ['🎯 Tous les produits ressortent ensemble', 'En touchant cette notification, vous arrivez dans la box et <b>tous les produits concernés</b> s\'entourent d\'un anneau en même temps. Plus besoin de les chercher un par un.'],
-    ['🔎 Et partout ailleurs', 'Le même principe s\'applique maintenant à un arrivage (tous les produits reçus), à une box à réapprovisionner (tous ceux qui manquent), au stock bas, aux demandes et aux mouvements validés ou refusés par le DR.']
+    ['🎯 Le surlignage ne disparaît plus', 'En touchant une notification, la ligne concernée s\'entourait d\'un anneau — qui s\'effaçait dès que l\'écran se redessinait, c\'est-à-dire presque à chaque fois sur un ordinateur relié à la synchronisation. C\'est corrigé : l\'anneau tient le temps qu\'il faut, sur téléphone comme sur ordinateur, et il respire pour attraper l\'œil.'],
+    ['🔴 Rouge pour ce qui sort, vert pour ce qui entre', 'Sur un passage où quelqu\'un a repris deux produits et en a reposé un, les produits <b>retirés</b> s\'entourent de rouge et ceux qui sont revenus de vert. La couleur dit lequel est lequel sans rien relire.'],
+    ['\u2709\uFE0F Un bon de commande sans e-mail fournisseur', 'L\'application vous renvoyait vers la fiche du fournisseur : il fallait quitter le bon, ouvrir un autre écran, revenir. Elle vous demande maintenant l\'adresse <b>sur place</b>, propose de l\'enregistrer pour les prochains bons, et vous emmène droit à l\'aperçu du mail avec le PDF de la commande en pièce jointe.']
   ],
   fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };
