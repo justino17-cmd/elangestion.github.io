@@ -17,7 +17,9 @@ permissions:
 jobs:
   verifier:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 10 et non 5 : la suite de connexion attend une minute pleine pour laisser retomber le
+    # plafond anti-abus par minute — c'est le prix de l'éprouver sur le vrai serveur.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,6 +50,22 @@ jobs:
 
       - name: Le Devis IA ne fait pas sortir le client
         run: node scripts/verifier-devis-gemini.js
+
+      # Le 7 septembre 2026, le nom du plus gros client — « elan » — est tombé sur le fichier
+      # elan.html du site : GitHub Pages sert le fichier avant que l'aiguillage n'existe, et
+      # l'entreprise arrivait sur une page commerciale au lieu de sa connexion. Ce contrôle
+      # exécute le vrai script de 404.html et NOMME les noms que la forme courte ne peut pas
+      # servir — pour qu'ajouter une page au site ne recrée jamais la panne en silence.
+      - name: L'adresse d'une entreprise mène bien à sa connexion
+        run: node scripts/verifier-adresses.js
+
+      # La porte la plus sensible du serveur : elle rend la clé des données d'une entreprise
+      # contre un identifiant et un mot de passe. Les deux suites démarrent un serveur isolé.
+      - name: La connexion par identifiant tient
+        run: node server/test-connexion.js
+
+      - name: Le code d'accès tient
+        run: node server/test-acces.js
 
       # beta.html est GÉNÉRÉE depuis app.html par beta-build.js. Si quelqu'un modifie beta.html
       # à la main, ou oublie de la régénérer, la bêta et la production divergent en silence.

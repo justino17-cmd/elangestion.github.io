@@ -1483,7 +1483,7 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '569',
+  version: '570',
   sujet: '🔗 Votre entreprise a maintenant son adresse',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
@@ -1543,7 +1543,7 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
      chacun y tape son identifiant et son mot de passe, sur n'importe quel téléphone. L'e-mail
      doit dire les deux, sinon le client garde le lien comme un trésor et rappelle dès qu'il
      le perd — c'est exactement ce qu'on vient de corriger. */
-  const adresse = 'teamop.fr/' + (e.slug || slug);
+  const adresse = 'teamop.fr/e/' + (e.slug || slug);
   const co = (a && m)
     ? '• Identifiant : ' + a + ' (votre prénom)\n• Mot de passe provisoire : ' + m + ' (votre nom + « !! »)\nÀ votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.\n'
     : 'Connectez-vous avec vos identifiants habituels.\n';
@@ -2140,7 +2140,7 @@ app.post('/api/monitor/espaces/renommer', monPatronStrict, (req, res) => {
     return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' });
   }
   console.log('Tour :', req.tourUser.nom, 'renomme l\'espace', t, '→', neufSlug, '(' + anciens.length + ' ancien(s) nom(s) retiré(s))');
-  res.json({ ok: true, slug: neufSlug, nom, anciens: anciens.length, adresse: 'https://teamop.fr/' + neufSlug, lien: lienEspaceCode(copie) });
+  res.json({ ok: true, slug: neufSlug, nom, anciens: anciens.length, adresse: 'https://teamop.fr/e/' + neufSlug, lien: lienEspaceCode(copie) });
 });
 /* ══ SUSPENDRE OU ROUVRIR UN ACCÈS, DEPUIS LA TOUR ══════════════════════════════════════════
    Couper un accès sans rien effacer. C'est le pendant de « Couper » sur un accès bêta, et la
