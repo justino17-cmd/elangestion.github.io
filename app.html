@@ -15527,6 +15527,54 @@ function savePassage(ev,boxId){ ev.preventDefault(); const b=db.boxes.find(x=>x.
   passPhoto=''; logEvent('Relevé de passage',`${b.nom||b.numero} — ${(APPAT_ETATS[d.etat]||{}).l||''}`,'intervention'); save(); closeModal(); renderBoxDetail(); toast('Relevé enregistré'+(dd?' · prochaine visite mise à jour':''));
 }
 function delPassage(boxId,pid){ const b=db.boxes.find(x=>x.id===boxId); if(!b)return; if(!confirm('Supprimer ce relevé de passage ?')) return; b.passages=(b.passages||[]).filter(p=>p.id!==pid); logEvent('Relevé de passage supprimé',b.nom||b.numero||'','intervention'); save(); renderBoxDetail(); toast('Relevé supprimé'); }
+/* ── CE QUI ATTEND LE DR, VISIBLE SUR LA FICHE ───────────────────────────────────────────
+   Mesuré : quelqu'un qui ajuste cinq produits sous validation DR voyait les chiffres ne PAS
+   bouger et rien ne le lui disait. Le geste a bien été enregistré — il attend un accord — mais
+   la fiche restait muette, ce qui donne exactement l'impression que ça n'a pas marché, et
+   pousse à re-taper. On montre donc le lot : un bandeau en tête, et sur chaque ligne ce qui
+   est demandé pour elle. */
+function boxLotEnAttente(boxId){
+  var moi=currentUser&&currentUser.id;
+  return (db.boxMvtAttente||[]).find(function(x){
+    return x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===boxId&&x.parId===moi; })||null;
+}
+function boxLotLigne(lot,pid){
+  if(!lot) return null;
+  return (lot.lignes||[]).find(function(l){ return l.produitId===pid; })||null;
+}
+/* Annuler tout le lot : le geste n'est pas encore appliqué, il n'y a donc rien à défaire dans
+   le stock — on retire la demande, et le DR ne la verra jamais. */
+function boxLotAnnuler(boxId){
+  var lot=boxLotEnAttente(boxId); if(!lot) return;
+  var n=(lot.lignes||[]).length;
+  if(!confirm('Annuler la demande en attente ?\n\n'+n+' produit(s) ne partiront pas au DR. Le stock n\'a pas encore bougé, rien ne sera défait.')) return;
+  db.boxMvtAttente=(db.boxMvtAttente||[]).filter(function(x){ return x!==lot; });
+  logEvent('Demande de mouvement annulée',boxMvtLibelle(lot),'stock');
+  save(); toast('Demande annulée'); renderBoxProdList();
+}
+/* Annuler une seule ligne : on remet cette ligne à zéro par le chemin normal, pour que le lot
+   se vide et disparaisse tout seul s'il ne reste rien — la logique existe déjà dans boxAdj. */
+function boxLotLigneAnnuler(boxId,pid){
+  var lot=boxLotEnAttente(boxId); var li=boxLotLigne(lot,pid); if(!li) return;
+  lot.lignes=(lot.lignes||[]).filter(function(l){ return l!==li; });
+  if(!lot.lignes.length){ db.boxMvtAttente=(db.boxMvtAttente||[]).filter(function(x){ return x!==lot; });
+    logEvent('Demande de mouvement annulée',boxMvtLibelle(lot),'stock'); }
+  save(); toast('Ligne retirée de la demande'); renderBoxProdList();
+}
+function boxLotBandeau(boxId){
+  var lot=boxLotEnAttente(boxId); if(!lot||!(lot.lignes||[]).length) return '';
+  var n=lot.lignes.length;
+  var d=new Date(lot.ts||Date.now());
+  var heure=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  return `<div style="display:flex;gap:11px;align-items:flex-start;padding:12px 14px;margin-bottom:10px;border-radius:12px;background:color-mix(in srgb,var(--org,#e8a33d) 12%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 34%,transparent)">
+    <span style="font-size:17px;flex-shrink:0;line-height:1.3">🔒</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13.5px;font-weight:800;color:var(--t1)">${n} produit${n>1?'s':''} en attente de validation DR</div>
+      <div style="font-size:12px;color:var(--t2);line-height:1.55;margin-top:2px">Envoyé à ${heure}. Les quantités ci-dessous ne bougeront qu'après l'accord du DR — inutile de re-taper.</div>
+    </div>
+    <button class="btn ghost sm" style="flex-shrink:0" onclick="event.stopPropagation();boxLotAnnuler('${boxId}')">Annuler</button>
+  </div>`;
+}
 function renderBoxProdList(){
   const el=$('boxprod-list'); if(!el) return; const b=db.boxes.find(x=>x.id===boxView); if(!b) return; b.stock=b.stock||{};
   const q=norm(boxProdSearch);
@@ -15539,15 +15587,22 @@ function renderBoxProdList(){
     const ea=boxEtat(a.s.u),eb=boxEtat(b2.s.u); if(ord[ea.k]!==ord[eb.k]) return ord[ea.k]-ord[eb.k];
     if(qa!==qb) return qb-qa; return (a.p.nom||'').localeCompare(b2.p.nom||''); });
   if(!entries.length){ el.innerHTML=`<div style="color:var(--t3);font-size:13px;padding:18px;text-align:center">${boxProdSearch?'Aucun résultat.':'Aucun produit dans cette box. Touche ＋ Ajouter.'}</div>`; return; }
-  el.innerHTML=entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
+  const lotAtt=boxLotEnAttente(b.id);
+  el.innerHTML=boxLotBandeau(b.id)+entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
+    const li=boxLotLigne(lotAtt,pid);
+    /* Court, et sur UNE ligne : le bandeau au-dessus dit déjà « en attente de validation DR »,
+       la ligne n'a plus qu'à dire combien. Vrai signe moins (−), comme le bouton de la fiche. */
+    const sgn=(n,u)=>(n>0?'+':'−')+Math.abs(n)+' '+u;
+    const dem=li?((li.du?sgn(li.du,'u'):'')+(li.du&&li.dc?' · ':'')+(li.dc?sgn(li.dc,'ctn'):'')):'';
     const fours=(p.fournisseurs||[]).map(fourBadge).join(' ');
-    return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${low?e.c:'transparent'};border-radius:12px;margin-bottom:8px;overflow:hidden">
+    return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${li?'var(--org,#e8a33d)':(low?e.c:'transparent')};border-radius:12px;margin-bottom:8px;overflow:hidden">
       <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="editBoxQte('${pid}')">
         <div style="flex:1;min-width:0">
           <div style="font-size:15px;font-weight:800;color:var(--t1)">${esc(p.nom)}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:13px;font-weight:600;color:${e.c}"><span style="width:8px;height:8px;border-radius:50%;background:${e.c};flex-shrink:0"></span>${e.l}</div>
           ${p.categorie?`<div style="font-size:12px;color:var(--t3);margin-top:3px">${esc(p.categorie)}</div>`:''}
           ${(s.ctn||0)?`<div style="font-size:11.5px;color:var(--blue);margin-top:3px">${s.ctn} carton${s.ctn>1?'s':''} en réserve</div>`:''}
+          ${li?`<div style="display:flex;align-items:center;gap:7px;margin-top:5px;font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);white-space:nowrap"><span>🔒 ${esc(dem)} en attente</span><button class="btn ghost sm" style="padding:1px 8px;font-size:10.5px;min-height:0;line-height:1.6" onclick="event.stopPropagation();boxLotLigneAnnuler('${b.id}','${pid}')">retirer</button></div>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
           <button class="btn ghost sm" style="width:38px;height:38px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:11px" onclick="boxAdj('${pid}','u',-1)">−</button>
@@ -15602,16 +15657,39 @@ function validDRTousSet(on){
     on?'toute sortie de stock passe désormais par le DR':'la validation redevient réglable fiche par fiche','stock');
   save(); toast(on?'✔ Toute sortie de stock passe par le DR':'Validation DR réglée fiche par fiche');
   if(current==='parametres') views.parametres(); }
-/* Ce mouvement SORT-il de la matière de la box ? Sert à choisir la couleur du surlignage :
-   rouge pour ce qui part, vert pour ce qui arrive. Un ajustement porte des quantités signées
-   (du = unités, dc = cartons), un lot en porte plusieurs — on regarde le total. */
+/* ── LES LIGNES D'UN MOUVEMENT, SÉPARÉES PAR LEUR SIGNE ──────────────────────────────────
+   Un lot MÊLE : on repose deux produits et on en reprend trois, en un seul geste. Mesuré :
+   avec un seul verdict pour tout le lot, les cinq lignes partaient en rouge — faux pour les
+   deux qui venaient d'être AJOUTÉES. On sépare donc produit par produit.
+   Chaque type porte son signe autrement : un arrivage n'apporte que du stock (qte positive),
+   un retrait vide la ligne, un ajustement porte des quantités signées (du = unités,
+   dc = cartons). */
+function mvtLignesSignees(m){
+  var pris=[], mis=[];
+  if(!m) return {pris:pris,mis:mis};
+  var lg=m.lignes||[{produitId:m.produitId,du:m.du,dc:m.dc,qte:m.qte}];
+  lg.forEach(function(l){
+    if(!l.produitId) return;
+    if(m.type==='retrait'){ pris.push(l.produitId); return; }
+    if(m.type==='arrivage'){ mis.push(l.produitId); return; }
+    var d=(+l.du||0)+(+l.dc||0);
+    if(d<0) pris.push(l.produitId); else if(d>0) mis.push(l.produitId);
+  });
+  return {pris:pris,mis:mis};
+}
+/* L'acte de surlignage d'un mouvement : deux appels plutôt qu'un, pour que chaque produit
+   porte SA couleur. Sert dans les chaînes que la cloche évalue au clic. */
+function mvtMarqueActe(m){
+  var g=mvtLignesSignees(m);
+  return (g.pris.length?"cible('pid','"+g.pris.join(',')+"','retrait');":"")
+       + (g.mis.length?"cible('pid','"+g.mis.join(',')+"');":"");
+}
+/* Ce mouvement ne fait-il QUE sortir de la matière ? Sert à colorer une LIGNE UNIQUE — celle
+   d'une demande dans Validations, qui représente le geste entier. Un lot mixte n'est pas un
+   retrait : il n'est ni rouge ni vert, on le laisse neutre plutôt que de mentir sur la moitié. */
 function mvtRetrait(m){
-  if(!m) return false;
-  if(m.type==='retrait') return true;
-  if(m.type==='arrivage') return false;
-  var l=m.lignes||[{du:m.du,dc:m.dc}];
-  var t=l.reduce(function(s,x){ return s+(+x.du||0)+(+x.dc||0); },0);
-  return t<0;
+  var g=mvtLignesSignees(m);
+  return g.pris.length>0 && g.mis.length===0;
 }
 function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
   if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); const bcN=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||{}).numero:''; return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn+(bcN?' · bon '+bcN:''); }
@@ -15848,7 +15926,11 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
     lot.ts=Date.now();
     save();
     if(neuf){ logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock'); boxMvtPrevenir(lot); toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
-    else toast('🔒 En attente du DR : '+boxMvtLibelle(lot));
+    /* Le libellé complet du lot fait trois lignes et se répète à CHAQUE tap : au cinquième
+       produit, l'écran n'est plus qu'une pile de messages identiques. Le détail est désormais
+       écrit en permanence sur la fiche (bandeau + mention par ligne) — le message se contente
+       donc de compter. */
+    else { var nl=lot.lignes.length; toast('🔒 '+nl+' produit'+(nl>1?'s':'')+' en attente du DR'); }
     renderBoxProdList();
     // la question « pour qui ? » se pose UNE fois pour le lot, pas à chaque produit sorti
     const totLot=lot.lignes.reduce((t,l)=>t+(l.du||0)+(l.dc||0),0);
@@ -22772,7 +22854,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
   { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
     (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
-      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?"go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);cible('pid','"+(m.lignes?m.lignes.map(function(l){return l.produitId;}):[m.produitId]).filter(Boolean).join(",")+"'"+(mvtRetrait(m)?",'retrait'":"")+")":"go('validations')"}); });
+      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);"+mvtMarqueActe(m)):"go('validations')"}); });
     if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&!notifMoi(d.drNom)&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
       out.push({id:'demv:'+d.id+':'+d.statut,ts:new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes');cible('dem','"+d.id+"')"}); });
   }
