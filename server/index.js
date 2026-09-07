@@ -1280,6 +1280,8 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
     try { p = await espacePaye(e); } catch (err) {}
     sortie.push({ slug, nom: e.nom || slug, email: e.email || '', formule: e.formule || '', quantite: e.quantite || 1,
       paye: p.paye, motif: p.motif, promoCode: p.promoCode || '', finLe: p.finLe || '', echeance: p.echeance || '', attribueLe: e.formuleTs || 0, par: e.formulePar || '',
+      // qui a ouvert l'espace et quand : la Tour en a besoin pour lister les accès publics
+      ouvertLe: e.ts || 0, ouvertPar: e.par || '', t: espaceT(e), resume: cnxResume(espaceT(e)),
       aboStatut: e.aboStatut || 'auto', aboFin: e.aboFin || '' });
   }
   sortie.sort((a, b) => (b.attribueLe || 0) - (a.attribueLe || 0));

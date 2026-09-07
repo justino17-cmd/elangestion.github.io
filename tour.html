@@ -879,6 +879,18 @@ var BT={comptes:[],loaded:false,err:'',login:'',nom:'',pass:''};
    différentes qui vivent sur le même écran : la bêta n'ouvre que la bêta, un accès public
    ouvre un vrai espace d'entreprise, avec de vraies données qui se synchronisent. */
 var PB={nom:'',email:'',ident:'',pass:''};
+/* Les accès à la version PUBLIQUE. Ils existaient déjà — « Ouvrir l'accès public » écrit bien un
+   espace côté serveur — mais rien dans la Tour ne les montrait : l'onglet Accès ne listait que
+   la bêta, et le patron qui venait d'en ouvrir un ne voyait rien. On les liste ici, à partir de
+   l'annuaire des espaces que le serveur tient déjà. */
+var PBL={loaded:false,err:'',liste:[]};
+function chargerAccesPublics(){
+  PBL.loaded=false; PBL.err='';
+  apiGet('/api/monitor/espaces/liste').then(function(d){
+    PBL.liste=(d&&d.espaces)||(Array.isArray(d)?d:[])||[];
+    PBL.loaded=true; if(TAB==='essais') renderVue('essais');
+  }).catch(function(){ PBL.err='Serveur injoignable — impossible de lister les accès publics.'; PBL.loaded=true; if(TAB==='essais') renderVue('essais'); });
+}
 var JR={cnx:[],loaded:false,err:'',actions:[]};
 /* ── Connexions des applications : toutes les entreprises, le moindre détail ── */
 var CNX={list:[],global:{},loaded:false,err:'',sel:null,det:null,detErr:'',q:'',f:'toutes'};
@@ -975,7 +987,7 @@ function tourConnexionsCharge(nm){
   }).catch(function(){ var el=document.getElementById('fiche-connexions'); if(el) el.textContent='Serveur injoignable.'; });
 }
 
-function chargerTout(){ chargerIncidents(); chargerClients(); chargerAbos(); chargerJournal(); chargerEquipe(); chargerEssais(); chargerMail(); }
+function chargerTout(){ chargerIncidents(); chargerClients(); chargerAbos(); chargerJournal(); chargerEquipe(); chargerEssais(); chargerAccesPublics(); chargerMail(); }
 
 function chargerIncidents(){
   apiGet('/api/monitor/issues').then(function(d){
@@ -2442,6 +2454,7 @@ async function pbCreer(btn){
     var e=await tourEspaceDe(email,nom,ident,mdp,!dejaLa);
     PB.nom=''; PB.email=''; PB.ident=''; PB.pass='';
     JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a ouvert un accès à la version publique « '+nom+' »'});
+    chargerAccesPublics();   // il doit apparaître dans la liste, tout de suite
     tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🌍 Accès version publique — '+esc(e.nom)+'</div>'+
       '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">C’est un vrai espace d’entreprise sur <b>teamop.fr/app.html</b>. Ouvre le lien sur chaque appareil qui doit y accéder.</div>'+
       '<div class="sec">LE LIEN</div>'+
@@ -2503,7 +2516,33 @@ function vueEssais(){
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)">'+IC.cadenas+'</svg>'+
       '<div class="encart-tx">L’adresse sert de clé : réutiliser une adresse déjà connue <b>rouvre le même espace</b> au lieu d’en créer un second. Pour repartir d’un espace vide, passe par Entreprises → sa fiche → « Repartir à neuf ».</div></div>'+
   '</div>';
-  return tete+'<div class="deux"><div class="col-liste">'+liste+'</div><div class="col-detail">'+form+formPub+'</div></div>';
+  /* La liste des accès PUBLICS, sous celle de la bêta et clairement séparée : les confondre
+     reviendrait à croire qu'un accès bêta ouvre des données d'entreprise. */
+  var pub;
+  if(!PBL.loaded) pub='<div class="vide" style="margin-top:14px">Chargement des accès publics…</div>';
+  else if(PBL.err) pub='<div class="vide" style="margin-top:14px">'+esc(PBL.err)+'</div>';
+  else if(!PBL.liste.length) pub='<div class="vide" style="margin-top:14px">Aucun accès à la version publique pour l’instant.</div>';
+  else pub=PBL.liste.map(function(e){
+    var r=e.resume||{};
+    var quand=r.derniere?('Dernière connexion '+esc(fmtJour(r.derniere))):'Jamais connecté';
+    var qui=(r.utilisateurs7?' · '+r.utilisateurs7+' utilisateur'+(r.utilisateurs7>1?'s':'')+' sur 7 j':'');
+    return '<div class="item" style="cursor:default">'+
+      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+        '<div style="width:38px;height:38px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(e.nom))+'</div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(e.nom||e.slug)+
+          (e.email?' <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">'+esc(e.email)+'</span>':'')+'</div>'+
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+quand+qui+
+            (e.ouvertLe?' · ouvert le '+esc(fmtJour(e.ouvertLe)):'')+(e.ouvertPar?' par '+esc(e.ouvertPar):'')+'</div></div>'+
+        '<span class="past '+(r.derniere?'p-vert':'p-gris')+'">'+(r.derniere?'Actif':'Jamais ouvert')+'</span>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+        (e.email?'<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(e.email)+'\',\''+jsq(e.nom||'')+'\')">🔗 Revoir le lien et le code</button>':
+                 '<span style="font-size:12px;color:var(--muted)">Sans e-mail enregistré — le lien se retrouve depuis la fiche de l’entreprise.</span>')+
+      '</div>'+
+    '</div>';
+  }).join('');
+  var titrePub='<div style="margin-top:22px;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)">Accès à la version publique</div>';
+  return tete+'<div class="deux"><div class="col-liste">'+liste+titrePub+pub+'</div><div class="col-detail">'+form+formPub+'</div></div>';
 }
 function vueEquipe(){
   var tete=enTete('Équipe',
