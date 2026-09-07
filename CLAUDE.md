@@ -132,7 +132,7 @@ agents `concepteur` et `testeur`, qui sont les deux à s'en servir.
 
 Ce dépôt est cloné deux fois sur cette machine :
 
-- `~/Documents/GitHub/elangestion.github.io` — branche `main`, **le code de production**
+- `~/Documents/GitHub/teamop` — branche `main`, **le code de production** (dossier local à renommer après le renommage du dépôt sur GitHub — `git remote -v` continue de fonctionner via la redirection même sans renommer le dossier)
 - `~/TeamOP` — branche `audit/plan-action`, **625 commits de retard**
 
 Son `server/index.js` fait 308 lignes contre 1 300 ici. Toute correction du serveur

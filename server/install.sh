@@ -8,7 +8,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 DOMAIN="${TEAMOP_DOMAIN:-api.teamop.fr}"
-REPO="https://github.com/justino17-cmd/elangestion.github.io.git"
+REPO="https://github.com/justino17-cmd/teamop.git"
 
 echo "── [1/6] Mises à jour système…"
 apt-get update -qq && apt-get upgrade -y -qq
