@@ -127,7 +127,11 @@ const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
    chaque reprise d'onglet par une entreprise en attente de paiement, et le palier strict est
    partagé par IP entre toutes ces familles — plusieurs salariés derrière une seule IP de bureau
    l'épuiseraient pour l'assistant devis en même temps. */
-const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|espaces\/(ouvrir|relance|libre))/;
+/* « espaces/comptes » n'y figure PAS, et c'est un choix : les routes serrées partagent 20
+   requêtes par minute et par IP, or ce dépôt part de chaque appareil qui se connecte —
+   toute une équipe qui arrive le matin derrière la même box les épuiserait. Il est déjà
+   borné par son quota horaire à lui, il exige la clé d'équipe, et il coûte peu. */
+const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|espaces\/(ouvrir|connexion|relance|libre))/;
 
 let compteurs = new Map();
 setInterval(() => { compteurs = new Map(); }, 60000).unref();
@@ -1182,7 +1186,13 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
   /* Le code d'accès ne figure PAS ici : il vit dans son propre registre, indexé par l'identifiant
      d'équipe (voir /api/espaces/ouvrir). Le reporter depuis « prev » ressuscitait un code révoqué
      dès qu'on rouvrait le panneau d'un ancien nom du même espace. */
-  espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom, email: monStr((req.body || {}).email, 120).toLowerCase() || prev.email || '',
+  /* « origine » sépare deux choses qu'on confondait dans la Tour : un accès que TEAM OP
+     ouvre pour lui-même (essai, démonstration) et l'espace d'une entreprise qui s'est
+     inscrite sur le site. Les deux vivent dans le même annuaire — c'est voulu, ce sont de
+     vrais espaces — mais les mélanger à l'écran, c'est risquer de supprimer un client en
+     croyant faire le ménage. Seul l'appelant sait : la fiche d'un client ne l'envoie pas. */
+  const origine = ((req.body || {}).origine === 'tour') ? 'tour' : (prev.origine || 'site');
+  espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom, origine, email: monStr((req.body || {}).email, 120).toLowerCase() || prev.email || '',
     formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs };
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
   res.json({ ok: true, slug });
@@ -1282,6 +1292,18 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
       paye: p.paye, motif: p.motif, promoCode: p.promoCode || '', finLe: p.finLe || '', echeance: p.echeance || '', attribueLe: e.formuleTs || 0, par: e.formulePar || '',
       // qui a ouvert l'espace et quand : la Tour en a besoin pour lister les accès publics
       ouvertLe: e.ts || 0, ouvertPar: e.par || '', t: espaceT(e), resume: cnxResume(espaceT(e)),
+      /* Deux états que la Tour ne pouvait pas connaître : un accès coupé ressemblait à un accès
+         ouvert, et rien ne disait si l'entreprise savait déjà se connecter sans son lien. */
+      suspendu: entFermes.espaces.includes(espaceT(e)),
+      /* Un accès coupé d'ici se rouvre ; une entreprise fermée définitivement, non. Les
+         confondre à l'écran ferait cliquer « Rouvrir » sur une fermeture, et croire à un bogue
+         quand le serveur refuse. */
+      ferme: entFermes.espaces.includes(espaceT(e)) && !(entFermes.suspendus || []).includes(espaceT(e)),
+      /* Repli pour les entrées d'avant « origine » : une adresse connue du fichier clients
+         est une entreprise inscrite sur le site ; les autres sont des accès ouverts d'ici.
+         Ce n'est qu'un repli — dès qu'un espace est réenregistré, le champ fait foi. */
+      origine: e.origine || ((e.email && clientsData[String(e.email).toLowerCase()]) ? 'site' : 'tour'),
+      annuaire: (() => { const a = comptesReg[espaceT(e)]; return (a && a.c) ? Object.keys(a.c).length : 0; })(),
       /* L'identifiant de départ vit DÉJÀ dans le code de l'espace (champ « a »). La Tour le
          redemandait à chaque fois et proposait « admin » par défaut, alors que le serveur l'a
          sous la main : elle n'a plus à deviner. Le mot de passe, lui, n'y est pas — seulement
@@ -1403,6 +1425,7 @@ app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
   if (!e) return res.json({ ok: true, rien: true });
   let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
   if (t && accesReg[t]) { delete accesReg[t]; accesEcrire(); }   // l'espace repart à neuf : son code aussi
+  if (t && comptesReg[t]) { delete comptesReg[t]; comptesEcrire(); }   // et son annuaire de connexion : sinon d'anciens identifiants ouvrent le nouvel espace
   delete espacesReg[slug];
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
   let efface = false;
@@ -1460,16 +1483,17 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '568',
-  sujet: '🔴 Rouge pour ce qui manque, vert pour ce qui arrive',
+  version: '569',
+  sujet: '🔗 Votre entreprise a maintenant son adresse',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
-    ['🔴 La couleur dit enfin la même chose partout', 'En touchant une notification, les produits concernés s\'entourent d\'un anneau. « Stock bas » et « Box à réapprovisionner » le posaient en VERT — la couleur qui se lit « tout va bien » — alors qu\'ils annoncent exactement le contraire. Désormais : rouge pour ce qui sort ou ce qui manque, vert pour ce qui arrive, dans toutes les notifications.'],
+    ['🔗 Une adresse pour votre entreprise', 'Jusqu\'ici, se connecter demandait le lien reçu par e-mail — et le perdre, c\'était perdre l\'accès. Votre entreprise a désormais SON adresse : chacun y va, tape son identifiant et son mot de passe, et arrive dans votre espace. Sur n\'importe quel téléphone, sans rien à conserver. Vous la trouvez dans l\'e-mail de bienvenue, ou nous vous la redonnons.'],
+    ['👥 Chaque personne avec ses propres identifiants', 'Ce n\'est plus un lien partagé par toute l\'équipe, mais le compte de chacun — celui que vous créez dans Utilisateurs. Retirer quelqu\'un de la liste lui ferme la porte, sur tous ses appareils, sans rien changer pour les autres.'],
+    ['🔴 La couleur dit la même chose partout', 'En touchant une notification, les produits concernés s\'entourent d\'un anneau : rouge pour ce qui sort ou ce qui manque, vert pour ce qui arrive. « Stock bas » et « Box à réapprovisionner » l\'annonçaient en vert — la couleur qui se lit « tout va bien » — alors qu\'ils disent l\'inverse.'],
     ['🔍 Trouver une rubrique sans la chercher', 'Le menu compte jusqu\'à quarante rubriques. Un champ discret en haut les filtre à la frappe : tapez « box », vous avez les box ; validez, vous y êtes.'],
-    ['🔒 La box dit ce qui attend le DR', 'Quand vos mouvements passent par la validation du DR, les quantités ne bougeaient pas et rien ne l\'expliquait. La fiche annonce maintenant ce qui est en attente, sur chaque ligne, avec de quoi retirer un produit ou tout annuler.'],
-    ['📧 La boîte mail sur un écran moyen', 'Sur une fenêtre ni petite ni large — un navigateur qu\'on n\'a pas mis en plein écran — la Réception n\'affichait que les premiers messages et refusait de défiler. Corrigé.']
+    ['🔒 La box dit ce qui attend le DR', 'Quand vos mouvements passent par la validation du DR, les quantités ne bougeaient pas et rien ne l\'expliquait. La fiche annonce maintenant ce qui est en attente, sur chaque ligne, avec de quoi retirer un produit ou tout annuler.']
   ],
-  fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
+  fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes. Votre lien actuel continue de fonctionner.'
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
   if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
@@ -1514,21 +1538,30 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
   let a = '', m = '';
   try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); a = String(o.a || ''); m = String(o.m || ''); } catch (err) {}
   const lien = lienEspaceCode(e);
+  /* L'ADRESSE, et pas seulement le lien. Le lien sert UNE fois — c'est la première connexion,
+     celle qui n'a pas encore de compte. Ensuite, c'est l'adresse qu'on donne à toute l'équipe :
+     chacun y tape son identifiant et son mot de passe, sur n'importe quel téléphone. L'e-mail
+     doit dire les deux, sinon le client garde le lien comme un trésor et rappelle dès qu'il
+     le perd — c'est exactement ce qu'on vient de corriger. */
+  const adresse = 'teamop.fr/' + (e.slug || slug);
   const co = (a && m)
     ? '• Identifiant : ' + a + ' (votre prénom)\n• Mot de passe provisoire : ' + m + ' (votre nom + « !! »)\nÀ votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.\n'
     : 'Connectez-vous avec vos identifiants habituels.\n';
-  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\nVotre lien de connexion :\n' + lien + '\n(Lien perdu ? Sur teamop.fr → Se connecter, tapez « ' + e.nom + ' » : il vous est renvoyé à cette adresse.)\n\n' + co + '\n— L\'équipe TEAM OP · teamop.fr';
+  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\n1) VOTRE PREMIÈRE CONNEXION — ce lien :\n' + lien + '\n\n' + co
+    + '\n2) ENSUITE, ET POUR TOUTE VOTRE ÉQUIPE — l\'adresse de votre entreprise :\n' + adresse
+    + '\n\nC\'est elle qu\'on donne aux équipes : chacun y va, tape SON identifiant et SON mot de passe, et arrive dans votre espace. Aucun lien à conserver, aucun code à retenir, sur n\'importe quel téléphone. Mettez-la en favori.\nVous créez les comptes de votre équipe dans Utilisateurs.\n\n— L\'équipe TEAM OP · teamop.fr';
   const coHtml = (a && m)
     ? MAIL_BLOCS.ident(a, m) + '<br>'
     : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br>';
   const html = mailTeamOP({
     chip: 'Accès prêt',
     titre: 'Votre lien de connexion 🔗',
-    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>Votre lien de connexion :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><span style="color:#8fa3c8;font-size:13px">(Lien perdu ? Sur teamop.fr → Se connecter, tapez « <b>' + e.nom + '</b> » : il vous est renvoyé à cette adresse.)</span><br><br>' + coHtml,
+    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>1) Votre première connexion — ce lien :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><br>' + coHtml
+      + '<br><b>2) Ensuite, et pour toute votre équipe — l\'adresse de votre entreprise :</b><br><a href="https://' + adresse + '" style="color:#34A97E;font-size:17px;font-weight:700">' + adresse + '</a><br><span style="color:#8fa3c8;font-size:13px">Chacun y va, tape son identifiant et son mot de passe, et arrive dans votre espace — sur n\'importe quel téléphone, sans lien à conserver. Mettez-la en favori.</span><br>',
     frise: [
-      { titre: 'Lien généré', sous: 'par TEAM OP', fait: true },
-      { titre: 'Connectez-vous', sous: 'avec le lien', fait: false },
-      { titre: 'Votre mot de passe', sous: 'choisi à la 1re connexion', fait: false }
+      { titre: 'Espace prêt', sous: 'par TEAM OP', fait: true },
+      { titre: '1re connexion', sous: 'avec le lien', fait: false },
+      { titre: 'Votre équipe', sous: 'par ' + adresse, fait: false }
     ],
     boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
     bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
@@ -1600,7 +1633,7 @@ function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu, preno
     // « mh », pas « m » : le mot de passe provisoire part par e-mail (mdpProv est rendu à l'appelant),
     // le code ne porte que son empreinte — de quoi le reconnaître, pas de quoi le lire
     const code = Buffer.from(JSON.stringify({ t, k, n: nom, a: ident, mh: mdpEmpreinte(mdpProv), e: email }), 'utf8').toString('base64').replace(/=+$/, '');
-    e = espacesReg[slug] = { nom, code, t, ts: Date.now(), par: 'auto (demande)', email };
+    e = espacesReg[slug] = { nom, code, t, ts: Date.now(), par: 'auto (demande)', origine: 'site', email };
     neuf = true;
   }
   const f = formuleDeLabel(formuleLabel);
@@ -1860,6 +1893,289 @@ app.post('/api/monitor/espaces/identifiants', monPatronStrict, (req, res) => {
   console.log('Tour :', req.tourUser.nom, 'change les identifiants de départ de l\'espace', t);
   res.json({ ok: true, ident: ident, lien: 'https://teamop.fr/app.html#entreprise=' + neuf });
 });
+/* ══ SE CONNECTER AVEC SON IDENTIFIANT, SANS LIEN NI CODE ═══════════════════════════════════
+   Le problème posé, en clair : le lien (#entreprise=…) et le code d'accès à dix caractères
+   sont des secrets D'ENTREPRISE. Qui les perd — un salarié qui se déconnecte, un téléphone
+   remplacé, un navigateur vidé — n'a plus de porte du tout et doit rappeler son patron.
+   Organilog demande une adresse d'entreprise, puis l'identifiant et le mot de passe de la
+   personne. C'est exactement ce qu'on met en place ici.
+
+   L'obstacle était réel et il faut le nommer : les comptes (identifiant, mot de passe) vivent
+   dans les données CHIFFRÉES de l'espace, que le serveur ne sait pas lire. Il ne pouvait donc
+   rien vérifier. La solution n'est pas de déchiffrer — ce serait renoncer au chiffrement —
+   c'est de faire DÉPOSER par l'application un VÉRIFICATEUR : pour chaque compte, un sel et
+   PBKDF2(empreinte du mot de passe, sel, 120 000 tours). Le serveur ne peut ni en tirer le mot
+   de passe, ni s'en servir ailleurs ; il peut seulement répondre « oui, c'est bien celui-là ».
+
+   Ce qu'il rend en cas de succès, c'est le code de l'espace — donc « k », la clé des données.
+   C'est EXACTEMENT ce que rend déjà /api/espaces/ouvrir contre le code à dix caractères, et ce
+   que porte le lien de connexion. La nouveauté n'est donc pas la divulgation, c'est sa
+   CONDITION : un mot de passe personnel, révocable compte par compte, au lieu d'un secret
+   partagé par toute l'entreprise et impossible à retirer à une seule personne.
+
+   Ce que ça ne fait pas, et qu'il ne faut pas se raconter : tant qu'une entreprise n'a pas
+   ouvert l'application au moins une fois avec cette version, son annuaire est vide et ce
+   chemin ne marche pas pour elle. Le code d'accès reste donc en place — c'est le filet, pas
+   le chemin normal. */
+const COMPTES_PATH = path.join(DATA_DIR, 'comptes.json');
+let comptesReg = {};
+/* Illisible se dit, comme pour acces.json : repartir de {} en silence, c'est renvoyer toutes
+   les entreprises au code d'accès sans que personne ne l'apprenne. */
+try { comptesReg = JSON.parse(fs.readFileSync(COMPTES_PATH, 'utf8')); }
+catch (e) { if (e.code !== 'ENOENT') console.error('comptes.json illisible — annuaire de connexion vide :', e.message); }
+function comptesEcrire() {   // ATOMIQUE : tmp + rename, même motif que acces.json
+  try {
+    const tmp = COMPTES_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(comptesReg));
+    fs.renameSync(tmp, COMPTES_PATH);
+    return true;
+  } catch (e) { console.error('comptes.json non écrit :', e.message); return false; }
+}
+const CNX_ITER = 120000;   // le même chiffre que syncKey() dans l'application — un seul réglage à retenir
+/* L'application dépose son annuaire de connexion. Elle prouve qu'elle détient la clé d'équipe,
+   exactement comme /api/espaces/lien : sans cela, n'importe qui écraserait l'annuaire d'une
+   entreprise avec ses propres vérificateurs et entrerait chez elle. */
+let comptesQuota = new Map();
+setInterval(() => { comptesQuota = new Map(); }, 3600000).unref();
+app.post('/api/espaces/comptes', (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
+  if (!t || !/^[0-9a-f]{64}$/.test(kh)) return res.status(400).json({ error: 't et kh requis' });
+  if (comptesQuota.size > 5000) comptesQuota = new Map();
+  if (!quotaOk(comptesQuota, 'ip:' + (req.ip || '?'), 120, 3600000))
+    return res.status(429).json({ error: 'trop de dépôts — réessaie plus tard' });
+  const e = espaceParT(t);
+  if (!e || !e.code) return res.status(404).json({ error: 'espace inconnu' });
+  let cle = '';
+  try { cle = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) {}
+  if (!cle || crypto.createHash('sha256').update(cle).digest('hex') !== kh)
+    return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  if (entFermes.espaces.includes(t)) return res.status(403).json({ error: 'espace fermé' });
+  const recu = Array.isArray(b.comptes) ? b.comptes.slice(0, 300) : null;
+  if (!recu) return res.status(400).json({ error: 'comptes requis' });
+  /* Rien d'autre que le strict nécessaire n'est retenu : pas de prénom, pas de nom, pas
+     d'adresse. Un annuaire de connexion n'a pas à devenir un fichier du personnel. */
+  /* Sans prototype : rien de ce qu'on écrit ici ne doit pouvoir devenir « __proto__ » ou
+     « constructor » du côté lecture. Les trois noms sont refusés en plus, explicitement — un
+     compte ne s'appelle pas ainsi, et les garder ne servirait qu'à piéger la route voisine. */
+  const table = Object.create(null);
+  const INTERDITS = ['__proto__', 'constructor', 'prototype'];
+  for (const c of recu) {
+    if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
+    const login = monStr(c.login, 40).toLowerCase().trim();
+    const sel = monStr(c.s, 32).toLowerCase(), emp = monStr(c.e, 64).toLowerCase();
+    if (!login || INTERDITS.includes(login)) continue;
+    if (!/^[0-9a-f]{32}$/.test(sel) || !/^[0-9a-f]{64}$/.test(emp)) continue;
+    table[login] = { s: sel, e: emp };
+  }
+  /* Un annuaire vide ne remplace JAMAIS un annuaire garni : un bogue de l'application, une
+     synchro pas encore descendue, et toute l'entreprise se retrouvait dehors sans rien avoir
+     fait. Effacer un annuaire se fait en fermant l'espace, pas par accident. */
+  const avant = comptesReg[t];
+  if (!Object.keys(table).length) {
+    if (avant && avant.c && Object.keys(avant.c).length)
+      return res.status(409).json({ error: 'annuaire vide refusé — l\'ancien est conservé' });
+    /* On envoyait des comptes et il n'en reste aucun : dire « ok » ferait croire l'annuaire
+       déposé alors que la connexion par identifiant ne marchera pas. */
+    if (recu.length) return res.status(400).json({ error: 'aucun compte exploitable dans l\'envoi' });
+    return res.json({ ok: true, n: 0 });
+  }
+  const neuf = { maj: Date.now(), c: table };
+  // on n'écrit que si le contenu a bougé : la route est appelée à chaque connexion
+  if (avant && JSON.stringify(avant.c) === JSON.stringify(table)) return res.json({ ok: true, n: Object.keys(table).length, inchange: true });
+  comptesReg[t] = neuf;
+  if (!comptesEcrire()) {
+    if (avant) comptesReg[t] = avant; else delete comptesReg[t];
+    return res.status(500).json({ error: 'annuaire non enregistré' });
+  }
+  console.log('annuaire de connexion :', Object.keys(table).length, 'compte(s) pour l\'espace', t);
+  res.json({ ok: true, n: Object.keys(table).length });
+});
+let cnxQuota = new Map();
+setInterval(() => { cnxQuota = new Map(); }, 3600000).unref();
+let cnxEchecs = new Map();
+setInterval(() => { cnxEchecs = new Map(); }, 3600000).unref();
+app.post('/api/espaces/connexion', async (req, res) => {
+  const b = req.body || {};
+  // borné AVANT espSlug : son normalize('NFD') sur plusieurs Mo gèle la boucle d'événements
+  const slug = espSlug(monStr(b.nom, 80));
+  const login = monStr(b.login, 40).toLowerCase().trim();
+  const h = monStr(b.h, 64).toLowerCase();
+  if (!slug || !login || !/^[0-9a-f]{64}$/.test(h))
+    return res.status(400).json({ error: 'Nom de l\'entreprise, identifiant et mot de passe requis' });
+  if (cnxQuota.size > 5000) cnxQuota = new Map();
+  const ip = req.ip || '?';   // req.ip, jamais l'en-tête brut : il est fourni par le client
+  /* On compte les ÉCHECS, pas les connexions. Compter tout mettait dehors ce qu'on veut
+     justement servir : une équipe de trente personnes qui arrive à 7 h derrière la même box en
+     4G épuise soixante requêtes en quelques minutes, mots de passe corrects en main. La force
+     brute, elle, ne produit que des échecs — c'est eux qu'il faut borner. Le plafond par minute
+     des routes sensibles (PLAFOND_STRICT) borne séparément le coût de calcul. */
+  const echecsIp = cnxQuota.get('ip:' + ip);
+  if (echecsIp && Date.now() < echecsIp.reset && echecsIp.n > 60)
+    return res.status(429).json({ error: 'Trop d\'essais infructueux — réessaie dans une heure.' });
+  const e = espaceAJour(slug);
+  const t = e ? espaceT(e) : '';
+  const refus = () => res.status(403).json({ error: 'Entreprise, identifiant ou mot de passe incorrect.' });
+  /* Clé d'équipe périmée (constatée par /api/espaces/lien) : le code de l'annuaire ne
+     déchiffre plus les données. Rendre « k » quand même ferait entrer la personne dans un
+     espace vide, sans un mot d'explication. */
+  if (e && e.slug && espacesReg[e.slug] && espacesReg[e.slug].clePerimee)
+    return res.status(409).json({ motif: 'cle_perimee',
+      error: 'L\'espace de cette entreprise est à réinscrire chez TEAM OP — contacte-nous, la connexion ne peut pas aboutir.' });
+  const ann = (t && !entFermes.espaces.includes(t)) ? comptesReg[t] : null;
+  /* « Pas encore activé » est rendu AUSSI pour un nom qui n'existe pas. Sans cela, la
+     différence entre les deux réponses dirait qui est client de TEAM OP. Rendu pour les deux,
+     le message ne dit rien de plus qu'il ne faut, et il évite qu'une personne s'acharne une
+     heure sur un mot de passe pourtant juste. */
+  if (!e || !e.code || !t || !ann || !ann.c || !Object.keys(ann.c).length)
+    return res.status(409).json({ motif: 'sans-annuaire',
+      error: 'Cette entreprise ne connaît pas encore la connexion par identifiant. Utilise son code d\'accès une première fois — ensuite, ton identifiant suffira.' });
+  /* hasOwnProperty, et JAMAIS ann.c[login] directement : « ann.c » vient d'un JSON, c'est un
+     objet ordinaire. ann.c['__proto__'] rend Object.prototype et ann.c['constructor'] rend la
+     fonction Object — tous deux « truthy », dont le champ « e » vaut undefined. Buffer.from
+     lève alors, hors du try, dans un gestionnaire async qu'Express 4 ne rattrape pas : le
+     processus meurt. Une requête non authentifiée, un nom d'entreprise, et toute l'API tombe.
+     Mesuré : « __proto__ » et « constructor » tuaient le serveur, les autres membres de
+     Object.prototype survivaient au .toLowerCase(). */
+  const brut = Object.prototype.hasOwnProperty.call(ann.c, login) ? ann.c[login] : null;
+  /* Et on vérifie la FORME avant de s'en servir : un registre abîmé à la main ne doit pas
+     pouvoir faire lever Buffer.from non plus. Ce qui ne ressemble pas à un vérificateur n'en
+     est pas un — on le traite comme un identifiant inconnu. */
+  const enr = (brut && typeof brut === 'object' && !Array.isArray(brut)
+    && /^[0-9a-f]{32}$/.test(String(brut.s || '')) && /^[0-9a-f]{64}$/.test(String(brut.e || ''))) ? brut : null;
+  /* Le calcul se fait TOUJOURS, même pour un identifiant inconnu, et sur un sel jetable :
+     autrement le temps de réponse dirait quels identifiants existent dans l'entreprise. */
+  let bon = false;
+  try {
+    const sel = Buffer.from(enr ? enr.s : crypto.randomBytes(16).toString('hex'), 'hex');
+    const calc = await new Promise((ok, ko) =>
+      crypto.pbkdf2(h, sel, CNX_ITER, 32, 'sha256', (err, d) => err ? ko(err) : ok(d)));
+    if (enr) {
+      const attendu = Buffer.from(enr.e, 'hex');
+      bon = attendu.length === calc.length && crypto.timingSafeEqual(attendu, calc);
+    }
+  } catch (err) {
+    // filet de dernier recours : cette route ne doit JAMAIS pouvoir emporter le processus
+    console.error('connexion : vérification impossible —', err.message);
+    return res.status(500).json({ error: 'Vérification impossible — réessaie.' });
+  }
+  if (!bon) {
+    quotaOk(cnxQuota, 'ip:' + ip, 60, 3600000);   // c'est ici, et seulement ici, qu'un essai se compte
+    /* Compté APRÈS vérification et par espace existant seulement — même raisonnement que
+       /api/espaces/ouvrir : sinon n'importe qui verrouille un espace en tapant à côté. */
+    if (cnxEchecs.size > 5000) cnxEchecs = new Map();
+    const n = (cnxEchecs.get(t) || 0) + 1;
+    cnxEchecs.set(t, n);
+    if (n === 20) console.warn('connexion par identifiant : 20 échecs en une heure sur l\'espace', t);
+    return refus();
+  }
+  /* Ce qu'on rend est le code de l'espace, amputé de « e » — l'adresse e-mail de l'entreprise
+     est la coordonnée d'un tiers. « a » et « mh » restent, pour la même raison qu'à
+     /api/espaces/ouvrir : sans « mh », un espace neuf s'ouvrirait avec sha256('1234'). */
+  let rendu = codeMdpHache(e.code);
+  try {
+    const o = JSON.parse(Buffer.from(rendu, 'base64').toString('utf8'));
+    delete o.e;
+    rendu = Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
+  } catch (err) {}
+  // ni IP ni identifiant : l'identifiant d'équipe suffit à enquêter, le reste est personnel
+  console.log('espace ouvert par identifiant · espace', t);
+  res.json({ ok: true, code: rendu, nom: espNomPropre(e) });
+});
+/* espaces.json porte le « k » de TOUS les clients : une écriture tronquée (disque plein,
+   service coupé au mauvais moment) les perd tous d'un coup. On écrit à côté puis on renomme,
+   comme acces.json et comptes.json. Rend false plutôt que de lever, pour que l'appelant puisse
+   revenir en arrière au lieu d'annoncer un enregistrement qui n'a pas eu lieu. */
+function espacesEcrire() {
+  try {
+    const tmp = ESPACES_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(espacesReg));
+    fs.renameSync(tmp, ESPACES_PATH);
+    return true;
+  } catch (e) { console.error('espaces.json non écrit :', e.message); return false; }
+}
+/* ══ RENOMMER UN ESPACE — donc changer son ADRESSE ══════════════════════════════════════════
+   Le nom de l'espace n'est pas décoratif : c'est teamop.fr/ce-nom, l'adresse que l'entreprise
+   donne à ses équipes et met en favori. La changer se fait donc les yeux ouverts — l'ancienne
+   cesse de fonctionner le jour même. Le nom voyage aussi DANS le code de l'espace (champ « n »),
+   que l'application affiche : on le met à jour, sinon l'écran de connexion garderait l'ancien.
+   Les appareils déjà connectés ne bougent pas : eux ne se servent que de « t » et « k ». */
+app.post('/api/monitor/espaces/renommer', monPatronStrict, (req, res) => {
+  const slug = espSlug(monStr((req.body || {}).slug || (req.body || {}).nom, 80));
+  /* espaceAJour, PAS espacesReg[slug] : un même espace porte plusieurs noms dans l'annuaire
+     (voir espaceParT) et c'est l'entrée la plus récente qui fait foi. Lire l'entrée du slug
+     tapé renommait une entrée pendant que le serveur en servait une autre — le renommage
+     répondait « fait » et l'ancien nom continuait de marcher. Mesuré par le gardien. */
+  const e = espaceAJour(slug);
+  if (!e || !e.code) return res.status(404).json({ error: 'Espace inconnu' });
+  const nom = monStr((req.body || {}).nouveau, 80).trim();
+  const neufSlug = espSlug(nom);
+  if (!nom || !neufSlug) return res.status(400).json({ error: 'Il faut un nom qui contienne des lettres ou des chiffres' });
+  const t = espaceT(e);
+  if (!t) return res.status(409).json({ error: 'Cet espace n\'a pas d\'identifiant d\'équipe lisible : impossible de le renommer sans risque.' });
+  const occupe = espacesReg[neufSlug];
+  if (occupe && espaceT(occupe) !== t)
+    return res.status(409).json({ error: 'teamop.fr/' + neufSlug + ' est déjà l\'adresse d\'une autre entreprise — choisis une variante.' });
+  let code = e.code;
+  try {
+    const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8'));
+    /* Même garde qu'à /identifiants : sans « use strict », écrire sur un primitif échoue en
+       silence et on réenregistrerait un code sans « t » ni « k » — données perdues. */
+    if (o && typeof o === 'object' && !Array.isArray(o) && o.t && o.k) {
+      o.n = nom;
+      code = Buffer.from(JSON.stringify(o), 'utf8').toString('base64').replace(/=+$/, '');
+    }
+  } catch (err) {}
+  /* TOUS les anciens noms de cet espace s'en vont : sans cela « l'ancienne adresse cesse de
+     fonctionner » serait faux, et l'écran de la Tour le promet. */
+  const anciens = Object.keys(espacesReg).filter(x => x !== neufSlug && espaceT(espacesReg[x]) === t);
+  const avant = {}; anciens.concat([neufSlug]).forEach(x => { avant[x] = espacesReg[x]; });
+  anciens.forEach(x => { delete espacesReg[x]; });
+  const copie = Object.assign({}, e, { nom, code });
+  delete copie.slug;   // espaceAJour peut rendre une copie porteuse de « slug » : il n'a rien à faire dans l'annuaire
+  espacesReg[neufSlug] = copie;
+  if (!espacesEcrire()) {
+    // remise en place exacte : sinon le serveur servirait le nouveau nom jusqu'au redémarrage
+    Object.keys(avant).forEach(x => { if (avant[x] === undefined) delete espacesReg[x]; else espacesReg[x] = avant[x]; });
+    return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' });
+  }
+  console.log('Tour :', req.tourUser.nom, 'renomme l\'espace', t, '→', neufSlug, '(' + anciens.length + ' ancien(s) nom(s) retiré(s))');
+  res.json({ ok: true, slug: neufSlug, nom, anciens: anciens.length, adresse: 'https://teamop.fr/' + neufSlug, lien: lienEspaceCode(copie) });
+});
+/* ══ SUSPENDRE OU ROUVRIR UN ACCÈS, DEPUIS LA TOUR ══════════════════════════════════════════
+   Couper un accès sans rien effacer. C'est le pendant de « Couper » sur un accès bêta, et la
+   différence compte : ici l'espace porte de vraies données. Suspendre les LAISSE en place —
+   côté Firestore rien n'est touché — mais les appareils reliés se vident à leur prochain
+   lancement (forfaitServeurSync lit « ferme » et efface le stockage local). Rouvrir rend
+   l'espace ; les appareils devront repasser par le lien ou le code, leurs données les y
+   attendent. Effacer pour de bon, c'est « Repartir à neuf » (/renaitre), pas cette route. */
+app.post('/api/monitor/espaces/suspendre', monPatronStrict, (req, res) => {
+  const slug = espSlug(monStr((req.body || {}).slug || (req.body || {}).nom, 80));
+  const e = espaceAJour(slug);
+  const t = e ? espaceT(e) : '';
+  if (!e || !t) return res.status(404).json({ error: 'Espace inconnu, ou sans identifiant d\'équipe lisible' });
+  const rouvrir = !!(req.body || {}).rouvrir;
+  /* DEUX états, pas un. « entFermes.espaces » sert aussi à la FERMETURE DÉFINITIVE d'une
+     entreprise (/api/monitor/clients/retirer), qui exige un code de confirmation par e-mail.
+     Sans liste à part, « Rouvrir » défaisait cette fermeture-là en un clic — et rendait à
+     nouveau le lien porteur de « k ». On ne rouvre donc que ce qu'on a suspendu d'ici. */
+  if (!Array.isArray(entFermes.suspendus)) entFermes.suspendus = [];
+  if (rouvrir && !entFermes.suspendus.includes(t))
+    return res.status(409).json({ error: 'Cet espace n\'a pas été suspendu depuis la Tour : il a été fermé définitivement (fermeture d\'entreprise). Ce bouton ne défait pas une fermeture — elle demande un code de confirmation par e-mail.' });
+  const avant = entFermes.espaces.slice(), avantS = entFermes.suspendus.slice();
+  if (rouvrir) {
+    entFermes.espaces = entFermes.espaces.filter(x => x !== t);
+    entFermes.suspendus = entFermes.suspendus.filter(x => x !== t);
+  } else {
+    if (!entFermes.espaces.includes(t)) entFermes.espaces.push(t);
+    if (!entFermes.suspendus.includes(t)) entFermes.suspendus.push(t);
+  }
+  /* Si l'écriture échoue, on ne dit pas que c'est fait : le serveur appliquerait la coupure
+     jusqu'au redémarrage, puis l'oublierait — et le patron croirait l'accès fermé. */
+  if (!fermesSave()) { entFermes.espaces = avant; entFermes.suspendus = avantS; return res.status(500).json({ error: 'Rien n\'a été enregistré — réessaie.' }); }
+  console.log('Tour :', req.tourUser.nom, (rouvrir ? 'rouvre' : 'suspend'), 'l\'espace', t);
+  res.json({ ok: true, suspendu: !rouvrir });
+});
 app.post('/api/espaces/relance', (req, res) => {
   // borné AVANT espSlug : son normalize('NFD') sur 6 Mo gèle la boucle d'événements, donc toute l'API
   const slug = espSlug(monStr((req.body || {}).nom, 80));
@@ -1956,8 +2272,14 @@ app.post('/api/espaces/lien', (req, res) => {
 //    puis retrait de la liste, du nom, du lien, de la formule — et les applications
 //    des appareils reliés se vident toutes seules à leur prochain lancement. ──
 const FERMES_PATH = path.join(DATA_DIR, 'entreprises-fermees.json');
-let entFermes = { emails: [], espaces: [] };
+let entFermes = { emails: [], espaces: [], suspendus: [] };
 try { entFermes = JSON.parse(fs.readFileSync(FERMES_PATH, 'utf8')); } catch (e) {}
+/* Les fichiers d'avant la suspension depuis la Tour n'ont pas ce champ. Vide et non
+   « tout » : ce qui s'y trouvait déjà vient d'une fermeture d'entreprise, et ne doit
+   surtout pas devenir réouvrable d'un clic. */
+if (!Array.isArray(entFermes.emails)) entFermes.emails = [];
+if (!Array.isArray(entFermes.espaces)) entFermes.espaces = [];
+if (!Array.isArray(entFermes.suspendus)) entFermes.suspendus = [];
 function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFermes)); return true; } catch (e) { console.error('entreprises-fermees.json non écrit :', e.message); return false; } }
 const retraitCodes = new Map();   // email -> { code, exp, tries }
 // retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
@@ -2076,7 +2398,7 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
       let t = e.t;
       try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
       if (t) { if (!entFermes.espaces.includes(t)) entFermes.espaces.push(t); espacesAEffacer.push(t);
-        delete accesReg[t]; }   // le code d'accès s'en va avec l'espace, sinon il ouvre encore
+        delete accesReg[t]; delete comptesReg[t]; }   // le code d'accès ET l'annuaire de connexion s'en vont avec l'espace, sinon ils ouvrent encore
       delete espacesReg[slug];
     }
   }
@@ -2086,6 +2408,7 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   let ecrit = true;
   try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) { ecrit = false; console.error('fermeture : espaces.json non écrit :', e.message); }
   if (!accesEcrire()) ecrit = false;
+  if (!comptesEcrire()) ecrit = false;
   if (!fermesSave()) ecrit = false;
   if (!ecrit) return res.status(500).json({ error: 'La fermeture n\'a pas pu être enregistrée — rien n\'est garanti. Vérifie le serveur avant de recommencer.' });
   delete clientsData[email]; cliSave();
