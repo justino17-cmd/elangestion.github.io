@@ -2414,6 +2414,11 @@ html[data-refonte] .kpi::after,html[data-refonte] .card::after{
 html[data-refonte] .modal{animation:refonteFeuille var(--d-3) var(--ressort) both!important}
 @keyframes refonteFeuille{from{opacity:0;transform:translateY(22px) scale(.94);filter:blur(6px)}to{opacity:1;transform:none;filter:blur(0)}}
 html[data-refonte] .toast{transition:transform var(--d-3) var(--ressort),opacity var(--d-2) ease!important}
+/* Le message de confirmation se cassait en trois lignes sur téléphone : posé en « left:50 % »
+   sans « right », sa largeur disponible n'est que la MOITIÉ de l'écran — le translate qui le
+   recentre ne déplace que le rendu, pas la mise en page. width:max-content lui rend sa vraie
+   largeur ; le plafond l'empêche de traverser l'écran sur un grand format. */
+html[data-refonte] .toast{width:max-content;max-width:min(88vw,460px)}
 
 /* ══ LA LUMIÈRE SUR LES SURFACES ══ le dégradé du fond, repris sur ce qui porte du contenu.
    Deux points seulement : un coin éclairé, le reste à plat. Assez faible pour ne jamais peser
@@ -2614,6 +2619,10 @@ html[data-refonte] .topbar::after{
   transition:opacity var(--d-2) var(--e-sortie);
   background:linear-gradient(to bottom,color-mix(in srgb,var(--bg) 62%,transparent),transparent)}
 html[data-refonte] body.defile .topbar::after{opacity:1}
+/* Une fois du contenu passé dessous, la barre s'épaissit : à 72 % de voile, un bouton vert qui
+   défile en dessous se lisait encore à travers, comme un fantôme. C'est le bord de défilement
+   d'Apple — le verre se densifie quand il a quelque chose à couvrir. */
+html[data-refonte] body.defile .topbar{background:color-mix(in srgb,var(--bg) 93%,transparent)!important}
 html[data-refonte] body.defile .topbar{box-shadow:0 1px 0 var(--rf-filet),0 12px 28px rgba(0,0,0,.20)!important}
 html[data-refonte][data-theme="light"] body.defile .topbar{box-shadow:0 1px 0 var(--rf-filet),0 12px 28px rgba(16,26,46,.08)!important}
 
@@ -3472,12 +3481,20 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
   html[data-refonte] body.rf-onglets #assistant > .fab{bottom:calc(76px + env(safe-area-inset-bottom))!important}
   /* Le message de confirmation se posait PAR-DESSUS le contenu, collé à la bulle d'aide : il
      remonte au-dessus de la barre d'onglets et laisse la bulle tranquille. */
-  html[data-refonte] body.rf-onglets .toast{bottom:calc(80px + env(safe-area-inset-bottom))!important;max-width:min(88vw,440px)}
+  /* Le message se posait sur la bulle d'aide, exactement là où le pouce allait la chercher.
+     Il passe AU-DESSUS d'elle : les deux se voient, aucun des deux ne bloque l'autre. */
+  html[data-refonte] body.rf-onglets .toast{bottom:calc(146px + env(safe-area-inset-bottom))!important;max-width:min(90vw,440px)}
   html[data-refonte] body.rf-onglets .plm-fab{bottom:calc(78px + env(safe-area-inset-bottom))!important}
   /* Le hamburger disparaît le jour où la barre d'onglets existe — « Plus » ouvre le même tiroir.
      Tant qu'elle n'est pas posée (JS coupé, thème sans barre), il reste : jamais d'impasse. */
   html[data-refonte] body.rf-onglets .menu-btn{display:none!important}
-}
+  /* Le tiroir des quarante rubriques passe DEVANT le voile mais DERRIÈRE la barre d'onglets :
+     « Plus » reste sous le pouce pour le refermer du même geste qui l'a ouvert (chemins
+     symétriques). Sans quoi le tiroir, en z-index 40, passait sous la barre et son pied —
+     l'utilisateur et le bouton d'extinction — disparaissait derrière elle. */
+  html[data-refonte] body.rf-onglets .sidebar{z-index:46;padding-bottom:calc(62px + env(safe-area-inset-bottom))}
+  html[data-refonte] body.rf-onglets .sidebar.open ~ .sidebar-backdrop{z-index:45}
+  html[data-refonte] body.rf-onglets .rf-tabs{z-index:48}
 
 /* ══ LES ICÔNES DESSINÉES ══ les émojis étaient LE détail qui faisait « page web bricolée » :
    ils changent de dessin d'un système à l'autre, ils sont en couleur au milieu d'une interface
@@ -23390,6 +23407,7 @@ function construire(){
   var lp=document.createElement('span'); lp.textContent='Plus'; plus.appendChild(lp);
   plus.addEventListener('click',function(){
     var s=document.getElementById('sidebar'); if(s) s.classList.toggle('open');
+    marquer();
   });
   barre.appendChild(plus); onglets.push(plus);
   document.body.appendChild(barre);
@@ -23417,8 +23435,12 @@ function marquer(){
     b.classList.toggle('on',on);
     if(on) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
   });
+  /* Tiroir ouvert : c'est « Plus » qui est actif, quelle que soit la rubrique derrière — sinon
+     deux onglets seraient allumés en même temps et on ne saurait plus lequel répond au doigt. */
   var s=document.getElementById('sidebar');
-  onglets[onglets.length-1].classList.toggle('on', !trouve && !!(s&&s.classList.contains('open')));
+  var tiroir=!!(s&&s.classList.contains('open'));
+  if(tiroir) onglets.forEach(function(b){ b.classList.remove('on'); b.removeAttribute('aria-current'); });
+  onglets[onglets.length-1].classList.toggle('on', tiroir || !trouve);
 }
 /* Le compteur d'une rubrique est déjà tenu à jour dans le menu (data-badge) : on le recopie,
    on ne le recalcule pas — une seule source de vérité. */
