@@ -3847,7 +3847,16 @@ html[data-refonte] #msg-photo-prev + div > .btn:last-child{min-height:var(--rf-t
 @media (min-width:781px){
   html[data-refonte] #msg-photo-prev + div{padding-right:76px}
 }
-@media (max-width:780px){
+/* ── LE SEUIL DU COURRIER EST 959, PAS 780 ────────────────────────────────────────────────
+   Ce bloc relâchait la hauteur imposée au cadre de la boîte mail à partir de 780 px. Or
+   _mailDesktop() ne bascule en trois volets qu'à 960 px. Entre les deux — 781 à 959, la largeur
+   d'une fenêtre Safari qu'on n'a pas mise en plein écran, celle de Justin — l'application
+   empilait en un seul bloc DANS un cadre de 642 px en overflow:hidden, sans conteneur qui
+   défile : mesuré sur WebKit, 4 messages atteignables sur 197, et 19 875 px de contenu hors de
+   portée. C'est le « quand je clique sur Réception, ça fait un bug ».
+   959 est le complément exact de _mailDesktop() (>= 960) : les deux nombres se répondent, et
+   c'est pour ça qu'il faut les lire ensemble malgré les 800 lignes qui les séparent. */
+@media (max-width:959px){
   html[data-refonte] #msg-list{height:calc(100dvh - 430px)!important;padding:14px!important}
   html[data-refonte] #mail-app{height:auto!important;min-height:0!important;
     background:transparent!important;box-shadow:none!important;overflow:visible!important}
@@ -3961,10 +3970,13 @@ html[data-refonte] #mail-pane div[style*="border:1px solid var(--acc);border-rad
   background:var(--tint)!important;border:0!important;border-radius:var(--rf-r-champ)!important;
   color:var(--acc-txt)!important;padding:10px 14px!important}
 
-/* ── TÉLÉPHONE ── trois colonnes n'en font aucune sur 390 px : l'application empile déjà
+/* ── EN PILE ── trois colonnes n'en font aucune sous 960 px : l'application empile déjà
    (les dossiers deviennent des pastilles, la lecture s'ouvre en plein écran). On enlève le
-   cadre qui n'a plus rien à cadrer et on rend au message la mesure et les marges du pouce. */
-@media (max-width:780px){
+   cadre qui n'a plus rien à cadrer et on rend au message la mesure et les marges du pouce.
+   Même seuil que le bloc ci-dessus, et pour la même raison : à 900 px, laisser ce bloc à 780
+   donnait une pile habillée en trois volets — un filet vertical qui ne sépare plus rien et un
+   aplat de liste sur un bloc pleine largeur. Un seul seuil pour tout l'écran Courrier. */
+@media (max-width:959px){
   html[data-refonte] #mail-side{background:transparent!important;padding:0 0 10px!important;border:0!important}
   html[data-refonte] #mail-mid{background:transparent!important;border:0!important}
   html[data-refonte] #mail-read [style*="max-width:760px"],
@@ -16573,6 +16585,9 @@ function renderBonsList(){
    et recevoir les réponses dans l'app — sans jamais ouvrir une boîte mail externe. */
 let mailTab='recu'; let _mailboxes=[]; let _mailReplies=null; let mailSearch=''; let mailSel=null; let mailBoxFiltre='';
 async function loadMailboxes(){ try{ const r=await fetch(PUSH_API+'/api/mailboxes?teamId='+encodeURIComponent(syncTeam())); const d=await r.json(); _mailboxes=d.mailboxes||[]; }catch(e){ _mailboxes=[]; } return _mailboxes; }
+/* _mailChargeEnCours empêche la boucle décrite plus bas, à l'endroit où la Réception se
+   recharge. Il vit ici pour être lisible à côté de la fonction qu'il garde. */
+let _mailChargeEnCours=false;
 async function loadMailReplies(){ try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam())); const d=await r.json(); _mailReplies=d.replies||[]; }catch(e){ _mailReplies=null; } return _mailReplies; }
 function _mailLus(){ try{ return new Set(JSON.parse(localStorage.getItem('elan_mail_lus')||'[]')); }catch(e){ return new Set(); } }
 function _mailMarquerLu(k){ const st=_mailLus(); if(st.has(k)) return; st.add(k); localStorage.setItem('elan_mail_lus',JSON.stringify([...st].slice(-600))); }
@@ -16632,9 +16647,21 @@ views.boiteMail=function(){
         <button class="btn" style="padding:12px 24px;font-weight:800" onclick="mailConnect()">🔗 Connecter ma boîte mail</button>
         <p style="color:var(--t3);font-size:11px;margin-top:12px">Boîte pro/OVH : mot de passe habituel · Gmail/Yahoo : mot de passe d'application (guidé)</p></div>`; }
   });
-  if(mailTab==='recu'&&_mailReplies===null){
+  /* ── LA RÉCEPTION NE TOURNE PLUS EN ROND ──────────────────────────────────────────────
+     loadMailReplies() laisse _mailReplies à null quand l'appel échoue. On redessinait alors
+     l'écran, qui retrouvait null, et relançait l'appel : mesuré, 317 requêtes en dix secondes
+     sur un 502, page figée, et le message « Réception indisponible » jamais affiché.
+     Un drapeau suffit — mais l'ORDRE compte : on redessine D'ABORD, on le baisse ENSUITE.
+     L'inverse rearme la garde avant le rendu et la boucle repart, identique (vérifié : 317
+     appels contre 316 sans garde). Le try/finally protège le cas où le rendu jette : sans lui,
+     le drapeau resterait levé et le bouton 🔄 ne retenterait plus rien de la session. */
+  if(mailTab==='recu'&&_mailReplies===null&&!_mailChargeEnCours){
+    _mailChargeEnCours=true;
     $('mail-list').innerHTML='<div style="text-align:center;color:var(--t3);padding:26px">Chargement…</div>';
-    loadMailReplies().then(()=>{ if(current==='boiteMail') views.boiteMail(); });
+    loadMailReplies().finally(()=>{
+      try{ if(current==='boiteMail') views.boiteMail(); }
+      finally{ _mailChargeEnCours=false; }
+    });
     return;
   }
   renderMailList(); renderMailPane();
