@@ -2407,7 +2407,10 @@ html[data-refonte] .brand::after{
   background:linear-gradient(118deg,transparent 0 58%,color-mix(in srgb,var(--acier) 9%,transparent) 58% 100%)}
 
 /* ══ LE MOUVEMENT, PLUS PRÉSENT ══ ce qui manquait : de l'amplitude, et un rebond qu'on voit.
-   Tout reste neutralisé sous « réduire les animations » (bloc plus bas dans la page). */
+   Ces règles portent !important : elles battent donc le « *{transition-property:…!important} »
+   de la feuille de base, qui est moins spécifique. Leur neutralisation sous « réduire les
+   animations » est écrite explicitement plus bas, nom par nom — sans elle, .menu-btn continuait
+   de s'enfoncer et le message de confirmation de glisser (mesuré, doigt posé). */
 html[data-refonte] .btn,html[data-refonte] .chip,html[data-refonte] .bell,html[data-refonte] .menu-btn{
   transition:background-color var(--d-1) var(--e-sortie),color var(--d-1) var(--e-sortie),box-shadow var(--d-2) var(--e-sortie),transform var(--d-3) var(--ressort)!important}
 html[data-refonte] .btn:hover{transform:translateY(-1.5px);box-shadow:var(--ombre-2)}
@@ -3415,6 +3418,12 @@ html[data-refonte] .content{padding-top:10px}
   /* L'action PRINCIPALE passe en tête et prend la largeur : c'est elle qu'on vient faire.
      Les secondaires (grises depuis la règle d'accent rare) se partagent la ligne suivante. */
   html[data-refonte] .ph-actions .btn:not(.ghost):not(.danger){order:-1;flex:1 1 100%}
+  /* Les rangées de boutons posées en ligne par l'application — « display:flex;gap:8px » écrit
+     dans l'attribut style — ne savent pas revenir à la ligne. Mesuré sur « Paramètres » à
+     390 px : le document faisait 446 px de large, « Déconnexion » sortait de 56 px et TOUT
+     l'écran glissait latéralement. On ne leur impose rien : wrap ne change la mise en page que
+     lorsqu'elle déborderait, donc les rangées qui tiennent restent sur une ligne. */
+  html[data-refonte] #content div[style*="display:flex"][style*="gap:8px"]:has(> .btn){flex-wrap:wrap}
   /* DEUX SYSTÈMES DE FILTRES EMPILÉS sur trois rangées, c'était le fouillis de l'écran « Bons ».
      On ne peut pas les fondre en un seul — l'un choisit un mode d'affichage, l'autre un état,
      ce sont deux questions — mais chacun tient désormais sur UNE ligne qui défile au doigt,
@@ -3887,6 +3896,22 @@ html[data-refonte] body.rf-repliee .rf-plier .rf-volet{opacity:0}
   html[data-refonte] .sidebar{transition:none!important;will-change:auto}
   html[data-refonte] .rf-plier:active{transform:none!important}
   html[data-refonte] .rf-plier .rf-volet{transition:none}
+  /* La feuille de base neutralise tout par « *{transition-property:…!important} » — mais une
+     règle en !important de spécificité SUPÉRIEURE la bat, et la refonte en pose plusieurs. Le
+     commentaire « tout reste neutralisé sous réduire les animations », plus haut, était donc
+     faux dans le code : mesuré, doigt posé sur .menu-btn, l'échelle valait encore scale(0,948),
+     et le message de confirmation glissait toujours. On reprend ici, nom par nom, ce que la
+     refonte a rendu plus fort qu'elle. Les fondus de couleur restent : ce n'est pas du
+     mouvement, et les retirer ferait clignoter l'interface au lieu de la calmer. */
+  html[data-refonte] .btn,html[data-refonte] .chip,html[data-refonte] .bell,
+  html[data-refonte] .menu-btn,html[data-refonte] .nav-item,html[data-refonte] .nav-glisse{
+    transition-property:background-color,color,border-color,box-shadow,opacity!important}
+  html[data-refonte] .btn:hover,html[data-refonte] .btn:active,
+  html[data-refonte] .chip:active,html[data-refonte] .bell:active,
+  html[data-refonte] .menu-btn:active,html[data-refonte] .nav-item:active{transform:none!important}
+  /* Le message de confirmation paraît sans glisser : le translate est sa seule mise en place
+     (posé en left:50 %), on le laisse donc à sa position finale au lieu de l'annuler. */
+  html[data-refonte] .toast{transition-property:opacity!important;transform:translateX(-50%)!important}
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -24378,6 +24403,14 @@ try{
   if(typeof window.go==='function'){
     var goNatif=window.go, enRetour=false;
     window.go=function(vue){
+      /* mailOpen() pose la feuille de lecture plein écran (#mail-read, position:fixed;inset:0)
+         directement sur <body>, et SEUL son propre bouton « Retour » la retire. Rien ne la
+         ferme quand l'écran change : mesuré, après avoir ouvert un message puis demandé
+         « Réglages », la feuille couvrait encore toute la page (rect 0,0 390x844, display
+         flex, visibility visible). Le défaut préexiste à la refonte, mais la barre d'onglets
+         le met à portée d'un seul doigt — on referme donc la feuille sur tout changement
+         d'écran. On ne touche pas à mailOpen(), qui reste la référence. */
+      try{ var feuille=document.getElementById('mail-read'); if(feuille) feuille.remove(); }catch(e){}
       var r=goNatif.apply(this,arguments);
       if(!enRetour){ try{ history.pushState({rf:1},'','#v='+(window.current||vue||'')); }catch(e){} }
       try{ marquer(); }catch(e){}
