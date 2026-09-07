@@ -141,7 +141,9 @@ agents `concepteur` et `testeur`, qui sont les deux à s'en servir.
 
 Ce dépôt est cloné deux fois sur cette machine :
 
-- `~/Documents/GitHub/elangestion.github.io` — branche `main`, **le code de production**
+- `~/Documents/GitHub/teamop` — branche `main`, **le code de production**
+  (le dépôt s'appelait `elangestion.github.io` jusqu'au 7 septembre 2026 ; le dossier local
+  peut encore porter l'ancien nom sans que ça gêne)
 - `~/TeamOP` — branche `audit/plan-action`, **625 commits de retard**
 
 Son `server/index.js` fait 308 lignes contre 1 300 ici. Toute correction du serveur
