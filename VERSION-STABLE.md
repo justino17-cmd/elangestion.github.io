@@ -24,6 +24,27 @@ la met au rouge. `mvtRetrait(m)` décide, en lisant le signe des quantités (`du
 lignes d'un lot). Sur un passage mixte, la notification fait deux appels — un rouge pour les
 produits repris, un vert pour ceux remis — et chaque ligne porte la bonne couleur.
 
+**La fenêtre « Nouvel utilisateur » débordait, et l'en-tête s'en allait.** Une règle posée
+avec les unités d'écran bornait toute fenêtre pleine à `100dvh` — sans lui donner de défilement.
+Mesuré : la boîte annonçait 900 px pour 4 901 px de contenu, en `overflow:visible`. Le contenu
+sortait donc de la carte, et l'en-tête « collant » cessait de coller — relevé à −3 248 px, hors
+écran, une fois défilé en bas. C'est ce que Justin a photographié : un titre qui s'en va, des
+lignes qui traversent le verre du pied. Borner une boîte sans lui donner de défilement ne la
+borne pas, ça la fait déborder. La règle est retirée : c'est l'overlay qui défile, et l'en-tête
+comme le pied s'y collent. Après correction, en-tête relevé à −22 → 49 px, à sa place, et plus
+une seule ligne cachée sous le pied.
+
+**Un bon adressé à la main pouvait partir à l'unité, jamais en groupe.** Relevé par le
+relecteur : dans « Envoyer les bons prêts », la case à cocher restait conditionnée à `f.email`
+alors que la ligne au-dessus affichait déjà l'adresse via `bonEmailDest()`. Un bon portant une
+adresse saisie sur place s'affichait avec son adresse en toutes lettres et une case grisée,
+impossible à cocher. Corrigé et vérifié sur les trois cas : fournisseur avec e-mail, adresse
+saisie sur le bon seul, aucune adresse.
+
+**Deux surlignages coup sur coup ne s'éteignent plus l'un l'autre.** `cible()` retirait la
+marque de tous les `.cible-vue` de la page à son extinction, y compris ceux d'un second appel
+encore en cours. Chaque appel n'éteint désormais que ce qu'il a lui-même allumé.
+
 **Un bon de commande sans e-mail fournisseur ne renvoie plus ailleurs.** Il affichait « Ajoute
 un e-mail au fournisseur (menu Fournisseurs → ✎) » : il fallait quitter le bon, ouvrir un autre
 écran, revenir. L'adresse se saisit désormais sur place, avec le choix de l'enregistrer sur la

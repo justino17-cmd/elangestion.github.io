@@ -3411,8 +3411,15 @@ html[data-refonte] .chip,html[data-refonte] .tab{scroll-snap-align:center}
    (Les 100vh du socle, hors garde, restent à corriger côté production — voir le compte rendu.) */
 @supports (height:100dvh){
   html[data-refonte] .overlay{min-height:100dvh}
-  html[data-refonte] .modal.full,html[data-refonte] .modal.plein{max-height:100dvh}
 }
+/* Il y avait ici « .modal.full{max-height:100dvh} ». Mesuré sur la fiche « Nouvel utilisateur » :
+   la fenêtre annonçait 900 px de haut pour 4 901 px de contenu, avec overflow:visible — donc le
+   contenu SORTAIT de la boîte, le fond de la carte s'arrêtait à mi-chemin, et surtout l'en-tête
+   collant cessait de coller (relevé à −3 248 px, hors écran, une fois défilé en bas). C'est ce
+   que Justin a photographié : un titre qui s'en va, des lignes qui traversent le verre du pied.
+   Borner une boîte sans lui donner de défilement ne la borne pas, ça la fait déborder. Ici c'est
+   l'OVERLAY qui défile, et l'en-tête comme le pied s'y collent : la fenêtre doit garder sa
+   hauteur réelle. (« .modal.plein » n'existe nulle part ailleurs dans la page.) */
 /* Les zones sûres de l'iPhone : l'encoche en haut, la barre d'accueil en bas, et les bords
    arrondis en paysage. Rien d'interactif ne doit jamais s'y loger. */
 html[data-refonte] .topbar{padding-top:max(12px,env(safe-area-inset-top))}
@@ -16988,7 +16995,7 @@ async function bonEnvoyerTousPrets(){
   prets.slice().forEach(b=>bonSeparer(b.id));   // aucun bon mixte ne part : séparation par fournisseur d'abord
   prets=visibleBons(db.bons).filter(b=>b.statut==='prete').sort((a,b)=>(fournName(a.fournisseurId)||a.fournisseur||'').localeCompare(fournName(b.fournisseurId)||b.fournisseur||'')||(a.numero||'').localeCompare(b.numero||''));
   const row=b=>{ const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{}; const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;
-    return `<label class="pl-row" style="cursor:pointer;align-items:center;gap:10px"><input type="checkbox" class="bte-chk" value="${b.id}" ${f.email?'checked':'disabled'} style="width:20px;height:20px;accent-color:var(--acc);flex-shrink:0">
+    return `<label class="pl-row" style="cursor:pointer;align-items:center;gap:10px"><input type="checkbox" class="bte-chk" value="${b.id}" ${bonEmailDest(b,f)?'checked':'disabled'} style="width:20px;height:20px;accent-color:var(--acc);flex-shrink:0">
       <div class="pl-info"><div class="pl-title">${esc(f.nom||b.fournisseur||'Sans fournisseur')} <span style="color:var(--t3);font-weight:400;font-size:12px">· ${esc(bonNum(b))}</span></div>
       <div class="pl-meta">${(b.lignes||[]).length} article(s) · ${bonQteTotTxt(b)}${bx?' · 📦 '+esc(bx.nom||bx.numero||''):''}<br>${bonEmailDest(b,f)?'→ <span style="color:var(--acc)">'+esc(bonEmailDest(b,f))+'</span>':'<span style="color:var(--org,#e8a33d)">⚠️ e-mail fournisseur manquant — ne peut pas partir</span>'}</div></div></label>`; };
   openModal(`<div class="modal-head"><h3>✉️ Envoyer les bons prêts</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
@@ -22818,6 +22825,7 @@ function cible(type,ids,ton){
   var fin=Date.now()+6000;
   var vu=null;            // la ligne qu'on a amenée à l'écran, pour repérer son remplacement
   var minuteur=null;
+  var marques=[];         // ce que CET appel a marqué — pour n'éteindre que ça
   function trouve(){
     var els=[];
     liste.forEach(function(id){
@@ -22839,12 +22847,18 @@ function cible(type,ids,ton){
         }catch(e){}
       }
       els.forEach(function(e){ if(!e.classList.contains('cible-vue')) e.className+=' '+classes; });
+      marques=els;
     }
     if(Date.now()<fin){ minuteur=setTimeout(poser,120); return; }
-    // fin de la mise en avant : on retire la marque partout, y compris sur des lignes refaites
+    /* On n'éteint QUE ce que CET appel a allumé. Éteindre tous les « .cible-vue » de la page
+       ferait clignoter le halo d'un second appel encore en cours — deux notifications ouvertes
+       coup sur coup, ou le rouge et le vert d'un passage mixte s'ils ne finissaient pas ensemble. */
     try{
-      [].slice.call(document.querySelectorAll('.cible-vue')).forEach(function(e){
-        e.classList.remove('cible-vue'); e.classList.remove('cible-retrait');
+      marques.forEach(function(e){ e.classList.remove('cible-vue'); e.classList.remove('cible-retrait'); });
+      // et les lignes refaites depuis, qui portent la marque de cet appel sans être dans la liste
+      liste.forEach(function(id){
+        try{ var e=document.querySelector('[data-'+type+'="'+id+'"]'); 
+          if(e&&marques.indexOf(e)<0){ e.classList.remove('cible-vue'); e.classList.remove('cible-retrait'); } }catch(x){}
       });
     }catch(e){}
   }
