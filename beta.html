@@ -4485,7 +4485,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '567-beta';
+const APP_VERSION = '568-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -22932,7 +22932,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   if(vBox){ const recent=Date.now()-3*86400000;
     db.boxes.filter(notifBoxConcerne).forEach(b=>(b.arrivages||[]).filter(a=>(a.ts||0)>=recent&&!notifMoi(a.par)).forEach(a=>{ const tot=(a.lignes||[]).reduce((t,l)=>t+(l.qte||0),0);
       out.push({id:'arr:'+a.id,ts:a.ts||0,ic:'📦',txt:`<b>Arrivage box</b> — ${esc(b.nom||b.numero||'Box')} par <b>${esc(a.par||'')}</b> : ${tot} produit(s) (${esc(a.fournisseur||'')})`,act:"openBox('"+b.id+"');cible('pid','"+(a.lignes||[]).map(function(l){return l.produitId;}).filter(Boolean).join(",")+"')"}); })); }
-  if(vStock) db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).forEach(p=>out.push({id:'stock:'+p.id,ic:'📦',txt:`Stock bas : <b>${esc(p.nom)}</b> (${p.qte}/${p.seuil})`,act:"go('stock');cible('pid','"+p.id+"')"}));
+  if(vStock) db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).forEach(p=>out.push({id:'stock:'+p.id,ic:'📦',txt:`Stock bas : <b>${esc(p.nom)}</b> (${p.qte}/${p.seuil})`,act:"go('stock');cible('pid','"+p.id+"','retrait')"}));
   const estDir=!!(currentUser && (currentUser.role==='admin'||currentUser.role==='dr'));
   if(estDir || can('validerDR')){
     // Produits de box bientôt épuisés / épuisés → alerte au DR (regroupée par box)
@@ -22940,7 +22940,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
       const lows=Object.keys(st).map(pid=>({pid,p:produit(pid),u:(st[pid]||{}).u||0})).filter(x=>x.p&&x.p.id&&x.u<=2);
       if(!lows.length) return; const nEp=lows.filter(x=>x.u<=0).length;
       const names=lows.slice(0,3).map(x=>esc(x.p.nom)+(x.u<=0?' <b>épuisé</b>':' ('+x.u+' u)')).join(', ')+(lows.length>3?'…':'');
-      out.push({id:'boxlow:'+b.id+':'+lows.map(x=>x.pid+'.'+x.u).join('|'),ic:nEp?'🟥':'🟠',txt:`Box <b>${esc(b.nom||b.numero||'')}</b> — ${lows.length} produit(s) à réapprovisionner${nEp?` dont <b>${nEp} épuisé(s)</b>`:''} : ${names}`,act:"openBox('"+b.id+"');cible('pid','"+lows.map(function(x){return x.pid;}).join(",")+"')"});
+      out.push({id:'boxlow:'+b.id+':'+lows.map(x=>x.pid+'.'+x.u).join('|'),ic:nEp?'🟥':'🟠',txt:`Box <b>${esc(b.nom||b.numero||'')}</b> — ${lows.length} produit(s) à réapprovisionner${nEp?` dont <b>${nEp} épuisé(s)</b>`:''} : ${names}`,act:"openBox('"+b.id+"');cible('pid','"+lows.map(function(x){return x.pid;}).join(",")+"','retrait')"});
     });
     if(can('validerDR') && notifVoitModule('validations')){   // toute personne qui a le droit de valider (DR, admin, ou droit accordé)
       db.demandes.filter(d=>d.statut==='enAttente').forEach(d=>out.push({id:'dem:'+d.id,ic:'✈️',txt:`Demande à valider : <b>${esc(d.num)}</b>${(d.chefNom||d.chefId)?' · '+esc(d.chefNom||userName(d.chefId)):''}`,act:"go('validations');cible('dem','"+d.id+"')"}));
@@ -23064,6 +23064,15 @@ function notifSee(id){ notifSeen.set(id,Date.now()); saveNotifSeen(); updateBell
    temps (go(), puis openBox(), puis la liste des produits), et un simple setTimeout arrivait
    parfois trop tôt, parfois trop tard. Au bout de 3 secondes on abandonne en silence — la
    navigation a de toute façon eu lieu, on ne bloque personne pour un surlignage. */
+/* ══ LA RÈGLE DE COULEUR, UNE FOIS POUR TOUTES ═══════════════════════════════════════════
+   ROUGE (ton='retrait') : tout ce qui parle de matière qui SORT ou qui MANQUE — un produit
+     repris dans une box, un retrait, un stock bas, une box à réapprovisionner.
+   VERT (par défaut)     : tout ce qui parle de matière qui ENTRE — un arrivage, un produit
+     reposé, la réception d'un bon.
+   NEUTRE (vert aussi)   : ce qui ne parle pas de stock — une demande, une enveloppe.
+   Une notification qui montre des produits « à commander » en vert dit le contraire de ce
+   qu'elle annonce : le vert se lit « tout va bien ». Toute nouvelle notification qui appelle
+   cible() sur des produits doit trancher ici avant d'être écrite. */
 function cible(type,ids,ton){
   /* type + identifiant(s) plutôt qu'un sélecteur tout fait : ces appels vivent dans des
      chaînes que l'application évalue, et un sélecteur y demandait trois niveaux

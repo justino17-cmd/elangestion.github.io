@@ -1178,9 +1178,17 @@ function tourRepartirNeuf(email,nom){
     setTimeout(function(){ tourLienEntreprise(email,nom,true); },250);
   }).catch(function(){ toast('Serveur injoignable'); });
 }
-async function tourLienEntreprise(email,nom,neuf){
-  var ident=prompt('Identifiant de départ (son prénom — il pourra le changer à sa première connexion) :',tourIdentDefaut(email));
-  if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
+/* identConnu : l'identifiant que le SERVEUR connaît déjà pour cet espace (il vit dans le code
+   de l'espace, champ « a »). Quand on le passe, on ne redemande rien — on montre ce qui est.
+   Avant, « Revoir le lien » ouvrait un prompt proposant « admin » : on croyait choisir, et on
+   écrasait l'identifiant réel de l'entreprise par un mot générique. */
+async function tourLienEntreprise(email,nom,neuf,identConnu){
+  var ident;
+  if(identConnu){ ident=String(identConnu).toLowerCase().replace(/[^a-z0-9.]/g,''); }
+  else {
+    ident=prompt('Identifiant de départ (son prénom — il pourra le changer à sa première connexion) :',tourIdentDefaut(email));
+    if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
+  }
   var mdp=tourMdpDefaut(email);
   var e=await tourEspaceDe(email,nom,ident,mdp,neuf);
   var mdpAff=e.mdp||mdp;
@@ -1224,6 +1232,30 @@ function tourAccesCharger(slug,regenerer){
     else { el.textContent='—'; el.style.fontSize='13px'; el.style.letterSpacing='0';
       el.textContent=(r&&r.error)||'code indisponible'; }
   }).catch(function(){ var el=document.getElementById('lg-acces'); if(el) el.textContent='—'; });
+}
+/* Reprendre la main sur les identifiants de départ d'un espace qui n'a pas encore servi.
+   Le serveur refuse dès qu'une connexion a été enregistrée, et le dit — on relaie son message
+   plutôt que d'inventer le nôtre. */
+function tourIdentModifier(slug,nom,identActuel){
+  if(!slug){ toast('Espace sans identifiant technique — passe par sa fiche d’entreprise'); return; }
+  var ident=prompt('Identifiant de connexion pour « '+(nom||slug)+' » :',identActuel||'');
+  if(ident===null) return;
+  ident=(ident||'').toLowerCase().replace(/[^a-z0-9.]/g,'');
+  if(!ident){ toast('Il faut un identifiant'); return; }
+  var mdp=prompt('Nouveau mot de passe provisoire (8 caractères minimum) :\n\nIl ne sert qu’à la PREMIÈRE connexion : l’application fait ensuite choisir le vrai mot de passe.','');
+  if(mdp===null) return;
+  if((mdp||'').length<8){ toast('Mot de passe trop court (8 caractères minimum)'); return; }
+  apiPost('/api/monitor/espaces/identifiants',{slug:slug,ident:ident,mdp:mdp}).then(function(r){
+    if(!(r&&r.ok)){ alert((r&&r.d&&r.d.error)||'Modification impossible.'); return; }
+    chargerAccesPublics();
+    tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">✏️ Identifiants changés — '+esc(nom||slug)+'</div>'+
+      '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Le lien a changé aussi : c’est lui qui porte les identifiants de départ. Redonne CELUI-CI.</div>'+
+      '<div class="sec">LE LIEN</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="id-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(r.d.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'id-lien\',this)">Copier</button></div>'+
+      '<div class="sec">LES IDENTIFIANTS</div>'+
+      '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(ident)+'</b><br>Mot de passe provisoire : <b>'+esc(mdp)+'</b></div>'+
+      '<div class="encart"><div class="encart-tx">Valable tant que personne ne s’est connecté. Dès la première connexion, le mot de passe appartient à l’entreprise et ne se change plus d’ici.</div></div>');
+  }).catch(function(){ toast('Serveur injoignable'); });
 }
 function tourAccesNeuf(slug){
   if(!confirm('Renouveler le code d\'accès ?\n\nL\'ancien cessera de fonctionner immédiatement : il faudra donner le nouveau à toute l\'équipe.')) return;
@@ -2531,18 +2563,28 @@ function vueEssais(){
         '<div style="width:38px;height:38px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(e.nom))+'</div>'+
         '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(e.nom||e.slug)+
           (e.email?' <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">'+esc(e.email)+'</span>':'')+'</div>'+
-          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+quand+qui+
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+
+            (e.ident?'Identifiant <b class="mono" style="color:var(--txt);font-weight:600">'+esc(e.ident)+'</b> · ':'')+quand+qui+
             (e.ouvertLe?' · ouvert le '+esc(fmtJour(e.ouvertLe)):'')+(e.ouvertPar?' par '+esc(e.ouvertPar):'')+'</div></div>'+
         '<span class="past '+(r.derniere?'p-vert':'p-gris')+'">'+(r.derniere?'Actif':'Jamais ouvert')+'</span>'+
       '</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
-        (e.email?'<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(e.email)+'\',\''+jsq(e.nom||'')+'\')">🔗 Revoir le lien et le code</button>':
-                 '<span style="font-size:12px;color:var(--muted)">Sans e-mail enregistré — le lien se retrouve depuis la fiche de l’entreprise.</span>')+
+        (e.email?'<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(e.email)+'\',\''+jsq(e.nom||'')+'\',false,\''+jsq(e.ident||'')+'\')">🔗 Revoir le lien et le code</button>':'')+
+        /* Changer identifiant et mot de passe n'a de sens QUE tant que personne ne s'est
+           connecté : après, le vrai mot de passe vit dans les données chiffrées de l'espace,
+           hors de portée du serveur. On ne montre donc pas un bouton qui mentirait. */
+        (r.derniere?'<span style="font-size:12px;color:var(--muted)">Déjà utilisé — le mot de passe appartient maintenant à l’entreprise (« mot de passe oublié » dans l’application).</span>'
+                   :'<button class="btn-fant" onclick="tourIdentModifier(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\',\''+jsq(e.ident||'')+'\')">✏️ Changer identifiant / mot de passe</button>')+
       '</div>'+
     '</div>';
   }).join('');
-  var titrePub='<div style="margin-top:22px;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)">Accès à la version publique</div>';
-  return tete+'<div class="deux"><div class="col-liste">'+liste+titrePub+pub+'</div><div class="col-detail">'+form+formPub+'</div></div>';
+  /* Les deux listes portent leur titre. Sans celui du haut, on lisait une suite de cartes sans
+     savoir laquelle ouvre quoi — et confondre les deux, c'est croire qu'un accès bêta touche
+     des données d'entreprise. */
+  var stTitre='font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)';
+  var titreBeta='<div style="'+stTitre+';margin-bottom:8px">Accès à la bêta <span style="font-weight:400;text-transform:none;letter-spacing:0">— n’ouvrent que beta.html</span></div>';
+  var titrePub='<div style="margin-top:22px;'+stTitre+'">Accès à la version publique <span style="font-weight:400;text-transform:none;letter-spacing:0">— vrais espaces, vraies données</span></div>';
+  return tete+'<div class="deux"><div class="col-liste">'+titreBeta+liste+titrePub+pub+'</div><div class="col-detail">'+form+formPub+'</div></div>';
 }
 function vueEquipe(){
   var tete=enTete('Équipe',
