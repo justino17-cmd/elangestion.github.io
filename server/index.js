@@ -1431,15 +1431,15 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '561',
-  sujet: '✨ OP GESTION change de peau — plus claire, plus calme, plus lisible',
-  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Vos données et vos écrans sont exactement les mêmes : c\'est l\'<b>apparence</b> de l\'application qui a été retravaillée, dans l\'esprit des applications de votre téléphone.',
+  version: '562',
+  sujet: '🔒 Vos sorties de box en une seule validation, et la connexion mail réparée',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît). Deux points précis changent, tous les deux signalés par des utilisateurs.',
   points: [
-    ['🧱 Des surfaces sans cadre', 'Les cartes et les listes n\'ont plus de bordure : elles se détachent du fond par leur teinte, comme dans Mail ou Réglages. L\'écran est plus calme et l\'œil va droit au contenu.'],
-    ['🔤 L\'écriture de votre téléphone', 'OP GESTION utilise désormais la police du système — celle de vos autres applications. Les titres sont plus grands et plus nets, les chiffres s\'alignent, et le tout se lit mieux au soleil.'],
-    ['🧊 Le menu en verre dépoli', 'La barre latérale et la barre du haut laissent transparaître le contenu qui défile dessous. La rubrique où vous êtes est un rectangle vert plein, impossible à manquer. Les boutons verts disent l\'action principale, les boutons clairs le reste.'],
-    ['♿ Vos réglages sont respectés', 'Si votre téléphone est réglé sur « Réduire la transparence », les verres redeviennent des aplats ; sur « Augmenter le contraste », les contours se renforcent. Le mode jour et le mode nuit sont tous deux revus.']
-  ]
+    ['📦 Plusieurs produits, une seule validation', 'Quand vos équipes sont soumises à la validation du DR, chaque produit ajusté dans une box partait jusqu\'ici en demande séparée : retirer trois produits donnait trois validations à traiter une par une. Désormais tout ce qu\'une personne ajuste dans une même box tient dans <b>une seule demande</b>. Le DR valide une fois, tout s\'applique ; il refuse une fois, rien ne bouge.'],
+    ['📄 Le bon de remise détaillé', 'Quand ces sorties sont destinées à quelqu\'un, le bon de remise liste maintenant <b>chaque produit avec sa quantité</b>, au lieu d\'un total global.'],
+    ['📧 La connexion à Gmail réparée', 'Si votre boîte Gmail ou Yahoo a la validation en deux étapes — le réglage par défaut — la connexion échouait et l\'application vous proposait de réinitialiser votre mot de passe. C\'était un mauvais conseil : cela ne pouvait pas fonctionner. Elle vous envoie maintenant créer un <b>mot de passe d\'application</b>, la clé de 16 caractères que Google exige, et vous explique comment.']
+  ],
+  fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes.'
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
   if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });

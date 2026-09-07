@@ -1,7 +1,34 @@
 # Point stable TeamOP
 
-**Version stable : v561** — gravée le 6 septembre 2026.
+**Version stable : v562** — gravée le 7 septembre 2026.
 
+v562 — deux corrections signalées à l'usage, et rien d'autre pour les entreprises.
+
+**Les sorties de box partent en une seule validation.** Les taps successifs sur un
+même produit se regroupaient déjà, mais chaque produit différent créait sa propre
+demande : retirer trois produits donnait trois validations à traiter une par une au
+DR. Tout ce qu'une personne ajuste dans une même box tient désormais dans une seule
+demande à plusieurs lignes — la forme des arrivages, que le circuit savait déjà
+traiter. Le DR valide une fois, tout s'applique ; il refuse une fois, rien ne bouge.
+Les demandes de l'ancienne forme encore en attente continuent d'être traitées comme
+avant. Le bon de remise gagne au passage une ligne par produit au lieu d'un total.
+
+**La connexion à Gmail donnait le mauvais conseil.** Google refuse le mot de passe
+habituel dès que la validation en deux étapes est active — le réglage par défaut — et
+le dit précisément : « 534-5.7.9 Application-specific password required ». Ce cas
+tombait dans le test générique « mot de passe incorrect », et l'application proposait
+de réinitialiser le mot de passe du compte. Ça ne pouvait rien débloquer : le nouveau
+aurait été refusé pareil. Elle envoie maintenant créer un mot de passe d'application,
+la clé de 16 caractères que Google exige, et explique où et comment.
+
+Le cache du service worker passe à v759, sinon les appareils gardent l'ancienne copie.
+
+La refonte visuelle, elle, ne quitte toujours pas la bêta : `app.html` porte
+`<html lang="fr">` nu, et seule `beta-build.js` pose l'attribut qui l'allume.
+
+## Ancien point
+
+**v561**
 v561 — OP GESTION reçoit le dessin d'Apple, le même que la Tour de contrôle depuis
 la v2.5 : plus de bordure sur les surfaces, c'est le ton qui sépare les cartes du
 fond ; la police du système (SF sur Mac et iPhone) à la place d'Archivo ; une barre
