@@ -992,7 +992,11 @@ function monAdmin(req, res, next) {
   const m = /^Bearer\s+([a-f0-9]{48})$/.exec(String(req.headers.authorization || ''));
   const s = m && monTokens.get(m[1]);
   if (!s || Date.now() > s.exp) return res.status(401).json({ error: 'session expirée — reconnecte-toi' });
-  const u = monUsers.length ? monUsers.find(x => x.id === s.userId) : null;
+  /* « s.userId && » n'est pas superflu : sans lui, une session sans identifiant s'accroche au
+     PREMIER compte dépourvu de champ « id » et lui emprunte son rôle — un compte simple
+     décrocherait ainsi les droits du patron. Aucune route n'en crée aujourd'hui, mais une
+     édition à la main de monitor.json suffirait. */
+  const u = (monUsers.length && s.userId) ? monUsers.find(x => x.id === s.userId) : null;
   if (monUsers.length && (!u || !u.actif)) return res.status(401).json({ error: 'accès désactivé — reconnecte-toi' });
   req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role) };
   next();
@@ -1007,7 +1011,11 @@ function monPatronStrict(req, res, next) {
   const m = /^Bearer\s+([a-f0-9]{48})$/.exec(String(req.headers.authorization || ''));
   const s = m && monTokens.get(m[1]);
   if (!s || Date.now() > s.exp) return res.status(403).json({ error: 'réservé au patron' });
-  const u = monUsers.length ? monUsers.find(x => x.id === s.userId) : null;
+  /* « s.userId && » n'est pas superflu : sans lui, une session sans identifiant s'accroche au
+     PREMIER compte dépourvu de champ « id » et lui emprunte son rôle — un compte simple
+     décrocherait ainsi les droits du patron. Aucune route n'en crée aujourd'hui, mais une
+     édition à la main de monitor.json suffirait. */
+  const u = (monUsers.length && s.userId) ? monUsers.find(x => x.id === s.userId) : null;
   if (monUsers.length && (!u || !u.actif)) return res.status(403).json({ error: 'réservé au patron' });
   req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role) };
   if (req.tourUser.role !== 'patron') return res.status(403).json({ error: 'réservé au patron' });
@@ -1181,7 +1189,7 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
 });
 // le patron attribue la formule d'un espace (Gratuit/Pro/Business/Premium × quantité)
 app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
   const f = monStr((req.body || {}).formule, 20);
@@ -1279,7 +1287,7 @@ app.get('/api/monitor/espaces/liste', monAdmin, async (req, res) => {
 });
 // statut complet d'un espace, côté contrôle
 app.post('/api/monitor/espaces/statut', monAdmin, async (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
   const p = await espacePaye(e);
@@ -1309,7 +1317,7 @@ app.post('/api/usage', (req, res) => {
 });
 // la Tour lit l'activité par onglet d'une entreprise, et ses problèmes ouverts
 app.post('/api/monitor/espaces/activite', monAdmin, (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
   let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
@@ -1354,7 +1362,7 @@ function cnxResume(t) {
 }
 // la Tour : détail des connexions d'une entreprise
 app.post('/api/monitor/espaces/connexions', monAdmin, (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
   let t = e ? e.t : ''; try { if (e && !t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
   if (!t) t = monStr((req.body || {}).t, 80);
@@ -1377,7 +1385,7 @@ app.get('/api/monitor/connexions', monAdmin, (req, res) => {
 // repartir à neuf : libère le nom et EFFACE l'ancien espace (données Firestore comprises),
 // SANS bloquer l'entreprise — elle repart aussitôt sur un espace propre et vide
 app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
   if (!e) return res.json({ ok: true, rien: true });
   let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
@@ -1402,7 +1410,7 @@ app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
 });
 // le patron active un code promo pour une entreprise, directement depuis la Tour
 app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
   let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
@@ -1484,7 +1492,7 @@ app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
 });
 app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) => {
   if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
   if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
   if (!e.email) return res.status(400).json({ error: 'aucun e-mail enregistré pour cette entreprise' });
@@ -1727,11 +1735,16 @@ app.post('/api/espaces/ouvrir', (req, res) => {
      porte à tous ses salariés pendant une heure, code correct en main. C'est le plafond par IP
      qui borne la force brute, et dix caractères la rendent hors de portée de toute façon. */
   if (!bon) {
-    if (echecsEspace.size > 5000) echecsEspace = new Map();
-    const cle = t || slug;
-    const n = (echecsEspace.get(cle) || 0) + 1;
-    echecsEspace.set(cle, n);
-    if (n === 20) console.warn('code d\'accès : 20 échecs en une heure sur l\'espace', cle);
+    /* On ne compte QUE les espaces qui existent. Compter aussi les noms inventés laissait
+       l'attaquant remplir la table en variant le nom à chaque requête, donc la faire purger,
+       donc remettre à zéro le compteur de l'espace qu'il attaquait vraiment : l'alerte ne
+       partait jamais. La clé n'est plus fournie par l'appelant. */
+    if (t) {
+      if (echecsEspace.size > 5000) echecsEspace = new Map();
+      const n = (echecsEspace.get(t) || 0) + 1;
+      echecsEspace.set(t, n);
+      if (n === 20) console.warn('code d\'accès : 20 échecs en une heure sur l\'espace', t);
+    }
     return refus();
   }
   /* Ce qu'on rend porte déjà « k », la clé des données. On en retire l'adresse e-mail de
@@ -1741,8 +1754,14 @@ app.post('/api/espaces/ouvrir', (req, res) => {
      renomme bien le compte d'amorçage avec « a » mais laisse son mot de passe à celui du
      démarrage — sha256('1234'). Un espace neuf ouvert par ce chemin se serait donc ouvert avec
      « prénom / 1234 », pendant que la Tour affiche au patron un tout autre mot de passe
-     provisoire. Rendre une empreinte d'un mot de passe à usage unique, que l'application force
-     à changer dès la première connexion, est moins grave que laisser 1234. */
+     provisoire.
+     Que « mh » vaille peu est vrai et il faut le dire sans se raconter d'histoire : c'est un
+     SHA-256 NU (mdpEmpreinte) d'une valeur devinable en un essai — mdpProv fabrique « Nom!! » à
+     partir du nom de famille, celui-là même que l'appelant vient de taper. Ce n'est donc pas
+     « l'empreinte d'un secret à usage unique ». Si on le rend quand même, c'est que pour arriver
+     ici il faut DÉJÀ le code à dix caractères, et que la réponse porte « k » : qui casserait
+     « mh » a déjà les données. Le vrai problème est ailleurs — un mot de passe provisoire
+     prévisible et une empreinte sans sel — et c'est une dette à traiter pour elle-même. */
   let rendu = codeMdpHache(e.code);
   try {
     const o = JSON.parse(Buffer.from(rendu, 'base64').toString('utf8'));
@@ -1778,7 +1797,8 @@ app.post('/api/monitor/espaces/acces', monPatronStrict, (req, res) => {
   res.json({ ok: true, slug, acces: enr.code, ts: enr.ts || 0, par: enr.par || '', vu: enr.vu || 0 });
 });
 app.post('/api/espaces/relance', (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  // borné AVANT espSlug : son normalize('NFD') sur 6 Mo gèle la boucle d'événements, donc toute l'API
+  const slug = espSlug(monStr((req.body || {}).nom, 80));
   if (!slug) return res.status(400).json({ error: 'Indique le nom de ton entreprise' });
   const ip = req.ip || '?';   // req.ip, jamais l'en-tête brut : nginx AJOUTE à la valeur reçue, donc .split(',')[0] rend celle de l'appelant
   if (!quotaOk(relanceQuota, 'ip:' + String(ip).split(',')[0].trim(), 10, 3600000))
@@ -1818,15 +1838,20 @@ app.post('/api/espaces/relance', (req, res) => {
 });
 /* Disponibilité d'un nom de lien, pour le formulaire d'inscription : un oui/non, rien d'autre. */
 app.post('/api/espaces/libre', (req, res) => {
-  const slug = espSlug((req.body || {}).nom);
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   if (!slug) return res.status(400).json({ error: 'Indique un nom' });
+  /* OUI, c'est un oracle : cette route dit publiquement si une entreprise est déjà cliente de
+     TEAM OP. C'est assumé — le formulaire d'inscription en a besoin pour refuser un nom déjà
+     pris avant que la personne ait tout saisi. Mais il faut le savoir : le message uniforme de
+     /api/espaces/ouvrir ne cache donc PAS la clientèle, il cache seulement le code. Le jour où
+     l'on voudra vraiment la cacher, c'est ici qu'il faudra un jeton de formulaire, pas là-bas. */
   res.json({ ok: true, libre: !espacesReg[slug] });
 });
 /* « Ce nom est-il celui de l'équipe t ? » — pour un appareil déjà dans l'espace t, qui
    fait confirmer à son porteur qu'il tape bien le nom de SON entreprise. Le booléen ne
    révèle rien : il faut déjà connaître t, et t seul ne mène à aucun nom. */
 app.post('/api/espaces/verifie-nom', (req, res) => {
-  const t = monStr((req.body || {}).t, 80), slug = espSlug((req.body || {}).nom);
+  const t = monStr((req.body || {}).t, 80), slug = espSlug(monStr((req.body || {}).nom, 80));
   if (!t || !slug) return res.status(400).json({ error: 't et nom requis' });
   const tEsp = espaceT(espaceAJour(slug));
   res.json({ ok: true, correspond: !!tEsp && tEsp === t });
@@ -1869,7 +1894,7 @@ app.post('/api/espaces/lien', (req, res) => {
 const FERMES_PATH = path.join(DATA_DIR, 'entreprises-fermees.json');
 let entFermes = { emails: [], espaces: [] };
 try { entFermes = JSON.parse(fs.readFileSync(FERMES_PATH, 'utf8')); } catch (e) {}
-function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFermes)); } catch (e) {} }
+function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFermes)); return true; } catch (e) { console.error('entreprises-fermees.json non écrit :', e.message); return false; } }
 const retraitCodes = new Map();   // email -> { code, exp, tries }
 // retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
 /* ── Clé d'administration Firebase (facultative) : /opt/teamop/firebase-admin.json ──
@@ -1991,9 +2016,14 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
       delete espacesReg[slug];
     }
   }
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
-  accesEcrire();
-  fermesSave();
+  /* Les trois écritures se testent. Un disque plein les fait échouer ENSEMBLE : sans ce contrôle,
+     la route répondait « fermée » pendant que rien n'était écrit, et au redémarrage l'entreprise
+     revenait, code d'accès compris. On préfère dire que ça n'a pas marché. */
+  let ecrit = true;
+  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) { ecrit = false; console.error('fermeture : espaces.json non écrit :', e.message); }
+  if (!accesEcrire()) ecrit = false;
+  if (!fermesSave()) ecrit = false;
+  if (!ecrit) return res.status(500).json({ error: 'La fermeture n\'a pas pu être enregistrée — rien n\'est garanti. Vérifie le serveur avant de recommencer.' });
   delete clientsData[email]; cliSave();
   // Effacement DÉFINITIF des données chiffrées de l'entreprise sur Firestore :
   // plus rien n'est enregistré, la place est libérée. (Les appareils reliés se

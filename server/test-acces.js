@@ -6,6 +6,13 @@
    Les cas ci-dessous sont donc ceux de la production : un espace avec « t », et DEUX noms pour
    un seul espace — la configuration qui faisait ressusciter un code révoqué.
 
+   CE QUE CE FICHIER NE COUVRE PAS, et qu'il ne faut donc pas croire couvert :
+     · /api/monitor/clients/retirer — la fermeture d'une entreprise. Elle exige un code de
+       confirmation envoyé par e-mail, donc un SMTP. On éprouve ici le GARDE-FOU (un espace
+       déjà fermé ne s'ouvre plus) et « repartir à neuf », pas la route de fermeture elle-même.
+     · le retour en arrière quand l'écriture du registre échoue (disque plein, droits) : il
+       faudrait rendre le dossier de données non inscriptible en cours d'essai.
+
    Usage :  node server/test-acces.js
    Il démarre un serveur isolé sur un port libre, dans un dossier temporaire. Il ne touche ni la
    production, ni la configuration du VPS. Sortie non nulle si un cas échoue.        */
@@ -26,10 +33,16 @@ fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
 }));
 fs.writeFileSync(path.join(dir, 'monitor.json'), JSON.stringify({
   issues: [], journal: [], archive: [],
-  users: [{ nom: 'essai', email: 'essai@teamop.fr', hash: sha(MDP), role: 'patron', actif: true }]
+  /* « id » est obligatoire : une session sans identifiant s'accroche au premier compte qui n'en
+     a pas et lui emprunte son rôle. Le serveur refuse désormais ce cas — et c'est en ajoutant
+     ce durcissement que ce test est tombé, ce qui prouve qu'il le couvre. Les routes de
+     création de comptes en attribuent toujours un. */
+  users: [{ id: 'u-essai', nom: 'essai', email: 'essai@teamop.fr', hash: sha(MDP), role: 'patron', actif: true }]
 }));
 // DEUX noms, UN seul espace : « t » identique, c'est le cas de production
-const blob = (t, n) => Buffer.from(JSON.stringify({ t, k: 'cle-' + t, n, a: 'justin', m: 'Biret!!' })).toString('base64').replace(/=+$/, '');
+/* Le blob porte « e » ET « m », comme en production (voir espaceAutoPour). Sans « e », l'essai
+   « le blob ne rend pas l'adresse e-mail » était vide de sens : le champ n'y était jamais. */
+const blob = (t, n) => Buffer.from(JSON.stringify({ t, k: 'cle-' + t, n, a: 'justin', m: 'Biret!!', e: 'demo@exemple.fr' })).toString('base64').replace(/=+$/, '');
 fs.writeFileSync(path.join(data, 'espaces.json'), JSON.stringify({
   entreprisedemo:       { nom: 'Entreprise Démo',       code: blob('demo-t1', 'Entreprise Démo'),       t: 'demo-t1', ts: Date.now() - 100000, par: 'essai', email: 'demo@exemple.fr' },
   entreprisedemoparis:  { nom: 'Entreprise Démo Paris', code: blob('demo-t1', 'Entreprise Démo Paris'), t: 'demo-t1', ts: Date.now(),          par: 'essai', email: '' },
@@ -90,6 +103,7 @@ const fin = (code) => { try { srv.kill(); } catch (e) {} try { fs.rmSync(dir, { 
     const champs = Object.keys(JSON.parse(Buffer.from(o1.code, 'base64').toString('utf8')));
     dit('le blob garde t, k, a, mh (sans eux, l\'espace s\'ouvre avec 1234)', ['t', 'k', 'a', 'mh'].every(x => champs.includes(x)), champs.join(','));
     dit('le blob ne rend PAS l\'adresse e-mail de l\'entreprise', !champs.includes('e'), champs.join(','));
+    dit('ni le mot de passe provisoire en clair', !champs.includes('m'), champs.join(','));
   }
 
   console.log('\n── la révocation tient ──');
@@ -105,7 +119,29 @@ const fin = (code) => { try { srv.kill(); } catch (e) {} try { fs.rmSync(dir, { 
   dit('mauvais code', (await post('/api/espaces/ouvrir', { nom: 'Entreprise Démo', acces: 'ZZZZZZZZZZ' })).statut === 403);
   dit('entreprise inconnue, même message', (await post('/api/espaces/ouvrir', { nom: 'Nexiste Pas', acces: n.acces })).error === (await post('/api/espaces/ouvrir', { nom: 'Entreprise Démo', acces: 'ZZZZZZZZZZ' })).error);
   dit('nom sans code', (await post('/api/espaces/ouvrir', { nom: 'Entreprise Démo' })).statut === 400);
-  dit('un nom de 6 Mo ne fait pas tomber le service', (await post('/api/espaces/ouvrir', { nom: 'a'.repeat(200000), acces: 'ZZZZZZZZZZ' })).statut === 403);
+  /* Des « é » et non des « a » : c'est normalize('NFD') qui coûte, et il ne coûte que sur les
+     caractères accentués — mesuré, 434 ms contre 17 ms pour le même volume. Et 5 Mo, pas 0,2 :
+     la limite d'express.json est à 6. L'essai précédent mesurait 2 % du volume sur le caractère
+     le moins cher, tout en affirmant le contraire ; c'est lui qui aurait dû faire trouver que
+     trois autres routes publiques n'étaient pas bornées. */
+  const gros = 'é'.repeat(2600000);   // ~5,1 Mo en UTF-8
+  const tGros = Date.now();
+  dit('un nom de 5 Mo est refusé sans faire travailler le serveur', (await post('/api/espaces/ouvrir', { nom: gros, acces: 'ZZZZZZZZZZ' })).statut === 403);
+  const msGros = Date.now() - tGros;
+  dit('...et vite : moins de 250 ms (sinon toute l\'API gèle)', msGros < 250, msGros + ' ms');
+  for (const route of ['/api/espaces/relance', '/api/espaces/libre', '/api/espaces/verifie-nom']) {
+    const t0 = Date.now(); await post(route, { nom: gros }); const ms = Date.now() - t0;
+    dit('  ' + route + ' borne aussi son entrée', ms < 250, ms + ' ms');
+  }
+
+  console.log('\n── seul le patron peut lire ou renouveler un code ──');
+  dit('sans jeton, refus', (await post('/api/monitor/espaces/acces', { slug: 'entreprisedemo' })).statut === 403);
+  dit('avec un jeton inventé, refus', (await post('/api/monitor/espaces/acces', { slug: 'entreprisedemo' }, 'ffffffffffffffffffffffffffffffffffffffffffffffff')).statut === 403);
+
+  console.log('\n── cloisonnement entre entreprises ──');
+  const autre = await post('/api/monitor/espaces/acces', { slug: 'entrepriseneuve' }, T);
+  dit('deux espaces ont deux codes différents', autre.acces && autre.acces !== n.acces);
+  dit('le code de l\'une n\'ouvre pas l\'autre', (await post('/api/espaces/ouvrir', { nom: 'Entreprise Démo', acces: autre.acces })).statut === 403);
 
   console.log('\n── une entreprise fermée ne se rouvre pas ──');
   dit('son code, pourtant valide, est refusé', (await post('/api/espaces/ouvrir', { nom: 'Entreprise Fermée', acces: 'FERMEE1234' })).statut === 403);
