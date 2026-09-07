@@ -22852,7 +22852,10 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
         var qui=esc(g[0].technicien||'Quelqu\'un');
         var pris=g.filter(function(x){ return x.type==='sortie'; });
         var mis=g.filter(function(x){ return x.type!=='sortie'; });
-        var dit=function(l){ return l.map(function(x){ return (x.qte||1)+' '+esc((produit(x.produitId)||{}).nom||'produit'); }); };
+        /* Signé, et les sorties d'abord — comme la notification poussée. Sans le signe,
+           « 2 Muskil, 1 Gants » se lit pareil qu'on les ait pris ou reposés. */
+        var dit=function(l){ return l.map(function(x){
+          return (x.type==='sortie'?'−':'+')+(x.qte||1)+' '+esc((produit(x.produitId)||{}).nom||'produit'); }); };
         var txt;
         if(g.length===1){
           txt='<b>'+qui+'</b> a '+(g[0].type==='sortie'?'pris':'ajouté')+' '+(g[0].qte||1)+' '+esc((produit(g[0].produitId)||{}).nom||'produit')+' dans <b>'+nomBox+'</b>';
@@ -22860,7 +22863,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
           var bouts=[];
           if(pris.length) bouts.push('<b>pris '+pris.length+' produit'+(pris.length>1?'s':'')+'</b>');
           if(mis.length) bouts.push('<b>ajouté '+mis.length+' produit'+(mis.length>1?'s':'')+'</b>');
-          var noms=dit(g).slice(0,3).join(', ')+(g.length>3?'…':'');
+          var noms=dit(pris.concat(mis)).slice(0,3).join(', ')+(g.length>3?'…':'');
           txt='<b>'+qui+'</b> a '+bouts.join(' et ')+' dans <b>'+nomBox+'</b> : '+noms;
         }
         /* Deux appels plutôt qu'un : ce qui est SORTI s'entoure de rouge, ce qui est ENTRÉ de
@@ -22879,8 +22882,12 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   // Essai gratuit (code promo) : rappel dans la cloche la dernière semaine
   if(currentUser.role==='admin'&&db.forfaitEssai&&!db.forfaitEssai.termine&&db.forfaitEssai.finLe){
     const rest=Math.ceil((new Date(db.forfaitEssai.finLe+'T00:00:00')-new Date(today+'T00:00:00'))/86400000);
-    if(rest>=0&&rest<=7){ const fEss=db.forfaitEssai.formule, cible=(fEss==='gratuit')?'pro':fEss;
-      out.push({id:'essai:'+db.forfaitEssai.finLe,ic:'🎁',txt:`Ton essai <b>${(PLANS[fEss]||{}).l||''}</b> se termine ${rest===0?"<b>aujourd'hui</b>":'dans <b>'+rest+' jour(s)</b>'} — aucune carte n'est enregistrée : pense à prendre l'abonnement pour continuer sans coupure.`,act:"window.open('https://teamop.fr/recap-abonnement.html?formule="+cible+"&utilisateurs='+db.users.length,'_blank')"}); } }
+    /* « formuleVisee » et non « cible » : dans CETTE fonction, cible est la fonction qui pose le
+       surlignage, appelée par presque tous les actes voisins. Une variable locale du même nom la
+       masquait dans ce bloc — inoffensif aujourd'hui, mais la prochaine notification ajoutée ici
+       serait tombée sur « cible is not a function », en silence, au clic seulement. */
+    if(rest>=0&&rest<=7){ const fEss=db.forfaitEssai.formule, formuleVisee=(fEss==='gratuit')?'pro':fEss;
+      out.push({id:'essai:'+db.forfaitEssai.finLe,ic:'🎁',txt:`Ton essai <b>${(PLANS[fEss]||{}).l||''}</b> se termine ${rest===0?"<b>aujourd'hui</b>":'dans <b>'+rest+' jour(s)</b>'} — aucune carte n'est enregistrée : pense à prendre l'abonnement pour continuer sans coupure.`,act:"window.open('https://teamop.fr/recap-abonnement.html?formule="+formuleVisee+"&utilisateurs='+db.users.length,'_blank')"}); } }
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
   { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
     (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
