@@ -1,7 +1,31 @@
 # Point stable TeamOP
 
-**Version stable : v564** — gravée le 7 septembre 2026.
+**Version stable : v565** — gravée le 7 septembre 2026.
 
+v565 — une notification par PASSAGE, et le surlignage devient multiple.
+
+**Le regroupement.** Une personne qui vide sa box en reprend cinq ou six d'affilée : la
+cloche affichait six lignes pour un seul geste, six fois le même nom et la même box. Les
+mouvements se regroupent désormais par box, par personne et par tranche de 30 minutes — le
+temps d'une visite — et la notification porte TOUS les produits. L'identifiant est bâti sur
+les identifiants des mouvements triés : il reste le même tant que le groupe ne change pas,
+donc « lu » reste lu ; un mouvement de plus dans la demi-heure fait un nouveau groupe, donc
+une notification qui redevient non lue, ce qui est voulu.
+
+**`cible()` vise plusieurs lignes.** Les identifiants sont séparés par des virgules : on
+marque TOUS les éléments et on amène le PREMIER à l'écran, les autres étant dans la même
+liste.
+
+**Huit catégories couvertes**, vérifiées une par une : arrivage (tous les produits reçus),
+box à réapprovisionner (tous ceux qui manquent), mouvement de quelqu'un d'autre, stock bas,
+demande à valider, mouvement à valider, demande traitée, et mouvement traité — y compris un
+LOT, dont les trois produits ressortent ensemble.
+
+Le cache du service worker passe à v762.
+
+## Ancien point
+
+**v564**
 v564 — deux corrections d'affichage sur téléphone, hors du garde-fou de la refonte.
 
 **Les hauteurs ne mentent plus.** Dix déclarations du socle calculaient en `vh`, qui compte
