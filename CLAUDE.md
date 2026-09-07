@@ -218,6 +218,20 @@ manifeste de l'app). La pastille verte « OP » de la Tour n'est qu'un repère d
   alimenté que par une inscription manuelle ; `cnxData` se remplit tout seul à
   chaque connexion. C'est le second qui sert de source de vérité.
 - **Le champ de configuration s'appelle `anthropic.cleApi`**, pas `apiKey`.
+- **Ne jamais attendre une tâche de fond avec une boucle `until … done`.** Le harnais
+  réveille tout seul quand une tâche se termine ; la boucle n'apporte rien et fuit. Le
+  7 septembre 2026, six boucles attendaient des conditions devenues impossibles — l'une
+  guettait un motif jamais écrit dans un journal, deux surveillaient des fichiers de sortie
+  périmés, trois attendaient un fichier `.jamais` que personne ne crée. Jusqu'à 3 h 51
+  d'attente pour des résultats déjà reçus.
+- **Une commande qui dépasse son délai et bascule en arrière-plan reçoit un NOUVEL
+  identifiant.** Sa sortie va dans le nouveau fichier ; l'ancien reste figé sur une capture
+  partielle. Surveiller l'ancien, c'est attendre pour toujours.
+- **`pkill -f <motif>` se tue lui-même** quand le motif figure dans sa propre ligne de
+  commande — le reste de la ligne n'est jamais exécuté (code 144). Passer par le PID.
+- **`FOURNISSEURS_ELAN` (`app.html:4496`) est la même faute que `REPORT_TEMPLATES`, encore
+  armée** : la liste des fournisseurs d'une entreprise, écrite en dur et servie à tous les
+  clients. Repérée le 8 septembre 2026, à corriger à part — pas au milieu d'un autre chantier.
 
 ## Modèle et effort par agent
 
