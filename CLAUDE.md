@@ -120,6 +120,15 @@ node -e "const h=require('http'),f=require('fs'),p=require('path');h.createServe
 C'est même préférable pour concevoir : on juge le fichier qu'on vient de modifier, pas la
 version publiée il y a deux heures.
 
+⏱️ **Toujours passer `timeout: 60000` à `new_page`.** Le défaut est de 10 s ; `app.html` et
+`beta.html` font 2,6 Mo et ne finissent pas de charger à temps — on obtient sinon
+« Navigation timeout of 10000 ms exceeded » alors que tout va bien.
+
+Les trois `--chromeArg` de `.mcp.json` (`--no-sandbox`, `--disable-gpu`,
+`--disable-dev-shm-usage`) sont indispensables en conteneur : sans le premier, le navigateur
+meurt au lancement (« Target closed »). Chaîne vérifiée de bout en bout le 7 septembre 2026 —
+poignée de main MCP, lancement du navigateur, page rendue.
+
 ⛔ **Bêta uniquement, sans exception.** Le serveur expose au client MCP **tout** le contenu
 de la page ouverte. Sur `app.html` en production, ce sont des noms, des adresses et des
 coordonnées de vrais clients — un flux de données qui n'est pas couvert par

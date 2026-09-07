@@ -45,8 +45,10 @@ Méthode :
      moyen de mesurer ce que coûte réellement un écran : `app.html` fait plus de 2 Mo et se
      charge sur des téléphones de terrain en 4G (skill `performance-budget-monitor`).
      ⚠️ En session distante, **servir le dépôt en local et viser `http://127.0.0.1:8123/…`**
-     (voir CLAUDE.md) : le proxy sortant coupe les connexions du navigateur vers `teamop.fr`.
-     C'est aussi mieux ainsi — on juge le fichier qu'on vient d'éditer, pas la version publiée.
+     (commande dans CLAUDE.md) : le proxy sortant coupe les connexions du navigateur vers
+     `teamop.fr`. C'est aussi mieux ainsi — on juge le fichier qu'on vient d'éditer, pas la
+     version publiée. Et **toujours `timeout: 60000` sur `new_page`** : le défaut de 10 s ne
+     suffit pas pour 2,6 Mo, on croirait à une panne alors que tout va bien.
    - playwright-core en headless (voir l'agent `testeur` pour la configuration) si le MCP
      n'est pas disponible.
 
