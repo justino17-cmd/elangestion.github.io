@@ -889,11 +889,22 @@ var PBL={loaded:false,err:'',liste:[]};
 /* Les comptes du site, lus chez Firebase. Distincts de CLI : CLI ne connaît que les
    entreprises qui se sont DÉJÀ connectées, alors qu'un compte créé sur espace.html et jamais
    utilisé n'existait nulle part dans cette console. C'est ce qui rendait le ménage impossible. */
-var CS={loaded:false,err:'',comptes:[],q:''};
+var CS={loaded:false,err:'',comptes:[],q:'',anonymes:0};
+/* Les codes promo : qui profite d'une formule offerte, et jusqu'a quand. Independant de
+   Stripe - un code promo ne passe pas par lui - donc charge et affiche meme quand Stripe
+   n'est pas relie au serveur. */
+var PRO={loaded:false,err:'',codes:[],actifsTotal:0};
+function chargerPromos(){
+  PRO.loaded=false; PRO.err='';
+  apiGet('/api/monitor/promos').then(function(d){
+    PRO.codes=(d&&d.codes)||[]; PRO.actifsTotal=(d&&d.actifsTotal)||0;
+    PRO.loaded=true; rafraichirSiConcerne();
+  }).catch(function(){ PRO.err='Codes promo illisibles - serveur injoignable.'; PRO.loaded=true; rafraichirSiConcerne(); });
+}
 function chargerComptesSite(){
   CS.loaded=false; CS.err='';
   apiGet('/api/monitor/comptes-site').then(function(d){
-    CS.comptes=(d&&d.comptes)||[];
+    CS.comptes=(d&&d.comptes)||[]; CS.anonymes=(d&&d.anonymes)||0;
     CS.loaded=true; rafraichirSiConcerne();
   }).catch(function(){ CS.err='Impossible de lire les comptes du site — clé admin Firebase absente, ou serveur injoignable.'; CS.loaded=true; rafraichirSiConcerne(); });
 }
@@ -2432,20 +2443,28 @@ function vueEntreprises(){
 function blocComptesSite(){
   var t='<div style="margin-top:34px">'+
     '<div style="font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:8px">👤 Tous les comptes du site</div>'+
-    '<div style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55">Lus directement chez Firebase — y compris ceux qui n’ont jamais ouvert d’espace, invisibles partout ailleurs. Supprimer un compte retire son accès à l’application ; sa boîte mail n’est pas touchée.</div>';
+    '<div style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55">Les comptes de personnes, lus chez Firebase — y compris ceux qui n’ont jamais ouvert d’espace, invisibles partout ailleurs. Supprimer un compte retire son accès à l’application ; sa boîte mail n’est pas touchée.</div>';
   if(!CS.loaded) return t+'<div class="vide">Chargement des comptes…</div></div>';
   if(CS.err) return t+'<div class="vide">'+esc(CS.err)+'</div></div>';
   var q=(CS.q||'').toLowerCase().trim();
-  var l=CS.comptes.filter(function(c){ return !q||((c.email||'')+' '+(c.entreprise||'')).toLowerCase().indexOf(q)>=0; });
-  t+='<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Filtrer par adresse…" value="'+esc(CS.q)+'" oninput="csQ(this.value)"></div>';
+  var l=CS.comptes.filter(function(c){ return !q||((c.email||'')+' '+(c.nom||'')+' '+(c.societe||'')+' '+(c.entreprise||'')).toLowerCase().indexOf(q)>=0; });
+  t+='<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Filtrer par nom, entreprise ou adresse…" value="'+esc(CS.q)+'" oninput="csQ(this.value)"></div>';
   if(!l.length) return t+'<div class="vide">'+(q?'Aucun compte ne correspond.':'Aucun compte sur le site.')+'</div></div>';
-  t+='<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+l.length+' compte'+(l.length>1?'s':'')+(q?' sur '+CS.comptes.length:'')+'</div>';
+  /* Le nombre d'anonymes est dit, pas caché : sans cette ligne on croirait que la console
+     ignore des centaines de comptes, alors qu'elle les écarte volontairement. */
+  t+='<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+l.length+' compte'+(l.length>1?'s':'')+(q?' sur '+CS.comptes.length:'')+
+     (CS.anonymes?' · <span title="Sessions techniques créées par l’application sur chaque appareil, pour la synchronisation. Ce ne sont pas des personnes, et en supprimer une couperait la synchro de l’appareil.">'+CS.anonymes+' session'+(CS.anonymes>1?'s':'')+' technique'+(CS.anonymes>1?'s':'')+' d’appareil, non listée'+(CS.anonymes>1?'s':'')+'</span>':'')+'</div>';
   t+=l.map(function(c){
     var lie=c.aUnEspace;
     return '<div class="item" style="cursor:default">'+
       '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
         '<div style="flex:1;min-width:200px">'+
-          '<div class="mono" style="font-size:13px;font-weight:600;word-break:break-all">'+esc(c.email||'(sans adresse)')+'</div>'+
+          /* L'identité AVANT tout le reste : on ne supprime pas un compte sur une date.
+             Le nom et la société viennent de la fiche d'inscription ; quand elle manque,
+             l'adresse reste le seul repère et on le dit plutôt que d'afficher un vide. */
+          '<div style="font-size:13.5px;font-weight:600">'+esc(c.nom||'(nom non renseigné)')+
+            (c.societe?' <span style="font-weight:400;color:var(--muted)">— '+esc(c.societe)+'</span>':'')+'</div>'+
+          '<div class="mono" style="font-size:12.5px;color:var(--text2);word-break:break-all;margin-top:1px">'+esc(c.email)+'</div>'+
           '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+
             (c.cree?'Créé le '+esc(fmtJour(c.cree)):'Date de création inconnue')+
             (c.derniere?' · dernière connexion '+esc(fmtJour(c.derniere)):' · jamais connecté')+
@@ -2555,12 +2574,51 @@ function aboPast(st){
   if(st==='canceled'||st==='annule') return ['Annulé','p-gris'];
   return [st||'—','p-gris'];
 }
+/* Les formules offertes par code promo. Elles ne passent PAS par Stripe : sans ce bloc, une
+   entreprise en formule offerte n'apparaissait nulle part - ni dans le revenu, ni dans les
+   abonnements, ni dans sa fiche. On voyait donc un client "sans abonnement" sans savoir
+   qu'il beneficiait d'un code, ni jusqu'a quand.
+   « Actif » se calcule sur la date du jour, cote serveur : un code perime ne compte plus. */
+function blocPromos(){
+  var t='<div style="margin-top:30px">'+
+    '<div style="font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:8px">🎁 Codes promo — formules offertes</div>'+
+    '<div style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55">Ces formules ne passent pas par Stripe : elles n’apparaissent ni dans le revenu ni dans les abonnements ci-dessus. C’est ici, et nulle part ailleurs, qu’on voit qui en profite et jusqu’à quand.</div>';
+  if(!PRO.loaded) return t+'<div class="vide">Chargement des codes…</div></div>';
+  if(PRO.err) return t+'<div class="vide">'+esc(PRO.err)+'</div></div>';
+  if(!PRO.codes.length) return t+'<div class="vide">Aucun code promo configuré sur le serveur.</div></div>';
+  t+='<div style="font-size:12px;color:var(--muted);margin-bottom:10px">'+PRO.actifsTotal+' formule'+(PRO.actifsTotal>1?'s':'')+' offerte'+(PRO.actifsTotal>1?'s':'')+' en cours</div>';
+  t+=PRO.codes.map(function(c){
+    var usages=(c.usages||[]);
+    var actifs=usages.filter(function(u){ return u.actif; });
+    var lignes=usages.length
+      ? usages.map(function(u){
+          return '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line)">'+
+            '<span style="flex:1;min-width:170px;font-size:13px">'+esc(u.nom||'(espace hors annuaire)')+
+              '<span class="mono" style="color:var(--muted);font-size:11.5px"> '+esc(String(u.t).slice(0,18))+'</span></span>'+
+            '<span class="past '+(u.actif?'p-vert':'p-gris')+'">'+(u.actif?'Actif jusqu’au '+esc(u.finLe):'Terminé le '+esc(u.finLe||'?'))+'</span>'+
+          '</div>';
+        }).join('')
+      : '<div style="padding:6px 0;border-top:1px solid var(--line);font-size:13px;color:var(--muted)">Jamais utilisé.</div>';
+    return '<div class="item" style="cursor:default">'+
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+        '<span class="mono" style="flex:1;min-width:150px;font-size:14px;font-weight:700">'+esc(c.code)+'</span>'+
+        (c.formule?'<span class="past p-vert">'+esc(c.formule)+'</span>':'')+
+        (c.mois?'<span class="past p-gris">'+c.mois+' mois</span>':'')+
+        '<span class="past '+(actifs.length?'p-vert':'p-gris')+'">'+actifs.length+' actif'+(actifs.length>1?'s':'')+'</span>'+
+        (c.restantes!==null&&c.restantes!==undefined?'<span class="past '+(c.restantes>0?'p-gris':'p-rouge')+'">'+c.restantes+' restante'+(c.restantes>1?'s':'')+'</span>':'')+
+        (c.horsConfig?'<span class="past p-orange" title="Ce code n’est plus dans la configuration du serveur, mais des espaces en profitent encore">Retiré de la config</span>':'')+
+      '</div>'+
+      '<div style="margin-top:8px">'+lignes+'</div>'+
+    '</div>';
+  }).join('');
+  return t+'</div>';
+}
 function vueAbonnements(){
   var tete=enTete('Abonnements',
     'Le revenu, les essais et les impayés. Cet écran est en lecture seule : il reflète Stripe, où se font les changements.',
     '<button class="btn-plein" onclick="ouvrirStripe()">Ouvrir dans Stripe '+svg('ext',14)+'</button>');
-  if(!ABO.loaded) return tete+'<div class="vide">Chargement des abonnements…</div>';
-  if(ABO.err) return tete+'<div class="vide">'+esc(ABO.err)+'</div>';
+  if(!ABO.loaded) return tete+'<div class="vide">Chargement des abonnements…</div>'+blocPromos();
+  if(ABO.err) return tete+'<div class="vide">'+esc(ABO.err)+'</div>'+blocPromos();
   if(!ABO.configured) return tete+'<div class="vide"><b style="color:var(--text2)">Stripe n’est pas relié au serveur.</b><div style="margin-top:8px">Dès que Stripe sera relié, les abonnés, le revenu mensuel et les paiements apparaîtront ici tout seuls.</div></div>';
   var enEssai=ABO.abos.filter(function(a){ return /trial|essai/i.test(String(a.statut||'')); }).length;
   var kpi='<div class="grille-kpi">'+
