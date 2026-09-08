@@ -1216,7 +1216,10 @@ body.jour .lg-logo{box-shadow:0 8px 24px rgba(20,28,48,.18),0 0 0 1px rgba(0,0,0
 
 /* ══ LE COURRIER ═══ la maquette elle-même ══ */
 .mail{display:grid;grid-template-columns:1fr;border:1px solid var(--border);border-radius:var(--r-4);overflow:hidden;background:var(--surface)}
-@media(min-width:1000px){.mail{grid-template-columns:216px minmax(300px,352px) 1fr;min-height:560px}
+/* 216 px suffisaient à « support@teamop.fr » ; la colonne porte maintenant des noms
+   d'entreprise ET leurs catégories en retrait — « Pas encore rattachées » y tenait sur
+   deux lignes tronquées. */
+@media(min-width:1000px){.mail{grid-template-columns:252px minmax(300px,340px) 1fr;min-height:560px}
   .mail-rows{max-height:calc(100vh - 310px)}.mail-lect{overflow-y:auto;max-height:calc(100vh - 244px)}}
 .mail-doss{background:var(--inset);border-right:1px solid var(--line);padding:12px 10px}
 .mail-liste{border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
@@ -1241,6 +1244,25 @@ body.jour .lg-logo{box-shadow:0 8px 24px rgba(20,28,48,.18),0 0 0 1px rgba(0,0,0
 .dos .n{flex:0 0 auto;font-size:11.5px;color:var(--muted);font-weight:700}
 .dos.on .n{color:var(--acc)}
 .dos-t{font-size:10px;letter-spacing:var(--suivi-mono);color:var(--muted);font-family:var(--fm);margin:14px 0 6px 10px}
+/* ── LE COURRIER RANGÉ PAR ENTREPRISE ──
+   Les catégories sont EN RETRAIT sous leur entreprise, et le filet vertical dit à qui elles
+   appartiennent : sans lui, cinq lignes de plus se lisent comme cinq entreprises de plus.
+   Elles restent à 44 px — c'est le plancher tactile, pas une suggestion. */
+.dos.sous{margin-left:12px;width:calc(100% - 12px);min-height:44px;font-size:13px;color:var(--muted);
+  border-left:1px solid var(--line);border-radius:0 var(--r-2) var(--r-2) 0;padding-left:11px}
+.dos.sous:hover{color:var(--text2)}
+.dos.sous.on{background:var(--tint-gris);color:var(--strong);font-weight:600;border-left-color:var(--acc)}
+.dos.sous .dos-i{font-size:12.5px}
+.dos-note{font-size:12px;color:var(--muted);line-height:1.5;padding:4px 10px 8px}
+/* Les boîtes reliées ne sont plus une navigation : ce sont des témoins. Elles ne se cliquent
+   donc pas, et ne doivent pas ressembler à ce qui se clique. */
+.dos-plomb{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 10px;
+  font-family:var(--fm);font-size:11px;color:var(--muted);line-height:1.4}
+.dos-plomb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dos-plomb b{flex:0 0 auto;color:var(--amber);font-variant-numeric:tabular-nums}
+/* En barre horizontale (écran étroit), le retrait et le filet n'ont plus de sens. */
+.dos-bar .dos.sous{margin-left:0;width:auto;border-left:1px solid var(--trait-ui);border-radius:var(--r-pill);padding-left:14px}
+.dos-bar .dos-note,.dos-bar .dos-plomb{display:none}
 .mrow{display:flex;gap:10px;padding:11px 13px;border-bottom:1px solid var(--hairline);cursor:pointer;align-items:flex-start;transition:background-color var(--d-1) var(--e-sortie)}
 .mrow:hover{background:var(--hover)}
 .mrow:active{background:var(--sel);transition-duration:var(--d-0)}
@@ -1848,7 +1870,10 @@ function setTab(t,sansAnim){
   placerIndic(!sansAnim);
   amenerOngletEnVue();
   if(sansAnim) render(); else renderAnime();
-  if(t==='support'&&!MSG.loaded) chargerMail();
+  /* Le Courrier range par ENTREPRISE : sans l'annuaire ni les clients du site, il n'a aucun
+     moyen de savoir à qui appartient une adresse, et tout retomberait dans « pas encore
+     rattachées ». Ces deux listes ne se chargeaient que depuis l'onglet Entreprises. */
+  if(t==='support'){ if(!MSG.loaded) chargerMail(); if(!ENT.loaded) chargerEntreprises(); if(!CLI.loaded) chargerClients(); }
   /* PBL porte les espaces : sans lui, « Leurs espaces » resterait sur « Chargement… » pour qui
      ouvre Entreprises sans être passé par Accès. */
   if(t==='entreprises'){ if(!ENT.loaded) chargerEntreprises(); if(!CLI.loaded) chargerClients(); if(!PBL.loaded) chargerAccesPublics(); if(!CS.loaded) chargerComptesSite(); }
@@ -1875,6 +1900,10 @@ function setBdg(id,n){ var e=$(id); if(!e) return;
 var INC={list:[],cnt:{},nbEnt:0,loaded:false,err:'',sel:null,grp:null,f:{type:'',grav:'',statut:'actifs',app:'',ent:''}};
 var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',autoTout:false,
          sel:{boite:'toutes',dossier:'',nom:'Toutes les réceptions',role:'inbox'},lu:null,ouvert:null,q:'',
+         /* Le rangement par entreprise est un filtre de CETTE page, pas une requête : la
+            liste fusionnée des boîtes arrive déjà entière. Changer d'entreprise ne
+            redemande donc rien au serveur, et le passage est instantané. */
+         selEnt:'toutes',selCat:'tout',
          compo:false,cDest:'',cSujet:'',cTexte:''};
 var CLI={list:[],total:0,loaded:false,err:'',sel:null,q:''};
 var ABO={abos:[],paiements:[],mrr:0,actifs:0,impayes:0,echecs:0,configured:false,loaded:false,err:'',f:''};
@@ -1919,6 +1948,7 @@ function chargerEntreprises(){
   ENT.loaded=false; ENT.err='';
   apiGet('/api/monitor/entreprises').then(function(d){
     ENT.liste=(d&&d.entreprises)||[];
+    _courrierEntCache={};   // l'annuaire vient de changer : ce qui en était déduit ne vaut plus
     ENT.stats={total:(d&&d.total)||0,horsAnnuaire:(d&&d.horsAnnuaire)||0,avecErreurs:(d&&d.avecErreurs)||0,avecEchecs:(d&&d.avecEchecs)||0};
     ENT.loaded=true; rafraichirSiConcerne();
   }).catch(function(){ ENT.err='Liste des entreprises illisible — serveur injoignable.'; ENT.loaded=true; rafraichirSiConcerne(); });
@@ -2830,6 +2860,7 @@ function chargerClients(){
   apiGet('/api/monitor/clients').then(function(d){
     if(!d) return;
     CLI.list=(d.clients||[]).slice().sort(function(a,b){ return (b.majTs||b.inscrit||0)-(a.majTs||a.inscrit||0); });
+    _courrierEntCache={};   // ces fiches servent au rattachement du courrier : ce qui en était déduit ne vaut plus
     CLI.total=(d.total!=null?d.total:CLI.list.length); CLI.loaded=true; CLI.err='';
     if(TAB==='entreprises'||TAB==='accueil'||TAB==='support') render();
   }).catch(function(e){ CLI.err=msgErreur(e); CLI.loaded=true; if(TAB==='entreprises') render(); });
@@ -3612,7 +3643,149 @@ function incCopier(id){
 }
 
 /* ══════════ 3. SUPPORT ══════════ */
-function mailAller(b,d,nom,role){ MSG.autoTout=false; MSG.sel={boite:b,dossier:d,nom:nom,role:role}; MSG.ouvert=null; MSG.lu=null; chargerMessages(); render(); }
+
+/* ═══════════════ LE COURRIER RANGÉ PAR ENTREPRISE ═══════════════════════════════════════
+   Demande de Justin, 8 septembre 2026 : « je voudrais que tout soit bien rangé par
+   entreprise quoi qu'il arrive. On clique, ça affiche tout dans chaque catégorie de
+   l'entreprise. Je ne veux pas que tout soit mélangé entre eux. »
+
+   La barre latérale rangeait par BOÎTE (support@, contact@) : deux entrées, et toutes les
+   entreprises mélangées à l'intérieur. Elle range maintenant par entreprise, chacune
+   portant ses catégories — la forme de la barre latérale de Mail.
+
+   AUCUN changement serveur : /api/monitor/mail/liste renvoie déjà « de », « lu », « marque »,
+   « pieces » et « auto » pour chaque message. Le rattachement se fait ici, et le passage
+   d'une entreprise à l'autre ne redemande donc rien.
+   ═══════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ⛔ LE PIÈGE, ET IL EST GROS. Rattacher par DOMAINE est juste quand l'entreprise a son
+   propre nom de domaine (bruno@elan-proprete.fr → ELAN) et catastrophique sinon : ELAN est
+   enregistrée sous une adresse gmail. Sans ce garde-fou, TOUS les gmail du monde
+   atterriraient dans son dossier — exactement le mélange qu'on cherche à supprimer.
+   La liste est volontairement large : mieux vaut un message « pas encore rattaché », qu'on
+   range à la main, qu'un message rangé avec assurance chez la mauvaise entreprise. */
+var MAIL_PUBLICS=['gmail.com','googlemail.com','hotmail.fr','hotmail.com','hotmail.be','hotmail.it',
+  'outlook.fr','outlook.com','outlook.be','live.fr','live.com','live.be','msn.com',
+  'yahoo.fr','yahoo.com','yahoo.co.uk','ymail.com','orange.fr','wanadoo.fr','free.fr','sfr.fr',
+  'neuf.fr','laposte.net','bbox.fr','numericable.fr','aol.com','icloud.com','me.com','mac.com',
+  'protonmail.com','protonmail.ch','proton.me','gmx.fr','gmx.com','gmx.net','yandex.com',
+  'zoho.com','mail.com','tutanota.com','hushmail.com','libero.it','web.de'];
+function mailDomaine(a){ var s=String(a||'').toLowerCase().trim(); var i=s.indexOf('@'); return i<0?'':s.slice(i+1); }
+function mailDomainePropre(d){ return !!d && MAIL_PUBLICS.indexOf(d)<0; }
+
+/* Adresse → entreprise, ou null. Deux passes, la plus sûre d'abord.
+   Le cache n'est pas une optimisation gratuite : courrierEnt() est appelée pour chaque
+   message à chaque render(), et render() se rejoue à chaque lettre tapée dans la recherche.
+   Il se vide dès que l'annuaire change (voir chargerEntreprises). */
+var _courrierEntCache={};
+function courrierEnt(adr){
+  var a=String(adr||'').toLowerCase().trim(); if(!a) return null;
+  if(_courrierEntCache[a]!==undefined) return _courrierEntCache[a];
+  var liste=(ENT.liste||[]), t=null, i;
+  for(i=0;i<liste.length;i++){ if(String(liste[i].email||'').toLowerCase().trim()===a){ t=liste[i]; break; } }
+  /* Le client du site porte parfois l'adresse quand l'espace ne l'a pas : on remonte alors
+     à l'entreprise par son nom — même chemin que voirClient(), pas un second. */
+  if(!t){
+    var c=(CLI.list||[]).filter(function(x){ return String(x.email||'').toLowerCase().trim()===a; })[0];
+    if(c) t=entParNom(c.entreprise||c.nom||'')||null;
+  }
+  var d=mailDomaine(a), propre=mailDomainePropre(d);
+  if(!t&&propre){
+    for(i=0;i<liste.length;i++){ var de=mailDomaine(liste[i].email);
+      if(de&&mailDomainePropre(de)&&de===d){ t=liste[i]; break; } }
+  }
+  /* Quatrième passe, et sans elle la fonction serait inutile sur les vraies données : une
+     entreprise s'inscrit souvent avec une adresse personnelle (ELAN est enregistrée sous un
+     gmail) pendant que ses salariés écrivent depuis le domaine de la société. Ni l'adresse
+     exacte ni le domaine ne les relient. On rapproche donc le nom de domaine du nom de
+     l'entreprise : elan-proprete.fr ↔ ELAN.
+     Deux garde-fous, parce qu'un rapprochement par le nom se trompe vite :
+     · des mots entiers d'au moins 4 lettres, jamais un morceau de mot (« ELA » dans
+       « relance » rattacherait n'importe quoi) ;
+     · si DEUX entreprises correspondent, on ne tranche pas — un message chez la mauvaise
+       est pire qu'un message à ranger à la main. */
+  if(!t&&propre){
+    var mots=mailMots(d.replace(/\.[a-z.]+$/,''));
+    var cands=liste.filter(function(e){
+      var em=mailMots((e.slug||'')+' '+(e.nom||''));
+      return em.some(function(w){ return mots.indexOf(w)>=0; });
+    });
+    if(cands.length===1) t=cands[0];
+  }
+  _courrierEntCache[a]=t; return t;
+}
+/* Mots d'au moins 4 lettres, sans accent ni ponctuation. 4 et pas 3 : « sas », « eur »,
+   « pro » sont dans la moitié des raisons sociales et ne distinguent rien. */
+function mailMots(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .split(/[^a-z0-9]+/).filter(function(w){ return w.length>=4; });
+}
+
+/* Les catégories d'une entreprise. Chacune tient à un champ que le serveur renvoie
+   RÉELLEMENT — on n'affiche pas un dossier « Corbeille » qu'on serait incapable de remplir. */
+var MAIL_CATS=[
+  {cle:'tout',   nom:'Tous les messages', ico:'📥'},
+  {cle:'traiter',nom:'À traiter',         ico:'🕗'},
+  {cle:'marques',nom:'Marqués',           ico:'🚩'},
+  {cle:'pieces', nom:'Pièces jointes',    ico:'📎'},
+  {cle:'envoyes',nom:'Envoyés',           ico:'📤'}
+];
+function mailDansCat(m,cle){
+  if(cle==='traiter') return !m.lu && !m.auto;
+  if(cle==='marques') return !!m.marque;
+  if(cle==='pieces')  return (m.pieces||0)>0;
+  return true;
+}
+function mailAttente(m){ return !m.lu && !m.auto; }
+
+/* Les messages reçus, groupés par entreprise. Le groupe « pas encore rattachées » est une
+   corbeille de tri, pas une entreprise : il reste toujours en dernier, quoi qu'il contienne. */
+function courrierParEnt(){
+  var par={}, ordre=[];
+  (MSG.messages||[]).forEach(function(m){
+    var e=courrierEnt(m.de), cle=e?e.t:'_autres';
+    /* « Non rattachées » et pas « Pas encore rattachées » : le nom passe dans une colonne de
+       238 px, où la version longue se coupait en « Pas encore rattac… ». Un libellé tronqué
+       cache une information — c'est la règle de résilience du skill, elle vaut ici aussi. */
+    if(!par[cle]){ par[cle]={ent:e,cle:cle,nom:e?(e.nom||e.t):'Non rattachées',msgs:[]}; ordre.push(cle); }
+    par[cle].msgs.push(m);
+  });
+  ordre.sort(function(a,b){
+    if(a==='_autres') return 1; if(b==='_autres') return -1;
+    var na=par[a].msgs.filter(mailAttente).length, nb=par[b].msgs.filter(mailAttente).length;
+    if(na!==nb) return nb-na;                                   // qui attend une réponse passe devant
+    return ((par[b].msgs[0]||{}).ts||0)-((par[a].msgs[0]||{}).ts||0);
+  });
+  return ordre.map(function(k){ return par[k]; });
+}
+/* Ce que TeamOP a envoyé à cette entreprise-là. Le journal d'envois porte l'adresse dans
+   « a » — on la repasse par le même rattachement, sinon « Envoyés » redeviendrait le seul
+   endroit où tout est mélangé. */
+function mailEnvoisDe(cle){
+  return (MSG.envoyes||[]).filter(function(x){
+    var e=courrierEnt(x.a); return cle==='_autres' ? !e : (!!e && e.t===cle);
+  });
+}
+function mailChoisirEnt(cle){
+  MSG.selEnt=cle; MSG.selCat='tout'; MSG.autoTout=false; MSG.ouvert=null; MSG.lu=null; MSG.envSel=null;
+  renderNav('fondu');
+}
+function mailChoisirCat(cle){
+  MSG.selCat=cle; MSG.ouvert=null; MSG.lu=null; MSG.envSel=null;
+  /* Les envois viennent d'une autre route que les réceptions : on ne les charge qu'au
+     moment où quelqu'un les demande, et une seule fois. */
+  if(cle==='envoyes'&&!MSG.envoyes) chargerEnvois();
+  renderNav('fondu');
+}
+function chargerEnvois(){
+  MSG.envoyes=MSG.envoyes||null;
+  apiGet('/api/monitor/mails').then(function(d){ if(!d) return;
+    MSG.envoyes=d.mails||[]; MSG.envErr='';
+    if(TAB==='support') render();
+  }).catch(function(){ MSG.envErr='Serveur injoignable — ou serveur à mettre à jour (git pull + restart).';
+    if(TAB==='support') render(); });
+}
+
 function mailQ(v){ MSG.autoTout=false; MSG.q=v||''; chargerMessages(); }
 function mailActualiser(){ chargerMail(true); toast('Boîte support actualisée'); }
 function compoOuvrir(dest){ MSG.compo=true; if(dest) MSG.cDest=dest; renderNav('lecture'); }
@@ -3654,7 +3827,10 @@ function repondre(){
    ═══════════════════════════════════════════════════════════════════════════════════════ */
 function mailEtroit(){ try{ return window.innerWidth<1000; }catch(e){ return false; } }
 function mailRetour(){ MSG.ouvert=null; MSG.lu=null; MSG.envSel=null; renderNav('lecture-retour'); }
-function mailEnvoyes(){ return MSG.sel.boite==='envoyes'; }
+/* « Envoyés » n'est plus un dossier à part : c'est une catégorie DE L'ENTREPRISE ouverte.
+   Le reste de l'écran (recherche, lecture, volet de droite) continue de s'y référer par
+   cette fonction — c'est elle qui a changé de source, pas ses appelants. */
+function mailEnvoyes(){ return MSG.selCat==='envoyes'; }
 
 /* ── Volet 1 : les dossiers ─────────────────────────────────────────────────────────── */
 function mailDossiers(){
@@ -3663,12 +3839,38 @@ function mailDossiers(){
       '<span class="dos-i">'+icone+'</span><span class="dos-n">'+esc(nom)+'</span>'+
       (n?'<span class="n">'+n+'</span>':'')+'</button>';
   };
-  var h=d(MSG.sel.boite==='toutes', 'mailAller(\'toutes\',\'\',\'Toutes les réceptions\',\'inbox\')', '📥', 'Toutes les réceptions', MSG.nonLus);
-  if(MSG.boites.length>1) h+='<div class="dos-t">Boîtes reliées</div>';
-  h+=MSG.boites.map(function(x){ var b=x.boite||{}, id=b.id||b.email||'';
-    return d(MSG.sel.boite===id, 'mailAller(\''+jsq(id)+'\',\'\',\''+jsq(b.email||'Boîte')+'\',\'inbox\')', '✉️', b.email||'Boîte', x.nonLus);
+  var groupes=courrierParEnt();
+  var attTot=(MSG.messages||[]).filter(mailAttente).length;
+
+  var h='<div class="dos-t">Rechercher</div>'+
+    d(MSG.selEnt==='toutes', 'mailChoisirEnt(\'toutes\')', '🗂️', 'Toutes les entreprises', attTot);
+
+  h+='<div class="dos-t">Entreprises</div>';
+  if(!ENT.loaded&&!ENT.err) h+='<div class="dos-note">Chargement de l’annuaire…</div>';
+  else if(!groupes.length) h+='<div class="dos-note">Aucun message reçu pour l’instant.</div>';
+
+  groupes.forEach(function(g){
+    var ouvert=(MSG.selEnt===g.cle);
+    h+=d(ouvert, 'mailChoisirEnt(\''+jsq(g.cle)+'\')', (g.ent?'🏢':'❓'), g.nom, g.msgs.filter(mailAttente).length);
+    /* Les catégories n'apparaissent que sous l'entreprise ouverte : les afficher pour
+       toutes ferait une barre de cinquante lignes où plus rien ne se voit. */
+    if(!ouvert) return;
+    h+=MAIL_CATS.map(function(c){
+      var n=(c.cle==='envoyes') ? (MSG.envoyes?mailEnvoisDe(g.cle).length:0)
+                                : g.msgs.filter(function(m){ return mailDansCat(m,c.cle); }).length;
+      return '<button class="dos sous'+(MSG.selCat===c.cle?' on':'')+'" onclick="mailChoisirCat(\''+jsq(c.cle)+'\')">'+
+        '<span class="dos-i">'+c.ico+'</span><span class="dos-n">'+esc(c.nom)+'</span>'+
+        (n?'<span class="n">'+n+'</span>':'')+'</button>';
+    }).join('');
+  });
+
+  /* Les boîtes reliées restent visibles, en bas et en petit. Ce n'est plus le rangement,
+     c'est la plomberie : savoir laquelle est branchée et laquelle a du retard. Les rendre
+     cliquables ramènerait le mélange qu'on vient de supprimer. */
+  if(MSG.boites.length) h+='<div class="dos-t">Boîtes reliées</div>'+MSG.boites.map(function(x){
+    var b=x.boite||{};
+    return '<div class="dos-plomb"><span>'+esc(b.email||'Boîte')+'</span>'+(x.nonLus?'<b>'+x.nonLus+'</b>':'')+'</div>';
   }).join('');
-  h+='<div class="dos-t">TeamOP</div>'+d(mailEnvoyes(), 'envoyesOuvrir()', '📤', 'Envoyés', (MSG.envoyes||[]).length);
   return h;
 }
 
@@ -3686,6 +3888,17 @@ function supAva(nom,adr){
    source, mais le serveur ne crée le suivi qu'à la PREMIÈRE ouverture : un message jamais
    ouvert a suivi:null. On garde donc `lu`, qui existe toujours. */
 function supNature(m){ if(m.auto) return 'auto'; if(!m.lu) return 'att'; return 'vu'; }
+/* Une ligne de message reçu. Extraite parce que deux chemins la dessinent désormais — la
+   vue « toutes les entreprises » et la vue d'une entreprise — et qu'une ligne de courrier
+   qui ne se ressemble pas d'une vue à l'autre est précisément ce qu'on corrige ici. */
+function mailLigneRecue(m,att){
+  var cle=m.boite+'|'+m.dossier+'|'+m.uid;
+  var l3=[]; if(m.boiteNom||m.boite) l3.push(esc(m.boiteNom||m.boite));
+  if(m.deNom&&m.de&&m.deNom!==m.de) l3.push(esc(m.de));
+  return supLigne({nom:m.deNom||m.de,adr:m.de,ts:m.ts,objet:m.objet,l3:l3.join(' · '),
+    pieces:m.pieces,marque:m.marque,repondu:m.repondu,att:!!att,on:(MSG.lu===cle),
+    action:"lireMessage('"+jsq(m.boite)+"','"+jsq(m.dossier)+"',"+m.uid+")"});
+}
 function supAutoTout(){ MSG.autoTout=true; render(); }
 function supVide(ico,titre,txt,btn){
   return '<div class="sup-vide">'+svg(ico,22)+'<div class="t">'+titre+'</div><div>'+txt+'</div>'+(btn||'')+'</div>';
@@ -3728,6 +3941,46 @@ function mailListeRecue(){
   var M=(MSG.messages||[]);
   if(!M.length) return supVide('support','Rien dans ce dossier',
     'Les nouveaux messages arrivent tout seuls ; le bouton ⟳ force une relève.');
+
+  /* ── TOUTES LES ENTREPRISES : groupé PAR ENTREPRISE, jamais à plat ──
+     C'est la demande, mot pour mot : « je ne veux pas que tout soit mélangé entre eux ».
+     Une liste unique triée par date remettrait ELAN et sa voisine dans la même colonne. */
+  if(MSG.selEnt==='toutes'){
+    var gr=courrierParEnt();
+    return '<div class="reg" style="padding:4px 2px 12px">'+gr.map(function(g,i){
+      var att=g.msgs.filter(mailAttente).length;
+      var sous=g.ent
+        ? (att?att+' en attente de réponse.':'Tout est ouvert.')
+        : 'Adresses qu’aucune fiche ne réclame. Ouvrez-les pour savoir à qui les rattacher.';
+      /* UN SEUL plan élevé par écran — la règle du socle, et ce qui le garde crédible.
+         Ce n'est pas arbitraire : le tri met en tête l'entreprise qui attend le plus de
+         réponses. Le plan élevé va donc à celle qui a besoin de toi maintenant, et à elle
+         seule. Si personne n'attend, tout est à plat et l'écran le dit ainsi. */
+      var haut=(i===0&&att>0&&g.ent);
+      return supGroupe(esc(g.nom),g.msgs.length,sous,!!g.ent,(haut?'reg-cli':(g.ent?'reg-bloc':'reg-bloc mien')),
+        g.msgs.slice(0,6).map(function(m){ return mailLigneRecue(m,!m.lu); }).join(''),
+        g.msgs.length>6
+          ? '<button type="button" class="ac-plus" onclick="mailChoisirEnt(\''+jsq(g.cle)+'\')">Voir les '+g.msgs.length+' messages de '+esc(g.nom)+' →</button>'
+          : '');
+    }).join('')+'</div>';
+  }
+
+  /* ── UNE ENTREPRISE : ses messages seuls, dans la catégorie choisie ── */
+  var grp=courrierParEnt().filter(function(x){ return x.cle===MSG.selEnt; })[0];
+  if(!grp) return supVide('support','Plus aucun message pour cette entreprise',
+    'Ses messages ont peut-être été déplacés ou supprimés depuis la boîte.',
+    '<button type="button" class="btn-fant" onclick="mailChoisirEnt(\'toutes\')">Revenir à toutes les entreprises</button>');
+  var cat=(MAIL_CATS.filter(function(c){ return c.cle===MSG.selCat; })[0])||MAIL_CATS[0];
+  var Mc=grp.msgs.filter(function(m){ return mailDansCat(m,cat.cle); });
+  if(!Mc.length) return supVide('support','Rien dans « '+esc(cat.nom)+' »',
+    'Chez '+esc(grp.nom)+', aucun message ne correspond à cette catégorie.',
+    '<button type="button" class="btn-fant" onclick="mailChoisirCat(\'tout\')">Voir tous ses messages</button>');
+  /* Dans une catégorie précise, le tri par nature n'a plus de sens — « Marqués » est déjà
+     un tri. On ne garde les trois seaux que pour « Tous les messages ». */
+  if(cat.cle!=='tout') return '<div class="reg" style="padding:4px 2px 12px">'+
+    supGroupe(esc(grp.nom)+' · '+esc(cat.nom),Mc.length,'',true,'reg-cli',
+      Mc.map(function(m){ return mailLigneRecue(m,!m.lu); }).join(''),'')+'</div>';
+  M=Mc;
   var GR=[
    {cle:'att', titre:'À traiter', sous:'Reçus, pas encore ouverts. C’est la pile qui attend une réponse.',opt:true,bloc:'reg-cli'},
    {cle:'vu',  titre:'Déjà ouverts', sous:'Ouverts depuis cette console. Le ↩ marque ceux auxquels une réponse est partie.',opt:true,bloc:'reg-bloc'},
@@ -3747,12 +4000,7 @@ function mailListeRecue(){
       pied='<button type="button" class="ac-plus" onclick="supAutoTout()">Voir les '+(l.length-5)+' autres notifications →</button>';
     }
     return supGroupe(G.titre,l.length,G.sous,G.opt,G.bloc,vus.map(function(m){
-      var cle=m.boite+'|'+m.dossier+'|'+m.uid;
-      var l3=[]; if(m.boiteNom||m.boite) l3.push(esc(m.boiteNom||m.boite));
-      if(m.deNom&&m.de&&m.deNom!==m.de) l3.push(esc(m.de));
-      return supLigne({nom:m.deNom||m.de,adr:m.de,ts:m.ts,objet:m.objet,l3:l3.join(' · '),
-        pieces:m.pieces,marque:m.marque,repondu:m.repondu,att:(G.cle==='att'),on:(MSG.lu===cle),
-        action:"lireMessage('"+jsq(m.boite)+"','"+jsq(m.dossier)+"',"+m.uid+")"});
+      return mailLigneRecue(m,G.cle==='att');
     }).join(''),pied);
   }).join('');
   return '<div class="reg" style="padding:4px 2px 12px">'+g+'</div>';
@@ -3763,7 +4011,14 @@ function mailListeEnvoyee(){
   var L=MSG.envoyes;
   if(!L) return supSquel();
   var q=String(MSG.envQ||'').toLowerCase();
-  var vus=L.map(function(m,i){ return {m:m,i:i}; }).filter(function(o){ if(!q) return true;
+  /* L'index d'origine est conservé : envoyeLire() pointe dans MSG.envoyes, pas dans le
+     filtrage. Sans ça, ouvrir un envoi depuis une entreprise ouvrirait celui d'une autre. */
+  var vus=L.map(function(m,i){ return {m:m,i:i}; }).filter(function(o){
+    /* Le rangement par entreprise vaut ici AUSSI : « Envoyés » était le dernier endroit où
+       tout restait mélangé. */
+    if(MSG.selEnt!=='toutes'){ var e=courrierEnt(o.m.a);
+      if(MSG.selEnt==='_autres' ? !!e : (!e||e.t!==MSG.selEnt)) return false; }
+    if(!q) return true;
     return (mailEnt(o.m.a)+' '+(o.m.a||'')+' '+(o.m.sujet||'')).toLowerCase().indexOf(q)>=0; });
   if(!vus.length) return q
     ? supVide('avion','Aucun envoi ne correspond','Rien ne correspond à « '+esc(MSG.envQ)+' ».',
@@ -3788,6 +4043,9 @@ function mailListeEnvoyee(){
 }
 /* e-mail du destinataire → nom de l'entreprise, quand la fiche existe */
 function mailEnt(a){ a=String(a||'').toLowerCase();
+  /* Même rattachement que la barre latérale, et pas un second : un envoi rangé chez ELAN
+     doit porter le nom « ELAN », pas l'adresse brute parce que la fiche client manquait. */
+  var e=courrierEnt(a); if(e) return e.nom||e.t||a;
   var c=(CLI.list||[]).find(function(x){ return String(x.email||'').toLowerCase()===a; });
   if(c) return c.entreprise||c.nom||a;
   return (/teamop\.fr$/i.test(a)?'TeamOP (interne)':'')||a||'—'; }
@@ -3827,15 +4085,10 @@ function envoyeLecture(){
       '<div class="lec-act"><span class="past p-vert">📤 Envoyé par TeamOP</span></div>')+
     '<div class="lec-corps">'+esc(m.txt||'(aperçu non conservé pour ce message)')+'</div></div>';
 }
-function envoyesOuvrir(){
-  MSG.sel={boite:'envoyes',dossier:'',nom:'Envoyés',role:'sent'}; MSG.envQ=MSG.envQ||''; MSG.ouvert=null; render();
-  apiGet('/api/monitor/mails').then(function(d){ if(!d) return;
-    MSG.envoyes=d.mails||[]; MSG.envErr='';
-    if(TAB==='support'&&mailEnvoyes()) render();
-  }).catch(function(){ MSG.envErr='Serveur injoignable — ou serveur à mettre à jour (git pull + restart).'; if(TAB==='support') render(); });
-}
+/* Rouvrir les envois après un échec réseau. Ne touche plus à MSG.sel : « Envoyés » est
+   devenu une catégorie de l'entreprise ouverte, pas un dossier parallèle. */
+function envoyesOuvrir(){ MSG.selCat='envoyes'; MSG.envQ=MSG.envQ||''; MSG.ouvert=null; MSG.envErr=''; render(); chargerEnvois(); }
 function envoyesQ(v){ MSG.envQ=String(v||''); rendreDifféré(); }
-function vueEnvoyes(){ return mailListeEnvoyee(); }
 
 /* ── L'écran complet ────────────────────────────────────────────────────────────────── */
 /* Replier la barre : sur un grand écran, 232 px de menu permanents devant un tableau qu'on
