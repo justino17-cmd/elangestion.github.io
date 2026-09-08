@@ -1439,15 +1439,81 @@ function vueConnexions(){
     ? '<button class="btn-fant" style="padding:6px 12px" onclick="cnxF(\'toutes\')">'+
         esc({actives:'Actives sur 7 jours',silence:'Silencieuses depuis 7 jours',echecs:'Avec des échecs'}[CNX.f]||'')+' ✕</button>'
     : '';
-  var rows=l.map(function(x){ var r=x.resume; var vers=Object.keys(r.versions||{}).sort(function(a,b){ return verNum(b)-verNum(a); }).slice(0,2).map(function(v){ return 'v'+v; }).join(', ')||'—';
-    return '<tr class="item'+(CNX.sel===x.t?' on':'')+'" style="cursor:pointer" onclick="cnxSel(\''+jsq(x.t)+'\')">'+
-      '<td><b>'+esc(x.nom)+'</b>'+(x.formule?' <span style="color:var(--muted);font-size:11.5px">'+esc(x.formule)+'</span>':'')+'</td>'+
-      '<td>'+(r.derniere?cnxDepuis(r.derniere):'<span style="color:var(--muted)">jamais</span>')+(r.dernierLogin?' <span style="color:var(--muted)">('+esc(r.dernierLogin)+')</span>':'')+'</td>'+
-      '<td style="text-align:center">'+r.utilisateurs7+'</td><td style="text-align:center">'+r.appareils7+'</td><td style="text-align:center">'+r.connexions7+'</td>'+
-      '<td style="text-align:center;color:'+(r.echecs24?'var(--redText)':'inherit')+'">'+r.echecs24+'</td><td>'+esc(vers)+'</td></tr>'; }).join('');
-  var table='<div class="carte" style="padding:0;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'+
-    '<thead><tr style="color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.4px"><th style="text-align:left;padding:10px 12px">Entreprise</th><th style="text-align:left;padding:10px 12px">Dernière connexion</th><th style="padding:10px 8px">Utilisateurs 7 j</th><th style="padding:10px 8px">Appareils 7 j</th><th style="padding:10px 8px">Connexions 7 j</th><th style="padding:10px 8px">Échecs 24 h</th><th style="text-align:left;padding:10px 12px">Versions</th></tr></thead>'+
-    '<tbody>'+(rows||'<tr><td colspan="7" class="vide">Aucune entreprise pour ce filtre.</td></tr>')+'</tbody></table></div>';
+  /* Une entrée du registre. Même anatomie que dans Entreprises — c'est ce qui fait qu'on
+     n'a rien à réapprendre en changeant d'onglet. */
+  /* La nature vient d'ENT.liste quand elle est chargée : même classificateur, donc même
+     verdict d'un onglet à l'autre. Sinon on retombe sur ce que CNX porte lui-même — un slug
+     d'annuaire et une formule suffisent à reconnaître une cliente. */
+  var natureDe=function(x){
+    var o=(ENT.liste||[]).find(function(e){ return e.t===x.t; });
+    if(o) return entNature(o);
+    if(ESPACES_TECHNIQUES.indexOf(x.t)>=0) return 'technique';
+    if(!x.slug) return 'inconnu';
+    return (x.formule&&x.formule!=='gratuit')?'cliente':'mien';
+  };
+  var ligneCnx=function(x,nature){
+    var r=x.resume||{};
+    /* Le plan élevé est réservé aux clientes : c'est lui qui dit « celle-là paie ». Une
+       cliente silencieuse le reste, et c'est justement ce qu'il faut voir. */
+    var cliente=natureDe(x)==='cliente';
+    var vers=Object.keys(r.versions||{}).sort(function(a,b){ return verNum(b)-verNum(a); })
+      .slice(0,2).map(function(v){ return 'v'+esc(v); }).join(', ');
+    var join=function(t){ return t.filter(Boolean).join(' · '); };
+    var alertes=r.echecs24
+      ? '<span class="past p-rouge" title="échecs de connexion sur 24 h">🔑 '+r.echecs24+'</span>' : '';
+    if(cliente){
+      var l2=join([ r.derniere?'<b>'+cnxDepuis(r.derniere)+'</b>':'',
+                    r.utilisateurs7?r.utilisateurs7+' personne'+(r.utilisateurs7>1?'s':''):'',
+                    r.appareils7?r.appareils7+' appareil'+(r.appareils7>1?'s':''):'',
+                    r.connexions7?r.connexions7+' connexions / 7 j':'' ]);
+      var l3=join([ vers, r.dernierLogin?'dernier identifiant : '+esc(r.dernierLogin):'',
+                    x.formule?esc(x.formule):'' ]);
+      return '<button type="button" class="reg-l cli'+(CNX.sel===x.t?' on':'')+'" onclick="cnxSel(\''+jsq(x.t)+'\')">'+
+        '<span class="reg-av">'+esc(sigle(x.nom||x.t))+'</span>'+
+        '<span class="reg-txt"><span class="reg-t1" title="'+esc(x.nom||x.t)+'">'+esc(x.nom||x.t)+'</span>'+
+          (l2?'<span class="reg-l2">'+l2+'</span>':'')+
+          (l3?'<span class="reg-l3">'+l3+'</span>':'')+'</span>'+
+        '<span class="reg-fin"><span class="reg-alertes">'+alertes+'</span>'+
+          '<span class="reg-chev" aria-hidden="true">›</span></span></button>';
+    }
+    var muet=(nature==='jamais')
+      ? 'aucune connexion remontée (les applications le font à partir de la v550)'
+      : join([ r.derniere?cnxDepuis(r.derniere):'jamais connectée',
+               r.utilisateurs7?r.utilisateurs7+' pers. / 7 j':'',
+               r.dernierLogin?esc(r.dernierLogin):'' ]);
+    return '<button type="button" class="reg-l'+(CNX.sel===x.t?' on':'')+'" onclick="cnxSel(\''+jsq(x.t)+'\')">'+
+      (x.slug?'<span class="reg-av gris">'+esc(sigle(x.nom||x.t))+'</span>'
+             :'<span class="reg-av sans">?</span>')+
+      '<span class="reg-txt"><span class="reg-t1" title="'+esc(x.nom||x.t)+'">'+esc(x.nom||x.t)+'</span>'+
+        '<span class="reg-l2">'+muet+'</span></span>'+
+      '<span class="reg-fin"><span class="reg-alertes">'+alertes+'</span>'+
+        '<span class="reg-chev" aria-hidden="true">›</span></span></button>';
+  };
+
+  /* Trois groupes, qui répondent à la seule question de cet écran : qui travaille ? Un
+     groupe vide n'est pas rendu — un titre suivi de rien ne dit rien. */
+  var GR_CNX=[
+    {cle:'active',titre:'Actives cette semaine',bloc:'reg-cli',
+     test:function(x){ return x.resume.derniere>now-7*86400000; }},
+    {cle:'silence',titre:'Silencieuses depuis 7 jours',bloc:'reg-bloc',
+     sous:'Elles se sont connectées un jour, plus depuis une semaine. À regarder si ça dure.',
+     test:function(x){ return x.resume.derniere>0 && !(x.resume.derniere>now-7*86400000); }},
+    {cle:'jamais',titre:'Jamais connectées',bloc:'reg-bloc mien',opt:true,
+     sous:'Aucune connexion n’est jamais remontée. Soit personne n’est entré, soit leur application est trop ancienne pour le signaler (avant la v550).',
+     test:function(x){ return !x.resume.derniere; }}
+  ];
+  var grCnx='';
+  GR_CNX.forEach(function(g){
+    var dedans=l.filter(g.test);
+    if(!dedans.length) return;
+    grCnx+='<div class="reg-g"><div class="reg-tete">'+
+      '<span class="reg-nom">'+g.titre+'</span><span class="reg-n">'+dedans.length+'</span>'+
+      (g.sous?'<span class="reg-sous'+(g.opt?' opt':'')+'">'+g.sous+'</span>':'')+
+      '</div><div class="'+g.bloc+'">'+
+      dedans.map(function(x){ return ligneCnx(x,g.cle); }).join('')+'</div></div>';
+  });
+  var table=grCnx? '<div class="reg">'+grCnx+'</div>'
+    : '<div class="vide">Aucune entreprise pour ce filtre.</div>';
   var det='';
   if(CNX.sel){ var e=CNX.list.filter(function(x){ return x.t===CNX.sel; })[0]||{};
     det='<div style="margin-bottom:14px"><button class="btn-fant" onclick="cnxFermer()">← Toutes les entreprises</button></div>'+
