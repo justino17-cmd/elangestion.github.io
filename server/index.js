@@ -365,6 +365,11 @@ app.post('/api/bug', (req, res) => {
   const { teamId, app: appName, version, msg, src, line, stack, ua } = req.body || {};
   if (!msg) return res.status(400).json({ error: 'msg requis' });
   const team = String(teamId || 'inconnu').slice(0, 60);
+  /* Un espace supprimé ne se laisse pas ressusciter par un appareil resté hors ligne :
+     sans ce garde-fou, il réapparaît avec les identifiants et les noms de ses salariés.
+     On répond ok — l'appareil n'a rien fait de mal, et /api/espaces/etat lui dira de se
+     vider — mais on n'écrit RIEN. */
+  if (entFermes.espaces.includes(team)) return res.json({ ok: true, ferme: true });
   const q = bugQuota.get(team) || { count: 0, reset: Date.now() + 3600000 };
   if (Date.now() > q.reset) { q.count = 0; q.reset = Date.now() + 3600000; }
   if (q.count >= 20) return res.json({ ok: true, muted: true });
@@ -657,6 +662,11 @@ app.get('/api/vapid', (req, res) => res.json({ key: config.vapidPublicKey }));
 app.post('/api/subscribe', (req, res) => {
   const { sub, teamId, userId, userName } = req.body || {};
   if (!sub || !sub.endpoint || !teamId) return res.status(400).json({ error: 'sub et teamId requis' });
+  /* Un espace supprimé ne se laisse pas ressusciter par un appareil resté hors ligne :
+     sans ce garde-fou, il réapparaît avec les identifiants et les noms de ses salariés.
+     On répond ok — l'appareil n'a rien fait de mal, et /api/espaces/etat lui dira de se
+     vider — mais on n'écrit RIEN. */
+  if (entFermes.espaces.includes(String(teamId).slice(0, 80))) return res.json({ ok: true, ferme: true });
   subs[sub.endpoint] = { sub, teamId: String(teamId).slice(0, 80), userId: String(userId || '').slice(0, 80), userName: String(userName || '').slice(0, 80), ts: Date.now() };
   saveSubs();
   res.json({ ok: true });
@@ -1455,6 +1465,11 @@ function usageSave() { clearTimeout(usageTimer); usageTimer = setTimeout(() => {
 app.post('/api/usage', (req, res) => {
   const b = req.body || {};
   const t = monStr(b.t, 80); if (!t) return res.status(400).json({ error: 't requis' });
+  /* Un espace supprimé ne se laisse pas ressusciter par un appareil resté hors ligne :
+     sans ce garde-fou, il réapparaît avec les identifiants et les noms de ses salariés.
+     On répond ok — l'appareil n'a rien fait de mal, et /api/espaces/etat lui dira de se
+     vider — mais on n'écrit RIEN. */
+  if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
   const vues = (b.vues && typeof b.vues === 'object' && !Array.isArray(b.vues)) ? b.vues : {};
   if (Object.keys(usageData).length >= 3000 && !usageData[t]) return res.json({ ok: true });
   const u = usageData[t] = usageData[t] || { vues: {}, total: 0, dernier: 0, version: '' };
@@ -1572,6 +1587,11 @@ function cnxSave() { clearTimeout(cnxTimer); cnxTimer = setTimeout(() => { try {
 app.post('/api/connexions', (req, res) => {
   const b = req.body || {};
   const t = monStr(b.t, 80); if (!t) return res.status(400).json({ error: 't requis' });
+  /* Un espace supprimé ne se laisse pas ressusciter par un appareil resté hors ligne :
+     sans ce garde-fou, il réapparaît avec les identifiants et les noms de ses salariés.
+     On répond ok — l'appareil n'a rien fait de mal, et /api/espaces/etat lui dira de se
+     vider — mais on n'écrit RIEN. */
+  if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
   if (Object.keys(cnxData).length >= 3000 && !cnxData[t]) return res.json({ ok: true });
   const ev = { ts: Date.now(), ev: ['connexion', 'echec', 'session', 'deconnexion'].includes(b.ev) ? b.ev : 'connexion',
     login: monStr(b.login, 40), role: monStr(b.role, 16), version: monStr(b.version, 12), app: monStr(b.app, 12) || 'gestion',
@@ -2824,6 +2844,310 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   const compteSite = await fbSupprimerCompteSite(email);
   console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', masqueMail(email), '— données effacées :', effaces + '/' + espacesAEffacer.length, '· compte du site :', compteSite.motif);
   res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces, compteSite });
+});
+
+/* ══ SUPPRIMER UNE ENTREPRISE, PARTOUT ═══════════════════════════════════════════
+   « Repartir à neuf » et « Fermer définitivement » existaient déjà, mais aucune des deux
+   ne supprime tout, et l'une des deux ne supprime rien du tout à long terme :
+
+   · /clients/retirer est indexée par E-MAIL et exige clientsData[email]. Un espace ouvert
+     depuis la Tour, ou repéré par ses seules connexions, ne peut donc pas être supprimé.
+   · /espaces/renaitre efface le document Firestore MAIS N'AJOUTE RIEN À entFermes. Or
+     app.html (vers la ligne 5131) dit, au premier instantané : « équipe vide → on amorce
+     avec nos données », et repousse toute sa base chiffrée. Le premier appareil qui rouvre
+     REMET donc tout — sous un identifiant que l'annuaire ne connaît plus. C'est ainsi que
+     naissent les « espaces hors annuaire » qu'on ne sait plus rattacher à personne.
+
+   Ces deux routes-ci sont indexées par TEAMID : c'est la seule clé que toutes les sources
+   partagent (l'annuaire connaît le slug, les comptes du site l'e-mail, les connexions rien
+   d'autre que le t). Elles restent en place : celle-ci ne les remplace pas, elle couvre le
+   cas qu'aucune ne couvre — « supprime tout, partout ».
+
+   L'ORDRE DES OPÉRATIONS N'EST PAS ARBITRAIRE :
+     1. entFermes EN PREMIER. C'est ce qui fait que /api/espaces/etat répond ferme:true et
+        que les appareils se vident au lieu de repousser leurs données. Sans ça, tout le
+        reste est défait par le premier client qui rouvre son application.
+     2. Les boîtes mail ENSUITE. releveBoite() itère mailboxes toutes les 120 s : tant
+        qu'elles sont là, le serveur continue de se connecter aux boîtes professionnelles
+        d'une entreprise supprimée et de réécrire dans replies.jsonl ce qu'on vient d'en
+        retirer. Elles portent aussi les mots de passe IMAP/SMTP en clair.
+     3. Le reste dans n'importe quel ordre, mais l'annuaire EN DERNIER parmi les registres :
+        il est le seul à relier nom, slug, teamId, e-mail et clé d'équipe. L'effacer d'abord
+        rendrait le reste inatteignable. */
+
+/* Résout TOUTES les identités d'un espace à partir de son seul teamId, et compte ce qu'il
+   y a à perdre. Aucune écriture — c'est aussi ce qui alimente l'aperçu avant suppression,
+   et ce qui permet de VÉRIFIER après coup que tout est bien parti. */
+function entInventaire(t) {
+  const slugs = [], emails = new Set(); let nom = '';
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    if (espaceT(e) !== t) continue;
+    slugs.push(slug);
+    if (e.email) emails.add(String(e.email).toLowerCase());
+    if (!nom) nom = espNomPropre(e) || '';
+  }
+  const boites = Object.entries(mailboxes).filter(([, b]) => b && b.teamId === t).map(([id]) => id);
+  const abos = Object.entries(subs).filter(([, x]) => x && x.teamId === t).map(([ep]) => ep);
+  let bugs = 0;
+  try { for (const l of fs.readFileSync(BUGS_PATH, 'utf8').trim().split('\n')) { try { const b = JSON.parse(l); if (b && b.team === t) bugs++; } catch (err) {} } } catch (err) {}
+  let reponses = 0;
+  try { for (const l of fs.readFileSync(REPLIES_PATH, 'utf8').trim().split('\n')) { try { const r = JSON.parse(l); if (r && r.teamId === t) reponses++; } catch (err) {} } } catch (err) {}
+  /* sentmap.jsonl garde, pour chaque bon de commande envoyé, l'adresse du CLIENT DE
+     L'ENTREPRISE. C'est son carnet d'adresses : le laisser derrière une « suppression
+     totale » serait garder des données personnelles de tiers. Et il sert au rattachement
+     des réponses (voir releveBoite) : une ligne oubliée ré-étiquette un message entrant
+     avec un teamId supprimé et le réécrit dans replies.jsonl qu'on vient de purger. */
+  let bonsEnvoyes = 0;
+  try { for (const l of fs.readFileSync(SENTMAP_PATH, 'utf8').trim().split('\n')) { try { const x = JSON.parse(l); if (x && x.teamId === t) bonsEnvoyes++; } catch (err) {} } } catch (err) {}
+  const promos = [];
+  for (const [code, u] of Object.entries(promoUsages || {})) if (u && u.equipes && u.equipes[t]) promos.push(code);
+  const cnx = cnxData[t] || [];
+  const usage = usageData[t] || null;
+  /* comptesAnnuaire est une PREUVE, pas un indice : comptesReg[t] ne peut être écrit que par
+     /api/espaces/comptes, qui refuse si l'espace n'existe pas et si l'empreinte de la clé
+     d'équipe ne correspond pas. Un espace hors annuaire qui en porte A DONC ÉTÉ un vrai
+     espace, avec de vrais comptes — son entrée d'annuaire a été perdue, pas inventée. */
+  const comptes = Object.keys((comptesReg[t] && comptesReg[t].c) || {}).length;
+  const comptesSite = Object.values(clientsData).filter(c => c && emails.has(String(c.email || '').toLowerCase())).length;
+  return {
+    t, nom, slugs, emails: [...emails],
+    dansAnnuaire: slugs.length > 0,
+    dejaFerme: entFermes.espaces.includes(t),
+    boites: boites.length, abonnesPush: abos.length,
+    codeAcces: !!accesReg[t], comptesAnnuaire: comptes,
+    devisIA: !!devisAcces[t],
+    connexions: cnx.length,
+    premiere: cnx.length ? (cnx[cnx.length - 1].ts || 0) : 0,
+    derniere: cnx.length ? (cnx[0].ts || 0) : 0,
+    ecransOuverts: (usage && usage.total) || 0,
+    erreurs: bugs, reponsesMail: reponses, bonsEnvoyes, promos,
+    comptesSite,
+    /* OP MESSAGES est hors de portée : sa collection Firestore (op_companies) est créée
+       avec un identifiant auto-généré, sans lien avec le teamId, et le serveur ne le
+       connaît pas. On le SIGNALE plutôt que de laisser croire qu'il part avec le reste. */
+    opMessages: Object.values(espacesReg).some(e => espaceT(e) === t && e.opMessages),
+    _boites: boites, _abos: abos
+  };
+}
+
+/* Les deux espaces par défaut de l'application ne sont PAS des entreprises : syncTeam()
+   (app.html:5096) rend `localStorage.elan_sync_team || FB_TEAM`, et FB_TEAM vaut
+   'elan-gestion' dans app.html, 'elan-gestion-beta' dans beta.html. Tout appareil qui n'a
+   rejoint aucun espace signale donc là — y compris un visiteur qui rate une connexion. Ils
+   apparaissent dans la Tour comme des entreprises ordinaires, ce qu'ils ne sont pas.
+   Les supprimer serait doublement catastrophique : `elan_teams/elan-gestion` est le document
+   PARTAGÉ de toutes les entreprises sans clé personnalisée (le périmètre de
+   SYNC_SECRET_DEFAULT, voir CLAUDE.md), et les ajouter à entFermes viderait TOUS leurs
+   appareils au prochain lancement. Le refus explique, sinon on le prend pour une panne. */
+const ESPACES_INTOUCHABLES = ['elan-gestion', 'elan-gestion-beta'];
+const REFUS_INTOUCHABLE = 'Cet identifiant n\'est pas une entreprise : c\'est l\'espace par défaut de l\'application. '
+  + 'Tout appareil qui n\'a rejoint aucun espace y signale ses connexions, et ses données sont partagées par toutes '
+  + 'les entreprises qui n\'ont jamais reçu de clé personnalisée. Le supprimer les effacerait toutes à la fois.';
+
+/* L'aperçu : ce qui va disparaître, sans que rien ne disparaisse. Le patron doit voir
+   l'ampleur AVANT de taper le nom, pas après — et pouvoir relancer l'aperçu ensuite pour
+   vérifier que tout est à zéro. */
+app.post('/api/monitor/entreprise/apercu-suppression', monPatronStrict, (req, res) => {
+  const t = monStr((req.body || {}).t, 80).trim();
+  if (!t) return res.status(400).json({ error: 'identifiant d\'espace manquant' });
+  if (ESPACES_INTOUCHABLES.includes(t)) return res.status(403).json({ error: REFUS_INTOUCHABLE });
+  const inv = entInventaire(t);
+  delete inv._boites; delete inv._abos;
+  /* Un espace qui porte des comptes de connexion, un code d'accès ou de l'usage a
+     forcément été un vrai espace : on le dit, pour qu'un ménage d'essais ne devienne pas
+     la suppression d'un client dont on a perdu le nom. */
+  inv.aVecu = !!(inv.comptesAnnuaire || inv.codeAcces || inv.ecransOuverts || inv.comptesSite);
+  res.json({ ok: true, apercu: inv });
+});
+
+app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) => {
+  const t = monStr((req.body || {}).t, 80).trim();
+  if (!t) return res.status(400).json({ error: 'identifiant d\'espace manquant' });
+  if (ESPACES_INTOUCHABLES.includes(t)) return res.status(403).json({ error: REFUS_INTOUCHABLE });
+  const inv = entInventaire(t);
+  const etiquette = inv.nom || t;
+
+  const codeRecu = monStr((req.body || {}).code, 10).trim();
+  if (!codeRecu) {   // 1er temps : le code part par e-mail, comme pour une fermeture
+    if (!mailer) return res.status(503).json({ error: 'e-mail non configuré — impossible d\'envoyer le code' });
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    /* Indexé par teamId, PAS par e-mail : deux espaces sans adresse se marcheraient dessus,
+       et c'est justement le cas des espaces hors annuaire qu'on cherche à nettoyer. */
+    retraitCodes.set('t:' + t, { code, exp: Date.now() + 10 * 60000, tries: 0 });
+    const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
+    const detail = [
+      inv.dansAnnuaire ? inv.slugs.length + ' entrée(s) d\'annuaire' : 'aucune entrée d\'annuaire',
+      inv.comptesAnnuaire + ' compte(s) de connexion',
+      inv.boites + ' boîte(s) mail reliée(s)',
+      inv.abonnesPush + ' appareil(s) abonné(s) aux notifications',
+      inv.connexions + ' connexion(s) enregistrée(s)',
+      inv.erreurs + ' erreur(s)',
+      inv.ecransOuverts + ' écran(s) ouvert(s)',
+      inv.comptesSite + ' compte(s) du site'
+    ].join('\n· ')
+    + (inv.opMessages
+        ? '\n\n⚠️ OP MESSAGES N\'EST PAS CONCERNÉ : ses conversations, ses salons et ses pièces jointes '
+          + 'vivent dans un espace Firestore séparé, dont l\'identifiant n\'est pas relié à celui-ci. '
+          + 'Ils resteront en place — à supprimer à part.'
+        : '');
+    try {
+      await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
+        subject: '🗑 Code de confirmation — suppression totale de « ' + etiquette + ' »',
+        text: 'Tu es sur le point de SUPPRIMER TOTALEMENT l\'espace « ' + etiquette + ' » (' + t + ').\n\n'
+          + 'Ce qui va être effacé :\n· ' + detail + '\n\n'
+          + 'Code de confirmation : ' + code + '\n\nValable 10 minutes.\n\n'
+          + 'Après validation, rien n\'est récupérable : les données chiffrées sont détruites côté Firestore, '
+          + 'et les applications des appareils se vident à leur prochain lancement.\nSi ce n\'est pas toi, ignore ce message.' });
+    } catch (e) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(e.message).slice(0, 120) }); }
+    console.log('Tour : code de suppression totale envoyé pour', t, '→', masqueMail(dest));
+    return res.json({ ok: true, codeEnvoye: true, dest, apercu: (delete inv._boites, delete inv._abos, inv) });
+  }
+
+  const c = retraitCodes.get('t:' + t);
+  if (!c || Date.now() > c.exp) { retraitCodes.delete('t:' + t); return res.status(400).json({ error: 'code expiré — recommence' }); }
+  c.tries++; if (c.tries > 5) { retraitCodes.delete('t:' + t); return res.status(429).json({ error: 'trop d\'essais — recommence' }); }
+  if (codeRecu !== c.code) return res.status(400).json({ error: 'code incorrect (' + (6 - c.tries) + ' essai(s) restants)' });
+  retraitCodes.delete('t:' + t);
+
+  const fait = {};
+
+  // ── 1. LE BLOCAGE D'ABORD. Sans lui, le premier appareil qui rouvre repousse toute sa
+  //       base chiffrée et défait tout ce qui suit. Voir app.html vers la ligne 5131.
+  if (!entFermes.espaces.includes(t)) entFermes.espaces.push(t);
+  for (const m of inv.emails) if (!entFermes.emails.includes(m)) entFermes.emails.push(m);
+  const fermesOk = fermesSave();
+  if (!fermesOk) return res.status(500).json({ error: 'Le blocage de l\'espace n\'a pas pu être enregistré — RIEN n\'a été supprimé. Vérifie le serveur (disque plein ?) avant de recommencer.' });
+  fait.bloque = true;
+
+  // ── 2. LES BOÎTES MAIL. releveBoite() les relit toutes les 120 s : tant qu'elles sont là,
+  //       le serveur se reconnecte et réécrit dans replies.jsonl ce qu'on va en retirer.
+  //       Elles portent aussi les mots de passe IMAP/SMTP en clair.
+  for (const id of inv._boites) delete mailboxes[id];
+  /* saveMailboxes() avale son erreur. Or c'est le fichier qui porte les mots de passe
+     IMAP/SMTP EN CLAIR : répondre « supprimé » alors qu'ils sont encore sur le disque est
+     exactement ce qu'il ne faut pas faire. On relit pour en être sûr. */
+  let ecrit = true;
+  if (inv._boites.length) {
+    saveMailboxes();
+    try { const relu = JSON.parse(fs.readFileSync(MAILBOX_PATH, 'utf8'));
+      if (Object.values(relu).some(b => b && b.teamId === t)) ecrit = false;
+    } catch (e) { ecrit = false; }
+    if (!ecrit) console.error('suppression : mailboxes.json non écrit — mots de passe encore présents pour', t);
+  }
+  fait.boites = inv._boites.length;
+
+  // ── 3. Les abonnements aux notifications : ils portent le NOM des salariés, et sans ça
+  //       le serveur continue de pousser sur les téléphones d'une entreprise supprimée.
+  for (const ep of inv._abos) delete subs[ep];
+  if (inv._abos.length) saveSubs();
+  fait.abonnesPush = inv._abos.length;
+
+  // ── 4. Les registres indexés par teamId.
+  if (accesReg[t]) { delete accesReg[t]; if (!accesEcrire()) ecrit = false; }
+  fait.codeAcces = !!inv.codeAcces;
+  if (comptesReg[t]) { delete comptesReg[t]; if (!comptesEcrire()) ecrit = false; }
+  fait.comptesAnnuaire = inv.comptesAnnuaire;
+  if (usageData[t]) { delete usageData[t]; usageSave(); }
+  fait.ecransOuverts = inv.ecransOuverts;
+  if (cnxData[t]) { delete cnxData[t]; cnxSave(); }
+  fait.connexions = inv.connexions;
+  if (devisAcces[t]) { delete devisAcces[t]; saveDevisAcces(); }
+  fait.devisIA = !!inv.devisIA;
+  if (inv.promos.length) { for (const code of inv.promos) { if (promoUsages[code] && promoUsages[code].equipes) delete promoUsages[code].equipes[t]; } savePromoUsages(); }
+  fait.promos = inv.promos.length;
+
+  // ── 5. L'annuaire EN DERNIER parmi les registres : il est le seul à relier nom, slug,
+  //       teamId, e-mail et clé d'équipe. TOUS les slugs qui portent ce t, pas seulement
+  //       celui qu'on connaît — un espace renommé en laisse plusieurs, chacun contenant la
+  //       clé d'équipe en clair dans son code base64.
+  for (const slug of inv.slugs) delete espacesReg[slug];
+  /* espacesEcrire() et pas writeFileSync : le commentaire de cette fonction dit pourquoi —
+     espaces.json porte le « k » de TOUS les clients, une écriture tronquée les perd tous
+     d'un coup. Écrire à côté puis renommer est la seule façon de ne pas transformer une
+     suppression ratée en panne générale. */
+  if (inv.slugs.length && !espacesEcrire()) ecrit = false;
+  fait.entreesAnnuaire = inv.slugs.length;
+
+  /* usageSave(), cnxSave() et saveSubs() écrivent 300 à 800 ms plus tard. Sur un espace
+     sans adresse — le cas exact pour lequel cette route existe — la suite ne prend pas
+     forcément ce temps-là, et un redémarrage dans cette fenêtre rechargerait usage.json et
+     connexions.json AVEC l'espace supprimé dedans, identifiants des salariés compris.
+     On force donc l'écriture tout de suite. */
+  try { fs.writeFileSync(USAGE_PATH, JSON.stringify(usageData)); } catch (e) { ecrit = false; console.error('suppression : usage.json non écrit :', e.message); }
+  try { fs.writeFileSync(CNX_PATH, JSON.stringify(cnxData)); } catch (e) { ecrit = false; console.error('suppression : connexions.json non écrit :', e.message); }
+  try { fs.writeFileSync(SUBS_PATH, JSON.stringify(subs)); } catch (e) { ecrit = false; console.error('suppression : subscriptions.json non écrit :', e.message); }
+
+  // ── 6. Les journaux : réécrits sans les lignes de cet espace. Faits après les boîtes,
+  //       sinon la relève en réécrit pendant qu'on nettoie.
+  /* Rend le nombre de lignes retirées, ou NULL si la purge a échoué. La distinction n'est
+     pas cosmétique : sans elle, un fichier trop gros pour être lu d'un coup renvoyait 0, et
+     « 0 erreur retirée » se lit comme « il n'y en avait pas » alors que la purge n'a pas eu
+     lieu du tout. Un échec doit se voir. */
+  const purgeJournal = (chemin, garde) => {
+    let n = 0;
+    try {
+      if (!fs.existsSync(chemin)) return 0;
+      const lignes = fs.readFileSync(chemin, 'utf8').split('\n');
+      const restant = lignes.filter(l => { if (!l.trim()) return false; try { if (!garde(JSON.parse(l))) { n++; return false; } } catch (err) {} return true; });
+      /* tmp + rename : un journal de plusieurs mégaoctets réécrit en place peut être tronqué
+         par une coupure au mauvais moment, et il n'y a pas de seconde copie. */
+      fs.writeFileSync(chemin + '.tmp', restant.length ? restant.join('\n') + '\n' : '');
+      fs.renameSync(chemin + '.tmp', chemin);
+    } catch (e) { console.error('purge', chemin, ':', e.message); return null; }
+    return n;
+  };
+  fait.erreurs = purgeJournal(BUGS_PATH, b => !(b && b.team === t));
+  fait.reponsesMail = purgeJournal(REPLIES_PATH, r => !(r && r.teamId === t));
+  fait.bonsEnvoyes = purgeJournal(SENTMAP_PATH, x => !(x && x.teamId === t));
+  /* Le même carnet vit AUSSI en mémoire : le purger sur disque sans le purger ici le
+     laisserait servir jusqu'au prochain redémarrage. */
+  try { sentMap = sentMap.filter(x => !(x && x.teamId === t)); } catch (e) {}
+
+  // ── 7. Les comptes du site, chez Firebase.
+  fait.comptesSite = [];
+  for (const m of inv.emails) {
+    if (clientsData[m]) { delete clientsData[m]; cliSave(); }
+    const r = await fbSupprimerCompteSite(m);
+    fait.comptesSite.push({ email: masqueMail(m), motif: r.motif });
+  }
+
+  // ── 8. Les données chiffrées, chez Firestore. En dernier : c'est la seule opération qui
+  //       peut échouer pour une raison extérieure (réseau, jeton), et tout le reste doit
+  //       déjà être fait pour qu'un échec ici ne laisse pas un demi-ménage.
+  const FB_CLE = (config.firebase && config.firebase.apiKey) || 'AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8';
+  let jeton = await fbAdminJeton(); const jetonAdmin = !!jeton;
+  if (!jeton) try {
+    const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + FB_CLE,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"returnSecureToken":true}' });
+    const j = await r.json().catch(() => ({}));
+    jeton = j.idToken || '';
+  } catch (e) { console.error('suppression firestore jeton :', e.message); }
+  fait.donneesEffacees = false;
+  try {
+    const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch('https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents/elan_teams/' + encodeURIComponent(t) + '?key=' + FB_CLE,
+      { method: 'DELETE', headers: jeton ? { 'Authorization': 'Bearer ' + jeton } : {}, signal: ctrl.signal });
+    clearTimeout(tm);
+    fait.donneesEffacees = r.ok;
+    if (!r.ok) console.error('suppression firestore', t, ': HTTP', r.status);
+  } catch (e) { console.error('suppression firestore', t, ':', e.message); }
+  if (jeton && !jetonAdmin) { try { await fetch('https://identitytoolkit.googleapis.com/v1/accounts:delete?key=' + FB_CLE,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: jeton }) }); } catch (e) {} }
+
+  console.log('Tour :', req.tourUser.nom, 'a SUPPRIMÉ TOTALEMENT l\'espace', t,
+    '— annuaire', fait.entreesAnnuaire, '· boîtes', fait.boites, '· push', fait.abonnesPush,
+    '· connexions', fait.connexions, '· erreurs', fait.erreurs, '· Firestore', fait.donneesEffacees ? 'effacé' : 'ÉCHEC');
+
+  /* Le reste est parti, mais on ne dit pas « tout est propre » si une écriture a échoué :
+     un ménage à moitié fait qu'on croit terminé est pire qu'un ménage annoncé incomplet. */
+  /* Une purge qui rend null a ÉCHOUÉ — ce n'est pas la même chose que « rien à purger ».
+     Sans cette distinction, un journal trop gros pour être lu d'un coup faisait répondre
+     « tout est propre ». */
+  const purgeRatee = fait.erreurs === null || fait.reponsesMail === null || fait.bonsEnvoyes === null;
+  if (purgeRatee) ecrit = false;
+  res.json({ ok: true, supprime: true, t, nom: inv.nom, fait, ecrit,
+    avertissement: ecrit && fait.donneesEffacees ? '' :
+      'Une partie n\'a pas pu être écrite ou effacée — relance l\'aperçu de suppression pour voir ce qu\'il reste.' });
 });
 
 // liste des problèmes + compteurs (admin)
