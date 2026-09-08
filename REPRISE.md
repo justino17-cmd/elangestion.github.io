@@ -59,15 +59,19 @@ C'est le même chantier que celui du teamId — les deux se tiennent.
 
 ## Chantiers en cours
 
-### Démarrage vierge + packs métier  ⚠️ TOUCHE `app.html`
-Branche `fix/demarrage-vierge`, **en cours de publication en v574** (feu vert de Justin le
-8 septembre 2026, 16 h). Deux conversations travaillent en parallèle sur ce dépôt : prévenir
-avant toute publication d'`app.html`.
+### Démarrage vierge — **FAIT ET PUBLIÉ en v574 le 8 septembre 2026**
+Fusionné par `d8c243f`. Vérifié sur les fichiers **réellement servis** : `app.html` en v574,
+identique au dépôt octet pour octet ; `sw.js` en `elan-gestion-v773` ; `beta.html` en
+`574-beta` avec `BETA_ESSAI=true` et l'espace `elan-gestion-beta`, tandis que la production
+sert bien `BETA_ESSAI=false`.
+
+**Pas d'annonce, délibérément** : ce lot ne change rien chez les entreprises existantes, donc
+`ANNONCE` reste à 572 et le VPS n'a pas été redéployé. Ce n'est pas un oubli.
 
 Décision de Justin, 8 septembre 2026 : *« quand quelqu'un prend OP GESTION, tout est vide. Ce
 sera à eux de tout mettre, ou à nous demander de mettre une liste. »*
 
-**Fait et mesuré en navigateur.** Le code se contredisait : `load()` vidait
+**Ce qui a été fait.** Le code se contredisait : `load()` vidait
 27 collections (drapeau `elan_vierge_v1`), puis TROIS réinjections les remplissaient — 110
 produits du CATALOGUE et les 5 fiches fournisseurs 3D. La troisième (`elan_fours_v1`) ne
 s'appelle pas « seed » : une recherche sur ce mot la rate, elle n'a été trouvée qu'en mesurant.
