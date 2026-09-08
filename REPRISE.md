@@ -148,6 +148,8 @@ cours ». Rien n'est activé d'office.
 
 | **v588** | **Un DR voit les bons de ce qu'il valide, plus seulement des box qu'il voit.** Question de Justin : « le DR ne voit que ce qui est prévu pour les box qu'il valide ? » Mesuré : non — la règle était « les box qu'il VOIT », plus les bons signés de sa main. Un bon né d'une demande de quelqu'un de son périmètre, sur une box qui ne lui est pas rattachée, lui échappait. Troisième porte ajoutée à `visibleBons` : le lien passe par le DEMANDEUR (`b.demandeId` → `d.chefId` ∈ `drPerimetre`) et non par `faitPar` — pendant des congés c'est le remplaçant qui signe, et le titulaire n'aurait jamais revu la commande à son retour. |
 
+| **v590** | **On peut retirer UNE box à UNE personne**, même quand elle est visible par toute l'équipe. Le réglage n'était qu'additif : les box ouvertes d'office (`visibleTous`, fiche technicien, responsable) affichaient un badge « Voit » verrouillé, impossible à décocher. D'où `userIdsExclus`, une liste d'exceptions rangée sur la box comme le reste de sa visibilité. On n'écrit que ce qui s'écarte du défaut — rien dans `userIds` pour une box déjà ouverte à tous, rien dans `userIdsExclus` pour une box qu'il n'avait pas — sinon chaque validation gonflerait les deux listes de toutes les box. L'exception passe AVANT toutes les portes, délégation comprise : une box retirée ne revient pas parce qu'un collègue part en congés. Elle s'affiche des deux côtés — « retirée à cette personne » sur sa fiche, « Retirée à » sur celle de la box. |
+
 **La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
 navigateur, compte par compte) :
 

@@ -4651,7 +4651,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '589-beta';
+const APP_VERSION = '590-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -6221,8 +6221,10 @@ function visibleBoxes(list){ if(can('voirTout')) return list||[]; if(!currentUse
      s'ouvre au premier jour, elle se referme toute seule au retour, sans que personne
      ait à y penser. (Demande de Justin, 8 septembre 2026.) */
   const abs=delegationsRecues(currentUser);
-  return (list||[]).filter(b=>b.visibleTous || (tid&&(b.techIds||[]).includes(tid)) || (me&&b.respUserId===me) || (me&&(b.userIds||[]).includes(me))
-    || abs.some(a=>b.respUserId===a.id || (b.userIds||[]).includes(a.id) || (a.techId&&(b.techIds||[]).includes(a.techId)))); }
+  /* L'exception passe AVANT toutes les portes, y compris la délégation : une box qu'on a
+     retirée à quelqu'un ne doit pas lui revenir parce qu'un collègue part en congés. */
+  return (list||[]).filter(b=>!boxExclu(b,me) && (b.visibleTous || (tid&&(b.techIds||[]).includes(tid)) || (me&&b.respUserId===me) || (me&&(b.userIds||[]).includes(me))
+    || abs.some(a=>b.respUserId===a.id || (b.userIds||[]).includes(a.id) || (a.techId&&(b.techIds||[]).includes(a.techId))))); }
 /* Cette box m'est-elle ouverte PARCE QUE quelqu'un est en congés ? Renvoie l'absent, pour
    l'écrire sur la fiche : un accès qu'on ne s'explique pas est un accès qui inquiète. */
 function boxDelegue(b){
@@ -6231,6 +6233,24 @@ function boxDelegue(b){
   return abs.find(a=>b.respUserId===a.id || (b.userIds||[]).includes(a.id) || (a.techId&&(b.techIds||[]).includes(a.techId)))||null; }
 /* box choisies pour une personne (sans fiche technicien ou en plus de sa fiche) : on les range sur la box, comme les techniciens */
 function userBoxSet(userId,boxId,on){ const b=(db.boxes||[]).find(x=>x.id===boxId); if(!b||!userId) return; b.userIds=(b.userIds||[]).filter(x=>x!==userId); if(on) b.userIds.push(userId); }
+/* Une box ouverte D'OFFICE — visible par toute l'équipe, portée par la fiche technicien, ou
+   dont la personne est responsable — ne se refermait pour personne : le réglage n'était
+   qu'additif. Justin, 8 septembre 2026 : « si du jour au lendemain on veut juste lui enlever
+   un box, on pourrait le faire directement de là ».
+   D'où `userIdsExclus`, une liste d'EXCEPTIONS rangée sur la box, comme le reste de sa
+   visibilité. On n'écrit que ce qui s'écarte du défaut : rien dans `userIds` pour une box
+   déjà ouverte à tous, rien dans `userIdsExclus` pour une box qu'il n'avait pas. Sans cette
+   règle, chaque validation gonflerait les deux listes de la totalité des box. */
+function userBoxVoit(userId,boxId,on){
+  const b=(db.boxes||[]).find(x=>x.id===boxId); if(!b||!userId) return;
+  b.userIds=(b.userIds||[]).filter(x=>x!==userId);
+  b.userIdsExclus=(b.userIdsExclus||[]).filter(x=>x!==userId);
+  const u=(db.users||[]).find(x=>x.id===userId)||{};
+  const auto=!!(b.visibleTous||(u.techId&&(b.techIds||[]).includes(u.techId))||b.respUserId===userId);
+  if(on){ if(!auto) b.userIds.push(userId); }
+  else  { if(auto) b.userIdsExclus.push(userId); }
+}
+const boxExclu=(b,userId)=>!!(userId&&((b&&b.userIdsExclus)||[]).includes(userId));
 function userBoxIds(userId){ return (db.boxes||[]).filter(b=>(b.userIds||[]).includes(userId)).map(b=>b.id); }
 /* ── Périmètre par personne ── sans le droit « voir tout » (technicien par défaut, ou réglé par personne dans
    Permissions), chacun ne voit QUE ce qui le concerne : ses box (assignées, visibles par tous ou dont il est
@@ -15901,6 +15921,10 @@ function renderBoxDetail(){
       ${pv?`<div class="bdt-row"><span class="bdt-ic">${late?'⚠️':'📅'}</span><span class="bdt-lbl">Prochaine visite</span><span class="bdt-val" style="font-weight:700;color:${late?'var(--red)':'var(--t1)'}">${fmtShort(pv)}${late?' · en retard':''}</span></div>`:''}
       ${(b.ville||b.codePostal)?`<div class="bdt-row"><span class="bdt-ic">📍</span><span class="bdt-lbl">Ville</span><span class="bdt-val">${esc(b.codePostal||'')} ${esc(b.ville||'')}</span></div>`:''}
       <div class="bdt-row"><span class="bdt-ic">👁️</span><span class="bdt-lbl">Visible par</span><span class="bdt-val" style="text-align:right;max-width:62%">${b.visibleTous?'Toute l\'équipe':(boxPersonnes(b).length?esc(boxPersonnes(b).join(', ')):'<span style="color:var(--t3)">Admins / DR / « Tout voir » seulement</span>')}</span></div>
+      ${(()=>{ /* Une exception qui ne se voit que sur la fiche de la personne est une exception
+           qu'on oublie. Elle s'écrit aussi ici, là où l'on décide qui voit la box. */
+        const hors=(b.userIdsExclus||[]).map(id=>(db.users||[]).find(x=>x&&x.id===id)).filter(Boolean);
+        return hors.length?`<div class="bdt-row"><span class="bdt-ic">🚫</span><span class="bdt-lbl">Retirée à</span><span class="bdt-val" style="text-align:right;max-width:62%;color:var(--org,#e8a33d);font-weight:700">${esc(hors.map(x=>fullName(x)).join(', '))}</span></div>`:''; })()}
       ${(()=>{ const abs=boxDelegue(b); if(!abs) return ''; const d=delegationActive(abs);
         return `<div class="bdt-row"><span class="bdt-ic">🌴</span><span class="bdt-lbl">Congés</span><span class="bdt-val" style="text-align:right;max-width:64%;color:var(--org,#e8a33d);font-weight:700">Vous voyez cette box pendant les congés de ${esc(fullName(abs))}${d&&d.au?`, jusqu'au ${fmtShort(d.au)}`:''}</span></div>`; })()}
       ${b.notes?`<div class="bdt-row" style="border-bottom:none"><span class="bdt-ic">📝</span><span class="bdt-lbl">Notes</span><span class="bdt-val" style="text-align:right;max-width:60%">${esc(b.notes)}</span></div>`:''}
@@ -19965,7 +19989,8 @@ function usrDroitsHtml(u,admin){
   const toutVoir=userCap(u,'voirTout');
   const boxes=(db.boxes||[]).filter(b=>b.actif!==false);
   const boxFixe=b=>!!(b.visibleTous||(u.techId&&(b.techIds||[]).includes(u.techId))||b.respUserId===u.id);
-  const nBox=boxes.filter(b=>boxFixe(b)||(b.userIds||[]).includes(u.id)).length;
+  const boxOuverte=b=>!boxExclu(b,u.id)&&(boxFixe(b)||(b.userIds||[]).includes(u.id));
+  const nBox=boxes.filter(boxOuverte).length;
   const cats=PERM_GRPS.map(([g,titre])=>{
     const ms=NAV.filter(x=>PERM_GRP_OF[x.g]===g).flatMap(x=>x.items).filter(it=>it.k!=='dashboard'&&it.k!=='permissions');
     const specs=PERM_SPECIAUX[g]||[];
@@ -19986,9 +20011,15 @@ function usrDroitsHtml(u,admin){
   const autresHtml=autres.length?`<details class="usr-cat"><summary><b>Autres droits</b><span class="usr-cn">${autres.filter(c=>userCap(u,c[0])).length}/${autres.length}</span><span class="usr-cc" aria-hidden="true">▾</span></summary><div class="usr-cb">${autres.map(c=>ligne(esc(c[1]),esc(c[2]||''),swH('cap_'+c[0],userCap(u,c[0])))).join('')}</div></details>`:'';
   const boxHtml=`<div class="usr-box" style="display:${toutVoir?'none':'block'}"><details class="usr-cat" open><summary><b>📦 Box qu'il ouvre</b><span class="usr-cn">${nBox}/${boxes.length}</span><span class="usr-cc" aria-hidden="true">▾</span></summary><div class="usr-cb">
       <div class="usr-x" style="margin:8px 0 2px">Sans « Tout voir », il n'ouvre que les box cochées ici — en plus de celles visibles par toute l'équipe, de celles où sa fiche technicien est cochée, et de celles dont il est responsable.</div>
-      ${boxes.map(b=>{ const viaTech=!!(u.techId&&(b.techIds||[]).includes(u.techId)); const resp=b.respUserId===u.id; const fixe=boxFixe(b);
-        const pourquoi=b.visibleTous?'visible par toute l\'équipe':viaTech?'via sa fiche technicien':resp?'responsable de la box':'';
-        return ligne('🧱 '+esc(b.nom||b.numero||'Box'),pourquoi,fixe?'<span class="st st-green">Voit</span>':swH('box_'+b.id,(b.userIds||[]).includes(u.id))); }).join('')||'<div class="usr-x">Aucune box pour l\'instant.</div>'}
+      ${boxes.map(b=>{ const viaTech=!!(u.techId&&(b.techIds||[]).includes(u.techId)); const resp=b.respUserId===u.id;
+        const exclu=boxExclu(b,u.id);
+        /* Toutes les box sont réglables, même celles ouvertes d'office : décocher pose une
+           exception pour CETTE personne, sans rien changer pour l'équipe. On dit d'où vient
+           l'ouverture, et on dit quand elle a été retirée — un accès fermé sans explication
+           est un accès qu'on rouvre au hasard. */
+        const pourquoi=exclu?'<span style="color:var(--org,#e8a33d)">retirée à cette personne'+(b.visibleTous?' — l\'équipe la voit toujours':'')+'</span>'
+          :b.visibleTous?'visible par toute l\'équipe':viaTech?'via sa fiche technicien':resp?'responsable de la box':'';
+        return ligne('🧱 '+esc(b.nom||b.numero||'Box'),pourquoi,swH('box_'+b.id,boxOuverte(b))); }).join('')||'<div class="usr-x">Aucune box pour l\'instant.</div>'}
     </div></details></div>`;
   const perso=!!(u.acces&&(Object.keys(u.acces.caps||{}).length||Object.keys(u.acces.modules||{}).length));
   return `<div class="usr-d" id="usr-d-${u.id}">
@@ -20011,7 +20042,7 @@ function usrDroitsValider(uid){
   USER_CAPS.forEach(([k])=>{ const v=val('cap_'+k); if(v!==null) u.acces.caps[k]=v; });
   PERM_GRPS.forEach(([g])=>{ ['ajouter','modifier','supprimer'].forEach(d=>{ const v=val('cat_'+g+'_'+d); if(v!==null) u.acces.caps['cat_'+g+'_'+d]=v; }); });
   NAV.flatMap(x=>x.items).forEach(m=>{ const v=val('mod_'+m.k); if(v!==null) u.acces.modules[m.k]=v; });
-  if(!u.acces.caps.voirTout){ (db.boxes||[]).forEach(b=>{ const v=val('box_'+b.id); if(v!==null) userBoxSet(u.id,b.id,v); }); }
+  if(!u.acces.caps.voirTout){ (db.boxes||[]).forEach(b=>{ const v=val('box_'+b.id); if(v!==null) userBoxVoit(u.id,b.id,v); }); }
   logEvent('Droits modifiés','@'+(u.login||'')+' — depuis la liste des utilisateurs','auth');
   save(); toast('✓ Droits de '+fullName(u)+' enregistrés — actifs immédiatement',3500);
   views.utilisateurs();
