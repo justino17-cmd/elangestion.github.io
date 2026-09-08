@@ -1,6 +1,45 @@
 # Point stable TeamOP
 
-**Version stable : v573** — gravée le 8 septembre 2026.
+**Version stable : v574** — gravée le 8 septembre 2026.
+
+v574 — un compte neuf démarre vraiment vide.
+
+**La demande, mot pour mot :** « quand quelqu'un prend OP GESTION, tout est vide. Ce sera à eux
+de tout mettre, ou à nous demander de mettre une liste. Chaque métier aura des fournisseurs
+différents, des produits différents. »
+
+**Le code se contredisait.** `load()` vidait 27 collections pour offrir une base propre, puis
+TROIS réinjections la remplissaient aussitôt : 110 références du catalogue 3D et 5 fiches
+fournisseurs. Une entreprise de nettoyage repartait avec des fournisseurs de produits
+anti-nuisibles qu'elle n'avait pas demandés. La troisième porte ne s'appelait pas « seed » :
+chercher ce mot la ratait, elle n'a été trouvée qu'en mesurant dans un navigateur.
+
+**Le bouton « ↻ Catalogue OP » était la porte restante.** Il posait le catalogue 3D à
+n'importe quel métier — un plombier cliquait et recevait du raticide. Il n'apparaît désormais
+que là où le catalogue est DÉJÀ en place : un filet de sécurité pour qui s'en sert, jamais une
+liste offerte à un nouveau venu. Le test porte sur les données, pas sur l'identité de l'espace :
+une entreprise restée sur la clé par défaut aurait vu le bouton à tort.
+
+**ELAN ne perd rien**, et c'est mesuré, pas supposé : ces réinjections n'AJOUTAIENT que ce qui
+manquait, et ses drapeaux sont posés depuis longtemps. Compte neuf → 0 fournisseur, 0 produit,
+0 client. Entreprise déjà installée → ses fiches intactes, aucun intrus.
+
+**La bêta démarre vide elle aussi** — sinon elle ne montre pas ce que vit un vrai nouveau
+client — et gagne trois boutons dans les Réglages : remplir avec un jeu de test, remplir en
+grand nombre (200 clients, 400 interventions, pour éprouver les listes longues), tout vider.
+Réservés à la bêta par le seul drapeau que la construction vérifie, et au rôle administrateur.
+
+**Ce que la relecture a arrêté.** Une contre-épreuve en huit agents a conclu « ne tient pas » :
+les données de test écrivaient quatre champs que l'application ne lit nulle part
+(`technicienId` au lieu de `techId`, `en_cours` au lieu de `encours`, `telephone` au lieu de
+`tel`, `notes` au lieu de `desc`). Les 400 interventions seraient sorties « Non assigné », un
+tiers affichées « À planifier », les téléphones vides — on aurait jugé un écran qui ment. Et
+une constante déclarée après `let db = load()` empêchait l'application de démarrer DU TOUT :
+le contrôle de syntaxe la déclarait valide, c'est la console du navigateur qui l'a vue.
+
+**Rien n'est annoncé aux entreprises** : ce lot ne change rien chez celles qui existent.
+
+### Ancien point
 
 v573 — le nouveau dessin s'allume chez les entreprises.
 
