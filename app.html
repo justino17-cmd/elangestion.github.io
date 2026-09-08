@@ -4751,7 +4751,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '599';
+const APP_VERSION = '600';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -17740,20 +17740,36 @@ function respBonsPrevenir(bon,d){ try{ const dest=respBonsIds().filter(id=>id!==
    recevra le colis.
    Deux messages, pas un : « à valider » est un ordre de travail, « pour ta box » est une
    information. Les confondre, c'est apprendre à ignorer les deux. */
-function boxRespPrevenir(boxId,titre,corps,sauf){
+/* Qui est RATTACHÉ à une box, nommément. Justin, 8 septembre 2026 : « chaque personne qui est
+   assignée au box et rattachée au DR qui valide voit les bons de commande, l'historique, les
+   notifications de tout ce qui les concerne ».
+   ⛔ NOMMÉMENT, et c'est tout le sujet : une box `visibleTous` est ouverte à l'entreprise
+   entière. Prévenir tous ceux qui PEUVENT la voir, ce serait notifier tout le monde à chaque
+   commande — et une notification qui arrive à tout le monde n'est plus lue par personne. On
+   s'en tient donc aux trois rattachements explicites : responsable, personnes cochées pour
+   elle, et fiches techniciens rattachées. Les exceptions (`userIdsExclus`) sont retirées : on
+   n'envoie pas de nouvelles d'une box qu'on ne peut même plus ouvrir. */
+function boxGensIds(b){
+  if(!b) return [];
+  const out=new Set();
+  if(b.respUserId) out.add(b.respUserId);
+  (b.userIds||[]).forEach(id=>out.add(id));
+  (b.techIds||[]).forEach(tid=>{ (db.users||[]).forEach(u=>{ if(u&&u.techId===tid) out.add(u.id); }); });
+  (b.userIdsExclus||[]).forEach(id=>out.delete(id));
+  return [...out].filter(id=>{ const u=(db.users||[]).find(x=>x&&x.id===id); return !!u&&u.actif!==false; });
+}
+function boxGensPrevenir(boxId,titre,corps,sauf){
   try{
-    const b=(db.boxes||[]).find(x=>x.id===boxId); if(!b||!b.respUserId) return;
-    const moi=currentUser&&currentUser.id;
-    if(b.respUserId===moi) return;                       // on ne se prévient pas soi-même
-    if((sauf||[]).indexOf(b.respUserId)>=0) return;      // déjà prévenu comme valideur
-    const u=(db.users||[]).find(x=>x&&x.id===b.respUserId); if(!u||u.actif===false) return;
-    pushNotify(titre,corps,'/app.html#v=boxes',[b.respUserId]);
+    const b=(db.boxes||[]).find(x=>x.id===boxId); if(!b) return;
+    const moi=currentUser&&currentUser.id, hors=sauf||[];
+    const dest=boxGensIds(b).filter(id=>id!==moi&&hors.indexOf(id)<0);   // ni soi-même, ni déjà prévenu comme valideur
+    if(dest.length) pushNotify(titre,corps,'/app.html#v=boxes',dest);
   }catch(e){}
 }
 /* une nouvelle demande de commande prévient les DR / admin (comme un mouvement de box à valider) */
 function demandeNotifDR(d){ try{ if(!d||!currentUser) return; const dest=valideursPour((db.boxes||[]).find(x=>x.id===d.boxId)||null);
   if(dest.length) pushNotify('🔒 À valider — demande de commande',(d.num||'')+' · '+(d.boxNom||boxLabel(d.boxId)||'')+' · par '+fullName(currentUser),'/app.html#v=validations',dest);
-  boxRespPrevenir(d.boxId,'📦 Demande de commande pour ta box',
+  boxGensPrevenir(d.boxId,'📦 Demande de commande pour ta box',
     (d.boxNom||boxLabel(d.boxId)||'')+' · '+(d.num||'')+' · demandée par '+fullName(currentUser)+' — en attente du DR',dest); }catch(e){} }
 
 /* ═══════════════ BONS DE COMMANDE ═══════════════ */
@@ -18774,7 +18790,7 @@ function bonStatut(id,s){ if(!peutCommander()){ refusCommander(); return; } cons
   b.statut=s; if(s==='envoyee') b.dateEnvoi=todayISO();
   /* Une commande PARTIE, c'est le signal qui compte pour la box : c'est à partir de là qu'on
      attend un colis, et qu'on saura dire s'il tarde. */
-  if(s==='envoyee') boxRespPrevenir(b.boxId,'🚚 Commande envoyée pour ta box',
+  if(s==='envoyee') boxGensPrevenir(b.boxId,'🚚 Commande envoyée pour ta box',
     (boxLabel(b.boxId)||'')+' · '+bonNum(b)+' · '+(fournName(b.fournisseurId)||b.fournisseur||'fournisseur')+' — préviens à la livraison, avec la photo du bon',[]);
   let sep=0; if(s==='prete') sep=bonSeparer(id);
   logEvent('Bon '+STATBC[s].l.toLowerCase(),bonNum(b),'commande'); save();
