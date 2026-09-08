@@ -993,7 +993,17 @@ body.plan-plein .plm-split.carte-haut #plm-map{ height:calc(100vh - 128px); heig
 .dep-info.ok{ background:color-mix(in srgb,var(--blue) 12%,transparent); border:1px solid color-mix(in srgb,var(--blue) 34%,transparent); color:var(--blue); }
 .dep-info.wr{ background:color-mix(in srgb,var(--org) 13%,transparent); border:1px solid color-mix(in srgb,var(--org) 38%,transparent); color:var(--org); }
 .dep-info.bd{ background:color-mix(in srgb,var(--red) 12%,transparent); border:1px solid color-mix(in srgb,var(--red) 38%,transparent); color:var(--red); }
-.tst-an{ display:inline-block; margin-left:10px; padding:2px 10px; border-radius:100px; border:1px solid rgba(255,255,255,.45); font-weight:800; cursor:pointer; }
+/* ⛔ UN TOAST N'EST PAS UNE CIBLE — et celui-ci mangeait trois onglets sur cinq.
+   Caché, il n'est pas retiré du document : il est seulement décalé de 120 px vers le bas
+   (translateY), ce qui le pose EXACTEMENT sur la barre d'onglets du téléphone. Mesuré à
+   390 px : la boîte invisible occupe y 773–818, la barre 786–844, et « Planning »,
+   « Interventions » et « Clients » ne recevaient plus aucun tap. Seuls les deux onglets du
+   bord répondaient. C'était permanent, pas passager — l'état sans toast est l'état normal.
+   Signalé par Justin depuis chez ELAN : « je clique et ça marche pas ».
+   Le toast ne capte donc plus rien ; seul « ↩︎ Annuler » reste cliquable, parce que c'est
+   la seule partie d'un toast qui soit une action. */
+.toast{ pointer-events:none; }
+.tst-an{ display:inline-block; margin-left:10px; padding:2px 10px; border-radius:100px; border:1px solid rgba(255,255,255,.45); font-weight:800; cursor:pointer; pointer-events:auto; }
 .tst-an:hover{ background:rgba(255,255,255,.16); }
 /* plusieurs plannings empilés */
 .plg-pl{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 11px; margin-bottom:9px; }
@@ -4485,7 +4495,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '576';
+const APP_VERSION = '577';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -16063,7 +16073,7 @@ function boxMvtPrevenir(m){
 /* refus d'un mouvement en attente (motif du DR, box introuvable, bon déjà réceptionné…) : une seule remise en état —
    le bon lié redevient « à réceptionner », l'auteur est prévenu et le voit dans SON historique */
 function boxMvtRefuser(m,motif){
-  m.motifRefus=motif||''; m.statut='refuse'; m.drNom=fullName(currentUser); m.dateValidation=todayISO();
+  m.motifRefus=motif||''; m.statut='refuse'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
   logEvent('Mouvement box refusé',boxMvtLibelle(m)+(motif?' — '+motif:''),'stock',m.parId);
   if(m.bcId){ const bonR=(db.bons||[]).find(x=>x.id===m.bcId);
     if(bonR&&bonR.statut==='arrivageNote'){ bonR.statut=m.statutAvant||'envoyee'; delete bonR.recuPar; delete bonR.recuLe; delete bonR.dateReception; if(bonR.arrivage&&bonR.arrivage.enAttenteDR) delete bonR.arrivage;
@@ -16115,7 +16125,7 @@ function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('V
     b.stock[m.produitId]=cur;
     if(m.pourQui&&((m.du||0)+(m.dc||0))<0) remiseAjoute(m,Math.abs((m.du||0)+(m.dc||0)));
   }
-  m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO();
+  m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
   logEvent('Mouvement box validé',boxMvtLibelle(m),'stock',m.parId);
   try{ if(m.parId) pushNotify('✅ Validé par le DR '+fullName(currentUser),boxMvtLibelle(m),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations(); toast('Validé — stock mis à jour'); }
@@ -16677,7 +16687,7 @@ views.validations=function(){
 function validerDemande(id,statut){ if(!currentUser||!can('validerDR')){ toast('Validation réservée au DR / administrateur (droit « Valider les mouvements et demandes »)'); return; }
   const d=db.demandes.find(x=>x.id===id); if(!d)return;
   if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return; d.motifRefus=motif; }
-  d.statut=statut; d.dateValidation=todayISO(); d.drNom=fullName(currentUser);
+  d.statut=statut; d.dateValidation=todayISO(); d.tsValidation=Date.now(); d.drNom=fullName(currentUser);
   if(statut==='valide'){
     const num=nextNum('bons','BC','numero');
     const bonId=uid();
@@ -23327,9 +23337,14 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
   { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
     (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
-      out.push({id:'mvres:'+m.id+':'+m.statut,ts:new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);"+mvtMarqueActe(m)):"go('validations')"}); });
+      /* L'heure RÉELLE de la décision, pas midi. dateValidation ne porte qu'une date : toutes
+         les décisions d'une même journée recevaient donc le même horodatage, et le tri
+         « la plus récente en haut » n'ordonnait plus rien à l'intérieur du jour — c'est
+         exactement ce que Justin voyait. tsValidation est posé à la décision ; le repli sur
+         midi ne sert qu'aux décisions prises AVANT cette version. */
+      out.push({id:'mvres:'+m.id+':'+m.statut,ts:m.tsValidation||new Date(m.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);"+mvtMarqueActe(m)):"go('validations')"}); });
     if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&!notifMoi(d.drNom)&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
-      out.push({id:'demv:'+d.id+':'+d.statut,ts:new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes');cible('dem','"+d.id+"')"}); });
+      out.push({id:'demv:'+d.id+':'+d.statut,ts:d.tsValidation||new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes');cible('dem','"+d.id+"')"}); });
   }
   // Bons réceptionnés en attente de la validation du DR (admin / DR, sur les box qu'ils voient)
   if(can('validerDR')&&(notifVoitModule('commandes')||notifVoitModule('validations'))){
