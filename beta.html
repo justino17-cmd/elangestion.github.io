@@ -3790,14 +3790,21 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .usr-d{margin-top:12px;padding-top:12px;border-top:1px solid var(--brd)}
 .usr-t{font-size:10.5px;font-weight:800;letter-spacing:.09em;color:var(--t3);text-transform:uppercase;margin:12px 0 6px}
 .usr-t:first-child{margin-top:0}
-.usr-l{display:flex;flex-wrap:wrap;gap:5px}
-.usr-l.usr-col{flex-direction:column;gap:6px}
-.usr-p{font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:100px;
-  background:var(--bg2);color:var(--t3);border:1px solid var(--brd)}
-.usr-p.oui{background:color-mix(in srgb,var(--acc) 12%,transparent);color:var(--t1);
-  border-color:color-mix(in srgb,var(--acc) 32%,transparent)}
-.usr-g{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
-.usr-gt{font-size:12px;font-weight:700;color:var(--t2);margin-right:2px}
+.usr-res{font-size:13px;color:var(--t2);line-height:1.55;margin-bottom:10px}
+/* Une catégorie = un volet. Repliés par défaut : dix catégories ouvertes, c'est un écran de
+   trois mètres ; la ligne de titre dit déjà combien de menus et d'actions sont ouverts. */
+.usr-cat{border:1px solid var(--brd);border-radius:12px;margin-bottom:8px;background:var(--bg2);overflow:hidden}
+.usr-cat>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 14px;font-size:14px;color:var(--t1);-webkit-tap-highlight-color:transparent}
+.usr-cat>summary::-webkit-details-marker{display:none}
+.usr-cat>summary b{flex:1;min-width:0}
+.usr-cn{font-size:11.5px;color:var(--t3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.usr-cc{color:var(--t3);font-size:12px;transition:transform .2s}
+.usr-cat[open]>summary .usr-cc{transform:rotate(180deg)}
+.usr-cb{padding:0 14px 8px;border-top:1px solid var(--brd)}
+.usr-cb .perm-row:last-child{border-bottom:none}
+.usr-sec{font-size:10.5px;font-weight:800;letter-spacing:.09em;color:var(--t3);text-transform:uppercase;margin:12px 0 2px}
+.pn-d{font-size:11px;color:var(--t3);font-weight:400;margin-top:2px;line-height:1.4}
+.usr-lk{display:block;text-align:center;margin-top:10px;font-size:12.5px;color:var(--t3);text-decoration:underline;cursor:pointer}
 .usr-x{font-size:12.5px;color:var(--t3);line-height:1.55}
 .usr-b{margin-top:14px}
 .usr-b .btn{width:100%;justify-content:center;min-height:48px;border-radius:13px;font-weight:800}
@@ -4640,7 +4647,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '584-beta';
+const APP_VERSION = '585-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -19839,12 +19846,7 @@ views.utilisateurs=function(){
   if(!admin && !can('creerUtilisateurs') && !userSeesModule(currentUser,'utilisateurs')){ setHeader('Accès restreint','Réservé aux administrateurs'); $('content').innerHTML=emptyState('🔒','Réservé aux administrateurs (ou au droit « Créer des utilisateurs » / à la rubrique « Utilisateurs » accordée dans Permissions).','',''); return; }
   const places=planPlaces();
   const peutCreer=admin||can('creerUtilisateurs');   // voir la rubrique ne suffit pas pour créer des comptes
-  /* L'écran « Permissions » n'est plus dans le menu : ses réglages par personne vivent ici,
-     sur la fiche de chacun. Seul « par rôle » reste un écran à part — c'est un réglage de
-     départ pour les comptes qu'on n'a jamais ouverts, pas un réglage de personne. */
-  setHeader('Utilisateurs',`${db.users.length} / ${places} place(s) de l'abonnement`,
-    (admin?`<button class="btn ghost" onclick="permMode='role';go('permissions')">🎭 Droits par rôle</button> `:'')
-    +((peutCreer&&db.users.length<500)?`<button class="btn" onclick="formUser()">＋ Utilisateur</button>`:''));
+  setHeader('Utilisateurs',`${db.users.length} / ${places} place(s) de l'abonnement`, (peutCreer&&db.users.length<500)?`<button class="btn" onclick="formUser()">＋ Utilisateur</button>`:'');
   const rows=db.users.map(u=>{ const moi=u.id===currentUser.id; const ouv=(usrOuvert===u.id);
     return `<div class="card usr-c${ouv?' on':''}" style="padding:13px 16px;margin-bottom:10px;${u.actif?'':'opacity:.6'}">
       <div style="display:flex;gap:13px;align-items:center;flex-wrap:wrap;cursor:pointer" onclick="usrDeplier('${u.id}')" role="button" tabindex="0" aria-expanded="${ouv?'true':'false'}" aria-label="Voir les droits de ${esc(fullName(u))}">
@@ -19859,7 +19861,7 @@ views.utilisateurs=function(){
         <span style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end" onclick="event.stopPropagation()">${admin?`<button class="btn ghost sm" onclick="resetPwd('${u.id}')" title="Poser un mot de passe provisoire">🔑</button><button class="btn ghost sm" onclick="formUser('${u.id}')">✎ Modifier</button>${moi?'':`<button class="btn danger sm" onclick="delUser('${u.id}')" title="Supprimer">🗑</button>`}`:''}</span>
         <span class="usr-ch" aria-hidden="true">${ouv?'⌄':'›'}</span>
       </div>${ouv?usrDroitsHtml(u,admin):''}</div>`;}).join('');
-  $('content').innerHTML=`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">👇 <b>Touche une personne</b> pour voir tout ce qu'elle a le droit de faire ; « ✎ Modifier » ouvre sa fiche, où l'on coche et décoche. Ce qui est enregistré est actif immédiatement, sur tous ses appareils.</div>`
+  $('content').innerHTML=`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">👇 <b>Touche une personne</b> : ses droits se déroulent. Coche, décoche, puis <b>Valider</b> — c'est actif immédiatement, sur tous ses appareils. « ✎ Modifier » ne sert qu'à l'identité (nom, e-mail, rôle, rattachements).</div>`
     +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">À la création d'un compte, un <b>mot de passe provisoire</b> est généré et <b>envoyé par e-mail</b> avec le lien de connexion de l'entreprise ; la personne choisit ensuite son mot de passe personnel à sa première connexion. ${admin?'« 🔑 » pose un nouveau mot de passe provisoire (et le renvoie par e-mail), et l\'<b>e-mail</b> de chaque fiche sert aussi au « Mot de passe oublié ? ».':'Tu peux créer des comptes ; leur modification reste réservée à l\'administrateur.'}</div>`+rows;
 };
 /* ══════════ LES DROITS SE LISENT DANS LA LISTE ══════════════════════════════════════════
@@ -19877,47 +19879,80 @@ views.utilisateurs=function(){
    personne, c'est le point de départ des comptes qu'on n'a jamais ouverts. */
 let usrOuvert='';
 function usrDeplier(id){ usrOuvert=(usrOuvert===id)?'':id; views.utilisateurs(); }
-function usrPuce(txt,ok){ return '<span class="usr-p'+(ok?' oui':'')+'">'+esc(txt)+'</span>'; }
+/* Le dépliage EST l'éditeur : chaque droit est un interrupteur, réglé sur ce que la personne
+   a vraiment (fiche, sinon rôle, sinon socle), et rien ne s'écrit avant « Valider ». Un
+   interrupteur coché, c'est à la fois l'affichage du droit et le moyen de le changer — pas
+   deux listes à faire coïncider. Justin, 8 septembre 2026 : « le rôle est choisi à la
+   création, mais technicien, chef d'équipe, DR… ce ne sont que des noms, pas des rôles ». */
 function usrDroitsHtml(u,admin){
   if(u.role==='admin') return '<div class="usr-d"><div class="usr-t">🛠️ Administrateur</div>'+
     '<p class="usr-x">Tous les droits, sur tout, tout le temps. Il n\'y a rien à régler pour ce compte — et rien qu\'on puisse lui retirer sans changer son rôle.</p></div>';
-  const mods=NAV.filter(x=>PERM_GRP_OF[x.g]).flatMap(x=>x.items).filter(it=>it.k!=='dashboard'&&it.k!=='permissions');
-  const vus=mods.filter(m=>userSeesModule(u,m.k));
-  const caps=USER_CAPS.filter(([k])=>userCap(u,k));
-  /* Les box réellement ouvertes, calculées comme l'app les calcule vraiment — pas une liste
-     recopiée qui finirait par mentir. */
-  const box=(db.boxes||[]).filter(b=>b.actif!==false&&(b.visibleTous||(u.techId&&(b.techIds||[]).includes(u.techId))||b.respUserId===u.id||(b.userIds||[]).includes(u.id)));
+  const dis=admin?'':' disabled';
+  const swH=(name,on,extra)=>'<label class="switch"><input type="checkbox" data-d="'+name+'"'+(on?' checked':'')+dis+(extra||'')+'><span class="track"></span><span class="knob"></span></label>';
+  const ligne=(lbl,desc,sw)=>'<div class="perm-row"><div class="pn">'+lbl+(desc?'<div class="pn-d">'+desc+'</div>':'')+'</div>'+sw+'</div>';
+  const capLbl=k=>{ const c=USER_CAPS.find(x=>x[0]===k); return c?[c[1],c[2]||'']:[k,'']; };
+  const tousMods=NAV.filter(x=>PERM_GRP_OF[x.g]).flatMap(x=>x.items).filter(it=>it.k!=='dashboard'&&it.k!=='permissions');
+  const vus=tousMods.filter(m=>userSeesModule(u,m.k)).length;
   const toutVoir=userCap(u,'voirTout');
-  const chef=u.chefId&&(db.users||[]).find(x=>x.id===u.chefId);
-  const dr=u.drId&&(db.users||[]).find(x=>x.id===u.drId);
-  const equipe=(db.users||[]).filter(x=>x&&x.drId===u.id);
-  const deleg=delegationActive(u);
-  const recues=delegationsRecues(u);
-  const grps=PERM_GRPS.filter(([g])=>!['tdb','admin'].includes(g))
-    .map(([g,titre])=>{ const d=['ajouter','modifier','supprimer'].filter(x=>catDroit(u,g,x));
-      return d.length?'<div class="usr-g"><span class="usr-gt">'+esc(titre)+'</span>'+d.map(x=>usrPuce(x,true)).join('')+'</div>':''; })
-    .filter(Boolean).join('');
-  return '<div class="usr-d">'+
-    '<div class="usr-t">👁 Ce qu\'il voit — '+vus.length+' menu'+(vus.length>1?'s':'')+' sur '+mods.length+'</div>'+
-    '<div class="usr-l">'+(vus.length?vus.map(m=>usrPuce(m.ic+' '+t(m.l),true)).join(''):'<span class="usr-x">Aucun menu — ce compte ne verrait que le tableau de bord.</span>')+'</div>'+
-    '<div class="usr-t">🔑 Droits particuliers</div>'+
-    '<div class="usr-l">'+(caps.length?caps.map(c=>usrPuce(c[1],true)).join(''):'<span class="usr-x">Aucun droit particulier — les actions de base seulement.</span>')+'</div>'+
-    (grps?'<div class="usr-t">✎ Ce qu\'il peut faire, par catégorie</div><div class="usr-l usr-col">'+grps+'</div>':
-      '<div class="usr-t">✎ Ce qu\'il peut faire, par catégorie</div><div class="usr-l"><span class="usr-x">Lecture seule partout : il ne peut rien ajouter, modifier ni supprimer.</span></div>')+
-    '<div class="usr-t">📦 Box qu\'il ouvre</div>'+
-    '<div class="usr-l">'+(toutVoir?usrPuce('Toutes les box (droit « Tout voir »)',true)
-      :(box.length?box.map(b=>usrPuce('🧱 '+(b.nom||b.numero||'Box'),true)).join(''):'<span class="usr-x">Aucune box — il ne verra pas l\'écran Stock des box.</span>'))+'</div>'+
-    '<div class="usr-t">🔗 Rattachements</div>'+
-    '<div class="usr-l">'+
-      (chef?usrPuce('Chef d\'équipe : '+fullName(chef),true):'')+
-      (dr?usrPuce('Validé par : '+fullName(dr),true):usrPuce('Aucun DR choisi — tous les valideurs sont prévenus',false))+
-      (u.boxValidDR?usrPuce('Ses mouvements passent par le DR',true):'')+
-      (equipe.length?usrPuce('Valide '+equipe.length+' personne'+(equipe.length>1?'s':''),true):'')+
-      (deleg?usrPuce('🌴 En congés jusqu\'au '+fmtShort(deleg.au)+' — remplacé par '+fullName((db.users||[]).find(x=>x.id===deleg.versId)||{}),true):'')+
-      (recues.length?usrPuce('🌴 Remplace '+recues.map(x=>fullName(x)).join(', '),true):'')+
-    '</div>'+
-    (admin?'<div class="usr-b"><button type="button" class="btn" onclick="event.stopPropagation();formUser(\''+u.id+'\')">✎ Modifier ses droits</button></div>':'')+
-  '</div>';
+  const boxes=(db.boxes||[]).filter(b=>b.actif!==false);
+  const boxFixe=b=>!!(b.visibleTous||(u.techId&&(b.techIds||[]).includes(u.techId))||b.respUserId===u.id);
+  const nBox=boxes.filter(b=>boxFixe(b)||(b.userIds||[]).includes(u.id)).length;
+  const cats=PERM_GRPS.map(([g,titre])=>{
+    const ms=NAV.filter(x=>PERM_GRP_OF[x.g]===g).flatMap(x=>x.items).filter(it=>it.k!=='dashboard'&&it.k!=='permissions');
+    const specs=PERM_SPECIAUX[g]||[];
+    const sansDroits=['tdb','admin'].includes(g);
+    const nVus=ms.filter(m=>userSeesModule(u,m.k)).length;
+    const nAct=sansDroits?0:['ajouter','modifier','supprimer'].filter(d=>catDroit(u,g,d)).length;
+    return `<details class="usr-cat"><summary><b>${esc(titre)}</b><span class="usr-cn">${nVus}/${ms.length} menu${ms.length>1?'s':''}${sansDroits?'':' · '+nAct+'/3 actions'}</span><span class="usr-cc" aria-hidden="true">▾</span></summary><div class="usr-cb">
+      <div class="usr-sec">👁 Ce qu'il voit — menus</div>
+      ${ms.map(m=>ligne(m.ic+' '+esc(t(m.l)),'',swH('mod_'+m.k,userSeesModule(u,m.k)))).join('')||'<div class="usr-x">—</div>'}
+      ${sansDroits?'':'<div class="usr-sec">✎ Ce qu\'il peut faire ici</div>'+[['ajouter','＋ Ajouter'],['modifier','✎ Modifier'],['supprimer','🗑 Supprimer']].map(([d,l])=>ligne(l,'',swH('cat_'+g+'_'+d,catDroit(u,g,d)))).join('')}
+      ${specs.length?'<div class="usr-sec">🔑 Droits spéciaux</div>'+specs.map(k=>{ const l2=capLbl(k); return ligne(esc(l2[0]),esc(l2[1]),swH('cap_'+k,userCap(u,k),k==='voirTout'?' onchange="usrVoirTout(this)"':'')); }).join(''):''}
+    </div></details>`; }).join('');
+  /* Les droits qui n'appartiennent à aucune catégorie (supprimer, créer une intervention,
+     consultation seule des bons…) : l'ancien écran Permissions les taisait, seule la fiche
+     les montrait. Ici, tout ce qui existe est visible — sinon un droit devient introuvable. */
+  const dansCat=new Set([].concat.apply([],Object.keys(PERM_SPECIAUX).map(g=>PERM_SPECIAUX[g])));
+  const autres=USER_CAPS.filter(c=>!dansCat.has(c[0]));
+  const autresHtml=autres.length?`<details class="usr-cat"><summary><b>Autres droits</b><span class="usr-cn">${autres.filter(c=>userCap(u,c[0])).length}/${autres.length}</span><span class="usr-cc" aria-hidden="true">▾</span></summary><div class="usr-cb">${autres.map(c=>ligne(esc(c[1]),esc(c[2]||''),swH('cap_'+c[0],userCap(u,c[0])))).join('')}</div></details>`:'';
+  const boxHtml=`<div class="usr-box" style="display:${toutVoir?'none':'block'}"><details class="usr-cat" open><summary><b>📦 Box qu'il ouvre</b><span class="usr-cn">${nBox}/${boxes.length}</span><span class="usr-cc" aria-hidden="true">▾</span></summary><div class="usr-cb">
+      <div class="usr-x" style="margin:8px 0 2px">Sans « Tout voir », il n'ouvre que les box cochées ici — en plus de celles visibles par toute l'équipe, de celles où sa fiche technicien est cochée, et de celles dont il est responsable.</div>
+      ${boxes.map(b=>{ const viaTech=!!(u.techId&&(b.techIds||[]).includes(u.techId)); const resp=b.respUserId===u.id; const fixe=boxFixe(b);
+        const pourquoi=b.visibleTous?'visible par toute l\'équipe':viaTech?'via sa fiche technicien':resp?'responsable de la box':'';
+        return ligne('🧱 '+esc(b.nom||b.numero||'Box'),pourquoi,fixe?'<span class="st st-green">Voit</span>':swH('box_'+b.id,(b.userIds||[]).includes(u.id))); }).join('')||'<div class="usr-x">Aucune box pour l\'instant.</div>'}
+    </div></details></div>`;
+  const perso=!!(u.acces&&(Object.keys(u.acces.caps||{}).length||Object.keys(u.acces.modules||{}).length));
+  return `<div class="usr-d" id="usr-d-${u.id}">
+    <div class="usr-res">Voit <b>${vus}</b> menus sur ${tousMods.length} · ${toutVoir?'<b>toutes</b> les box':'<b>'+nBox+'</b> box'}${userCap(u,'validerDR')?' · <b>valide</b> les mouvements et demandes':''}${perso?'':' · <span class="usr-x">suit son rôle, rien de réglé à part</span>'}</div>
+    ${cats}${autresHtml}${boxHtml}
+    ${admin?`<div class="usr-b"><button type="button" class="btn" onclick="usrDroitsValider('${u.id}')">✓ Valider ses droits</button>${perso?`<a class="usr-lk" onclick="usrDroitsRole('${u.id}')">↩ Effacer ce qui est réglé à part — revenir au rôle</a>`:''}</div>`:'<div class="usr-x" style="margin-top:10px">Seul un administrateur peut modifier les droits.</div>'}
+  </div>`;
+}
+/* « Tout voir » et les box se contredisent : l'un caché, l'autre montré, en direct. */
+function usrVoirTout(cb){ const d=cb.closest('.usr-d'); const bx=d&&d.querySelector('.usr-box'); if(bx) bx.style.display=cb.checked?'none':'block'; }
+/* Tout ce qui est affiché est écrit, pour CETTE personne : c'est la règle « la fiche fait
+   loi » du matin, déplacée là où l'on coche. Un interrupteur absent (une box qu'il voit
+   d'office, par exemple) ne s'écrit pas — on n'invente pas de réglage. */
+function usrDroitsValider(uid){
+  if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
+  const u=(db.users||[]).find(x=>x.id===uid); if(!u) return;
+  const zone=document.getElementById('usr-d-'+uid); if(!zone) return;
+  const val=name=>{ const c=zone.querySelector('[data-d="'+name+'"]'); return c?!!c.checked:null; };
+  u.acces=u.acces||{caps:{},modules:{}}; u.acces.caps=u.acces.caps||{}; u.acces.modules=u.acces.modules||{};
+  USER_CAPS.forEach(([k])=>{ const v=val('cap_'+k); if(v!==null) u.acces.caps[k]=v; });
+  PERM_GRPS.forEach(([g])=>{ ['ajouter','modifier','supprimer'].forEach(d=>{ const v=val('cat_'+g+'_'+d); if(v!==null) u.acces.caps['cat_'+g+'_'+d]=v; }); });
+  NAV.flatMap(x=>x.items).forEach(m=>{ const v=val('mod_'+m.k); if(v!==null) u.acces.modules[m.k]=v; });
+  if(!u.acces.caps.voirTout){ (db.boxes||[]).forEach(b=>{ const v=val('box_'+b.id); if(v!==null) userBoxSet(u.id,b.id,v); }); }
+  logEvent('Droits modifiés','@'+(u.login||'')+' — depuis la liste des utilisateurs','auth');
+  save(); toast('✓ Droits de '+fullName(u)+' enregistrés — actifs immédiatement',3500);
+  views.utilisateurs();
+}
+function usrDroitsRole(uid){
+  if(!currentUser||currentUser.role!=='admin') return;
+  const u=(db.users||[]).find(x=>x.id===uid); if(!u) return;
+  if(!confirm('Effacer tout ce qui est réglé à part pour '+fullName(u)+' ?\n\nLe compte suivra de nouveau les réglages de son rôle.')) return;
+  u.acces={caps:{},modules:{}};
+  logEvent('Droits remis au rôle','@'+(u.login||''),'auth'); save(); toast('↩ '+fullName(u)+' suit de nouveau son rôle'); views.utilisateurs();
 }
 const USER_CAPS=[
   ['creerIntervention','Créer / planifier des interventions',''],
@@ -19958,9 +19993,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
   const lt = u.techId ? (db.techniciens||[]).find(x=>x.id===u.techId) : null;
   const isTech = ['technicien','chefEquipe'].includes(u.role||'technicien');
   const roleVal = u.role || 'technicien';
-  const modOf = k => { if(id && u.acces && u.acces.modules && Object.prototype.hasOwnProperty.call(u.acces.modules,k)) return u.acces.modules[k]!==false; return userSeesModule({role:roleVal}, k); };
   const capOf = k => { if(id && u.acces && u.acces.caps && Object.prototype.hasOwnProperty.call(u.acces.caps,k)) return !!u.acces.caps[k]; return userCap({role:roleVal}, k); };
-  const accSecs = NAV.map(s=>({g:s.g, items:s.items.filter(it=>it.k!=='dashboard' && it.k!=='utilisateurs' && it.k!=='permissions')})).filter(s=>s.items.length);
   /* Tout ce qui concerne « qui suit cette personne » réuni au même endroit, avant les droits :
      à la création, on répond dans l'ordre — qui c'est, à qui il est rattaché, ce qu'il peut faire. */
   const rattachSection = `<div class="form-sec" style="margin-top:8px">À qui il est rattaché</div>
@@ -19980,31 +20013,9 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
             <input type="checkbox" ${drRattaches.has(x.id)?'checked':''} onchange="this.checked?drRattaches.add('${x.id}'):drRattaches.delete('${x.id}')" style="width:18px;height:18px;accent-color:var(--acc)">
             <span>${esc(fullName(x))} <span style="color:var(--t3);font-size:11.5px">· ${esc(ROLE[x.role]||x.role||'')}</span></span></label>`).join('')||'<div style="color:var(--t3);font-size:12px;padding:6px">Aucun autre compte.</div>'}</div>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Coche les personnes dont cette personne valide les mouvements. C'est l'autre bout du champ ci-dessus : cocher quelqu'un ici revient à choisir ce valideur dans sa fiche.</div></div>`:''}`;
-  const capsSection = `<div class="form-sec" style="margin-top:8px">Ce qu'il peut FAIRE</div>
-      <p style="font-size:12px;color:var(--t3);margin:0 0 8px;line-height:1.5">Coche les actions autorisées. Par défaut, on suit le rôle choisi — tu peux ajuster.</p>
-      <div class="fgroup">${USER_CAPS.map(([k,l,d2])=>`<div class="frow"><div><div style="font-size:15px;color:var(--t1)">${l}</div>${d2?`<div style="font-size:11px;color:var(--t3)">${d2}</div>`:''}</div><div class="frow-val"><label class="switch"><input type="checkbox" name="cap_${k}" ${capOf(k)?'checked':''} ${k==='voirTout'?'onchange="userToggleVoirTout(this.checked)"':''}><span class="track"></span><span class="knob"></span></label></div></div>`).join('')}</div>`;
-  /* Les sous-droits par catégorie vivaient UNIQUEMENT dans l'écran Permissions. Cet écran
-     n'existe plus par personne : ils descendent donc ici, sinon la fusion perdrait une
-     fonction — et une fusion qui fait perdre quelque chose n'est pas une simplification. */
-  const catOf = (g,dr) => { const k='cat_'+g+'_'+dr;
-    if(id && u.acces && u.acces.caps && Object.prototype.hasOwnProperty.call(u.acces.caps,k)) return !!u.acces.caps[k];
-    return catDroit({role:roleVal}, g, dr); };
-  const sousSection = `<div class="form-sec" style="margin-top:8px">Ses sous-droits, catégorie par catégorie</div>
-      <p style="font-size:12px;color:var(--t3);margin:0 0 8px;line-height:1.5">Voir une catégorie ne veut pas dire pouvoir y toucher. Décoche pour laisser en <b>lecture seule</b>.</p>
-      ${PERM_GRPS.filter(([g])=>!['tdb','admin'].includes(g)).map(([g,titre])=>`<div class="fgroup" style="margin-bottom:8px">
-        <div class="frow" style="font-weight:800;color:var(--t1);font-size:13.5px">${esc(titre)}</div>
-        ${[['ajouter','＋ Ajouter'],['modifier','✎ Modifier'],['supprimer','🗑 Supprimer']].map(([dr,lbl])=>`<div class="frow"><span class="frow-lbl">${lbl}</span><div class="frow-val"><label class="switch"><input type="checkbox" name="cat_${g}_${dr}" ${catOf(g,dr)?'checked':''}><span class="track"></span><span class="knob"></span></label></div></div>`).join('')}
-      </div>`).join('')}`;
-  const modSection = `<div class="form-sec" style="margin-top:8px">Ce qu'il VOIT (menus)</div>
-      <p style="font-size:12px;color:var(--t3);margin:0 0 8px;line-height:1.5">Décoche une catégorie pour la <b>masquer dans le menu</b>. Le Tableau de bord reste toujours visible.</p>
-      ${accSecs.map(s=>`<div style="margin-bottom:4px"><div style="font-size:11px;letter-spacing:.04em;color:var(--t3);text-transform:uppercase;margin:10px 2px 4px">${esc(t(s.g))}</div>${s.items.map(m=>`<div class="frow"><span class="frow-lbl">${m.ic} ${esc(t(m.l))}</span><div class="frow-val"><label class="switch"><input type="checkbox" name="mod_${m.k}" ${modOf(m.k)?'checked':''}><span class="track"></span><span class="knob"></span></label></div></div>`).join('')}</div>`).join('')}`;
-  // Box qu'il voit quand il n'a pas « Tout voir » (DR, commercial, compta… ou technicien à qui on ajoute des box)
-  const boxSection = `<div id="user-boxes" style="display:${capOf('voirTout')?'none':'block'}"><div class="form-sec" style="margin-top:8px">📦 Box qu'il voit</div>
-      <p style="font-size:12px;color:var(--t3);margin:0 0 8px;line-height:1.5">Sans « Tout voir », la personne ne voit <b>que les box cochées ici</b> — en plus de celles où sa fiche technicien est cochée, de celles dont elle est responsable et de celles visibles par toute l'équipe.</p>
-      <div class="fgroup">${(currentUser.role==='admin'?(db.boxes||[]):visibleBoxes(db.boxes||[])).filter(b=>b.actif!==false).map(b=>{ const viaTech=!!(u.techId&&(b.techIds||[]).includes(u.techId)); const resp=!!(id&&b.respUserId===id); const fixe=b.visibleTous||viaTech||resp; const on=fixe||!!(id&&(b.userIds||[]).includes(id));
-        return `<div class="frow"><span class="frow-lbl">🧱 ${esc(b.nom||b.numero||'Box')}${b.visibleTous?' <span style="font-size:11px;color:var(--t3)">(visible par tous)</span>':viaTech?' <span style="font-size:11px;color:var(--t3)">(via sa fiche technicien)</span>':resp?' <span style="font-size:11px;color:var(--t3)">(responsable)</span>':''}</span><div class="frow-val">${fixe?'<span class="st st-green">Voit</span>':''}<label class="switch" style="${fixe?'opacity:.45;pointer-events:none':''}"><input type="checkbox" name="box_${b.id}" ${on?'checked':''} ${fixe?'disabled':''}><span class="track"></span><span class="knob"></span></label></div></div>`; }).join('')||'<div class="frow" style="color:var(--t3)">Aucune box pour l\'instant.</div>'}</div></div>`;
   const accSection = `<div id="user-admin-note" style="display:${roleVal==='admin'?'block':'none'}"><div class="fgroup" style="padding:14px;text-align:center;color:var(--t2);font-size:13px">Un administrateur a <b>automatiquement tous les accès</b> — rien à régler.</div></div>
-      <div id="user-access" style="display:${roleVal==='admin'?'none':'block'}">${rattachSection}${capsSection}${boxSection}${modSection}${sousSection}</div>`;
+      <div id="user-access" style="display:${roleVal==='admin'?'none':'block'}">${rattachSection}
+      <div class="fgroup" style="padding:12px 14px;font-size:13px;color:var(--t2);line-height:1.6">🔐 <b>Ses droits</b> — menus, actions, box — se règlent depuis la <b>liste des utilisateurs</b> : touche son nom, coche, valide. Le rôle choisi plus haut n'est qu'un nom et un point de départ.</div></div>`;
   openModal(`<div class="modal-head"><h3>${id?'Modifier':'Nouvel'} utilisateur</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <form onsubmit="saveUser(event,'${id||''}')">
       <div class="field-row"><div class="field"><label>Prénom *</label><input name="prenom" required value="${esc(u.prenom)}" ${id?'':'oninput="nuLoginAuto()"'}></div>
@@ -20119,21 +20130,8 @@ function userToggleRole(role){
   const isAdmin = role==='admin';
   const acc=document.getElementById('user-access'); if(acc) acc.style.display=isAdmin?'none':'block';
   const note=document.getElementById('user-admin-note'); if(note) note.style.display=isAdmin?'block':'none';
-  // NOUVEAU compte, ou CHANGEMENT de rôle d'un compte existant : le rôle choisi pré-règle vraiment les cases (droits + menus) —
-  // avant, elles restaient sur les défauts « technicien », d'où un DR créé sans « Tout voir » qui ne voyait aucune box
-  if(window._formUserNew || role!==window._formUserRole0){ const f=acc?acc.closest('form'):null; if(f){ const ref={role};
-    USER_CAPS.forEach(([k])=>{ const c=f.querySelector('[name="cap_'+k+'"]'); if(c) c.checked=!!userCap(ref,k); });
-    NAV.flatMap(s=>s.items).forEach(m=>{ const c=f.querySelector('[name="mod_'+m.k+'"]'); if(c) c.checked=!!userSeesModule(ref,m.k); });
-    /* Les sous-droits suivent le rôle comme le reste. Sans cette ligne, un compte créé en
-       « technicien » puis passé en DR gardait les sous-droits du technicien, écrits comme
-       réglage personnel — et un administrateur rétrogradé gardait TOUT coché. (Relecture
-       du 8 septembre 2026.) */
-    PERM_GRPS.forEach(([g])=>{ if(['tdb','admin'].includes(g)) return;
-      ['ajouter','modifier','supprimer'].forEach(dr=>{ const c=f.querySelector('[name="cat_'+g+'_'+dr+'"]'); if(c) c.checked=!!catDroit(ref,g,dr); }); });
-    userToggleVoirTout(!!userCap(ref,'voirTout')); } }
 }
 /* rétrocompat */ function userToggleTech(role){ userToggleRole(role); }
-function userToggleVoirTout(on){ const el=document.getElementById('user-boxes'); if(el) el.style.display=on?'none':'block'; }
 async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target));
   if(id && currentUser.role!=='admin'){ toast('Modification des comptes réservée à l\'administrateur'); return; }
   if(!id && currentUser.role!=='admin' && !can('creerUtilisateurs')){ toast('Créer des comptes demande le droit « Créer des utilisateurs » (Permissions)'); return; }
@@ -20149,41 +20147,19 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     if(t){ Object.assign(t,{nom:nomComplet,tel:d.tel||'',departements:d.departements||'',couleur:d.couleur||'',metier}); }
     else { t={id:uid(),nom:nomComplet,tel:d.tel||'',email:'',departements:d.departements||'',couleur:d.couleur||'',metier}; db.techniciens.push(t); techId=t.id; }
   } else { techId=''; }
-  /* Accès choisis dans le formulaire : actions (cap_*) + catégories visibles (mod_*).
-     ⛔ LA FICHE FAIT LOI, ET C'EST LE CORRECTIF DU 8 SEPTEMBRE 2026.
-     Avant, on n'enregistrait QUE ce qui différait du rôle : cocher une case qui valait déjà
-     pour le rôle n'écrivait rien, la personne continuait de suivre le rôle, et son accès
-     changeait plus tard sans que personne n'ait rouvert sa fiche. D'où deux systèmes qui se
-     contredisaient et l'impression que les coches ne servent à rien.
-     Demande de Justin, mot pour mot : « on fait modifier, là on choisit les permissions, on
-     coche ça marche, on décoche ça marche plus ».
-     Désormais chaque case vue dans la fiche est écrite pour CETTE personne. Le rôle ne fait
-     plus que pré-remplir le formulaire. Rien ne change pour les comptes qu'on n'ouvre pas :
-     tant qu'une fiche n'est pas enregistrée, elle suit le rôle comme avant. Et l'écran
-     Permissions garde « ↩ revenir au réglage du rôle » pour défaire un réglage individuel. */
+  /* ⛔ LA FICHE NE PORTE PLUS LES DROITS — refonte du 8 septembre 2026, demande de Justin.
+     Ils se cochent et se valident depuis la liste des utilisateurs (usrDroitsValider), un seul
+     endroit. On recopie donc `acces` tel quel. Sans cette recopie, la fiche lirait « case
+     absente » comme « droit refusé », et enregistrer un changement de téléphone effacerait
+     tous les droits de la personne. Un compte neuf part sans réglage à part : il suit son rôle
+     jusqu'à ce qu'on ouvre ses droits et qu'on valide. */
   const ancien=(id?(db.users.find(x=>x.id===id)||{}).acces:null)||{};
-  const acces = { caps: {}, modules: {} };
-  Object.keys(ancien.caps||{}).forEach(k=>{ if(!USER_CAPS.some(c=>c[0]===k)) acces.caps[k]=ancien.caps[k]; });   // les droits par catégorie réglés dans Permissions (cat_…) sont conservés
-  USER_CAPS.forEach(([k])=>{ acces.caps[k]=(d['cap_'+k]!==undefined); });
-  /* Les sous-droits par catégorie suivent exactement la même règle que les droits au-dessus :
-     ce que la fiche montre, la fiche l'écrit. La ligne plus haut recopiait les cat_… de
-     l'ancien enregistrement — c'était le bon comportement tant que la fiche ne les affichait
-     pas ; maintenant qu'elle les affiche, elle décide. */
-  PERM_GRPS.forEach(([g])=>{ if(['tdb','admin'].includes(g)) return;
-    ['ajouter','modifier','supprimer'].forEach(dr=>{ acces.caps['cat_'+g+'_'+dr]=(d['cat_'+g+'_'+dr]!==undefined); }); });
-  const modsForm=NAV.flatMap(s=>s.items).filter(it=>it.k!=='dashboard' && it.k!=='utilisateurs' && it.k!=='permissions');
-  Object.keys(ancien.modules||{}).forEach(k=>{ if(!modsForm.some(m=>m.k===k)) acces.modules[k]=ancien.modules[k]; });   // ce que la fiche ne montre pas (ex. Utilisateurs réglé dans Permissions) est conservé
-  modsForm.forEach(m=>{ acces.modules[m.k]=(d['mod_'+m.k]!==undefined); });
-  const voirToutForm=(d['cap_voirTout']!==undefined);
-  // Box choisies pour lui (sans « Tout voir ») : rangées sur chaque box (userIds), comme les techniciens cochés — seulement les box que la fiche a proposées
-  const boxCoches=new Set(Object.keys(d).filter(k=>k.indexOf('box_')===0).map(k=>k.slice(4)));
-  const boxForm=(currentUser.role==='admin'?(db.boxes||[]):visibleBoxes(db.boxes||[])).filter(b=>b.actif!==false);
-  const appliquerBox=(uidU)=>{ if(voirToutForm||d.role==='admin') return; boxForm.forEach(b=>{ if(b.visibleTous||(techId&&(b.techIds||[]).includes(techId))||b.respUserId===uidU) return; userBoxSet(uidU,b.id,boxCoches.has(b.id)); }); };
+  const acces={ caps: Object.assign({}, ancien.caps||{}), modules: Object.assign({}, ancien.modules||{}) };
   // rattachements pris depuis la fiche du valideur : on pose ou on retire drId sur chaque compte
   const appliquerRattaches=(cible)=>{ if(!cible) return; (db.users||[]).forEach(x=>{ if(!x||x.id===cible) return;
     if(drRattaches.has(x.id)) x.drId=cible; else if(x.drId===cible) x.drId=''; }); };
   if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),chefId:(d.chefId||''),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
-    appliquerBox(id); if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=ROLE[currentUser.role]||'Technicien'; renderNav(); } toast('Mis à jour'); }
+    if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=ROLE[currentUser.role]||'Technicien'; renderNav(); } toast('Mis à jour'); }
   else{ if(db.users.length>=500){toast('Limite de 500 comptes atteinte');return;}
     if((d.pwd||'').length>0 && (d.pwd||'').length<8){ toast('Mot de passe provisoire : 8 caractères minimum (ou laisse-le vide)'); return; }
     // un non-administrateur (droit « Créer des utilisateurs ») ne peut créer que des rôles terrain
@@ -20197,7 +20173,7 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
       db.entreprise={...(db.entreprise||{}),nom:en}; try{ localStorage.setItem('elanB_entreprise_nom',en); }catch(_e){}
     }
     const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),chefId:(d.chefId||''),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
-    db.users.push(nu); appliquerBox(nu.id);
+    db.users.push(nu);
     logEvent('Utilisateur créé',`@${loginNorm}`,'auth');
     save(); closeModal(); views.utilisateurs();
     setTimeout(()=>userIdentifiantsModal(nu,pwd),120);
