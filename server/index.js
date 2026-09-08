@@ -370,7 +370,7 @@ function appLisible(a) { const k = String(a || '').toLowerCase().trim(); return 
 app.post('/api/bug', (req, res) => {
   const { teamId, app: appName, version, msg, src, line, stack, ua } = req.body || {};
   if (!msg) return res.status(400).json({ error: 'msg requis' });
-  const team = String(teamId || 'inconnu').slice(0, 60);
+  const team = String(teamId || 'inconnu').slice(0, 80);   // 80 comme entFermes : à 60, un teamId long passait le garde-fou
   /* Un espace supprimé ne se laisse pas ressusciter par un appareil resté hors ligne :
      sans ce garde-fou, il réapparaît avec les identifiants et les noms de ses salariés.
      On répond ok — l'appareil n'a rien fait de mal, et /api/espaces/etat lui dira de se
@@ -646,9 +646,20 @@ async function releveUneBoite(cfg, tag) {   // cfg = {host/port/user/pass} ; tag
           if (!teamId) teamId = seuleEquipe(sentMap.filter(x => x.to === fromAddr));
         }
         const entry = { ts: Date.now(), teamId, boite: tag ? tag.email : '', bonNum, from: fromAddr, fromName: String(from.name || '').slice(0, 80), subject: subj.slice(0, 200), text, mid };
-        try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); } catch (_) {}
+        /* Une relève en vol réécrit ce qu'une suppression totale vient de purger. releveBoite()
+           capture Object.keys(mailboxes) puis boucle avec await : supprimer la boîte du registre
+           n'interrompt PAS la passe déjà lancée, dont la configuration est une copie locale. Elle
+           allait jusqu'au bout et réécrivait le corps du message d'un client effacé — parfois après
+           la purge. Pire : purgeJournal lit-filtre-renomme, donc les lignes ajoutées entre-temps par
+           une AUTRE entreprise étaient perdues. entFermes est écrit en PREMIER par la suppression :
+           le lire ici referme la fenêtre de lui-même. */
+        const ferme = entry.teamId && entFermes.espaces.includes(entry.teamId);
+        if (!ferme) { try { fs.appendFileSync(REPLIES_PATH, JSON.stringify(entry) + '\n'); } catch (_) {} }
         if (mid) seenMids.add(mid);
+        /* On marque quand même le message comme lu, y compris pour un espace fermé : sinon la
+           relève suivante le relirait indéfiniment. */
         try { await client.messageFlagsAdd(msg.seq, ['\\Seen']); } catch (_) {}
+        if (ferme) continue;
         if (teamId) {
           const payload = JSON.stringify({ title: '📥 Nouveau message' + (bonNum ? ' — ' + bonNum : ''), body: ((entry.fromName || fromAddr) + ' : ' + subj).slice(0, 240), url: '/app.html#v=boiteMail' });
           const targets = Object.values(subs).filter(s => s.teamId === teamId);
@@ -3026,6 +3037,10 @@ function entInventaire(t) {
      espace, avec de vrais comptes — son entrée d'annuaire a été perdue, pas inventée. */
   const comptes = Object.keys((comptesReg[t] && comptesReg[t].c) || {}).length;
   const comptesSite = Object.values(clientsData).filter(c => c && emails.has(String(c.email || '').toLowerCase())).length;
+  /* Les deux archives de courrier, comptées ici parce que la suppression les efface
+     désormais : un aperçu qui annonce moins que ce qui part n'est plus un aperçu. */
+  const mailsEnvoyes = mailsLog.filter(m => m && emails.has(String(m.a || '').toLowerCase())).length;
+  const mailsRecus = supportMails.filter(m => m && emails.has(String(m.from || '').toLowerCase())).length;
   return {
     t, nom, slugs, emails: [...emails],
     dansAnnuaire: slugs.length > 0,
@@ -3038,7 +3053,7 @@ function entInventaire(t) {
     derniere: cnx.length ? (cnx[0].ts || 0) : 0,
     ecransOuverts: (usage && usage.total) || 0,
     erreurs: bugs, reponsesMail: reponses, bonsEnvoyes, promos,
-    comptesSite,
+    comptesSite, mailsEnvoyes, mailsRecus,
     /* OP MESSAGES est hors de portée : sa collection Firestore (op_companies) est créée
        avec un identifiant auto-généré, sans lien avec le teamId, et le serveur ne le
        connaît pas. On le SIGNALE plutôt que de laisser croire qu'il part avec le reste. */
@@ -3100,7 +3115,9 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
       inv.connexions + ' connexion(s) enregistrée(s)',
       inv.erreurs + ' erreur(s)',
       inv.ecransOuverts + ' écran(s) ouvert(s)',
-      inv.comptesSite + ' compte(s) du site'
+      inv.comptesSite + ' compte(s) du site',
+      inv.mailsEnvoyes + ' e-mail(s) envoyé(s) archivé(s)',
+      inv.mailsRecus + ' e-mail(s) reçu(s) archivé(s)'
     ].join('\n· ')
     + (inv.opMessages
         /* Décision de Justin, à ne pas réécrire : OP MESSAGES est encore en développement,
@@ -3112,6 +3129,7 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
         : '');
     try {
       await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
+        confidentiel: true, trace: 'code de suppression totale · espace ' + t,
         subject: '🗑 Code de confirmation — suppression totale de « ' + etiquette + ' »',
         text: 'Tu es sur le point de SUPPRIMER TOTALEMENT l\'espace « ' + etiquette + ' » (' + t + ').\n\n'
           + 'Ce qui va être effacé :\n· ' + detail + '\n\n'
@@ -3120,7 +3138,9 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
           + 'et les applications des appareils se vident à leur prochain lancement.\nSi ce n\'est pas toi, ignore ce message.' });
     } catch (e) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(e.message).slice(0, 120) }); }
     console.log('Tour : code de suppression totale envoyé pour', t, '→', masqueMail(dest));
-    return res.json({ ok: true, codeEnvoye: true, dest, apercu: (delete inv._boites, delete inv._abos, inv) });
+    /* Masqué comme dans le journal juste au-dessus : la Tour n'a besoin que de reconnaître
+       la boîte, pas de l'afficher en entier. */
+    return res.json({ ok: true, codeEnvoye: true, dest: masqueMail(dest), apercu: (delete inv._boites, delete inv._abos, inv) });
   }
 
   const c = retraitCodes.get('t:' + t);
@@ -3222,6 +3242,19 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
   /* Le même carnet vit AUSSI en mémoire : le purger sur disque sans le purger ici le
      laisserait servir jusqu'au prochain redémarrage. */
   try { sentMap = sentMap.filter(x => !(x && x.teamId === t)); } catch (e) {}
+  /* Les DEUX archives de courrier. Elles échappaient à la suppression : après un ménage
+     annoncé « rien n'est récupérable », un utilisateur Tour NON PATRON (GET /api/monitor/mails
+     est en monAdmin, un cran sous le monPatronStrict qui a autorisé la suppression) lisait
+     encore l'adresse complète et 2 000 caractères de correspondance de l'entreprise effacée.
+     Ce n'est pas une fuite vers Internet : c'est un effacement incomplet, et l'e-mail envoyé
+     au patron promet l'inverse. Les deux carnets vivent en mémoire ET sur disque. */
+  const adrSuppr = new Set(inv.emails.map(m => String(m).toLowerCase()));
+  const avantMails = mailsLog.length;
+  try { mailsLog = mailsLog.filter(m => !adrSuppr.has(String((m && m.a) || '').toLowerCase())); mailsSave(); } catch (e) { console.error('purge mails-envoyes :', e.message); }
+  fait.mailsEnvoyes = avantMails - mailsLog.length;
+  const avantSupport = supportMails.length;
+  try { supportMails = supportMails.filter(m => !adrSuppr.has(String((m && m.from) || '').toLowerCase())); supSave(); } catch (e) { console.error('purge support-mails :', e.message); }
+  fait.mailsRecus = avantSupport - supportMails.length;
 
   // ── 7. Les comptes du site, chez Firebase.
   fait.comptesSite = [];
