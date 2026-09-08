@@ -4,6 +4,10 @@ Suite logicielle pour entreprises de terrain — nettoyage, lutte anti-nuisibles
 Applications : OP GESTION (interventions, clients, devis) et OP MESSAGES (messagerie).
 Vendu par abonnement, clients réels, données réelles. **Ce dépôt est en production.**
 
+📍 **Avant toute chose, lire `REPRISE.md`** — les chantiers ouverts, les dettes connues et ce
+qui attend une décision de Justin. Une conversation meurt, le dépôt reste : ce fichier est la
+seule mémoire qui passe de l'une à l'autre. Le tenir à jour quand un chantier change d'état.
+
 ## Structure
 
 - **Racine** — site vitrine et applications, HTML/CSS/JS sans framework, servi par GitHub Pages
