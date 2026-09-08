@@ -40,10 +40,14 @@ Méthode :
 4. Vérifier dans un vrai navigateur avant de rapporter un résultat : capture d'écran, absence
    d'erreur JS, le mouvement observé correspond à ce qui a été décrit.
    Deux moyens, dans cet ordre de préférence :
-   - **Chrome DevTools MCP** (`chrome-devtools`, configuré dans `.mcp.json`) — vrai
-     navigateur, captures, console avec pile d'appels, trace de performance. C'est le seul
-     moyen de mesurer ce que coûte réellement un écran : `app.html` fait plus de 2 Mo et se
-     charge sur des téléphones de terrain en 4G (skill `performance-budget-monitor`).
+   - **Chrome DevTools MCP — tu ne l'as PAS.** Ta ligne `tools:` est une liste explicite, et
+     une liste explicite ferme l'accès à tous les outils MCP : elle retire aussi `ToolSearch`,
+     sans lequel ils sont inatteignables même nommés un par un. Éprouvé quatre fois le
+     8 septembre 2026 (voir CLAUDE.md). Ce qui suit reste vrai de ce que le navigateur piloté
+     apporte — vrai navigateur, captures, console avec pile d'appels, trace de performance, le
+     seul moyen de mesurer ce que coûte un écran de plus de 2 Mo sur un téléphone en 4G — mais
+     c'est la **session principale** qui le conduit, pas toi. Demande-lui la mesure, et mesure
+     toi-même avec Playwright par `Bash`.
      ⚠️ En session distante, **servir le dépôt en local et viser `http://127.0.0.1:8123/…`**
      (commande dans CLAUDE.md) : le proxy sortant coupe les connexions du navigateur vers
      `teamop.fr`. C'est aussi mieux ainsi — on juge le fichier qu'on vient d'éditer, pas la
