@@ -136,7 +136,10 @@ input[type=date].inp{min-width:150px}
 input[type=number].inp{font-variant-numeric:tabular-nums}
 .rech{display:flex;align-items:center;gap:9px;background:var(--inset);border:1px solid var(--inpBorder);border-radius:var(--r-2);padding:0 12px;min-height:44px;transition:border-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie)}
 .rech:focus-within{border-color:var(--acc);box-shadow:var(--focus-champ)}
-.rech input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:14px;min-width:0}
+/* Le cadre fait 44 px, le champ n’en faisait que 18 : au doigt, seuls 18 px sur 44
+   ouvraient le clavier — le reste du cadre ne répondait pas. align-self:stretch le fait
+   occuper toute la hauteur du cadre, sans en changer l’aspect. */
+.rech input{flex:1;align-self:stretch;background:transparent;border:none;outline:none;color:var(--text);font-size:14px;min-width:0}
 .rech svg{color:var(--dim);flex-shrink:0}
 .filtres{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
 .barre-act{background:var(--inset);border-radius:var(--r-3);padding:12px 13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -385,13 +388,18 @@ input.inp,select.sel-f{display:block;line-height:normal}
    il donne la carte du territoire en une seule saccade verticale. Casse normale, jamais .sec —
    « Clientes » est un nom de section (le geste de Mail), pas une étiquette de champ, et les
    MAJUSCULES sont l'un des cinq réflexes d'interface générée. */
-.reg-tete{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin:0 2px 12px}
+/* En bloc et non en flex : la phrase du groupe doit commencer une ligne à elle, et sa
+   deuxième ligne doit repartir de la marge, pas de l’endroit où la première a commencé.
+   Avec flex, flex-basis:100% était neutralisé par max-width:62ch — la taille hypothétique
+   retombait sous l’espace restant, donc la phrase restait collée au titre. */
+.reg-tete{margin:0 2px 12px}
+.reg-nom{margin-right:9px}
 .reg-nom{font-size:15px;font-weight:600;letter-spacing:-.012em;color:var(--text)}
 .reg-n{font-size:13px;font-weight:600;color:var(--dim);font-variant-numeric:tabular-nums}
 /* La phrase du groupe dit UNE fois ce que la ligne ne redira pas quinze fois. --muted et non
    --dim : --dim tombe à 4,27:1 sur le fond de page en thème jour, ce qui va pour un chevron,
    pas pour une phrase qu'on lit. */
-.reg-sous{flex-basis:100%;margin-top:1px;font-size:12.5px;line-height:1.55;color:var(--muted);max-width:62ch}
+.reg-sous{margin-top:3px;font-size:12.5px;line-height:1.55;color:var(--muted);max-width:62ch}
 
 /* ── LA LIGNE, commune aux trois natures ──
    Un vrai <button> : le focus clavier et :focus-visible arrivent gratuitement par la règle
@@ -660,6 +668,86 @@ body.jour .reg-l.cli,body.jour .reg-l.haut{--rougeBg:rgba(179,46,46,.10);--ambre
 @media(prefers-reduced-motion:reduce){
   .ac-squel i{animation:none!important}
   #vue.entre .ac-act{animation:none!important}
+}
+
+/* ══ SURVEILLANCE ═══ la gravité devient une structure, plus une couleur ═════════════════
+   Ce bloc n'ajoute RIEN au registre : lignes, groupes, hauteurs, rideau et neutralisation
+   du mouvement viennent du socle. Il ne porte que ce que cet écran a en propre — la bonne
+   nouvelle, l'état vide qui donne une sortie, le pavé des entreprises saines, et le
+   plancher tactile des cinq sélecteurs. Préfixe .svl-, employé nulle part ailleurs. */
+
+/* ── L'ÉTAT CALME ─── la bonne nouvelle n'est pas un cadre en pointillés ───
+   .vide est un rectangle en tirets : le dessin d'une absence anormale. Or avec le filtre
+   par défaut (statut='actifs'), l'état le plus fréquent de cet écran est « rien d'ouvert ».
+   Contrastes composites, calculés à la main — verifier-theme.js ne teste pas les rgba
+   aplaties : --muted sur --accBg donne 5,67:1 la nuit et 4,64:1 le jour, --strong 14,4:1
+   et 19,7:1. Ne jamais y descendre --dim. */
+.svl-calme{display:flex;align-items:flex-start;gap:14px;margin-top:18px;padding:20px 22px;
+  border-radius:var(--r-4);background:var(--accBg);box-shadow:inset 0 0 0 1px var(--accBrd)}
+.svl-calme .svl-ic{font-size:22px;line-height:1.15;flex-shrink:0}
+.svl-calme b{display:block;font-size:16px;font-weight:700;letter-spacing:-.014em;color:var(--strong)}
+.svl-calme p{margin:5px 0 0;font-size:13px;line-height:1.6;color:var(--muted);max-width:52ch}
+
+/* ── L'ÉTAT VIDE QUI DONNE UNE SORTIE ─── il nomme les filtres et les retire ───
+   « Aucun incident ne correspond à ces filtres » laissait cinq sélecteurs à reparcourir à
+   la main. Pas de tirets ici non plus : un filtre trop serré n'est pas une panne. */
+.svl-vide{margin-top:18px;padding:30px 24px;border-radius:var(--r-4);text-align:center;
+  box-shadow:inset 0 0 0 1px var(--hairline);color:var(--muted);font-size:13.5px;line-height:1.65}
+.svl-vide b{display:block;font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
+.svl-vide .btn-fant{margin-top:14px;min-height:44px}
+
+/* ── LES ENTREPRISES SANS PROBLÈME ─── hors de la liste, matière du pavé de fin ───
+   Elles étaient rendues en .item : même surface et même typo que les malades, avec
+   cursor:default — une cible d'aspect cliquable qui ne fait rien. Ce sont de bonnes
+   nouvelles, pas du travail : elles descendent, et deviennent enfin utiles (leur fiche). */
+.svl-saines{margin-top:26px}
+.svl-saine-l{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 12px;
+  margin:6px 8px 0 0;border:0;border-radius:var(--r-1);cursor:pointer;font:inherit;
+  font-size:13px;font-weight:500;background:var(--tint-gris);color:var(--text2);
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+  transition:background-color var(--d-1) var(--e-sortie),color var(--d-1) var(--e-sortie)}
+.svl-saine-l:hover{background:var(--hover);color:var(--strong)}
+/* La puce verte accompagne le mot « n'a rien remonté » de la phrase du pavé : elle ne porte
+   pas le sens toute seule. C'est le seul vert de l'écran hors avatars. */
+.svl-saine-l::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
+
+/* ── L'INCIDENT SANS ENTREPRISE ─── il garde sa place, il perd son rang ───
+   Ni le sigle (marqueur de vraie cliente dans tout le registre), ni l'encre blanche pure :
+   ce n'est pas une entreprise, c'est un trou dans la donnée. */
+.reg-l.svl-anon .reg-t1{color:var(--text2);font-weight:600}
+
+/* ── LES CINQ SÉLECTEURS ─── .sel-f fait 36 px, sous le plancher de 44 ───
+   Élargi ICI seulement : .sel-f est partagée par Abonnements, Devis IA et le Journal ; la
+   changer à la racine déplacerait quatre autres écrans d'un coup. */
+.svl-filtres{margin:18px 0 12px}
+.svl-filtres .sel-f{min-height:44px}
+
+/* ── LE COMPTE ─── sous les filtres, et hors de --dim ───
+   --dim tombe à 4,27:1 sur le fond de page en thème jour : le socle le réserve au chevron
+   et au compteur de groupe. Une phrase qu'on lit passe en --muted. */
+.svl-compte{margin:0 2px 18px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.svl-sous{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45}
+/* La légende n'ouvre plus l'écran : elle le referme. */
+.svl-legende{margin-top:32px}
+
+@media(max-width:640px){
+  /* .grille-kpi.simple ne convient pas ici : il aplatit chiffre et libellé sur une ligne,
+     ce qui suppose un compteur nu — chaque carte porte une phrase, la dernière un graphique.
+     On garde la carte entière, on la comprime. */
+  .svl-kpi .kpi{padding:13px 13px}
+  .svl-kpi .kpi .n{font-size:23px}
+  .svl-kpi .kpi .l{font-size:12px;margin-top:4px}
+  .svl-kpi .svl-sous{font-size:11.5px;line-height:1.4;margin-top:4px}
+  .svl-kpi .kpi .bars{height:28px;margin-top:8px}
+  /* Cinq sélecteurs en flex donnaient cinq lignes ; deux colonnes en donnent trois. */
+  .svl-filtres{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0 12px}
+  .svl-filtres .sel-f{width:100%}
+  .svl-filtres .sel-f.large{grid-column:1/-1}
+  .svl-calme{padding:16px 15px;gap:11px}
+  .svl-calme b{font-size:15px}
+  .svl-vide{padding:24px 16px}
+  .svl-saines{margin-top:22px}
+  .svl-saine-l{margin:6px 6px 0 0}
 }
 
 /* ══ MODALE + VOILE ═══ créée par le JS avec ses styles inline ; on impose la matière ══ */
@@ -2567,9 +2655,25 @@ var GRAV_EXPL={haute:'\u00e0 traiter en priorit\u00e9 \u2014 plusieurs clients t
 
 /* ── le tableau de bord pleine page ── */
 var SURV_DESC='Chaque problème rencontré par vos clients remonte ici automatiquement, en direct. Un trieur écarte d’abord le bruit — mises en veille, tests de l’équipe, coupures passagères — pour ne laisser que ce qui mérite votre attention.';
+/* Le PIRE incident d'une entreprise décide de sa place, jamais sa moyenne : une erreur haute
+   noyée dans douze coupures réseau doit rester en haut. La gravité n'est plus portée par un
+   rond de 8 px que ni le gris, ni le daltonien, ni le doigt ne lisent — elle est portée par
+   le titre du groupe, par la matière de la ligne, et par des pastilles qui portent un mot. */
+var SVL_GROUPES=[
+ {cle:'haute',  titre:'À traiter maintenant', bloc:'reg-cli',
+  sous:'Le code a planté, ou le problème touche plusieurs clients à la fois. C’est ce qui finit en appel téléphonique.'},
+ {cle:'moyenne',titre:'À regarder', bloc:'reg-bloc',
+  sous:'Gênant, mais l’application fonctionne. À traiter quand le premier groupe est vide.'},
+ {cle:'faible', titre:'Pour information', bloc:'reg-bloc mien',
+  sous:'Rare et sans conséquence visible — presque toujours la connexion du client, pas nos serveurs.'}
+];
+/* Le bouton « Retirer tous les filtres » doit rétablir le DÉFAUT, pas tout ouvrir : statut
+   'actifs' et non '', sinon il afficherait l'historique corrigés inclus, l'inverse de sa
+   promesse. */
+function incReset(){ INC.f={type:'',grav:'',statut:'actifs',app:'',ent:''}; renderNav('fondu'); }
 function vueSurveillance(){
-  if(!INC.loaded) return enTete('Surveillance',SURV_DESC)+'<div class="vide">Chargement des incidents\u2026</div>';
-  if(INC.err) return enTete('Surveillance',SURV_DESC)+'<div class="vide">'+esc(INC.err)+'</div>';
+  if(!INC.loaded) return enTete('Surveillance',SURV_DESC)+acSquel();
+  if(INC.err) return enTete('Surveillance',SURV_DESC)+acErr('La surveillance ne répond pas',INC.err,'chargerIncidents()');
   var sel=INC.sel&&INC.list.filter(function(x){ return x.id===INC.sel; })[0];
   if(sel) return vueIncident(sel);
   if(INC.grp) return vueEntreprise(INC.grp);
@@ -2587,92 +2691,143 @@ function vueSurveillance(){
   var kpi=function(filtre,nb,coul,titre,sous){
     return '<div class="kpi clic'+(st===filtre?' sel':'')+'" onclick="incF(\'statut\',\''+filtre+'\')">'+
       '<div class="n" style="color:'+coul+'">'+nb+'</div><div class="l">'+titre+'</div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45">'+sous+'</div></div>'; };
-  var kpis='<div class="grille-kpi" style="margin-top:18px">'+
-    kpi('nouveau',INC.cnt.nouveau||0,'var(--redText)','Nouveaux','Personne ne s\u2019en est encore occup\u00e9')+
-    kpi('encours',INC.cnt.encours||0,'var(--amber)','En cours','Quelqu\u2019un de l\u2019\u00e9quipe travaille dessus')+
-    kpi('corrige',corrigesMois,'var(--green)','Corrig\u00e9s ce mois','R\u00e9gl\u00e9s et referm\u00e9s')+
-    '<div class="kpi"><div class="n">'+(INC.nbEnt||0)+'</div><div class="l">Entreprises surveill\u00e9es</div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45">Leurs applications remontent ici automatiquement</div></div>'+
+      '<div class="svl-sous">'+sous+'</div></div>'; };
+  /* « Entreprises surveillées » était un chiffre inerte au milieu de quatre filtres : il est
+     repris par le pavé des entreprises saines et par le compte sous les filtres. Et la carte
+     des sept jours annonçait sept jours pour filtrer tout l'historique : elle le dit. */
+  var kpis='<div class="grille-kpi svl-kpi" style="margin-top:18px">'+
+    kpi('nouveau',INC.cnt.nouveau||0,'var(--redText)','Nouveaux','Personne ne s’en est encore occupé')+
+    kpi('encours',INC.cnt.encours||0,'var(--amber)','En cours','Quelqu’un de l’équipe travaille dessus')+
+    kpi('corrige',corrigesMois,'var(--green)','Corrigés ce mois','Réglés et refermés')+
     '<div class="kpi clic'+(st===''?' sel':'')+'" onclick="incF(\'statut\',\'\')"><div class="l" style="margin-top:0">7 derniers jours</div><div class="bars">'+bars+'</div>'+
-      '<div style="font-size:12px;color:var(--link);margin-top:8px">Voir tout l\u2019historique</div></div>'+
+      '<div class="svl-sous" style="color:var(--link)">Voir tout l’historique, corrigés inclus</div></div>'+
   '</div>';
 
-  /* la l\u00e9gende : chaque mot de cette page, expliqu\u00e9 */
+  /* la légende : chaque mot de cette page, expliqué. Elle descend en pied d'écran :
+     au téléphone elle coûtait un écran et demi de doctrine avant le premier incident. */
   var pt=function(c){ return '<span class="pt" style="background:'+c+';margin-top:5px"></span>'; };
-  var legende='<div class="carte" style="margin-top:16px"><div class="sec">COMPRENDRE CETTE PAGE</div>'+
+  var legende='<div class="carte svl-legende"><div class="sec">COMPRENDRE CETTE PAGE</div>'+
     '<div class="expl-grille">'+
-      '<div><div class="ttl-carte" style="font-size:13px">Les types de probl\u00e8me</div>'+
-        '<div class="expl-l">'+pt('var(--red)')+'<span><b>Erreur</b> \u2014 le code a plant\u00e9, une action du client a pu \u00e9chouer. Le plus s\u00e9rieux.</span></div>'+
-        '<div class="expl-l">'+pt('var(--amber)')+'<span><b>Lenteur</b> \u2014 l\u2019application a mis trop de temps \u00e0 r\u00e9pondre ou l\u2019\u00e9cran s\u2019est fig\u00e9. Rien de cass\u00e9.</span></div>'+
-        '<div class="expl-l">'+pt('var(--gray)')+'<span><b>R\u00e9seau</b> \u2014 la connexion du client a coup\u00e9. Presque toujours son wifi, pas nos serveurs.</span></div></div>'+
-      '<div><div class="ttl-carte" style="font-size:13px">La gravit\u00e9</div>'+
-        '<div class="expl-l">'+pt(GRAV_C.haute)+'<span><b>Haute</b> \u2014 '+GRAV_EXPL.haute+'.</span></div>'+
-        '<div class="expl-l">'+pt(GRAV_C.moyenne)+'<span><b>Moyenne</b> \u2014 '+GRAV_EXPL.moyenne+'.</span></div>'+
-        '<div class="expl-l">'+pt(GRAV_C.faible)+'<span><b>Faible</b> \u2014 '+GRAV_EXPL.faible+'.</span></div></div>'+
+      '<div><div class="ttl-carte" style="font-size:13px">Les types de problème</div>'+
+        '<div class="expl-l">'+pt('var(--red)')+'<span><b>Erreur</b> — le code a planté, une action du client a pu échouer. Le plus sérieux.</span></div>'+
+        '<div class="expl-l">'+pt('var(--amber)')+'<span><b>Lenteur</b> — l’application a mis trop de temps à répondre ou l’écran s’est figé. Rien de cassé.</span></div>'+
+        '<div class="expl-l">'+pt('var(--gray)')+'<span><b>Réseau</b> — la connexion du client a coupé. Presque toujours son wifi, pas nos serveurs.</span></div></div>'+
+      '<div><div class="ttl-carte" style="font-size:13px">Les trois groupes</div>'+
+        '<div class="expl-l">'+pt(GRAV_C.haute)+'<span><b>À traiter maintenant</b> — le code a planté, ou plusieurs clients sont touchés, ou le problème revient très souvent.</span></div>'+
+        '<div class="expl-l">'+pt(GRAV_C.moyenne)+'<span><b>À regarder</b> — gênant, mais l’application fonctionne.</span></div>'+
+        '<div class="expl-l">'+pt(GRAV_C.faible)+'<span><b>Pour information</b> — rare et sans conséquence visible.</span></div></div>'+
       '<div><div class="ttl-carte" style="font-size:13px">Le suivi</div>'+
-        '<div class="expl-l"><span class="past p-bleu">Nouveau</span><span>vient d\u2019arriver, \u00e0 regarder.</span></div>'+
-        '<div class="expl-l"><span class="past p-ambre">En cours</span><span>quelqu\u2019un s\u2019en occupe d\u00e9j\u00e0.</span></div>'+
-        '<div class="expl-l"><span class="past p-vert">Corrig\u00e9</span><span>r\u00e9gl\u00e9 \u2014 un e-mail peut pr\u00e9venir les clients touch\u00e9s.</span></div>'+
-        '<div class="expl-l"><span class="past p-gris">Ignor\u00e9</span><span>mis de c\u00f4t\u00e9 volontairement (fausse alerte).</span></div></div>'+
+        '<div class="expl-l"><span class="past p-bleu">Nouveau</span><span>vient d’arriver, à regarder.</span></div>'+
+        '<div class="expl-l"><span class="past p-ambre">En cours</span><span>quelqu’un s’en occupe déjà.</span></div>'+
+        '<div class="expl-l"><span class="past p-vert">Corrigé</span><span>réglé — un e-mail peut prévenir les clients touchés.</span></div>'+
+        '<div class="expl-l"><span class="past p-gris">Ignoré</span><span>mis de côté volontairement (fausse alerte).</span></div></div>'+
     '</div></div>';
 
   var ents={}; INC.list.forEach(function(i){ (i.entreprises||[]).forEach(function(e){ var n=e.nom||e.entreprise; if(n) ents[n]=1; }); });
   var opt=function(v,cur,txt){ return '<option value="'+esc(v)+'"'+(cur===v?' selected':'')+'>'+esc(txt)+'</option>'; };
-  var filtres='<div class="filtres">'+
-    '<select class="sel-f" onchange="incF(\'type\',this.value)">'+opt('',INC.f.type,'Tous les types')+opt('erreur',INC.f.type,'Erreurs')+opt('lenteur',INC.f.type,'Lenteurs')+opt('reseau',INC.f.type,'R\u00e9seau')+'</select>'+
-    '<select class="sel-f" onchange="incF(\'grav\',this.value)">'+opt('',INC.f.grav,'Toutes gravit\u00e9s')+opt('haute',INC.f.grav,'Haute')+opt('moyenne',INC.f.grav,'Moyenne')+opt('faible',INC.f.grav,'Faible')+'</select>'+
-    '<select class="sel-f" onchange="incF(\'statut\',this.value)">'+opt('actifs',INC.f.statut,'Nouveaux + en cours')+opt('',INC.f.statut,'Tout, corrig\u00e9s inclus')+opt('nouveau',INC.f.statut,'Nouveaux')+opt('encours',INC.f.statut,'En cours')+opt('corrige',INC.f.statut,'Corrig\u00e9s')+opt('ignore',INC.f.statut,'Ignor\u00e9s')+opt('veille',INC.f.statut,'\u00c9cart\u00e9s \u2014 mises en veille')+opt('interne',INC.f.statut,'\u00c9cart\u00e9s \u2014 \u00e9quipe TeamOP')+opt('transitoire',INC.f.statut,'\u00c9cart\u00e9s \u2014 passagers')+'</select>'+
+  var filtres='<div class="filtres svl-filtres">'+
+    '<select class="sel-f" onchange="incF(\'type\',this.value)">'+opt('',INC.f.type,'Tous les types')+opt('erreur',INC.f.type,'Erreurs')+opt('lenteur',INC.f.type,'Lenteurs')+opt('reseau',INC.f.type,'Réseau')+'</select>'+
+    '<select class="sel-f" onchange="incF(\'grav\',this.value)">'+opt('',INC.f.grav,'Toutes gravités')+opt('haute',INC.f.grav,'Haute')+opt('moyenne',INC.f.grav,'Moyenne')+opt('faible',INC.f.grav,'Faible')+'</select>'+
+    '<select class="sel-f" onchange="incF(\'statut\',this.value)">'+opt('actifs',INC.f.statut,'Nouveaux + en cours')+opt('',INC.f.statut,'Tout, corrigés inclus')+opt('nouveau',INC.f.statut,'Nouveaux')+opt('encours',INC.f.statut,'En cours')+opt('corrige',INC.f.statut,'Corrigés')+opt('ignore',INC.f.statut,'Ignorés')+opt('veille',INC.f.statut,'Écartés — mises en veille')+opt('interne',INC.f.statut,'Écartés — équipe TeamOP')+opt('transitoire',INC.f.statut,'Écartés — passagers')+'</select>'+
     '<select class="sel-f" onchange="incF(\'app\',this.value)">'+opt('',INC.f.app,'Toutes les applications')+opt('opgestion',INC.f.app,'OP GESTION')+opt('opmessages',INC.f.app,'OP MESSAGES')+opt('espace',INC.f.app,'Espace client')+'</select>'+
-    '<select class="sel-f" onchange="incF(\'ent\',this.value)">'+opt('',INC.f.ent,'Toutes les entreprises')+Object.keys(ents).sort().map(function(n){ return opt(n,INC.f.ent,n); }).join('')+'</select>'+
+    '<select class="sel-f large" onchange="incF(\'ent\',this.value)">'+opt('',INC.f.ent,'Toutes les entreprises')+Object.keys(ents).sort().map(function(n){ return opt(n,INC.f.ent,n); }).join('')+'</select>'+
   '</div>';
 
-  /* une carte par entreprise : le pire d'abord */
   var groupes={};
   l.forEach(function(i){ incEnts(i).forEach(function(n){ (groupes[n]=groupes[n]||[]).push(i); }); });
   var ORD={haute:0,moyenne:1,faible:2};
   var pireDe=function(g){ return ['haute','moyenne','faible'][Math.min.apply(null,g.map(function(i){ return ORD[gravite(i)]; }))]; };
   var dernierDe=function(g){ return Math.max.apply(null,g.map(function(i){ return i.lastTs||0; })); };
+  /* « Entreprise non identifiée » se range TOUJOURS en dernier dans son groupe : elle a de
+     vrais incidents, mais ce n'est pas une entreprise. */
   var nomsG=Object.keys(groupes).sort(function(a,b){
+    var z=(a===ENT_INCONNUE?1:0)-(b===ENT_INCONNUE?1:0); if(z) return z;
     var d=ORD[pireDe(groupes[a])]-ORD[pireDe(groupes[b])];
     return d||(dernierDe(groupes[b])-dernierDe(groupes[a])); });
-  var liste=nomsG.length? nomsG.map(function(n){
-      var g=groupes[n], pire=pireDe(g);
-      var apps={}; g.forEach(function(i){ apps[APP_L[i.app]||i.app||'Autre']=1; });
-      var nvx=g.filter(function(i){ return (i.statut||'nouveau')==='nouveau'; }).length;
-      var enc=g.filter(function(i){ return i.statut==='encours'; }).length;
-      return '<div class="item" onclick="selEnt(\''+jsq(n)+'\')">'+
-        '<div style="display:flex;align-items:center;gap:10px">'+
-          '<span class="pt" style="background:'+GRAV_C[pire]+'" title="Gravité '+GRAV_L[pire]+'"></span>'+
-          '<span style="flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(n)+'</span>'+
-          (nvx?'<span class="past p-bleu">'+nvx+' nouveau'+(nvx>1?'x':'')+'</span>':'')+
-          (enc?'<span class="past p-ambre">'+enc+' en cours</span>':'')+
-          '<span style="color:var(--dim);display:flex">'+svg('chev',15)+'</span></div>'+
-        '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">'+
-          Object.keys(apps).sort().map(function(a){ return '<span class="chip">'+esc(a)+'</span>'; }).join('')+
-          '<span style="font-size:12px;color:var(--muted)">'+g.length+' problème'+(g.length>1?'s':'')+' · dernier le '+esc(fmtDate(dernierDe(g)))+'</span></div>'+
-      '</div>';
-    }).join('') : '<div class="vide">Aucun incident ne correspond à ces filtres.</div>';
-  // les entreprises SANS problème sont là aussi — en bonne santé, c'est dit clairement
+
+  /* Une ligne d'entreprise. Un vrai <button> : le focus clavier arrive gratuitement, là où
+     le <div onclick> d'hier n'en avait aucun (la règle .item:focus-visible était morte —
+     un <div> sans tabindex ne prend jamais le focus). */
+  var svlLigne=function(nom,haut){
+    var g=groupes[nom], anon=(nom===ENT_INCONNUE);
+    var nvx=g.filter(function(i){ return (i.statut||'nouveau')==='nouveau'; }).length;
+    var enc=g.filter(function(i){ return i.statut==='encours'; }).length;
+    var parType={}; g.forEach(function(i){ parType[i.type||'autre']=(parType[i.type||'autre']||0)+1; });
+    var apps={}; g.forEach(function(i){ apps[APP_L[i.app]||i.app||'Autre']=1; });
+    var av=anon?'<span class="reg-av sans">?</span>'
+      :(haut?'<span class="reg-av">'+esc(sigle(nom))+'</span>':'<span class="reg-av gris">'+esc(sigle(nom))+'</span>');
+    /* Un fait à zéro DISPARAÎT : pas de « 0 en cours » de remplissage. */
+    var f2=[]; if(nvx) f2.push('<b>'+nvx+' nouveau'+(nvx>1?'x':'')+'</b>');
+    if(enc) f2.push(enc+' en cours');
+    f2.push(g.length+' problème'+(g.length>1?'s':''));
+    var l2=anon?'L’application n’a pas transmis le nom de l’entreprise — le plus souvent un visiteur non connecté.'
+      :(haut?f2.join(' · '):f2.join(' · ')+' · '+esc(fmtAgo(dernierDe(g))));
+    var l3=haut?Object.keys(apps).sort().join(' · ')+' · dernier '+esc(fmtAgo(dernierDe(g))):'';
+    /* Au plus DEUX pastilles, par nature du problème, puis un +n. Jamais .past.p-gris sur le
+       plan élevé : son encre --gray y plafonne à 4,44:1, quel que soit le taux de teinte. */
+    var alertes='';
+    if(haut){
+      var ordre=[['erreur','p-rouge','erreur'],['lenteur','p-ambre','lenteur'],['reseau','','réseau']];
+      var vus=0,reste=0;
+      ordre.forEach(function(t){ var c=parType[t[0]]||0; if(!c) return;
+        if(vus<2&&t[1]){ alertes+='<span class="past '+t[1]+'">'+c+' '+t[2]+(c>1?'s':'')+'</span>'; vus++; }
+        else reste++; });
+      if(reste) alertes+='<span class="reg-plus">+'+reste+'</span>';
+      alertes='<span class="reg-alertes">'+alertes+'</span>';
+    } else if(nvx) alertes='<span class="past p-ambre">'+nvx+' nouveau'+(nvx>1?'x':'')+'</span>';
+    return '<button type="button" class="reg-l'+(haut?' cli':'')+(anon?' svl-anon':'')+'" onclick="selEnt(\''+jsq(nom)+'\')">'+
+      av+'<span class="reg-txt"><span class="reg-t1" title="'+esc(nom)+'">'+esc(nom)+'</span>'+
+      '<span class="reg-l2">'+l2+'</span>'+
+      (l3?'<span class="reg-l3">'+l3+'</span>':'')+'</span>'+
+      '<span class="reg-fin">'+alertes+'<span class="reg-chev" aria-hidden="true">›</span></span></button>';
+  };
+  var groupesRendus=SVL_GROUPES.map(function(G){
+    var noms=nomsG.filter(function(n){ return pireDe(groupes[n])===G.cle; });
+    if(!noms.length) return '';
+    return '<div class="reg-g"><div class="reg-tete"><span class="reg-nom">'+G.titre+'</span>'+
+      '<span class="reg-n">'+noms.length+'</span><div class="reg-sous">'+G.sous+'</div></div>'+
+      '<div class="'+G.bloc+'">'+noms.map(function(n){ return svlLigne(n,G.cle==='haute'); }).join('')+'</div></div>';
+  }).join('');
+
+  var listeVide='';
+  if(!nomsG.length){
+    var auDefaut=(INC.f.statut==='actifs'&&!INC.f.type&&!INC.f.grav&&!INC.f.app&&!INC.f.ent);
+    if(auDefaut) listeVide='<div class="svl-calme"><span class="svl-ic">✅</span><div><b>Rien à traiter.</b>'+
+      '<p>Aucun problème ouvert sur les '+(INC.nbEnt||0)+' entreprise'+((INC.nbEnt||0)>1?'s':'')+' surveillée'+((INC.nbEnt||0)>1?'s':'')+
+      '. Les dossiers déjà corrigés restent consultables : choisissez « Tout, corrigés inclus » dans le filtre ci-dessus.</p></div></div>';
+    else{
+      var dits=[];
+      if(INC.f.type) dits.push('type « '+esc(TYPE_L[INC.f.type]||INC.f.type)+' »');
+      if(INC.f.grav) dits.push('gravité « '+esc(GRAV_L[INC.f.grav]||INC.f.grav)+' »');
+      if(INC.f.statut&&INC.f.statut!=='actifs') dits.push('statut « '+esc(ST_L[INC.f.statut]||INC.f.statut)+' »');
+      if(INC.f.app) dits.push('application « '+esc(APP_L[INC.f.app]||INC.f.app)+' »');
+      if(INC.f.ent) dits.push('entreprise « '+esc(INC.f.ent)+' »');
+      listeVide='<div class="svl-vide"><b>Aucun problème ne correspond.</b>'+
+        (dits.length?'Filtres posés : '+dits.join(', ')+'.':'')+
+        '<div><button type="button" class="btn-fant" onclick="incReset()">Retirer tous les filtres</button></div></div>';
+    }
+  }
+
+  /* Les entreprises sans problème sortaient dans la même matière que les malades — « on
+     dirait qu'ils font tous partie du même truc » — et en cursor:default, une cible morte.
+     Elles descendent en pavé de fin, et elles s'ouvrent enfin. Elles s'affichent AUSSI
+     quand la liste est vide : c'est la meilleure nouvelle de la journée, pas un remplaçant. */
+  var saines='';
   if(!INC.f.ent){
     var connues={}; nomsG.forEach(function(n){ connues[n]=1; });
-    var saines=(CLI.list||[]).map(function(c){ return c.entreprise||c.nom||c.email; })
-      .filter(function(n,ix,arr){ return n&&!connues[n]&&arr.indexOf(n)===ix; })
-      .map(function(n){
-        return '<div class="item" style="cursor:default">'+
-          '<div style="display:flex;align-items:center;gap:10px">'+
-            '<span class="pt" style="background:var(--green)"></span>'+
-            '<span style="flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(n)+'</span>'+
-            '<span class="past p-vert">✅ Aucun problème</span></div>'+
-          '<div style="font-size:12px;color:var(--muted);margin-top:7px">Son application est surveillée en continu — le moindre pépin apparaîtra ici tout seul.</div></div>';
-      }).join('');
-    if(saines) liste=(nomsG.length?liste:'')+saines;
+    var noms=(CLI.list||[]).map(function(c){ return c.entreprise||c.nom||c.email; })
+      .filter(function(n,ix,arr){ return n&&!connues[n]&&arr.indexOf(n)===ix; });
+    if(noms.length) saines='<div class="reg-tech svl-saines"><b>'+noms.length+' entreprise'+(noms.length>1?'s n’ont':' n’a')+
+      ' rien remonté.</b> Leur application est surveillée en continu — le moindre pépin apparaîtra ici tout seul.<div>'+
+      noms.map(function(n){ return '<button type="button" class="svl-saine-l" onclick="allerFicheEntreprise(\''+jsq(n)+'\')">'+esc(n)+'</button>'; }).join('')+
+      '</div></div>';
   }
 
   var ouverts=incOuverts().length;
-  return enTete('Surveillance',SURV_DESC)+kpis+legende+
-    '<div class="mono" style="font-size:12px;color:var(--dim);margin-top:18px">'+nomsG.length+' entreprise'+(nomsG.length>1?'s':'')+' \u00b7 '+l.length+' incident'+(l.length>1?'s':'')+' affich\u00e9'+(l.length>1?'s':'')+' \u00b7 '+ouverts+' ouvert'+(ouverts>1?'s':'')+'</div>'+
-    filtres+liste;
+  /* Un compte se lit APRÈS la commande qui le produit, pas au-dessus. */
+  return enTete('Surveillance',SURV_DESC)+kpis+filtres+
+    '<div class="svl-compte">'+nomsG.length+' entreprise'+(nomsG.length>1?'s':'')+' · '+l.length+' problème'+(l.length>1?'s':'')+' affiché'+(l.length>1?'s':'')+' · '+ouverts+' ouvert'+(ouverts>1?'s':'')+'</div>'+
+    (groupesRendus?'<div class="reg">'+groupesRendus+'</div>':listeVide)+saines+legende;
 }
 
 /* ── la page d'une entreprise : ses problèmes, regroupés par application ── */
@@ -2685,21 +2840,26 @@ function vueEntreprise(nom){
   var ORD={haute:0,moyenne:1,faible:2};
   var sections=ordreApps.map(function(a){
     var g=parApp[a].slice().sort(function(x,y){ return (ORD[gravite(x)]-ORD[gravite(y)])||((y.lastTs||0)-(x.lastTs||0)); });
-    var lignes=g.map(function(i){
-      var gr=gravite(i), stt=i.statut||'nouveau';
-      return '<div class="item" onclick="selIncident(\''+jsq(i.id)+'\')">'+
-        '<div style="display:flex;align-items:center;gap:10px">'+
-          '<span class="pt" style="background:'+GRAV_C[gr]+'" title="Gravité '+GRAV_L[gr]+'"></span>'+
-          '<span style="flex:1;min-width:0;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(incTitre(i))+'</span>'+
-          '<span class="past '+ST_P[stt]+'">'+ST_L[stt]+'</span>'+
-          '<span style="color:var(--dim);display:flex">'+svg('chev',15)+'</span></div>'+
-        '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">'+
-          '<span class="chip">'+esc(TYPE_L[i.type]||i.type||'Autre')+'</span>'+
-          '<span style="font-size:12px;color:var(--muted)">×'+(i.count||1)+' · '+esc(fmtDate(i.lastTs))+'</span></div>'+
-      '</div>'; }).join('');
-    return '<div style="display:flex;align-items:center;gap:10px;margin:24px 0 11px">'+
-      '<div class="ttl-carte">'+esc(APP_L[a]||a)+'</div>'+
-      '<span class="chip">'+g.length+' problème'+(g.length>1?'s':'')+'</span></div>'+lignes;
+    /* Ce qui est grave est élevé au même endroit, avec la même matière, à tous les
+       niveaux de profondeur : la carte de 92 px ici est celle d'Entreprises et de l'accueil.
+       L'emoji du type remplace à la fois le rond de 8 px et le chip de type — deux canaux
+       redondants, dont l'un ne survivait ni au gris ni au doigt. */
+    var TYPE_IC={erreur:'🐛',lenteur:'🐢',reseau:'📶'};
+    var hauts=g.filter(function(i){ return gravite(i)==='haute'; });
+    var autres=g.filter(function(i){ return gravite(i)!=='haute'; });
+    var ligne=function(i,haut){
+      var stt=i.statut||'nouveau';
+      return '<button type="button" class="reg-l'+(haut?' cli':'')+'" onclick="selIncident(\''+jsq(i.id)+'\')">'+
+        '<span class="reg-av sans">'+(TYPE_IC[i.type]||'•')+'</span>'+
+        '<span class="reg-txt"><span class="reg-t1" title="'+esc(incTitre(i))+'">'+esc(incTitre(i))+'</span>'+
+        '<span class="reg-l2">'+esc(TYPE_L[i.type]||i.type||'Autre')+' · ×'+(i.count||1)+' · '+esc(fmtAgo(i.lastTs))+'</span></span>'+
+        '<span class="reg-fin"><span class="past '+ST_P[stt]+'">'+ST_L[stt]+'</span>'+
+        '<span class="reg-chev" aria-hidden="true">›</span></span></button>'; };
+    var lignes=(hauts.length?'<div class="reg-cli" style="margin-bottom:'+(autres.length?'14px':'0')+'">'+
+        hauts.map(function(i){ return ligne(i,true); }).join('')+'</div>':'')+
+      (autres.length?'<div class="reg-bloc">'+autres.map(function(i){ return ligne(i,false); }).join('')+'</div>':'');
+    return '<div class="reg-g"><div class="reg-tete"><span class="reg-nom">'+esc(APP_L[a]||a)+'</span>'+
+      '<span class="reg-n">'+g.length+'</span></div>'+lignes+'</div>';
   }).join('');
   var opt=function(v,cur,txt){ return '<option value="'+esc(v)+'"'+(cur===v?' selected':'')+'>'+esc(txt)+'</option>'; };
   var filtreSt='<div class="filtres" style="margin:18px 0 0">'+
@@ -2714,7 +2874,8 @@ function vueEntreprise(nom){
       (mail?'<span class="chip">'+esc(mail)+'</span>':'')+'</div>'+
     '<div class="desc">Les problèmes de cette entreprise, regroupés par application. Cliquez sur un problème pour ouvrir son dossier complet.</div>'+
     filtreSt+
-    (tous.length?sections:'<div class="vide" style="margin-top:18px">Rien à signaler pour cette entreprise avec ce filtre.</div>');
+    (tous.length?'<div class="reg" style="margin-top:22px">'+sections+'</div>'
+      :'<div class="svl-vide"><b>Rien à signaler pour cette entreprise.</b>Aucun problème ne correspond au filtre posé.<div><button type="button" class="btn-fant" onclick="incReset()">Retirer tous les filtres</button></div></div>');
 }
 
 /* ── la fiche complète d'un problème, seule à l'écran ── */
