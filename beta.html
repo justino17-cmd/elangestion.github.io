@@ -3666,29 +3666,27 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
      moment-là : ils s'effacent le temps du geste et reviennent après. */
   body.boxsel .fab,body.boxsel #assistant > .fab,body.boxsel .plm-fab{display:none!important}
 }
-/* ── L'EN-TÊTE DE LA SÉLECTION ─── ce qu'on est en train de faire, et où on en est ───
-   Il tient les deux temps : la question d'intention (déduire ou ajouter), puis le
-   récapitulatif de ce qui a été pris. Le liseré change de couleur avec le sens — on sait
-   d'un coup d'œil, sans relire, si on est en train de sortir ou de rentrer du stock. */
-.boxsel-tete{border:1px solid var(--brd);border-radius:14px;padding:12px 13px;margin:0 0 10px;background:var(--bg1)}
-.boxsel-tete.moins{border-left:3px solid var(--org,#e8a33d)}
-.boxsel-tete.plus{border-left:3px solid var(--acc)}
-.boxsel-tete .bst-h{display:flex;align-items:flex-start;gap:10px}
-.boxsel-tete .bst-t{font-size:14.5px;font-weight:800;color:var(--t1);line-height:1.3}
-.boxsel-tete .bst-d{font-size:12.5px;color:var(--t3);line-height:1.55;margin-top:4px}
-.boxsel-tete .bst-n{font-size:12.5px;color:var(--t2);line-height:1.5;margin-top:3px}
-.boxsel-tete .bst-b{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
-/* La liste nommée de ce qu'on emporte : c'est elle qui manquait — on cochait sans jamais
-   voir l'ensemble. Elle s'enroule et ne déborde jamais. */
-.boxsel-tete .bst-l{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
-.boxsel-tete .bst-l span{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:100px;
-  background:var(--bg2);color:var(--t2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Sous le chiffre : ce qu'on prend, et ce qu'il restera. */
+/* ── VOTRE LISTE EN COURS ─── elle se compose en tapant −/+, sans mode à activer ───
+   Posée EN HAUT de la liste des produits : c'est là qu'on regarde avant de valider, et c'est
+   là qu'elle doit être. Le liseré vert dit qu'elle est à vous et qu'elle n'est pas encore
+   partie — le bandeau ambre, juste en dessous, dit ce qui attend déjà le DR. Deux couleurs,
+   deux états, jamais confondus. */
+.bbr{border:1px solid color-mix(in srgb,var(--acc) 38%,transparent);border-left:3px solid var(--acc);
+  border-radius:14px;padding:12px 13px;margin:0 0 10px;background:color-mix(in srgb,var(--acc) 7%,transparent)}
+.bbr-h{display:flex;align-items:flex-start;gap:10px}
+.bbr-t{font-size:14.5px;font-weight:800;color:var(--t1);line-height:1.3}
+.bbr-n{font-size:12.5px;color:var(--t2);line-height:1.55;margin-top:3px}
+.bbr-ic{flex-shrink:0;width:44px;height:44px;min-height:44px;padding:0;justify-content:center;
+  border-radius:12px;font-size:15px;font-weight:700}
+/* Les produits nommés, un par un : c'est ce qu'on relit avant de valider. Ils s'enroulent,
+   jamais de débordement latéral. */
+.bbr-l{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.bbr-p{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:100px;
+  background:var(--bg1);color:var(--t2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bbr-p b{color:var(--acc);font-weight:800;font-variant-numeric:tabular-nums}
+.bbr-ok{width:100%;justify-content:center;min-height:50px;border-radius:13px;font-weight:800;margin-top:11px}
+/* Sous le chiffre d'un produit : ce qu'on en prend, et ce qu'il restera. */
 .bst-eff{font-size:11.5px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums}
-/* Les deux commandes de l'en-tête. Carrées et à 44 px : elles se pressent au doigt, avec
-   des gants, sur un chantier — le plancher tactile n'est pas négociable ici. */
-.boxsel-tete .bst-ic{flex-shrink:0;width:44px;height:44px;min-height:44px;padding:0;
-  justify-content:center;border-radius:12px;font-size:16px;font-weight:700}
 @media (max-width:780px){
   /* LE HAMBURGER RESTE. Il avait été caché quand la barre existait, « Plus » ouvrant le même
      tiroir : le coin haut gauche devenait vide et le menu n'était plus atteignable que tout en
@@ -4528,7 +4526,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '582-beta';
+const APP_VERSION = '583-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5971,12 +5969,59 @@ function valideursPour(box){
   const dr=currentUser&&currentUser.drId;
   if(dr&&tous.some(x=>x.id===dr)) ids.add(dr);
   if(box&&box.respUserId&&tous.some(x=>x.id===box.respUserId)) ids.add(box.respUserId);
-  ids.delete(moi);
-  if(ids.size) return [...ids];
+  /* Un DR en congés ne reçoit plus rien : ses demandes partent chez celui qui le remplace.
+     Sans cette substitution, la délégation serait muette — le remplaçant aurait le droit de
+     valider mais ne saurait jamais qu'il y a quelque chose à valider. */
+  const routes=new Set(); ids.forEach(x=>routes.add(remplacantDe(x)));
+  routes.delete(moi);
+  if(routes.size) return [...routes];
   return tous.filter(x=>x.id!==moi).map(x=>x.id);
 }
+/* ══════════ DONNER LA MAIN PENDANT SES CONGÉS ════════════════════════════════════════════
+   Demande de Justin, 8 septembre 2026. Un DR part en vacances : si personne ne le remplace,
+   les demandes de ses équipes restent en attente jusqu'à son retour — c'est le prix du
+   contrôle, et il devient vite insupportable.
+
+   Trois choix de conception, et ils tiennent ensemble :
+   · la délégation vit sur le compte de CELUI QUI PART. C'est lui qui la donne, lui qui la
+     reprend, et personne ne peut se l'attribuer ;
+   · elle porte des DATES et s'éteint TOUTE SEULE au retour. Rien à penser, rien à retirer —
+     un accès qu'il faut se rappeler de fermer est un accès qui reste ouvert ;
+   · elle ne donne QUE la validation. Le remplaçant ne devient pas le DR de l'équipe : il
+     hérite du périmètre le temps des congés, pas des box ni des rattachements. */
+function delegationActive(u){
+  const d=u&&u.delegation; if(!d||!d.versId||!d.du||!d.au) return null;
+  const j=todayISO(); return (j>=d.du&&j<=d.au)?d:null;
+}
+/* Les comptes dont CE compte assure les validations en ce moment. */
+function delegationsRecues(u){
+  const id=u&&u.id; if(!id) return [];
+  return (db.users||[]).filter(x=>{ const d=delegationActive(x); return d&&d.versId===id; });
+}
+/* À qui s'adressent réellement les demandes destinées à ce compte : lui, ou son remplaçant
+   s'il est en congés. Sans ça, les notifications continueraient de partir chez l'absent. */
+function remplacantDe(id){
+  const u=(db.users||[]).find(x=>x&&x.id===id); const d=delegationActive(u);
+  return (d&&d.versId)?d.versId:id;
+}
+/* Quand je valide quelque chose, est-ce à la place de quelqu'un ? Renvoie le compte absent,
+   pour que la trace parte dans SON historique autant que dans le mien. */
+function valideAuNomDe(chefId){
+  if(!currentUser) return null;
+  const chef=(db.users||[]).find(x=>x&&x.id===chefId); if(!chef||!chef.drId) return null;
+  const dr=(db.users||[]).find(x=>x&&x.id===chef.drId); if(!dr||dr.id===currentUser.id) return null;
+  const d=delegationActive(dr);
+  return (d&&d.versId===currentUser.id)?dr:null;
+}
 /* Les personnes dont ce compte est le DR. */
-function drPerimetre(u){ const id=u&&u.id; return new Set((db.users||[]).filter(x=>x&&x.drId===id).map(x=>x.id)); }
+function drPerimetre(u){
+  const id=u&&u.id; const s=new Set((db.users||[]).filter(x=>x&&x.drId===id).map(x=>x.id));
+  /* Pendant les congés d'un collègue, on hérite de son périmètre — sinon la délégation
+     n'apporterait rien à valider. Le périmètre grandit, il ne se remplace pas : on garde
+     ses propres équipes en même temps. */
+  delegationsRecues({id}).forEach(abs=>{ s.add(abs.id); (db.users||[]).forEach(x=>{ if(x&&x.drId===abs.id) s.add(x.id); }); });
+  return s;
+}
 function userCap(u,cap){ if(!u) return false; if(u.role==='admin') return true;
   const ov=u.acces&&u.acces.caps; if(ov && Object.prototype.hasOwnProperty.call(ov,cap)) return !!ov[cap];
   const rp=db.permissions&&db.permissions[u.role]&&db.permissions[u.role].caps; if(rp && Object.prototype.hasOwnProperty.call(rp,cap)) return !!rp[cap];
@@ -6310,9 +6355,6 @@ function refreshEcran(){
 function go(view){
   if(!views[view]) view='dashboard';
   _ecranRendu=null;   // on quitte le détail pour une rubrique : plus rien à redessiner
-  /* Quitter l'écran d'une box abandonne la sélection en cours — sinon le drapeau resterait
-     sur <body> et la bulle d'assistance disparaîtrait pour le reste de la session. */
-  try{ boxSelOn=false; boxSelSens=0; boxSelQ={}; document.body.classList.remove('boxsel'); }catch(e){}
   try{ usageNote(view); }catch(e){}
   // garde d'accès : une vue qu'on n'a pas le droit de voir (menu, rôle, forfait)
   // n'est pas atteignable non plus en tapant l'adresse à la main
@@ -15891,6 +15933,36 @@ function boxAttentes(boxId){
 function boxLotEnAttente(boxId){
   return boxAttentes(boxId).find(function(x){ return x.type==='ajustementLot'; })||null;
 }
+/* LE BROUILLON : la liste en cours de composition, pas encore envoyée. Elle n'existe que
+   pour celui qui la compose — aucun filtre du DR ne connaît le statut 'brouillon'. */
+function boxBrouillon(boxId){
+  var moi=currentUser&&currentUser.id;
+  return (db.boxMvtAttente||[]).find(function(x){
+    return x&&x.statut==='brouillon'&&x.type==='ajustementLot'&&x.boxId===boxId&&x.parId===moi; })||null;
+}
+function boxBrouillonLigne(boxId,pid){
+  var lot=boxBrouillon(boxId); if(!lot) return null;
+  return (lot.lignes||[]).find(function(l){ return l.produitId===pid; })||null;
+}
+/* Envoyer la liste : c'est ICI, et seulement ici, que le DR est prévenu. */
+function boxBrouillonValider(boxId){
+  var lot=boxBrouillon(boxId); if(!lot||!(lot.lignes||[]).length){ toast('Ta liste est vide'); return; }
+  lot.statut='enAttente'; lot.ts=Date.now();
+  logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock');
+  boxMvtPrevenir(lot);
+  save(); renderBoxProdList();
+  var n=(lot.lignes||[]).length;
+  toast('📨 '+n+' produit'+(n>1?'s':'')+' envoyé'+(n>1?'s':'')+' au DR — le stock bougera après son accord',4200);
+  /* La question « remis à qui ? » se pose une seule fois, pour toute la liste, et au moment
+     où elle part — pas pendant qu'on la compose. */
+  var sort=(lot.lignes||[]).some(function(l){ return ((+l.du||0)+(+l.dc||0))<0; });
+  if(sort&&!lot.pourQui) setTimeout(function(){ remiseDestModal(lot.id); },200);
+}
+function boxBrouillonVider(boxId){
+  var lot=boxBrouillon(boxId); if(!lot) return;
+  db.boxMvtAttente=(db.boxMvtAttente||[]).filter(function(x){ return x!==lot; });
+  save(); renderBoxProdList(); toast('Liste vidée');
+}
 /* Les produits touchés par tout ce qui attend, sans doublon. */
 function boxAttentePids(boxId){
   var out=[];
@@ -15943,6 +16015,32 @@ function boxLotLigneAnnuler(boxId,pid){
   }
   save(); toast('Retiré de la demande'); renderBoxProdList();
 }
+/* ── VOTRE LISTE EN COURS ─────────────────────────────────────────────────────────────────
+   Elle se remplit toute seule en tapant − ou + sur les produits : aucun mode à activer,
+   aucune case à cocher. On la relit, on l'allonge si besoin, et on la valide quand elle est
+   complète. C'est la demande de Justin, mot pour mot : « ils appuient sur moins, hop ; une
+   fois fait, en haut ça met votre liste, il clique dessus, il regarde s'il y a bien tout,
+   oui, valider ». */
+function boxBrouillonPanneau(boxId){
+  var lot=boxBrouillon(boxId); if(!lot||!(lot.lignes||[]).length) return '';
+  var b=db.boxes.find(function(x){ return x.id===boxId; })||{stock:{}};
+  var sort=0, entre=0;
+  var puces=(lot.lignes||[]).map(function(l){
+    var q=(+l.du||0)+(+l.dc||0); if(q<0) sort+=-q; else entre+=q;
+    var p=produit(l.produitId);
+    return '<span class="bbr-p">'+esc((p&&p.nom)||'?')+' <b>'+(q<0?'−':'+')+Math.abs(q)+'</b></span>';
+  }).join('');
+  var n=(lot.lignes||[]).length;
+  return '<div class="bbr">'+
+    '<div class="bbr-h"><div style="flex:1;min-width:0">'+
+      '<div class="bbr-t">Votre liste — '+n+' produit'+(n>1?'s':'')+'</div>'+
+      '<div class="bbr-n">'+(sort?'<b>'+sort+'</b> unité'+(sort>1?'s':'')+' à retirer':'')+(sort&&entre?' · ':'')+(entre?'<b>'+entre+'</b> unité'+(entre>1?'s':'')+' à ajouter':'')+' — rien n\'est parti tant que vous n\'avez pas validé.</div>'+
+    '</div>'+
+    '<button class="btn ghost sm bbr-ic" onclick="boxBrouillonVider(\''+boxId+'\')" title="Vider la liste" aria-label="Vider la liste">✕</button></div>'+
+    '<div class="bbr-l">'+puces+'</div>'+
+    '<button class="btn bbr-ok" onclick="boxBrouillonValider(\''+boxId+'\')">Valider ma demande'+(boxValidRequis()?' — envoi au DR':'')+'</button>'+
+  '</div>';
+}
 function boxLotBandeau(boxId){
   var att=boxAttentes(boxId); if(!att.length) return '';
   var n=boxAttentePids(boxId).length; if(!n) return '';
@@ -15969,7 +16067,7 @@ function renderBoxProdList(){
     const ea=boxEtat(a.s.u),eb=boxEtat(b2.s.u); if(ord[ea.k]!==ord[eb.k]) return ord[ea.k]-ord[eb.k];
     if(qa!==qb) return qb-qa; return (a.p.nom||'').localeCompare(b2.p.nom||''); });
   if(!entries.length){ el.innerHTML=`<div style="color:var(--t3);font-size:13px;padding:18px;text-align:center">${boxProdSearch?'Aucun résultat.':'Aucun produit dans cette box. Touche ＋ Ajouter.'}</div>`; return; }
-  el.innerHTML=boxLotBandeau(b.id)+boxSelEnTete(b,entries)+entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
+  el.innerHTML=boxBrouillonPanneau(b.id)+boxLotBandeau(b.id)+entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
     const li=boxAttenteProduit(b.id,pid);
     /* Court, et sur UNE ligne : le bandeau au-dessus dit déjà « en attente de validation DR »,
        la ligne n'a plus qu'à dire combien. Vrai signe moins (−), comme le bouton de la fiche. */
@@ -15977,8 +16075,7 @@ function renderBoxProdList(){
     const dem=li?(li.vide?'tout retiré':((li.du?sgn(li.du,'u'):'')+(li.du&&li.dc?' · ':'')+(li.dc?sgn(li.dc,'ctn'):''))||'±0'):'';
     const fours=(p.fournisseurs||[]).map(fourBadge).join(' ');
     return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${li?'var(--org,#e8a33d)':(low?e.c:'transparent')};border-radius:12px;margin-bottom:8px;overflow:hidden">
-      <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="${boxSelOn?`boxSelCocher('${pid}')`:`editBoxQte('${pid}')`}">
-        ${boxSelOn?`<span aria-hidden="true" style="flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;${boxSelQ[pid]!=null?'background:var(--acc);color:var(--on-acc,#fff)':'box-shadow:inset 0 0 0 2px var(--brd);color:transparent'}">✓</span>`:''}
+      <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="editBoxQte('${pid}')">
         <div style="flex:1;min-width:0">
           <div style="font-size:15px;font-weight:800;color:var(--t1)">${esc(p.nom)}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:13px;font-weight:600;color:${e.c}"><span style="width:8px;height:8px;border-radius:50%;background:${e.c};flex-shrink:0"></span>${e.l}</div>
@@ -15986,189 +16083,20 @@ function renderBoxProdList(){
           ${(s.ctn||0)?`<div style="font-size:11.5px;color:var(--blue);margin-top:3px">${s.ctn} carton${s.ctn>1?'s':''} en réserve</div>`:''}
           ${li?`<div style="display:flex;align-items:center;gap:7px;margin-top:5px;font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);white-space:nowrap"><span>🔒 ${esc(dem)} en attente</span><button class="btn ghost sm" style="padding:1px 8px;font-size:10.5px;min-height:0;line-height:1.6" onclick="event.stopPropagation();boxLotLigneAnnuler('${b.id}','${pid}')">retirer</button></div>`:''}
         </div>
-        ${boxSelOn?`<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;white-space:nowrap" onclick="event.stopPropagation()">
+        ${(()=>{ const br=boxBrouillonLigne(b.id,pid), dq=br?((+br.du||0)+(+br.dc||0)):0;
+          const reste=dq<0?Math.max(0,(s.u||0)+dq):((s.u||0)+dq);
+          return `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap" onclick="event.stopPropagation()">
           <div style="display:flex;align-items:center;gap:9px">
-          ${boxSelQ[pid]!=null?`<button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxSelPas('${pid}',-1)" aria-label="Moins un">−</button>
-          <b style="font-size:20px;font-weight:800;font-family:ui-monospace,'SF Mono',monospace;color:var(--acc);min-width:28px;text-align:center">${boxSelQ[pid]}</b>
-          <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px;color:var(--acc)" onclick="boxSelPas('${pid}',1)" aria-label="Plus un">＋</button>`:`<span style="font-size:13px;color:var(--t3);white-space:nowrap">${s.u||0} en stock</span>`}
+            <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxAdj('${pid}','u',-1)" aria-label="Retirer une unité">−</button>
+            <b style="font-size:22px;font-weight:800;font-family:ui-monospace,'SF Mono',monospace;color:${dq?'var(--acc)':e.c};min-width:30px;text-align:center">${s.u||0}</b>
+            <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px;color:var(--acc)" onclick="boxAdj('${pid}','u',1)" aria-label="Ajouter une unité">＋</button>
           </div>
-          ${boxSelQ[pid]!=null?`<span class="bst-eff">${esc(boxSelEffet(b,pid))}</span>`:''}
-        </div>`:`<div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
-          <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxAdj('${pid}','u',-1)" aria-label="Retirer une unité">−</button>
-          <b style="font-size:22px;font-weight:800;font-family:ui-monospace,'SF Mono',monospace;color:${e.c};min-width:30px;text-align:center">${s.u||0}</b>
-          <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px;color:var(--acc)" onclick="boxAdj('${pid}','u',1)" aria-label="Ajouter une unité">＋</button>
-        </div>`}
+          ${dq?`<span class="bst-eff">${dq<0?'−':'+'}${Math.abs(dq)} · restera ${reste}</span>`:''}
+        </div>`; })()}
       </div>
       ${(fours||low)?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 14px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">${fours}<span style="flex:1"></span>${low?`<button style="cursor:pointer;min-height:44px;padding:0 14px;font-size:12px;font-weight:700;border-radius:10px;color:${e.c};background:color-mix(in srgb,${e.c} 15%,transparent);border:.5px solid color-mix(in srgb,${e.c} 40%,transparent)" onclick="event.stopPropagation();boxDemande('${b.id}','${pid}')">＋ Demande</button>`:''}</div>`:''}
-    </div>`;}).join('')+boxSelPied();
+    </div>`;}).join('');
 }
-/* La bascule, au-dessus de la liste : « Sélectionner » ne s'affiche que s'il y a au moins deux
-   produits — proposer une sélection multiple sur un seul produit ne sert à rien et ajoute un
-   bouton à un écran qui en a déjà. */
-function boxSelEnTete(b,entries){
-  /* Le drapeau vit sur <body> : c'est le seul moyen d'atteindre en CSS la bulle d'assistance
-     et le bouton flottant, qui sont posés hors de cette liste. Retiré dès qu'on sort. */
-  try{ document.body.classList.toggle('boxsel', !!boxSelOn); }catch(e){}
-  if((entries||[]).length<2) return '';
-  if(!boxSelOn) return `<div style="display:flex;justify-content:flex-end;margin:0 0 8px">
-    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelBasculer()">\u2611\ufe0e Sélectionner plusieurs</button></div>`;
-
-  /* PREMIER TEMPS : l'intention. Tant qu'elle n'est pas dite, la liste ne se coche pas —
-     et c'est volontaire : cocher d'abord, décider ensuite, c'est ce qui empêchait d'écrire
-     sous chaque produit ce qu'il resterait. */
-  if(!boxSelSens) return `<div class="boxsel-tete">
-    <div class="bst-t">Que voulez-vous faire&nbsp;?</div>
-    <div class="bst-d">Choisissez d'abord, puis touchez les produits concernés — vous verrez ce qu'il restera dans la box au fur et à mesure.</div>
-    <div class="bst-b">
-      <button class="btn ghost" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelSensChoisir(-1)">− Déduire du stock</button>
-      <button class="btn ghost" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelSensChoisir(1)">+ Ajouter au stock</button>
-    </div>
-    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;margin-top:8px;font-weight:700" onclick="boxSelBasculer()">Annuler</button></div>`;
-
-  /* SECOND TEMPS : la liste en cours. L'en-tête dit ce qu'on fait, combien on a pris, et
-     nomme les produits — c'est le récapitulatif qui manquait : on ne voyait nulle part
-     l'ensemble de ce qu'on était en train de sortir. */
-  const vus=boxSelVisibles(b), tout=vus.length&&vus.every(pid=>boxSelQ[pid]!=null);
-  const n=boxSelCombien(), u=boxSelUnites(), deduit=boxSelSens<0;
-  const noms=Object.keys(boxSelQ).map(k=>{ const p=produit(k); return (p&&p.nom?p.nom:'?')+' ×'+boxSelQ[k]; });
-  /* Les commandes vivent EN HAUT du bloc, jamais en bas : la barre de validation est
-     collante, et sur une liste courte elle recouvrait « Tout cocher » et « Annuler » —
-     mesuré, les deux étaient injoignables au doigt. Ce qui est en tête ne peut pas l'être. */
-  return `<div class="boxsel-tete${deduit?' moins':' plus'}">
-    <div class="bst-h">
-      <div style="flex:1;min-width:0">
-        <div class="bst-t">${deduit?'Produits que vous déduisez':'Produits que vous ajoutez'}</div>
-        <div class="bst-n">${n?`<b>${n} produit${n>1?'s':''}</b> · ${u} unité${u>1?'s':''}`:'Touchez les produits concernés ci-dessous.'}</div>
-      </div>
-      <button class="btn ghost sm bst-ic" onclick="boxSelSensChoisir(0)" title="Changer déduire / ajouter" aria-label="Changer déduire ou ajouter">↺</button>
-      <button class="btn ghost sm bst-ic" onclick="boxSelBasculer()" title="Annuler la sélection" aria-label="Annuler la sélection">✕</button>
-    </div>
-    ${n?`<div class="bst-l">${noms.map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:''}
-    ${vus.length>1?`<div class="bst-b"><button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelTout()">${tout?'Tout décocher':'Tout cocher'}</button></div>`:''}
-    </div>`;
-}
-/* La barre d'action, collée en bas de la liste. Elle ne paraît qu'une fois quelque chose de
-   coché : une barre vide qui attend est un espace perdu sur un téléphone.
-   Le SENS se choisit ici, à la fin — pas produit par produit : on désigne d'abord ce qu'on
-   touche, on dit ensuite ce qu'on en fait. */
-function boxSelPied(){
-  if(!boxSelOn) return '';
-  const n=boxSelCombien();
-  if(!boxSelSens) return '';
-  if(!n) return '';
-  const tot=boxSelUnites(), parDR=boxValidRequis(), deduit=boxSelSens<0;
-  return `<div class="boxsel-pied" style="position:sticky;bottom:0;z-index:5;padding:10px 2px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 68%,transparent)">
-    <div style="background:var(--bg1);border:1px solid var(--brd);border-radius:16px;padding:11px 12px;box-shadow:0 10px 26px rgba(0,0,0,.16)">
-      <div style="font-size:12.5px;color:var(--t2);margin-bottom:9px">${deduit?'Vous déduisez':'Vous ajoutez'} <b style="color:var(--t1)">${tot} unité${tot>1?'s':''}</b> sur ${n} produit${n>1?'s':''}${parDR?' — <b>ça partira au DR</b>, le stock ne bougera qu\'après son accord':''}</div>
-      <button class="btn" style="width:100%;justify-content:center;min-height:50px;border-radius:13px;font-weight:800" onclick="boxSelAppliquer()">${parDR?'Valider et envoyer au DR':'Valider'}</button>
-    </div></div>`;
-}
-/* ══════════ PLUSIEURS PRODUITS D'UN COUP ══════════════════════════════════════════════════
-   Demande de Justin depuis chez ELAN, 8 septembre 2026 : « quand on déduit ou on ajoute c'est
-   1 par 1, il faudrait pouvoir choisir plusieurs produits, ça fait une liste, il envoie au DR
-   et il valide ».
-   Le regroupement en UNE demande existait déjà (boxMvtAttente, un lot par box et par
-   personne) — ce qui manquait, c'est de pouvoir DÉSIGNER plusieurs produits au lieu de taper
-   −/+ sur chacun. On ne double donc pas la logique : la liste rappelle boxAdj produit par
-   produit, en silence, et c'est boxAdj qui décide comme d'habitude si ça part au DR ou si ça
-   s'applique tout de suite. Une seule règle, un seul endroit. */
-/* Ce qu'on peut RÉELLEMENT sortir d'un produit : le stock, moins ce qui en est déjà parti et
-   attend l'accord du DR. Sans cette soustraction, deux gestes d'affilée passent sous zéro —
-   le stock ne bougeant qu'à la validation, il paraît intact au second. */
-function boxDispoU(b,pid){
-  let n=((b.stock&&b.stock[pid])||{}).u||0;
-  const moi=currentUser&&currentUser.id;
-  const lot=(db.boxMvtAttente||[]).find(x=>x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
-  const li=lot&&(lot.lignes||[]).find(l=>l.produitId===pid);
-  if(li) n+=(li.du||0);   // du est négatif pour une sortie
-  return Math.max(0,n);
-}
-/* Le SENS se choisit AVANT la liste, et non plus après. Deux raisons, et la seconde est la
-   vraie : « produits que vous voulez déduire » se comprend d'un coup, là où deux boutons à la
-   fin obligent à se rappeler ce qu'on était en train de faire ; et surtout, sans connaître le
-   sens on ne peut pas écrire sous chaque produit ce qu'il RESTERA — qui est précisément ce
-   qui manquait. Demande de Justin depuis chez ELAN, 8 septembre 2026 : « on n'a pas la valeur
-   de ce qu'on a ou ce qu'on n'a pas ». */
-let boxSelOn=false, boxSelSens=0, boxSelQ={};
-function boxSelBasculer(){ boxSelOn=!boxSelOn; boxSelSens=0; boxSelQ={}; renderBoxProdList(); }
-function boxSelSensChoisir(s){ boxSelSens=s; boxSelQ={}; renderBoxProdList(); }
-function boxSelCocher(pid){ if(!boxSelSens) return; if(boxSelQ[pid]==null) boxSelQ[pid]=1; else delete boxSelQ[pid]; renderBoxProdList(); }
-function boxSelPas(pid,d){
-  const b=db.boxes.find(x=>x.id===boxView);
-  var q=(boxSelQ[pid]||0)+d; if(q<1) q=1;
-  /* On ne laisse même pas COMPOSER une sortie impossible : le plafond est ce qui reste
-     vraiment, déduction faite de ce qui attend déjà l'accord du DR. Refuser à la fin ce
-     qu'on a laissé taper, c'est faire recommencer. */
-  if(boxSelSens<0&&b){ const max=boxDispoU(b,pid); if(q>max) q=Math.max(1,max); }
-  if(q>999) q=999;
-  boxSelQ[pid]=q; renderBoxProdList();
-}
-function boxSelCombien(){ return Object.keys(boxSelQ).length; }
-function boxSelUnites(){ return Object.keys(boxSelQ).reduce((t,k)=>t+(boxSelQ[k]||0),0); }
-/* Ce qui s'écrit SOUS le chiffre de chaque produit choisi : ce qu'on prend, et ce qu'il
-   restera après. Calculé sur le disponible réel — stock moins ce qui est déjà en attente —
-   sinon le nombre annoncé serait faux dès la deuxième sélection de la journée. */
-function boxSelEffet(b,pid){
-  if(!boxSelOn||!boxSelSens||boxSelQ[pid]==null) return '';
-  const q=boxSelQ[pid]||0, dispo=boxDispoU(b,pid);
-  const reste=boxSelSens<0 ? Math.max(0,dispo-q) : dispo+q;
-  return (boxSelSens<0?'−':'+')+q+' · restera '+reste;
-}
-function boxSelTout(){
-  const b=db.boxes.find(x=>x.id===boxView); if(!b) return;
-  const vus=boxSelVisibles(b);
-  if(vus.every(pid=>boxSelQ[pid]!=null)) boxSelQ={};
-  /* Un produit à 0 ne se coche pas quand on déduit : le proposer, c'est promettre une sortie
-     qui sera refusée ligne par ligne à la fin. */
-  else vus.forEach(pid=>{ if(boxSelQ[pid]!=null) return;
-    if(boxSelSens<0&&boxDispoU(b,pid)<1) return;
-    boxSelQ[pid]=1; });
-  renderBoxProdList();
-}
-/* Les produits RÉELLEMENT à l'écran — la recherche filtre la liste, « tout cocher » ne doit
-   pas cocher en douce ce qu'on ne voit pas. */
-function boxSelVisibles(b){
-  const q=norm(boxProdSearch);
-  return Object.keys(b.stock||{}).filter(pid=>{ const p=produit(pid); if(!p||!p.id) return false;
-    return !q || norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+(p.fournisseurs||[]).join(' ')).includes(q); });
-}
-function boxSelAppliquer(sens){
-  sens=sens||boxSelSens; if(!sens) return;
-  const b=db.boxes.find(x=>x.id===boxView); if(!b) return;
-  const pids=Object.keys(boxSelQ).filter(k=>(boxSelQ[k]||0)>0);
-  if(!pids.length){ toast('Choisis au moins un produit'); return; }
-  const avant=JSON.stringify(b.stock||{});
-  let faits=0, ignores=[];
-  _boxLotSilence=true;
-  try{
-    pids.forEach(pid=>{
-      const q=Math.abs(boxSelQ[pid]||0); if(!q) return;
-      /* Retirer plus qu'il n'y a n'est pas une erreur à refuser : on retire ce qu'il reste, et
-         on le DIT. Bloquer toute la liste pour un produit à 2 quand on en demande 3 ferait
-         recommencer la sélection entière. */
-      const dispo=boxDispoU(b,pid);
-      const n=(sens<0)?Math.min(q,dispo):q;
-      if(sens<0&&dispo<q) ignores.push(produit(pid).nom+(dispo?' ('+dispo+' au lieu de '+q+')':' (déjà à 0)'));
-      if(!n) return;
-      boxAdj(pid,'u',sens*n); faits++;
-    });
-  } finally { _boxLotSilence=false; }
-  const parDR=boxValidRequis();
-  if(!faits){ toast('Rien à '+(sens<0?'retirer':'ajouter')+' — ces produits sont déjà à 0'); return; }
-  boxSelOn=false; boxSelSens=0; boxSelQ={}; renderBoxProdList();
-  if(parDR){
-    const moi=currentUser&&currentUser.id;
-    const lot=(db.boxMvtAttente||[]).find(x=>x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
-    toast('📨 '+faits+' produit'+(faits>1?'s':'')+' envoyé'+(faits>1?'s':'')+' au DR — le stock bougera après son accord',4000);
-    // la question « remis à qui ? » : une seule fois pour toute la liste
-    if(lot&&(lot.lignes||[]).some(l=>((+l.du||0)+(+l.dc||0))<0)&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),200);
-  } else {
-    toast('✓ '+faits+' produit'+(faits>1?'s':'')+(sens<0?' retiré':' ajouté')+(faits>1?'s':''),3200);
-  }
-  if(ignores.length) setTimeout(()=>toast('Ajusté au stock restant : '+ignores.slice(0,3).join(', ')+(ignores.length>3?'…':''),5000),parDR?4200:3400);
-  if(avant===JSON.stringify(b.stock||{})&&!parDR) toast('Aucun changement');
-}
-
 /* Modifier la quantité d'un produit dans la box (sheet ELAN "Quantité") */
 function editBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; const s=b.stock[pid]||{ctn:0,u:0}; const p=produit(pid);
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>Quantité</h3><button type="button" class="btn sm" onclick="saveBoxQte('${pid}')">OK</button></div>
@@ -16285,6 +16213,7 @@ function boxMvtPrevenir(m){
    le bon lié redevient « à réceptionner », l'auteur est prévenu et le voit dans SON historique */
 function boxMvtRefuser(m,motif){
   m.motifRefus=motif||''; m.statut='refuse'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
+  delegationTracer(m,'Mouvement de stock refusé — '+boxMvtLibelle(m));
   logEvent('Mouvement box refusé',boxMvtLibelle(m)+(motif?' — '+motif:''),'stock',m.parId);
   if(m.bcId){ const bonR=(db.bons||[]).find(x=>x.id===m.bcId);
     if(bonR&&bonR.statut==='arrivageNote'){ bonR.statut=m.statutAvant||'envoyee'; delete bonR.recuPar; delete bonR.recuLe; delete bonR.dateReception; if(bonR.arrivage&&bonR.arrivage.enAttenteDR) delete bonR.arrivage;
@@ -16337,6 +16266,7 @@ function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('V
     if(m.pourQui&&((m.du||0)+(m.dc||0))<0) remiseAjoute(m,Math.abs((m.du||0)+(m.dc||0)));
   }
   m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
+  delegationTracer(m,'Mouvement de stock validé — '+boxMvtLibelle(m));
   logEvent('Mouvement box validé',boxMvtLibelle(m),'stock',m.parId);
   try{ if(m.parId) pushNotify('✅ Validé par le DR '+fullName(currentUser),boxMvtLibelle(m),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations(); toast('Validé — stock mis à jour'); }
@@ -16473,9 +16403,19 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
        en quittant la fiche. */
     db.boxMvtAttente=db.boxMvtAttente||[];
     const moi=currentUser&&currentUser.id;
-    let lot=db.boxMvtAttente.find(x=>x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
+    /* ⛔ LE LOT NAÎT EN BROUILLON — refonte du 8 septembre 2026, demande de Justin.
+       Avant, il partait au DR dès le PREMIER tap et s'enrichissait ensuite. C'était défendable
+       (un panier qu'il faut penser à valider est un panier qu'on oublie) mais ça retirait à
+       la personne le droit de se relire : elle envoyait avant d'avoir fini sa liste.
+       « Ils appuient sur moins, hop. Une fois fait, en haut ça met votre liste, il clique sur
+       la liste, il regarde s'il y a bien tout. Oui, valider. »
+       Le brouillon reste donc sur l'appareil et dans la base, VISIBLE EN HAUT DE LA BOX, et
+       ne devient une demande qu'au clic sur « Valider ma demande ». Le statut 'brouillon' est
+       inconnu de tous les filtres existants, qui cherchent 'enAttente' : le DR ne voit donc
+       rien tant que rien n'est validé. */
+    let lot=db.boxMvtAttente.find(x=>x.statut==='brouillon'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
     const neuf=!lot;
-    if(neuf){ lot=boxMvtEnvoyer({type:'ajustementLot',boxId:b.id,lignes:[]},true); }
+    if(neuf){ lot=boxMvtEnvoyer({type:'ajustementLot',boxId:b.id,lignes:[]},true); lot.statut='brouillon'; }
     lot.lignes=lot.lignes||[];
     let li=lot.lignes.find(l=>l.produitId===pid);
     /* ⛔ ON NE DESCEND PAS SOUS ZÉRO — signalé par Justin, 8 septembre 2026.
@@ -16498,15 +16438,15 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
     if(!li.du&&!li.dc) lot.lignes=lot.lignes.filter(l=>l!==li);
     if(!lot.lignes.length){
       db.boxMvtAttente=db.boxMvtAttente.filter(x=>x!==lot); save();
-      if(!_boxLotSilence){ toast('Demande annulée (retour à zéro)'); renderBoxProdList(); } return; }
+      if(!_boxLotSilence) renderBoxProdList(); return; }
     lot.ts=Date.now();
     save();
-    if(neuf){ logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock'); boxMvtPrevenir(lot); if(!_boxLotSilence) toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
+    /* Le brouillon ne prévient personne et n'entre pas au journal : il n'existe que pour
+       celui qui le compose. Les deux se font à la validation. */
     /* Le libellé complet du lot fait trois lignes et se répète à CHAQUE tap : au cinquième
        produit, l'écran n'est plus qu'une pile de messages identiques. Le détail est désormais
        écrit en permanence sur la fiche (bandeau + mention par ligne) — le message se contente
        donc de compter. */
-    else if(!_boxLotSilence){ var nl=lot.lignes.length; toast('🔒 '+nl+' produit'+(nl>1?'s':'')+' en attente du DR'); }
     if(!_boxLotSilence) renderBoxProdList();
     // la question « pour qui ? » se pose UNE fois pour le lot, pas à chaque produit sorti
     /* On regarde s'il SORT quelque chose, pas si le total est négatif. Un lot où l'on repose
@@ -16514,9 +16454,6 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
        même avec quelqu'un, et le bon de remise doit les porter. Le bon lui-même ne retient déjà
        que les lignes négatives (voir boxMvtValider), il ne restait qu'à poser la question. */
     const sortQqc=lot.lignes.some(l=>((+l.du||0)+(+l.dc||0))<0);
-    /* En sélection multiple, la question « remis à qui ? » se pose une seule fois, après la
-       boucle — sinon autant de fenêtres empilées qu'il y a de produits sortis. */
-    if(sortQqc&&!lot.pourQui&&!_boxLotSilence) setTimeout(()=>remiseDestModal(lot.id),150);
     return; }
   b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
   traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box');
@@ -16917,6 +16854,93 @@ views.validations=function(){
     ${mvHisto.map(m=>mvRow(m)+`<span class="st ${m.statut==='valide'?'st-green':'st-red'}">${m.statut==='valide'?'Validé':'Refusé'}${m.drNom?' · '+esc(m.drNom):''}</span></div>`).join('')}
     ${autres.map(d=>row(d)+`${badge(STATV,d.statut)}</div>`).join('')}</div>`:''}`;
 };
+/* La trace de la délégation, écrite des DEUX côtés — c'est ce que Justin demandait : « ça se
+   met aussi dans son historique et l'historique de l'autre, comme ça il y a une trace des
+   deux ». L'entrée normale porte déjà le remplaçant comme auteur ; celle-ci va dans
+   l'historique de l'absent, qui retrouve à son retour ce qui a été décidé pour lui.
+   On range aussi le nom sur l'objet validé : six mois plus tard, la fiche dit d'elle-même
+   qui a tranché et à la place de qui. */
+/* ── LA CARTE « MES CONGÉS » ─────────────────────────────────────────────────────────────
+   Elle ne s'affiche QUE pour qui a le droit de valider : à quelqu'un qui ne valide rien,
+   « donner la main sur vos validations » ne veut rien dire, et une case de plus dans un
+   écran de réglages est une case de moins qu'on lit.
+   Elle ne remplace pas les absences du planning — c'est un ajout, pas un doublon : le
+   planning dit qu'on n'est pas là, ceci dit qui décide à notre place. */
+function carteConges(){
+  if(!currentUser||!can('validerDR')) return '';
+  const d=currentUser.delegation||null, act=delegationActive(currentUser);
+  const recues=delegationsRecues(currentUser);
+  const autres=(db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==currentUser.id&&userCap(x,'validerDR'));
+  let h='<div class="card" style="border-color:color-mix(in srgb,var(--acc) 34%,transparent)"><div class="card-head"><h3>🏖️ Mes congés — donner la main</h3></div>';
+
+  if(act){
+    h+=`<div style="padding:11px 12px;border-radius:12px;background:color-mix(in srgb,var(--acc) 10%,transparent);border:1px solid color-mix(in srgb,var(--acc) 34%,transparent);margin-bottom:10px">
+      <div style="font-size:13.5px;font-weight:800;color:var(--t1)">Vous êtes en congés jusqu'au ${esc(fmtShort(act.au))}</div>
+      <div style="font-size:12.5px;color:var(--t2);line-height:1.55;margin-top:3px"><b>${esc(userName(act.versId))}</b> valide vos demandes à votre place. Tout ce qu'il décide arrive aussi dans votre historique — vous retrouverez tout à votre retour.</div>
+      <div style="font-size:11.5px;color:var(--t3);margin-top:5px">La main lui revient automatiquement le ${esc(fmtShort(act.au))} au soir. Vous n'avez rien à retirer.</div>
+    </div>
+    <button class="btn sm ghost" onclick="congesRetirer()">Je suis rentré — reprendre la main maintenant</button>`;
+  } else if(d&&d.versId&&d.du>todayISO()){
+    h+=`<div style="font-size:13px;color:var(--t2);line-height:1.6;margin-bottom:10px">Congés prévus du <b>${esc(fmtShort(d.du))}</b> au <b>${esc(fmtShort(d.au))}</b> — <b>${esc(userName(d.versId))}</b> prendra la main sur vos validations.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" onclick="congesModal()">Modifier</button><button class="btn sm ghost" onclick="congesRetirer()">Annuler</button></div>`;
+  } else if(!autres.length){
+    h+='<p style="color:var(--t2);font-size:13.5px;line-height:1.6">Personne d\'autre n\'a le droit de valider dans cette entreprise — il n\'y a donc à qui donner la main. Donnez le droit « Valider les mouvements de box et les demandes » à un collègue depuis sa fiche, et cette carte s\'activera.</p>';
+  } else {
+    h+=`<p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:11px">Quand vous partez, les demandes de vos équipes attendent votre retour. Désignez un collègue : pendant vos dates, c'est lui qui valide, et la main vous revient toute seule au retour.</p>
+    <button class="btn sm" onclick="congesModal()">Désigner un remplaçant…</button>`;
+  }
+
+  /* L'autre côté : ce que je valide POUR quelqu'un. Sans cette ligne, le remplaçant voit
+     arriver des demandes d'équipes qu'il ne connaît pas, sans savoir pourquoi. */
+  if(recues.length) h+=`<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--brd)">
+    <div style="font-size:12.5px;font-weight:800;color:var(--t1);margin-bottom:4px">Vous validez actuellement pour :</div>
+    ${recues.map(x=>{ const dd=delegationActive(x); return `<div style="font-size:12.5px;color:var(--t2);line-height:1.6"><b>${esc(fullName(x))}</b> — en congés jusqu'au ${esc(fmtShort(dd.au))}</div>`; }).join('')}
+    <div style="font-size:11.5px;color:var(--t3);margin-top:5px">Ce que vous décidez pour eux part dans leur historique comme dans le vôtre.</div></div>`;
+  return h+'</div>';
+}
+function congesModal(){
+  const d=currentUser.delegation||{};
+  const autres=(db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==currentUser.id&&userCap(x,'validerDR'));
+  if(!autres.length){ toast('Personne d\'autre n\'a le droit de valider'); return; }
+  openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>🏖️ Mes congés</h3><button type="button" class="btn sm" onclick="congesEnregistrer()">Enregistrer</button></div>
+    <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:12px">Pendant ces dates, la personne choisie voit et valide les demandes de vos équipes. Vous gardez tout : vos box, vos rattachements, votre historique — elle ne reçoit que la validation, et seulement jusqu'à la date de retour.</p>
+    <div class="field"><label>Premier jour d'absence</label><input id="cg-du" type="date" value="${esc(d.du||todayISO())}"></div>
+    <div class="field"><label>Dernier jour d'absence</label><input id="cg-au" type="date" value="${esc(d.au||'')}"></div>
+    <div class="field"><label>Qui valide à ma place</label><select id="cg-vers" style="width:100%">
+      <option value="">Choisir…</option>
+      ${autres.map(x=>`<option value="${x.id}" ${d.versId===x.id?'selected':''}>${esc(fullName(x))} · ${esc(ROLE[x.role]||x.role||'')}</option>`).join('')}
+    </select></div>
+    <p style="color:var(--t3);font-size:12px;line-height:1.55;margin-top:6px">Prévenez-le : il ne reçoit pas d'invitation à accepter, la main lui est donnée directement.</p>`);
+}
+function congesEnregistrer(){
+  const du=(($('cg-du')||{}).value||'').trim(), au=(($('cg-au')||{}).value||'').trim(), vers=(($('cg-vers')||{}).value||'').trim();
+  if(!du||!au){ toast('Indique les deux dates'); return; }
+  if(au<du){ toast('Le retour est avant le départ'); return; }
+  if(!vers){ toast('Choisis qui valide à ta place'); return; }
+  const u=db.users.find(x=>x.id===currentUser.id); if(!u) return;
+  u.delegation={du,au,versId:vers,poseLe:todayISO()};
+  currentUser=u;
+  logEvent('Congés — main donnée',fmtShort(du)+' → '+fmtShort(au)+' · '+userName(vers),'auth');
+  /* Le remplaçant doit l'apprendre autrement qu'en le découvrant : il hérite d'un travail,
+     pas d'un réglage. */
+  logEvent('Main reçue pendant des congés',fullName(u)+' vous confie ses validations du '+fmtShort(du)+' au '+fmtShort(au),'auth',vers);
+  try{ pushNotify('🏖️ '+fullName(u)+' vous confie ses validations',fmtShort(du)+' → '+fmtShort(au)+' · vous validerez pour ses équipes','/app.html#v=validations',[vers]); }catch(e){}
+  save(); closeModal(); toast('C\'est noté — '+userName(vers)+' valide à ta place du '+fmtShort(du)+' au '+fmtShort(au),4200);
+  if(current==='parametres') views.parametres();
+}
+function congesRetirer(){
+  const u=db.users.find(x=>x.id===currentUser.id); if(!u||!u.delegation) return;
+  const vers=u.delegation.versId;
+  delete u.delegation; currentUser=u;
+  logEvent('Congés — main reprise','',"auth");
+  if(vers) logEvent('Main rendue',fullName(u)+' est rentré et reprend ses validations','auth',vers);
+  save(); toast('Tu reprends tes validations'); if(current==='parametres') views.parametres();
+}
+function delegationTracer(obj,quoi){
+  const abs=valideAuNomDe(obj&&(obj.chefId||obj.parId)); if(!abs) return;
+  if(obj){ obj.parDelegation={ deId:abs.id, deNom:fullName(abs), parId:currentUser.id, parNom:fullName(currentUser) }; }
+  logEvent('Validé pendant tes congés',quoi+' — par '+fullName(currentUser)+', à ta place','demande',abs.id);
+}
 function validerDemande(id,statut){ if(!currentUser||!can('validerDR')){ toast('Validation réservée au DR / administrateur (droit « Valider les mouvements et demandes »)'); return; }
   const d=db.demandes.find(x=>x.id===id); if(!d)return;
   if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return; d.motifRefus=motif; }
@@ -16927,7 +16951,9 @@ function validerDemande(id,statut){ if(!currentUser||!can('validerDR')){ toast('
     d.bonId=bonId;   // le fil ne se coupe plus : la demande suit son bon
     db.bons.push({id:bonId,demandeId:d.id,numero:num,date:todayISO(),fournisseurId:'',boxId:d.boxId||'',statut:'brouillon',faitPar:fullName(currentUser),notes:'Depuis demande '+d.num,lignes:(d.lignes||[]).map(l=>{const p=produit(l.produitId);return {produitId:l.produitId,reference:p.ref||'',designation:p.nom||'',categorie:p.categorie||'',cartons:0,upc:p.qteCarton||0,quantite:l.quantite,prixUnitaireHT:p.prix||0,tvaRate:20,commentaire:''};})});
     logEvent('Demande validée',`${d.num} → bon de commande ${num}`,'demande',d.chefId); toast('Validée — bon de commande créé');
-  } else { logEvent('Demande refusée',`${d.num}`+(d.motifRefus?' — '+d.motifRefus:''),'demande',d.chefId); toast('Demande refusée'); }
+    delegationTracer(d,`Demande ${d.num} validée`);
+  } else { logEvent('Demande refusée',`${d.num}`+(d.motifRefus?' — '+d.motifRefus:''),'demande',d.chefId); toast('Demande refusée');
+    delegationTracer(d,`Demande ${d.num} refusée`); }
   // seule la personne qui a fait la demande est prévenue de la décision
   try{ if(d.chefId&&d.chefId!==currentUser.id) pushNotify(statut==='valide'?'✅ Demande validée par le DR '+fullName(currentUser):'🚫 Demande refusée par le DR '+fullName(currentUser),d.num+' · '+(d.boxNom||boxLabel(d.boxId)||'')+(d.motifRefus?' — motif : '+d.motifRefus:''),'/app.html#v=demandes',[d.chefId]); }catch(e){}
   save(); if(current==='validations') views.validations(); else go(current);
@@ -20168,6 +20194,7 @@ views.parametres=function(){
       </div>
       <p style="color:var(--t3);font-size:11.5px;margin-top:9px">Mot de passe oublié ? Sur l'écran de connexion, « Mot de passe oublié ? » t'envoie un code à cette adresse.</p>
     </div>
+    ${carteConges()}
     <div class="card"><div class="card-head"><h3>🔔 Notifications</h3></div>
       <p style="color:var(--t2);font-size:13.5px;margin-bottom:12px">Reçois les alertes de l'équipe (interventions, arrivages, messages) même quand l'application est fermée.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
