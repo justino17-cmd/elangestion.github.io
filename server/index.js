@@ -2913,6 +2913,11 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
     const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
     try {
       await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
+        /* Comme pour la suppression totale : le code n'échappait au journal des e-mails que
+           parce que mailerEnvoi teste /code/i sur l'objet. Reformuler cet objet ferait tomber
+           un code à 6 chiffres dans un fichier lisible en monAdmin. On le dit explicitement
+           plutôt que de dépendre d'un mot. */
+        confidentiel: true, trace: 'code de fermeture d\'entreprise · ' + masqueMail(email),
         subject: '🗑 Code de confirmation — fermeture de « ' + (clientsData[email].entreprise || email) + ' »',
         text: 'Tu es sur le point de FERMER DÉFINITIVEMENT l\'entreprise « ' + (clientsData[email].entreprise || email) + ' » (' + email + ').\n\nCode de confirmation : ' + code + '\n\nValable 10 minutes. Après validation : plus de nom, plus de lien, plus de formule, et les applications de ses appareils se vident à leur prochain lancement.\nSi ce n\'est pas toi, ignore ce message.' });
     } catch (e) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(e.message).slice(0, 120) }); }
@@ -3022,6 +3027,14 @@ function entInventaire(t) {
     if (!nom) nom = espNomPropre(e) || '';
   }
   const boites = Object.entries(mailboxes).filter(([, b]) => b && b.teamId === t).map(([id]) => id);
+  /* Les adresses qui peuvent figurer dans les archives de courrier : celles de l'annuaire,
+     PLUS celle de la boîte reliée. Un espace hors annuaire n'a pas d'entrée dans espacesReg
+     — c'est le cas précis pour lequel la route de suppression existe — mais il a souvent une
+     boîte, et son adresse est exactement celle qu'on retrouve dans mails-envoyes.json.
+     Ensemble SÉPARÉ de emails, qui pilote aussi la suppression du compte du site : on ne
+     veut pas effacer un compte de site parce qu'une boîte porte la même adresse. */
+  const adressesCourrier = new Set(emails);
+  for (const [, b] of Object.entries(mailboxes)) if (b && b.teamId === t && b.email) adressesCourrier.add(String(b.email).toLowerCase());
   const abos = Object.entries(subs).filter(([, x]) => x && x.teamId === t).map(([ep]) => ep);
   let bugs = 0;
   try { for (const l of fs.readFileSync(BUGS_PATH, 'utf8').trim().split('\n')) { try { const b = JSON.parse(l); if (b && b.team === t) bugs++; } catch (err) {} } } catch (err) {}
@@ -3046,11 +3059,11 @@ function entInventaire(t) {
   const comptesSite = Object.values(clientsData).filter(c => c && emails.has(String(c.email || '').toLowerCase())).length;
   /* Les deux archives de courrier, comptées ici parce que la suppression les efface
      désormais : un aperçu qui annonce moins que ce qui part n'est plus un aperçu. */
-  const mailsEnvoyes = mailsLog.filter(m => m && emails.has(String(m.a || '').toLowerCase())).length;
-  const mailsRecus = supportMails.filter(m => m && emails.has(String(m.from || '').toLowerCase())).length;
-  const mailsEcrits = supportEnvoyes.filter(m => m && emails.has(String(m.to || '').toLowerCase())).length;
+  const mailsEnvoyes = mailsLog.filter(m => m && adressesCourrier.has(String(m.a || '').toLowerCase())).length;
+  const mailsRecus = supportMails.filter(m => m && adressesCourrier.has(String(m.from || '').toLowerCase())).length;
+  const mailsEcrits = supportEnvoyes.filter(m => m && adressesCourrier.has(String(m.to || '').toLowerCase())).length;
   return {
-    t, nom, slugs, emails: [...emails],
+    t, nom, slugs, emails: [...emails], adressesCourrier: [...adressesCourrier],
     dansAnnuaire: slugs.length > 0,
     dejaFerme: entFermes.espaces.includes(t),
     boites: boites.length, abonnesPush: abos.length,
@@ -3257,12 +3270,12 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
      encore l'adresse complète et 2 000 caractères de correspondance de l'entreprise effacée.
      Ce n'est pas une fuite vers Internet : c'est un effacement incomplet, et l'e-mail envoyé
      au patron promet l'inverse. Les deux carnets vivent en mémoire ET sur disque. */
-  /* LIMITE CONNUE : adrSuppr ne se remplit que depuis espacesReg[].email. Pour un espace HORS
-     ANNUAIRE — le cas précis pour lequel cette route existe — il est vide, donc aucune archive
-     n'est purgée. L'aperçu annonce honnêtement 0, il n'y a pas de fausse promesse, mais la
-     purge des archives ne couvre pas ce cas-là. Les réponses (REPLIES_PATH) sont purgées par
-     teamId, elles, donc elles partent quand même. */
-  const adrSuppr = new Set(inv.emails.map(m => String(m).toLowerCase()));
+  /* L'annuaire ET la boîte reliée (voir entInventaire) : un espace hors annuaire n'a pas
+     d'entrée d'annuaire, mais son adresse de boîte est celle qui figure dans les archives.
+     LIMITE QUI RESTE : un espace hors annuaire ET sans boîte reliée ne laisse aucune adresse
+     à filtrer — l'aperçu annonce alors honnêtement 0. Les réponses de clients, purgées par
+     teamId, partent quand même. */
+  const adrSuppr = new Set((inv.adressesCourrier || inv.emails).map(m => String(m).toLowerCase()));
   const avantMails = mailsLog.length;
   mailsLog = mailsLog.filter(m => !adrSuppr.has(String((m && m.a) || '').toLowerCase()));
   fait.mailsEnvoyes = avantMails - mailsLog.length;
