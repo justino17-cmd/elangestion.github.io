@@ -4651,7 +4651,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '590';
+const APP_VERSION = '591';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -25774,6 +25774,51 @@ function majAppliquer(){ const b=$('update-banner'); if(b) b.innerHTML='⏳ Mise
         else go(); };
       sw.postMessage({op:'maj-forcer',url:location.pathname},[ch.port2]); return; } }catch(e){}
   go(); }
+/* ══════════ LA MISE À JOUR S'APPLIQUE TOUTE SEULE ══════════════════════════════════════
+   Demande de Justin, 8 septembre 2026 : « j'ai peur qu'à cause de ce bouton-là, beaucoup de
+   gens évitent de le faire ». Mesuré le jour même sur le dossier d'une entreprise : six
+   appareils, six versions, dont un trente-six versions en arrière — donc sans aucune des
+   corrections de la journée. Le bouton n'était pas une sécurité, c'était un barrage.
+
+   Mais recharger sous les doigts de quelqu'un lui fait perdre ce qu'il est en train de taper,
+   et sur un chantier ça ne se rattrape pas. On ne recharge donc QUE quand il n'y a rien à
+   perdre, et l'un des deux suffit :
+   · l'application n'est pas au premier plan — personne ne la regarde ;
+   · ou elle l'est, mais au repos : aucune fenêtre ouverte, aucun champ en cours de saisie,
+     et plus un geste depuis vingt-cinq secondes.
+   Le bandeau reste affiché pour qui veut la version immédiatement. */
+let _majArmee=false, _majTimer=null, _dernierGeste=Date.now();
+['pointerdown','keydown','wheel','touchstart'].forEach(ev=>{
+  try{ window.addEventListener(ev,()=>{ _dernierGeste=Date.now(); },{passive:true,capture:true}); }catch(e){}
+});
+/* Ce qu'on refuse d'interrompre. Renvoie la raison, vide quand la voie est libre. */
+function majRisque(){
+  try{
+    const ov=document.getElementById('overlay');
+    if(ov&&ov.classList.contains('open')) return 'fenêtre ouverte';
+    const a=document.activeElement;
+    if(a&&(/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)||a.isContentEditable)) return 'saisie en cours';
+    if(Date.now()-_dernierGeste<25000) return 'utilisée à l\'instant';
+  }catch(e){}
+  return '';
+}
+function majArmer(){
+  try{ showUpdateBanner(); }catch(e){ try{ toast('Mise à jour disponible'); }catch(_){} }
+  if(_majArmee) return; _majArmee=true;
+  /* ⛔ UNE SEULE TENTATIVE AUTOMATIQUE PAR HEURE, et le repère survit au rechargement (il vit
+     dans sessionStorage). Si la version fraîche se révélait identique à celle qu'on affiche
+     déjà — réseau qui ressert l'ancienne, cache intermédiaire — on rechargerait en boucle,
+     sans fin et sans que personne comprenne pourquoi. */
+  let dernier=0; try{ dernier=+(sessionStorage.getItem('elan_maj_auto')||0); }catch(e){}
+  if(Date.now()-dernier<3600000) return;
+  clearInterval(_majTimer);
+  _majTimer=setInterval(()=>{
+    if(document.visibilityState!=='hidden' && majRisque()) return;
+    clearInterval(_majTimer);
+    try{ sessionStorage.setItem('elan_maj_auto',String(Date.now())); }catch(e){}
+    majAppliquer();
+  },5000);
+}
 function avatarAccentSync(){ try{ if(!currentUser) return; const u=db.users.find(x=>x.id===currentUser.id); const m=u&&u.photoMeta; if(!m||!u.photo) return;
   const logoAJour=(m.type!=='insta')||(m.logoV===3 && m.badgeKey===brandBadgeKey());
   if(logoAJour && (m.accent===getAccent()||m.fixedBg)) return;   // déjà à jour (couleur + écusson)
@@ -25817,7 +25862,7 @@ if('serviceWorker' in navigator){
   try{ if(navigator.serviceWorker) navigator.serviceWorker.addEventListener('message',ev=>{
     const d=(ev&&ev.data)||{};
     if(d.op!=='maj') return;
-    try{ if(typeof showUpdateBanner==='function') showUpdateBanner(); else toast('Nouvelle version prête — rouvrez l\'application'); }catch(e){}
+    try{ if(typeof majArmer==='function') majArmer(); else toast('Nouvelle version prête — rouvrez l\'application'); }catch(e){}
   }); }catch(e){}
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('sw.js').then(reg=>{
@@ -25825,13 +25870,21 @@ if('serviceWorker' in navigator){
       reg.addEventListener('updatefound',()=>{ const nw=reg.installing; if(!nw) return;
         nw.addEventListener('statechange',()=>{
           if(nw.state==='installed' && navigator.serviceWorker.controller){
-            try{ showUpdateBanner(); }catch(e){ try{ toast('Mise à jour disponible'); }catch(_){} }
+            try{ majArmer(); }catch(e){ try{ toast('Mise à jour disponible'); }catch(_){} }
           }
         });
       });
     }).catch(()=>{});
-    // Re-vérifie toutes les heures si l'app reste ouverte longtemps
-    setInterval(()=>{ navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); }, 3600000);
+    /* Une heure entre deux contrôles, c'était trop long pour que « ça se mette tout seul »
+       veuille dire quelque chose : une application ouverte le matin gardait sa version
+       jusqu'au soir. Un quart d'heure, ET à chaque retour au premier plan — c'est le moment
+       où quelqu'un reprend son téléphone, donc le moment utile. Cinq minutes de garde entre
+       deux contrôles, pour ne pas interroger le réseau à chaque coup d'œil. */
+    let _dernierControle=0;
+    const controler=()=>{ if(Date.now()-_dernierControle<300000) return; _dernierControle=Date.now();
+      navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); };
+    setInterval(controler, 900000);
+    try{ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') controler(); }); }catch(e){}
   });
 }
 /* Notification au démarrage si l'app a été mise à jour depuis la dernière ouverture */
