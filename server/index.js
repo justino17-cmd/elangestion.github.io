@@ -3442,6 +3442,66 @@ app.post('/api/clients/sync', async (req, res) => {
   res.json({ ok: true });
 });
 // lecture depuis le contrôle (patron ET collaborateurs)
+/* ══ LES VRAIS COMPTES DU SITE, LUS CHEZ FIREBASE ══════════════════════════════════════
+   /api/monitor/clients ci-dessous est bâtie sur clientsData, qui ne se remplit qu'à la
+   PREMIÈRE CONNEXION d'une entreprise. Un compte créé sur espace.html et jamais utilisé
+   pour ouvrir un espace n'y figure donc pas : il existe chez Firebase et n'apparaît NULLE
+   PART dans la Tour. C'est ce trou qui rendait le ménage impossible — on retrouvait ces
+   comptes dans le trousseau de son navigateur, plus dans la console.
+
+   Cette route interroge Firebase directement, et ne rend que ce qu'il faut pour trier :
+   l'adresse, les dates, et si un espace lui est rattaché. Firebase ne rend pas les mots de
+   passe et on ne demande rien d'autre. Réservée à la Tour (monAdmin) : ce sont des adresses
+   de clients réels. */
+app.get('/api/monitor/comptes-site', monAdmin, async (req, res) => {
+  const tok = await fbAdminJeton();
+  if (!tok) return res.status(503).json({ error: 'clé admin Firebase absente sur le serveur (firebase-admin.json)' });
+  const comptes = []; let pageTok = '';
+  try {
+    for (let tour = 0; tour < 20; tour++) {   // 20 pages de 500 = 10 000 comptes, large de reste
+      const url = 'https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET
+        + '/accounts:batchGet?maxResults=500' + (pageTok ? '&nextPageToken=' + encodeURIComponent(pageTok) : '');
+      const r = await fbAdminFetch(url, { method: 'GET' }, tok);
+      if (!r.ok) return res.status(502).json({ error: 'Firebase a refusé la lecture (HTTP ' + r.status + ')' });
+      const j = await r.json().catch(() => ({}));
+      for (const u of (j.users || [])) {
+        const mail = String(u.email || '').toLowerCase();
+        comptes.push({
+          email: mail,
+          cree: Number(u.createdAt || 0) || 0,
+          derniere: Number(u.lastLoginAt || 0) || 0,
+          verifie: !!u.emailVerified,
+          desactive: !!u.disabled,
+          /* Le point décisif pour trier : ce compte porte-t-il une entreprise avec des
+             données, ou n'est-ce qu'un compte d'essai qu'on peut effacer sans rien perdre ? */
+          entreprise: (mail && clientsData[mail]) ? (clientsData[mail].entreprise || clientsData[mail].nom || '') : '',
+          aUnEspace: !!(mail && clientsData[mail])
+        });
+      }
+      pageTok = j.nextPageToken || ''; if (!pageTok) break;
+    }
+  } catch (e) { return res.status(502).json({ error: 'lecture Firebase impossible : ' + String(e.message).slice(0, 120) }); }
+  comptes.sort((a, b) => (b.cree || 0) - (a.cree || 0));
+  res.json({ comptes, total: comptes.length });
+});
+
+/* Suppression d'un compte du site — patron seulement, et JAMAIS un compte qui porte une
+   entreprise : celui-là passe par « Fermer définitivement », qui efface aussi son espace,
+   son code d'accès et ses données chiffrées. Effacer le compte seul laisserait un espace
+   orphelin que plus personne ne pourrait rouvrir. */
+app.post('/api/monitor/comptes-site/supprimer', monPatronStrict, async (req, res) => {
+  const email = monStr((req.body || {}).email, 160).trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'adresse invalide' });
+  if (clientsData[email]) return res.status(409).json({
+    error: 'ce compte porte une entreprise — passe par « Fermer définitivement » dans Entreprises, qui efface aussi son espace et ses données'
+  });
+  const r = await fbSupprimerCompteSite(email);
+  // Journal : l'adresse est masquée, on ne met pas de données personnelles dans les logs.
+  console.log('compte site supprimé ' + masqueMail(email) + ' : ' + (r.fait ? 'ok' : 'échec — ' + r.motif));
+  if (!r.fait) return res.status(400).json({ error: r.motif });
+  res.json({ ok: true, detail: r.motif });
+});
+
 app.get('/api/monitor/clients', monAdmin, (req, res) => {
   const list = Object.values(clientsData).sort((a, b) => (b.majTs || 0) - (a.majTs || 0));
   res.json({ clients: list, total: list.length });
