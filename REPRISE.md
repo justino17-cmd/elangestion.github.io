@@ -40,6 +40,45 @@ aucune vérification portant sur le teamId ne peut cloisonner quoi que ce soit.*
 utile n'est pas une phase 3 sur les routes : c'est de donner à chaque entreprise son propre
 teamId. C'est LE chantier, et il se conçoit seul.
 
+### Ce qui a été fait le 8 septembre 2026 — le repli est fermé (v575)
+
+**La découverte qui a réduit le chantier.** L'identité par entreprise EXISTE déjà :
+`tourEspaceDe()` fabrique un `t` et une clé `k` propres, le lien `#entreprise=CODE` les porte,
+`teamopJoin()` les pose. Il n'y avait donc rien à construire — seulement deux replis à fermer
+dans `app.html` : `syncTeam()` retombait sur `FB_TEAM='elan-gestion'`, et la synchro est
+active par défaut. Un appareil qui ouvrait la page sans avoir suivi son lien atterrissait donc
+dans un espace partagé, chiffré avec une clé publiée en clair sur GitHub Pages.
+
+**Une seconde conséquence, restée invisible longtemps :** `equipeTeamOP()` teste
+`syncTeam()===FB_TEAM`. Être sur le repli, c'était donc *être l'équipe TEAM OP* aux yeux de
+l'application — assistant IA, planning de démonstration, choix des métiers, et la carte rouge
+« Tout effacer et repartir à zéro ». Sur un appareil neuf, avec le compte `admin` / `1234` que
+`migrate()` crée.
+
+**Le correctif ne migre personne, et c'est le point.** On fige d'abord, on ferme ensuite :
+un appareil qui vivait déjà sur le repli s'y voit inscrit noir sur blanc (même espace, même
+clé, rien ne bouge) ; un appareil neuf ne synchronise avec RIEN tant qu'il n'a pas suivi son
+lien. La mesure de « qui est sur le repli » devient donc inutile pour publier — elle ne sert
+plus qu'à savoir qui reste à déplacer, tranquillement.
+
+⚠️ **Le piège du correctif, mesuré et pas deviné.** Le tout premier chargement écrit six clés
+`elan*` (`elan_prod_v1`, `elan_gestion_v2`, `elan_vierge_v1`, `elan_prod_v2`, `elan_fours_v1`,
+`elan_seen_version`). Un test « le stockage contient-il une clé elan ? » rendait donc un
+appareil neuf « déjà vu » dès son SECOND chargement — le correctif n'aurait tenu qu'une seule
+ouverture de page. D'où `elan_repli_v1`, qui gèle le verdict rendu au premier démarrage de la
+v575, seul instant où le stockage reflète encore ce que l'ancienne version avait laissé.
+
+Éprouvé en navigateur sur `beta.html`, quatre cas : appareil neuf (rechargé deux fois, reste
+non rattaché), appareil de l'ancienne version (espace et clé identiques à avant), entreprise
+rattachée type ELAN (intacte), appareil neuf suivant un lien (rattaché correctement).
+
+**ELAN ne perdait rien de toute façon** — condition posée par Justin. Sa fiche affiche
+`espace elan-34oc` et « 🔐 Clé propre » : elle a son espace et sa clé depuis le début.
+
+**Ce qui reste après ça :** déplacer les entreprises que le compteur « à migrer (clé
+partagée) » de la Tour désigne encore, puis seulement là, fermer `/api/replies` et
+`/api/mailboxes` sur la preuve de clé.
+
 Le chantier des **dossiers de messagerie** (branche `mail/dossiers-en-attente-auth`) reste
 en attente derrière lui.
 

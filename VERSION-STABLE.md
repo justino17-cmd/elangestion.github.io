@@ -1,6 +1,50 @@
 # Point stable TeamOP
 
-**Version stable : v574** — gravée le 8 septembre 2026.
+**Version stable : v575** — gravée le 8 septembre 2026.
+
+v575 — l'espace de synchro partagé n'accueille plus personne de nouveau.
+
+**Ce qui était ouvert.** La synchro est active par défaut, et sans rattachement `syncTeam()`
+retombait sur un espace unique, `elan-gestion`, chiffré avec une clé écrite en clair dans
+`app.html` — donc servie publiquement par GitHub Pages. Un appareil qui ouvrait la page sans
+avoir suivi le lien de son entreprise y atterrissait : il téléchargeait ce que cet espace
+contenait, et y déposait ses propres données.
+
+**La seconde conséquence n'avait jamais été vue.** `equipeTeamOP()` teste `syncTeam()===FB_TEAM` :
+être sur cet espace, c'était *être l'équipe TEAM OP* aux yeux de l'application. Un appareil
+neuf, avec le compte `admin` / `1234` que la mise à niveau crée, voyait l'assistant IA, le
+planning de démonstration, le choix des métiers et la carte rouge « Tout effacer et repartir
+à zéro ».
+
+**Personne n'est migré, et c'est le point.** On fige d'abord, on ferme ensuite : un appareil
+qui vivait déjà sur cet espace s'y voit inscrit noir sur blanc — même espace, même clé, rien
+ne change pour lui. Un appareil neuf, lui, ne synchronise avec rien tant qu'il n'a pas suivi
+le lien de son entreprise. Il n'y avait donc rien à mesurer avant de publier.
+
+**ELAN ne perd rien**, vérifié sur sa fiche et non supposé : `espace elan-34oc`, clé propre.
+Elle a son espace et sa clé depuis le début — le repli ne la concernait pas.
+
+⚠️ **Le piège, mesuré et pas deviné.** Le tout premier chargement écrit six clés `elan*`. Un
+test « le stockage contient-il une clé elan ? » rendait donc un appareil neuf « déjà vu » dès
+son SECOND chargement, et le correctif n'aurait tenu qu'une seule ouverture de page. Le
+drapeau `elan_repli_v1` gèle le verdict rendu au premier démarrage de la v575 — seul instant
+où le stockage reflète encore ce que l'ancienne version avait laissé. Et `connexion.html`
+posant `elan_savedLogin` avant de rediriger, les clés écrites par les pages du site sont
+exclues du test : sans ça, un appareil neuf venant de l'écran de connexion passait pour un
+ancien.
+
+`SYNC_SECRET_DEFAULT` et `SYNC_SALT` ne sont pas touchés d'un caractère. La clé par défaut est
+seulement écrite là où elle s'appliquait déjà en silence.
+
+Éprouvé en navigateur sur `beta.html`, cinq cas : appareil neuf rechargé deux fois (reste non
+rattaché), appareil de l'ancienne version (espace et clé identiques), entreprise rattachée
+(intacte), appareil neuf suivant un lien (rattaché correctement), appareil neuf venu du site
+(reste non rattaché).
+
+**Pas d'annonce, délibérément** : rien ne change chez les entreprises existantes, et
+`server/index.js` n'est pas touché — donc pas de redéploiement du VPS.
+
+## Ancien point
 
 v574 — un compte neuf démarre vraiment vide.
 

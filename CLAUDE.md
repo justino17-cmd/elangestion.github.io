@@ -117,6 +117,11 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   autres clés sont construites à la volée (`elan_rappels_`+id, `elan_onboarded_`+id…) — une
   liste fixe les raterait toutes.
 
+  `elan_repli_v1` (ajouté en v575) est du même bois : il gèle, au premier démarrage de cette
+  version, le verdict « cet appareil vivait-il déjà sur l'espace de repli ? ». Le perdre ou le
+  renommer, c'est faire rejuger la question sur un stockage que l'application a elle-même
+  rempli depuis — et donc rattacher à l'espace partagé des appareils qui n'y ont jamais été.
+
 ## Chrome DevTools MCP — mesurer pour de vrai, sur la bêta seulement
 
 `.mcp.json` déclare un seul serveur : `chrome-devtools` (lancé par `npx`, avec
@@ -220,9 +225,11 @@ Il n'y aura pas de « bêta publique » — ce mot désigne ici un canal interne
   patron) : ouvrir, couper, rouvrir, supprimer. Le serveur porte ces accès
   (`beta-comptes.json`), la page n'a aucun compte de départ, un accès coupé ne passe plus
   même sur un appareil resté connecté.
-- **Chaque accès doit dire qui travaille sur quoi** : la personne, et le chantier qu'elle
-  teste (écran, fonctionnalité, version). C'est l'évolution attendue de l'onglet — l'accès
-  seul ne suffit pas, il faut la raison de l'accès.
+- **Chaque accès dit qui travaille sur quoi** : la personne, et le chantier qu'elle teste
+  (écran, fonctionnalité, version). Fait le 8 septembre 2026 — champ `chantier` à la création,
+  réécrivable par `POST /api/monitor/beta/chantier` (`monPatronStrict`), affiché sur la ligne.
+  Un accès sans chantier renseigné le dit en ambre plutôt que de se taire : un accès dont on
+  ne sait plus à quoi il servait est un accès qu'on n'ose plus couper.
 - **Jamais de données d'entreprise** : espace `elan-gestion-beta`, préfixe `elanB_`. Un accès
   bêta n'ouvre que la bêta.
 - **L'onglet s'appelle « Accès » et porte DEUX portes, à ne jamais confondre** : la bêta
