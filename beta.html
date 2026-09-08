@@ -4751,7 +4751,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '601-beta';
+const APP_VERSION = '602-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -24837,19 +24837,16 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
   }
   // élague les éléments « vus » qui n'existent plus
   const ids=new Set(out.map(n=>n.id)); let ch=false; for(const id of [...notifSeen.keys()]) if(!ids.has(id)){ notifSeen.delete(id); ch=true; } if(ch) saveNotifSeen();
-  /* Une notification LUE disparaît immédiatement ; les plus récentes restent tout en haut.
-     ⛔ ET LES ÉVÉNEMENTS PASSÉS S'EFFACENT SEULS AU BOUT DE DEUX HEURES — demande de Justin,
-     8 septembre 2026 : « les notifications non lues depuis deux heures se suppriment du fil ».
-     Un fil qui garde tout finit par n'être plus lu du tout, et ce qui arrive vraiment se noie.
-
-     La purge ne vise QUE ce qui porte un horodatage, c'est-à-dire ce qui s'est PASSÉ : un
-     mouvement, une validation, un message. Les alertes d'ÉTAT n'en portent pas — stock bas,
-     box en retard de visite, essai qui se termine, bon à préparer. Celles-là ne sont pas des
-     nouvelles qui vieillissent : elles décrivent une situation qui dure. Les effacer au bout
-     de deux heures cacherait un stock épuisé, et personne ne saurait pourquoi. Elles restent
-     tant que la situation reste, et disparaissent quand elle est réglée. */
-  const ilYaDeuxHeures=Date.now()-7200000;
-  const vivants=out.filter(n=>!notifSeen.has(n.id)).filter(n=>!n.ts||n.ts>=ilYaDeuxHeures);
+  /* Une notification LUE disparaît immédiatement ; les nouvelles restent, les plus récentes
+     tout en haut.
+     ⛔ RIEN NE S'EFFACE AVEC LE TEMPS. Une purge automatique à deux heures a été demandée le
+     8 septembre 2026, écrite, puis retirée le soir même par Justin : « oublie ce que je viens
+     de demander pour les notifications, c'est pas une bonne idée ». Il a raison — sur un
+     outil de terrain, quelqu'un pose son téléphone une demi-journée : à son retour, ce qui a
+     été validé, refusé ou demandé pendant ce temps aurait disparu sans qu'il l'ait jamais vu.
+     Une notification s'en va parce qu'elle a été LUE, ou parce que la situation qui la
+     provoquait est réglée. Jamais parce qu'elle a vieilli. */
+  const vivants=out.filter(n=>!notifSeen.has(n.id));
   vivants.sort((a,b)=>(b.ts||0)-(a.ts||0));
   return vivants;
 }
