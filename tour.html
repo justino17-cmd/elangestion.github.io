@@ -197,6 +197,13 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
 .fiche-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px}
 
 /* ══ KPI ═══ le chiffre parle, l'étiquette murmure ══ */
+/* Le bouton de secours de la barre laterale. Cache par defaut ; seule la regle
+   body.barre-repliee (dans la requete media >=900px) le montre, puisque sous 900 px la
+   barre est deja escamotable autrement et le repli n'existe pas. */
+#rouvrir{display:none;position:fixed;top:16px;left:16px;z-index:60;width:44px;height:44px;
+  align-items:center;justify-content:center;border-radius:var(--r-1);cursor:pointer;
+  background:var(--surface);color:var(--text);border:1px solid var(--line);box-shadow:var(--ombre-2)}
+#rouvrir:hover{background:var(--hover)}
 .kpi{background:var(--surface);border:0;border-radius:var(--r-4);padding:18px 20px;box-shadow:var(--ombre-1);transition:background-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
 .kpi .n{font-size:30px;font-weight:700;letter-spacing:-.025em;line-height:1.05;font-variant-numeric:tabular-nums}
 .kpi .l{font-family:var(--fs);font-size:12.5px;font-weight:500;color:var(--muted);letter-spacing:0;text-transform:none;margin-top:6px}
@@ -264,6 +271,13 @@ main{width:100%;max-width:1200px;margin:0 auto;padding:28px 20px 96px;flex:1;min
   #app.on{display:grid;grid-template-columns:var(--barre,232px) minmax(0,1fr);grid-template-rows:1fr auto;align-items:start;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
   body.barre-repliee #app.on{--barre:0px}
   body.barre-repliee .bandeau{opacity:0;pointer-events:none;overflow:hidden}
+  /* Une seule commande a la fois, toujours au meme endroit : celle de l'en-tete replie
+     et s'efface, celle-ci rouvre et n'existe que repliee. 44 px : plancher tactile. */
+  body.barre-repliee #replier{display:none}
+  body.barre-repliee #rouvrir{display:flex}
+  /* Le bouton flotte au-dessus du contenu : sans cette reserve il masque la premiere
+     lettre du titre — 16 px de bord + 44 de bouton + 16 de respiration. */
+  body.barre-repliee main{padding-left:76px}
   @media(prefers-reduced-motion:reduce){ #app.on{transition:none} }
   #replier{display:inline-flex}
   .bandeau{grid-row:1/3;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid var(--line);padding:16px 10px 12px;overflow-y:auto;scrollbar-width:thin}
@@ -643,6 +657,11 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 
 <!-- ══════════ COQUILLE ══════════ -->
 <div id="app">
+  <!-- Le seul chemin de retour quand la barre est repliee. Il vit ICI, dans la coquille,
+       et non dans l'en-tete d'une vue : l'Accueil n'appelle pas enTete(), et on s'y
+       retrouvait enferme sans aucun onglet cliquable ni bouton pour rouvrir. -->
+  <button id="rouvrir" onclick="barreBasculer()" aria-label="Afficher le menu" title="Afficher le menu">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
   <div class="bandeau">
     <div class="hbar">
       <div class="hg">
@@ -2499,6 +2518,15 @@ function barreBasculer(){
   try{ localStorage.setItem('tour_barre_repliee', r?'1':'0'); }catch(e){}
   var b=document.getElementById('replier');
   if(b){ b.title=r?'Afficher le menu':'Replier le menu'; b.setAttribute('aria-label',b.title); b.setAttribute('aria-expanded',r?'false':'true'); }
+  /* Le bouton de secours ne change pas de sens — il rouvre, toujours — mais il doit dire
+     au clavier et aux lecteurs d'écran dans quel état est la barre. */
+  var g=document.getElementById('rouvrir');
+  if(g) g.setAttribute('aria-expanded', r?'false':'true');
+  /* Le focus ne doit pas se perdre sur un bouton qui vient de disparaître : on le passe à
+     celui qui prend le relais, sinon la tabulation repart du haut du document. */
+  var actif=document.activeElement;
+  if(actif===b&&r&&g) g.focus();
+  else if(actif===g&&!r&&b) b.focus();
 }
 try{ if(localStorage.getItem('tour_barre_repliee')==='1') document.body.classList.add('barre-repliee'); }catch(e){}
 function enTete(titre, phrase, actions){
