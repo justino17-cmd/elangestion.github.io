@@ -277,9 +277,22 @@ manifeste de l'app). La pastille verte « OP » de la Tour n'est qu'un repère d
   partielle. Surveiller l'ancien, c'est attendre pour toujours.
 - **`pkill -f <motif>` se tue lui-même** quand le motif figure dans sa propre ligne de
   commande — le reste de la ligne n'est jamais exécuté (code 144). Passer par le PID.
-- **`FOURNISSEURS_ELAN` (`app.html:4496`) est la même faute que `REPORT_TEMPLATES`, encore
-  armée** : la liste des fournisseurs d'une entreprise, écrite en dur et servie à tous les
-  clients. Repérée le 8 septembre 2026, à corriger à part — pas au milieu d'un autre chantier.
+- **`FOURNISSEURS_ELAN` (`app.html:4496`) N'EST PAS la faute de `REPORT_TEMPLATES`** — cette
+  fiche l'a affirmé du 8 septembre 2026 au matin, à tort, et la phrase a suffi à lancer une
+  suppression. Vérifié champ par champ avant de toucher : les cinq entrées (ARMOSA, ENSYSTEX,
+  SODIF, MABI, ORCAD) sont les fournisseurs **du métier de la 3D**, entreprises publiques,
+  contact nominatif vide partout, adresses génériques (`info-3d@`, `contact@`), notes reprises
+  de leurs sites. Aucune donnée propre à ELAN. C'est un pack métier offert au démarrage —
+  `REPORT_TEMPLATES` portait les 90 agences d'un client, des données d'exploitation privées.
+  Rien à voir.
+
+  Ce qui reste vrai, et qui est du rangement, pas une fuite : **le nom ment**, et c'est lui qui
+  a induit l'erreur ; et le pack part chez TOUTES les entreprises, y compris celles de
+  nettoyage, qui n'ont que faire de fournisseurs de produits nuisibles. À traiter à la
+  prochaine publication d'`app.html`, pas en urgence.
+
+  **La leçon, plus large que ce cas :** un nom n'est pas un contenu. Ouvrir les données avant
+  de croire l'étiquette — y compris celle écrite dans ce fichier.
 
 ## Modèle et effort par agent
 

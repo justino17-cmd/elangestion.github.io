@@ -67,10 +67,15 @@ le plus de faire au hasard : les charger avant de dessiner, pas après.
 
 ## Dettes connues, chacune à traiter seule
 
-- **`FOURNISSEURS_ELAN` (`app.html:4496`)** — la liste des fournisseurs d'UNE entreprise,
-  écrite en dur et servie à TOUS les clients. Exactement la même faute que `REPORT_TEMPLATES`,
-  vidée le 5 septembre 2026 ; celle-ci est encore armée. Trois points d'usage (4496, 4516,
-  4578). À corriger à part, jamais au milieu d'un autre chantier.
+- **`FOURNISSEURS_ELAN` (`app.html:4496`) — fausse alerte, levée le 8 septembre 2026.**
+  Ce n'était pas la faute de `REPORT_TEMPLATES` : les cinq entrées sont les fournisseurs du
+  **métier de la 3D** (entreprises publiques, contact nominatif vide, adresses génériques,
+  notes reprises de leurs sites). Un pack métier offert au démarrage, pas une fuite. Ne pas
+  supprimer.
+
+  Reste, en rangement : le **nom** ment — le renommer supprimerait le piège — et le pack part
+  aussi chez les entreprises de **nettoyage**, qui n'ont pas ce métier. Décision de Justin, à
+  faire à la prochaine publication d'`app.html`. Trois points d'usage : 4496, 4516, 4578.
 
 - **Le nom « elan » dans le code.** Trois étages, de plus en plus dangereux :
   1. *Textes, commentaires, `elan.html`* — sans risque, prêt à faire.
