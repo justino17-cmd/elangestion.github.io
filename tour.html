@@ -2761,6 +2761,110 @@ function vueEntreprises(){
    chaine vide quand l'entreprise n'a pas d'espace repertorie, et une carte vide a
    l'ecran ne veut rien dire du tout. Ou le bloc parle, ou il n'existe pas. */
 function carteSi(html){ return html?'<div class="carte p24">'+html+'</div>':''; }
+
+/* ══ SUPPRIMER UNE ENTREPRISE, PARTOUT ═══════════════════════════════════════
+   En dernier dans la fiche, dans un cadre à elle, en rouge : ce n'est pas une action
+   parmi d'autres. Elle prend toute la largeur pour qu'on ne la clique pas en visant
+   autre chose. */
+function blocSupprimer(o){
+  if(MYROLE!=='patron') return '';   /* le serveur refuse déjà ; l'écran ne le propose pas non plus */
+  var nm=o.nom||o.slug||o.t;
+  return '<div class="carte p24 pleine" style="border:1px solid rgba(255,107,107,.32)">'+
+    '<div class="sec" style="color:var(--redText)">SUPPRIMER CETTE ENTREPRISE</div>'+
+    '<div style="font-size:13px;color:var(--text2);line-height:1.65;margin-top:9px">'+
+      'Efface son espace et <b>tout ce qui s’y rattache</b> : annuaire, comptes de connexion, '+
+      'code d’accès, boîtes mail reliées, notifications, connexions, erreurs, usage, codes promo, '+
+      'compte du site, et les données chiffrées elles-mêmes. Les appareils de son équipe se vident '+
+      'à leur prochain lancement.<br>'+
+      '<b>Rien de tout cela ne se récupère.</b> Vous verrez le détail de ce qui va disparaître avant de confirmer.'+
+    '</div>'+
+    '<button class="btn-fant" style="margin-top:14px;min-height:44px;color:var(--redText);border-color:rgba(255,107,107,.35)" '+
+      'onclick="entSupprimer(\''+jsq(o.t)+'\',\''+jsq(nm)+'\')">🗑 Supprimer « '+esc(nm)+' » partout</button>'+
+  '</div>';
+}
+/* Le parcours complet, en trois barrières : l'aperçu chiffré, le nom écrit en toutes
+   lettres, puis le code reçu par e-mail. Aucune n'est de la cérémonie — la première dit
+   ce qu'on perd, la deuxième empêche le clic de travers, la troisième est la seule que
+   la page ne puisse pas franchir toute seule. */
+function entSupprimer(t,nm){
+  apiPost('/api/monitor/entreprise/apercu-suppression',{t:t}).then(function(r){
+    if(!(r&&r.ok&&r.d&&r.d.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
+    var a=r.d.apercu||{};
+    var l=function(n,mot){ return n?'<li>'+n+' '+mot+(n>1?'s':'')+'</li>':''; };
+    var rien=!(a.slugs&&a.slugs.length)&&!a.comptesAnnuaire&&!a.boites&&!a.abonnesPush&&!a.connexions&&!a.erreurs&&!a.ecransOuverts&&!a.comptesSite;
+    /* L'avertissement qui compte : un espace qui porte des comptes de connexion, un code
+       d'accès ou de l'usage A FORCÉMENT été un vrai espace — comptesReg ne s'écrit que par
+       une route qui vérifie l'empreinte de la clé d'équipe. Sans nom, c'est donc un client
+       dont l'annuaire a été perdu, pas un essai à jeter. */
+    var alerte=(a.aVecu&&!a.dansAnnuaire)
+      ? '<div style="margin-top:14px;padding:12px 14px;border-radius:10px;background:var(--ambreBg);color:var(--amber);font-size:13px;line-height:1.6">'+
+        '⚠️ <b>Cet espace a vraiment servi</b> — il porte des comptes de connexion ou de l’usage, ce qui n’est possible '+
+        'que pour un espace réellement ouvert. Il n’est plus à l’annuaire, mais ce n’est pas forcément un essai : '+
+        'ce peut être une entreprise dont on a perdu le nom. Vérifiez ses connexions avant de supprimer.</div>'
+      : '';
+    /* OP MESSAGES vit dans un espace Firestore separe, dont l'identifiant n'est pas relie
+       a celui-ci : il ne part PAS avec le reste. Le taire ferait croire les conversations
+       supprimees alors qu'elles restent. */
+    var msg=a.opMessages
+      ? '<div style="margin-top:14px;padding:12px 14px;border-radius:10px;background:var(--tint-gris);font-size:13px;line-height:1.6;color:var(--text2)">'+
+        '💬 <b>OP MESSAGES n’est pas concerné.</b> Ses conversations, ses salons et ses pièces jointes vivent dans un espace séparé, '+
+        'qui n’est pas relié à celui-ci. Ils resteront en place — à supprimer à part.</div>'
+      : '';
+    tourPanneau(
+      '<div style="font-size:18px;font-weight:700;color:var(--redText)">🗑 Supprimer « '+esc(nm)+' » partout</div>'+
+      '<div class="mono" style="font-size:12px;color:var(--muted);margin-top:4px">'+esc(t)+'</div>'+
+      (rien
+        ? '<div style="margin-top:16px;font-size:13.5px;color:var(--text2)">Il ne reste rien à supprimer pour cet espace.</div>'
+        : '<div style="margin-top:16px;font-size:13.5px;color:var(--text2)">Voici ce qui va disparaître :</div>'+
+          '<ul style="margin:8px 0 0;padding-left:20px;font-size:13.5px;color:var(--text2);line-height:1.9">'+
+            l((a.slugs||[]).length,'entrée d’annuaire')+
+            l(a.comptesAnnuaire,'compte de connexion')+
+            l(a.boites,'boîte mail reliée')+
+            l(a.abonnesPush,'appareil abonné aux notifications')+
+            l(a.connexions,'connexion enregistrée')+
+            l(a.erreurs,'erreur remontée')+
+            l(a.reponsesMail,'message reçu')+
+            l(a.ecransOuverts,'écran ouvert')+
+            l(a.comptesSite,'compte du site')+
+            ((a.promos||[]).length?'<li>le code promo '+esc((a.promos||[]).join(', '))+'</li>':'')+
+            (a.codeAcces?'<li>son code d’accès</li>':'')+
+            (a.devisIA?'<li>son accès au Devis IA</li>':'')+
+            '<li>ses données chiffrées</li>'+
+          '</ul>')+
+      alerte+msg+
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px">'+
+        '<button class="btn-fant" style="min-height:44px" onclick="tourPanneauFermer()">Annuler</button>'+
+        '<button class="btn-fant" style="min-height:44px;color:var(--redText);border-color:rgba(255,107,107,.35)" '+
+          'onclick="entSupprimerConfirmer(\''+jsq(t)+'\',\''+jsq(nm)+'\')">Continuer</button>'+
+      '</div>');
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+/* Même normalisation que tourAccesSupprimer : accents, casse et ponctuation ignorés, le
+   reste doit correspondre. On ne demande pas d'écrire un identifiant technique à la
+   virgule près, on demande de prouver qu'on sait de qui il s'agit. */
+function entSupprimerConfirmer(t,nm){
+  tourPanneauFermer();
+  var tape=prompt('🗑 SUPPRIMER DÉFINITIVEMENT « '+nm+' »\n\nCette action ne se défait pas.\n\nÉcris le nom exact pour confirmer :');
+  if(tape===null) return;
+  var norm=function(x){ return String(x||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,''); };
+  if(norm(tape)!==norm(nm)){ toast('Nom différent — rien n’a été supprimé'); return; }
+  toast('Envoi du code de confirmation…');
+  apiPost('/api/monitor/entreprise/supprimer',{t:t}).then(function(r){
+    if(!(r&&r.ok&&r.d&&r.d.ok)){ toast((r&&r.d&&r.d.error)||'Refusé'); return; }
+    var code=prompt('Un code à 6 chiffres vient d’être envoyé à '+(r.d.dest||'l’adresse de l’équipe')+'.\n\nColle-le ici pour supprimer « '+nm+' » :');
+    if(code===null) return;
+    apiPost('/api/monitor/entreprise/supprimer',{t:t,code:String(code).trim()}).then(function(x){
+      if(!(x&&x.ok&&x.d&&x.d.ok)){ toast((x&&x.d&&x.d.error)||'Suppression refusée'); return; }
+      JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a supprimé « '+nm+' » partout'});
+      /* On ne dit jamais « tout est propre » si le serveur signale qu'une écriture a
+         échoué : un ménage à moitié fait qu'on croit terminé est pire qu'un ménage
+         annoncé incomplet. */
+      toast(x.d.avertissement?('⚠️ '+x.d.avertissement):'🗑 « '+nm+' » supprimée partout');
+      ENT.sel=null; DOS={nom:'',loaded:false,err:'',d:null};
+      chargerEntreprises(); chargerClients(); chargerComptesSite();
+    }).catch(function(){ toast('Serveur injoignable'); });
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
 function ficheEntreprise(){
   if(!ENT.sel) return '<div class="vide accueil"><span style="color:var(--dim)">'+svg('entreprises',28)+'</span>'+
     '<p>Choisissez une entreprise dans la liste.</p>'+
@@ -2800,6 +2904,7 @@ function ficheEntreprise(){
   carteSi(blocDossier())+
   carteSi(blocEspaceDe(o))+
   carteSi(blocComptesDe(o))+
+  blocSupprimer(o)+
   '</div>';
   return t;
 }
