@@ -161,6 +161,8 @@ cours ». Rien n'est activé d'office.
 
 | **v595** | **Un seul chemin pour réceptionner : l'Arrivage.** Il y en avait deux — le bouton « Réceptionner » et « Arrivage » sur la box — et un seul acceptait la photo du bon de livraison. Justin l'a vu en une capture. L'Arrivage faisait déjà tout ce que faisait l'autre (il propose la commande, préremplit les quantités converties en unités par `arrBonPrefill`) plus la photo : le bouton disparaît de la carte de la box et de la fiche du bon, remplacé par la marche à suivre. `bonReception()` reste mais refuse et renvoie vers l'Arrivage — une adresse en mémoire ou la console pourraient encore l'appeler, et une réception sans photo rouvrirait le trou qu'on vient de fermer. À supprimer avec `recLignes` / `recRefresh` / `applyReception` au prochain ménage. |
 
+| **v596** | **Correctif de la v593 : l'appareil à jour annonce sa version sans attendre d'écrire des données.** `syncPush` ne part que depuis `save()`, donc depuis une vraie modification : un appareil mis à jour qui ne touchait à rien n'entraînait personne, et l'équipe restait en arrière jusqu'à ce que quelqu'un bouge une quantité. `majAnnoncer()` écrit LE SEUL champ `ver` (`set({ver},{merge:true})`) au premier instantané : ni le bloc chiffré, ni `ts` — les autres lisent le numéro, et leur garde `d.ts <= _syncTs` les empêche de réappliquer des données inchangées. On n'annonce que si l'on est DEVANT (sinon un appareil en retard ferait redescendre l'équipe), jamais entre canaux, et une seule fois par session. |
+
 **La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
 navigateur, compte par compte) :
 
