@@ -14635,7 +14635,31 @@ function rapportVia(id,canal){ const i=db.interventions.find(x=>x.id===id); if(!
 let prdCat='all';
 let prdSearch='';
 let prdExpanded={};
+/* Le bouton « ↻ Catalogue OP » ne se montre QUE là où le catalogue est déjà en place.
+   Décision de Justin, 8 septembre 2026 : « chaque métier aura des fournisseurs différents, des
+   produits différents ; quand un nouvel utilisateur arrive, c'est à lui de tout rentrer. »
+   C'est donc un filet de sécurité pour qui s'en sert déjà — une fiche supprimée par erreur se
+   récupère — jamais une liste toute faite offerte à un nouveau venu, encore moins la liste 3D
+   servie à un plombier.
+
+   Le test porte sur les DONNÉES, pas sur l'identité de l'espace : syncTeam()===FB_TEAM aurait
+   été plus court, mais une entreprise qui n'a jamais reçu de clé personnalisée retombe sur
+   l'espace par défaut et aurait vu le bouton à tort. Cinq références suffisent : au-dessous,
+   ce ne sont plus les restes d'un catalogue mais des saisies qui se trouvent porter le même
+   nom. */
+function catalogueEnPlace(){
+  try{
+    if(!db || !Array.isArray(db.produits) || db.produits.length < 5) return false;
+    const refs = new Set(CATALOGUE.map(c => (c[0]||'').trim().toLowerCase()));
+    let n = 0;
+    for(const p of db.produits){ if(refs.has((p.nom||'').trim().toLowerCase()) && ++n >= 5) return true; }
+    return false;
+  }catch(e){ return false; }
+}
 function restoreCatalogue(){
+  /* Deuxième verrou, et il n'est pas décoratif : la fonction est globale, donc appelable
+     depuis la console d'un navigateur même quand le bouton n'est pas rendu. */
+  if(!catalogueEnPlace()){ try{ toast('Catalogue non disponible pour ce métier — ajoute tes produits avec ＋ Produit'); }catch(e){} return; }
   const existing=new Set(db.produits.map(p=>(p.nom||'').trim().toLowerCase()));
   let added=0;
   CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||existing.has(nom.toLowerCase()))return;
@@ -14692,7 +14716,7 @@ function fcAddAll(){ const idx=fcMatches(); if(!idx.length) return;
 }
 let prdOnglet='tous';   // tous | perso | catalogue
 views.produits=function(){
-  setHeader('Produits',`Catalogue · ${db.produits.length} références`,`<button class="btn ghost" onclick="openFourCat()">🏭 Fournisseurs</button> <button class="btn ghost" onclick="restoreCatalogue()">↻ Catalogue OP</button> <button class="btn ghost" onclick="openScanner()">Scanner</button> <button class="btn ghost" onclick="formProduitsListe()">＋ Liste</button> <button class="btn" onclick="formProduit()">＋ Produit</button>`);
+  setHeader('Produits',`Catalogue · ${db.produits.length} références`,`<button class="btn ghost" onclick="openFourCat()">🏭 Fournisseurs</button> ${catalogueEnPlace()?'<button class="btn ghost" onclick="restoreCatalogue()">↻ Catalogue OP</button> ':''}<button class="btn ghost" onclick="openScanner()">Scanner</button> <button class="btn ghost" onclick="formProduitsListe()">＋ Liste</button> <button class="btn" onclick="formProduit()">＋ Produit</button>`);
   const nbP=db.produits.filter(p=>p.perso).length;
   $('content').innerHTML=`<div class="filters" style="margin:0 0 8px">${[['tous','Tous · '+db.produits.length],['perso','Mes produits · '+nbP],['catalogue','Catalogue 3D (nuisibles) · '+(db.produits.length-nbP)]].map(([k,l])=>`<div class="chip ${prdOnglet===k?'active':''}" onclick="prdOnglet='${k}';renderProduitsList()">${l}</div>`).join('')}</div>
     <input class="search-inp" id="prd-search" placeholder="Rechercher un produit, une référence, un fournisseur…" value="${esc(prdSearch)}" oninput="prdSearch=this.value;renderProduitsList()">
