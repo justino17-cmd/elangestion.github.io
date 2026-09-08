@@ -297,7 +297,13 @@ app.post('/api/checkcode', (req, res) => {
 });
 
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
-app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, annonce: ANNONCE.version, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus }));
+app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, annonce: ANNONCE.version, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus,
+  /* Quatre entiers agrégés : ils disent si la porte des routes mail peut se fermer,
+     et ne disent rien de personne — ni adresse, ni espace, ni contenu. Sans eux,
+     la suite se déciderait à l'aveugle : /api/mail/cles est protégée par une clé de
+     serveur que Justin n'a pas. « absent » et « inconnu » à zéro = on peut fermer. */
+  cles: { valide: cleEquipeVu.valide, absent: cleEquipeVu.absent, invalide: cleEquipeVu.invalide,
+          inconnu: cleEquipeVu.inconnu, depuis: cleEquipeVu.depuis, parRoute: cleEquipeParRoute } }));
 
 // ── Assistant devis : l'agent qui compose un devis à partir d'une conversation.
 //    Il ne fait que parler à Claude ; c'est OP GESTION qui enregistre le devis
@@ -489,9 +495,32 @@ function mailServers(email) {
    C'est exactement le mode de panne silencieuse que ce dépôt a déjà payé. On mesure d'abord
    — /api/mail/cles, protégée — et on ne ferme que lorsque le compte « sans preuve » est à
    zéro pour les espaces vivants. */
-app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox/disconnect', '/api/sendmail', '/api/subscribe'], cleEquipeObserve);
+app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox/disconnect', '/api/sendmail', '/api/subscribe', '/api/notify'], cleEquipeObserve);
+
+/* Le nombre d'essais de connexion à une boîte, par IP et par heure. La route tente un
+   SMTP puis un IMAP chez le fournisseur et RENVOIE son message d'erreur : sans borne,
+   c'est un banc d'essai de mots de passe contre Gmail ou Outlook, relayé par l'IP du VPS —
+   donc c'est la réputation de TeamOP qui se fait brûler. Même forme que lienQuota. */
+let connectQuota = new Map();
 
 app.post('/api/mailbox/connect', async (req, res) => {
+  if (connectQuota.size > 5000) connectQuota = new Map();
+  if (!quotaOk(connectQuota, 'ip:' + (req.ip || '?'), 20, 3600000))
+    return res.status(429).json({ error: 'trop d\'essais de connexion — réessaie dans une heure' });
+  /* Ce contrôle ne ferme la porte qu'aux teamId INVENTÉS — et encore, cnxData s'inscrit
+     tout seul par /api/connexions, qui est publique. Brancher une boîte sur le teamId d'une
+     VRAIE entreprise reste possible, et verse jusqu'à 60 messages de l'attaquant dans sa
+     Réception avant de pousser une notification à tous ses appareils. Ne pas croire cette
+     ligne suffisante : elle élève la marche, le quota au-dessus fait le vrai travail. */
+  {
+    const tCo = String((req.body || {}).teamId || '').slice(0, 80);
+    const connu = !!espaceParT(tCo) || Object.values(subs).some(x => x.teamId === tCo) || !!cnxData[tCo];
+    if (!connu) {
+      /* Pas de teamId ici non plus : /health est publique. */
+      lastRefus = { ts: Date.now(), raison: 'mailbox/connect : espace inconnu' };
+      return res.status(403).json({ error: 'espace inconnu du serveur' });
+    }
+  }
   /* Bornes posées AVANT la vérification SMTP/IMAP, pas au moment d'écrire : ce qui est
      vérifié doit être exactement ce qui est enregistré — tronquer après coup stockerait
      un mot de passe qui ne s'authentifie plus. Sans ces bornes, express.json({limit:'6mb'})
@@ -685,7 +714,30 @@ app.post('/api/notify', async (req, res) => {
   const payload = JSON.stringify({
     title: String(title).slice(0, 120),
     body: String(body || '').slice(0, 300),
-    url: String(url || '/app.html').slice(0, 200)
+    /* L'adresse partait telle quelle dans la notification, et sw.js la passe à
+       w.navigate() / clients.openWindow() sans la relire. N'importe qui pouvait donc
+       pousser « Votre session a expiré » sur les téléphones de terrain d'une entreprise,
+       vers son propre domaine. On n'accepte plus qu'un chemin interne — vérifié :
+       l'application n'envoie jamais que '/app.html', '/espace.html' ou '/messages.html'.
+       Le « pas deux barres » exclut « //ailleurs.example », qui est une adresse absolue. */
+    url: (function () {
+      /* On RÉSOUT l'adresse au lieu de la filtrer. Une expression régulière ne suffit pas :
+         les navigateurs traitent « \ » comme « / » et retirent tabulation, saut de ligne et
+         retour chariot AVANT d'analyser — si bien que « /\evil.com » et « / » suivi d'une
+         tabulation passaient un test « commence par une seule barre » et menaient pourtant
+         chez l'attaquant. Vérifié sur les quatre formes. En résolvant contre notre propre
+         origine et en n'acceptant que ce qui y reste, les quatre tombent d'un coup. */
+      try {
+        const abs = new URL(String(url || '/app.html').slice(0, 200), 'https://teamop.fr');
+        if (abs.origin !== 'https://teamop.fr') return '/app.html';
+        /* Pas de fragment : app.html lit « #entreprise=CODE » et rejoint l'espace
+           correspondant, en rechargeant la page. Une notification pointant là ferait
+           basculer l'appareil d'un salarié sur l'espace de qui l'a poussée. Vérifié :
+           l'application n'envoie jamais de fragment, seulement '/app.html' ou
+           '/espace.html'. */
+        return (abs.pathname + abs.search).slice(0, 200);
+      } catch (e) { return '/app.html'; }
+    })()
   });
   const targets = Object.values(subs).filter(s =>
     s.teamId === teamId &&
@@ -727,6 +779,36 @@ app.post('/api/sendmail', async (req, res) => {
   const { teamId, to, subject, text, smtp, brand, atts, meta, useMailbox } = req.body || {};
   if (!teamId || !to || !subject) return res.status(400).json({ error: 'teamId, to et subject requis' });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to))) return res.status(400).json({ error: 'destinataire invalide' });
+  /* ── L'ESPACE DOIT AU MOINS EXISTER ──
+     Le seul contrôle était « teamId non vide » : n'importe quelle chaîne ouvrait les trois
+     modes d'envoi, dont celui qui expédie depuis le serveur mail de TeamOP, authentifié SPF
+     et DKIM. Le garde-fou est celui de /api/compte/identifiants (commentaire
+     « Anti-hameçonnage » plus bas), posé ici pour couvrir AUSSI le mode « boîte connectée » —
+     le plus grave des trois, puisqu'il envoie depuis la vraie adresse de l'entreprise avec
+     son propre mot de passe.
+
+     ⚠️ CE QUE ÇA NE FERME PAS, ET IL FAUT LE SAVOIR : cnxData s'inscrit tout seul par
+     /api/connexions, qui est publique — deux requêtes suffisent à faire exister un espace
+     inventé. Et le nom d'expéditeur reste `brand.name`, choisi par l'appelant : avec
+     n'importe quel teamId accepté, on peut toujours signer du nom qu'on veut. Ce contrôle
+     élève la marche, il ne referme pas la porte. La vraie fermeture demande que chaque
+     entreprise ait son propre teamId — aujourd'hui toutes celles restées sur la clé par
+     défaut partagent « elan-gestion ». C'est un chantier à part, et c'est LE chantier.
+
+     Posé AVANT le quota : sinon un refus consommerait quand même un jeton, et on pourrait
+     épuiser l'heure d'envoi d'une entreprise par des requêtes toutes refusées. */
+  {
+    const tEnv = String(teamId).slice(0, 80);
+    const connu = !!espaceParT(tEnv) || Object.values(subs).some(x => x.teamId === tEnv) || !!cnxData[tEnv];
+    if (!connu) {
+      /* Pas de teamId dans lastRefus : /health est publique, et un teamId est la seule clé
+         d'accès aux routes de messagerie. Le motif suffit au diagnostic. */
+      lastRefus = { ts: Date.now(), raison: 'sendmail : espace inconnu' };
+      /* Le libellé évite les mots que l'application prend pour un problème d'identifiants —
+         sinon on enverrait un client changer son mot de passe pour rien. */
+      return res.status(403).json({ error: 'espace inconnu du serveur' });
+    }
+  }
   const refus = mailQuotaRefus(req, teamId);
   if (refus) return res.status(429).json({ error: refus });
   const msg = { to, subject: String(subject).slice(0, 200), text: String(text || '').slice(0, 10000) };
@@ -1915,8 +1997,14 @@ function espaceParT(t) {
      inconnu  — l'espace n'est pas dans espacesReg, donc on ne PEUT PAS vérifier. C'est le
                 verdict décisif : tant qu'il n'est pas à zéro, fermer la porte couperait la
                 Réception d'entreprises parfaitement légitimes. */
+/* Ces quatre compteurs disent si la porte peut se fermer. Ils vivent en mémoire et
+   repartent à zéro au redémarrage — c'est assez pour la mesure visée, et ça évite d'écrire
+   un fichier de plus. Ils sont exposés dans /health, agrégés : quatre entiers ne disent
+   rien de personne — ni adresse, ni espace, ni contenu. Sans cela, la suite se déciderait
+   à l'aveugle, /api/mail/cles étant protégée par une clé que Justin n'a pas. */
 const cleEquipeVu = { valide: 0, absent: 0, invalide: 0, inconnu: 0, depuis: Date.now() };
 const cleEquipeParEspace = new Map();   // t -> { slug, valide, absent, invalide, inconnu, vu }
+const cleEquipeParRoute = Object.create(null);   // route -> { valide, absent, invalide, inconnu }
 
 function cleEquipeVerdict(t, kh) {
   const khn = String(kh || '').toLowerCase();
@@ -1938,8 +2026,18 @@ function cleEquipeVerdict(t, kh) {
 function cleEquipeObserve(req, res, next) {
   const src = (req.method === 'GET') ? (req.query || {}) : (req.body || {});
   const t = String(src.teamId || src.t || '');
-  const v = cleEquipeVerdict(t, src.kh || req.headers['x-teamop-kh'] || '');
+  /* Uniquement l'en-tête. Le lire aussi dans la requête (donc dans « ?kh= ») le ferait
+     entrer dans les journaux d'accès nginx et dans l'historique du navigateur — exactement
+     ce que le commentaire d'app.html jure d'éviter. Vérifié : l'application n'envoie que
+     l'en-tête. */
+  const v = cleEquipeVerdict(t, req.headers['x-teamop-kh'] || '');
   cleEquipeVu[v]++;
+  /* Ventilé par route, sinon le critère « absent à zéro » est inatteignable : espace.html et
+     messages.html appellent /api/subscribe et /api/notify sans jamais envoyer de kh, et leur
+     bruit noierait la mesure des routes de messagerie — la seule qui décide de la fermeture. */
+  const rt = String(req.baseUrl || req.path || '').replace(/^\/api\//, '').slice(0, 24) || '?';
+  const parR = cleEquipeParRoute[rt] || (cleEquipeParRoute[rt] = { valide: 0, absent: 0, invalide: 0, inconnu: 0 });
+  parR[v]++;
   if (t) {
     if (cleEquipeParEspace.size > 3000) cleEquipeParEspace.clear();   // borne mémoire, comme comptesQuota
     const e = cleEquipeParEspace.get(t) || { slug: '', valide: 0, absent: 0, invalide: 0, inconnu: 0 };
@@ -1951,7 +2049,15 @@ function cleEquipeObserve(req, res, next) {
   next();
 }
 
-/* Ce que la phase 1 sert à lire. Protégée par la clé du serveur, comme /api/bugs.
+/* ⚠️ POUR LA PHASE SUIVANTE, QUAND ON REFUSERA VRAIMENT : le refus de /api/replies ne doit
+   PAS être du JSON. loadMailReplies() (app.html) fait « const d = await r.json();
+   _mailReplies = d.replies || [] » — un refus en JSON se parse donc sans erreur, la liste
+   devient VIDE au lieu de NULLE, et l'écran affiche « 📭 Aucun message » au lieu de
+   « 📥 Réception indisponible ». Le client ne verrait pas une panne, il verrait sa
+   correspondance disparue. Répondre en text/plain fait rejeter r.json(), tomber dans le
+   catch, et affiche le vrai message — sans toucher à app.html.
+
+   Ce que la phase 1 sert à lire. Protégée par la clé du serveur, comme /api/bugs.
    « inconnu » et « absent » non nuls = fermer maintenant casserait ces espaces. */
 app.get('/api/mail/cles', (req, res) => {
   if ((req.query.key || '') !== config.apiKey) return res.status(403).json({ error: 'clé invalide' });
@@ -2997,6 +3103,9 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
       inv.comptesSite + ' compte(s) du site'
     ].join('\n· ')
     + (inv.opMessages
+        /* Décision de Justin, à ne pas réécrire : OP MESSAGES est encore en développement,
+           on ne la supprime pas. Elle est simplement SÉPARÉE d'OP GESTION. La version qui
+           disait « à supprimer à part » invitait au contraire. */
         ? '\n\nOP MESSAGES N\'EST PAS TOUCHÉ, ET C\'EST VOULU : l\'application est encore en '
           + 'développement et ne doit pas être supprimée. Ses conversations, ses salons et ses pièces '
           + 'jointes vivent dans un espace séparé d\'OP GESTION et y restent.'
