@@ -4495,7 +4495,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '577';
+const APP_VERSION = '578';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -19176,7 +19176,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
         <div class="field"><label>Nom *</label><input name="nom" required value="${esc(u.nom)}" ${id?'':'oninput="nuLoginAuto()"'}></div></div>
       <div class="field"><label>Identifiant *</label><input name="login" id="nu-login" required value="${esc(u.login)}" placeholder="ex : marc" autocapitalize="off" ${id?'':'oninput="this.dataset.libre=\'1\'"'}>${id?'':'<div style="font-size:11px;color:var(--t3);margin-top:4px">Se remplit tout seul à partir du prénom — tu peux le modifier, maintenant ou plus tard.</div>'}</div>
       <div class="field"><label>E-mail <span style="font-weight:400;color:var(--t3)">— sert à « Mot de passe oublié »</span></label><input name="email" type="email" value="${esc(u.email||'')}" placeholder="prenom@entreprise.fr" autocapitalize="off"></div>
-      <div class="field"><label>Rôle</label><select name="role" onchange="userToggleRole(this.value)">${Object.entries(ROLE).filter(([k])=>currentUser.role==='admin'||!['admin','dr'].includes(k)).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">Le rôle pré-règle les accès ci-dessous. Tu peux ensuite tout ajuster.</div></div>
+      <div class="field"><label>Rôle</label><select name="role" onchange="userToggleRole(this.value)">${Object.entries(ROLE).filter(([k])=>currentUser.role==='admin'||!['admin','dr'].includes(k)).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">Le rôle pré-remplit les cases ci-dessous. Ce que tu enregistres ici fait loi <b>pour cette personne</b> : coché = elle y a accès, décoché = elle n'y a pas accès.</div></div>
       <input type="hidden" name="techId" value="${esc(u.techId||'')}">
       <div id="user-tech" style="display:${isTech?'block':'none'}">
         <div class="form-sec" style="margin:2px 0 10px">Fiche technicien <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--t3)">— créée automatiquement</span></div>
@@ -19308,16 +19308,25 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     if(t){ Object.assign(t,{nom:nomComplet,tel:d.tel||'',departements:d.departements||'',couleur:d.couleur||'',metier}); }
     else { t={id:uid(),nom:nomComplet,tel:d.tel||'',email:'',departements:d.departements||'',couleur:d.couleur||'',metier}; db.techniciens.push(t); techId=t.id; }
   } else { techId=''; }
-  // Accès choisis dans le formulaire : actions (cap_*) + catégories visibles (mod_*).
-  // On n'enregistre « à part » que ce qui DIFFÈRE du réglage du rôle : le reste continue de suivre le rôle
-  // (un réglage fait plus tard dans Permissions → Par rôle s'applique donc bien à cette personne).
+  /* Accès choisis dans le formulaire : actions (cap_*) + catégories visibles (mod_*).
+     ⛔ LA FICHE FAIT LOI, ET C'EST LE CORRECTIF DU 8 SEPTEMBRE 2026.
+     Avant, on n'enregistrait QUE ce qui différait du rôle : cocher une case qui valait déjà
+     pour le rôle n'écrivait rien, la personne continuait de suivre le rôle, et son accès
+     changeait plus tard sans que personne n'ait rouvert sa fiche. D'où deux systèmes qui se
+     contredisaient et l'impression que les coches ne servent à rien.
+     Demande de Justin, mot pour mot : « on fait modifier, là on choisit les permissions, on
+     coche ça marche, on décoche ça marche plus ».
+     Désormais chaque case vue dans la fiche est écrite pour CETTE personne. Le rôle ne fait
+     plus que pré-remplir le formulaire. Rien ne change pour les comptes qu'on n'ouvre pas :
+     tant qu'une fiche n'est pas enregistrée, elle suit le rôle comme avant. Et l'écran
+     Permissions garde « ↩ revenir au réglage du rôle » pour défaire un réglage individuel. */
   const ancien=(id?(db.users.find(x=>x.id===id)||{}).acces:null)||{};
-  const acces = { caps: {}, modules: {} }; const roleRef={role:d.role};
+  const acces = { caps: {}, modules: {} };
   Object.keys(ancien.caps||{}).forEach(k=>{ if(!USER_CAPS.some(c=>c[0]===k)) acces.caps[k]=ancien.caps[k]; });   // les droits par catégorie réglés dans Permissions (cat_…) sont conservés
-  USER_CAPS.forEach(([k])=>{ const v=(d['cap_'+k]!==undefined); if(v!==!!userCap(roleRef,k)) acces.caps[k]=v; });
+  USER_CAPS.forEach(([k])=>{ acces.caps[k]=(d['cap_'+k]!==undefined); });
   const modsForm=NAV.flatMap(s=>s.items).filter(it=>it.k!=='dashboard' && it.k!=='utilisateurs' && it.k!=='permissions');
   Object.keys(ancien.modules||{}).forEach(k=>{ if(!modsForm.some(m=>m.k===k)) acces.modules[k]=ancien.modules[k]; });   // ce que la fiche ne montre pas (ex. Utilisateurs réglé dans Permissions) est conservé
-  modsForm.forEach(m=>{ const v=(d['mod_'+m.k]!==undefined); if(v!==!!userSeesModule(roleRef,m.k)) acces.modules[m.k]=v; });
+  modsForm.forEach(m=>{ acces.modules[m.k]=(d['mod_'+m.k]!==undefined); });
   const voirToutForm=(d['cap_voirTout']!==undefined);
   // Box choisies pour lui (sans « Tout voir ») : rangées sur chaque box (userIds), comme les techniciens cochés — seulement les box que la fiche a proposées
   const boxCoches=new Set(Object.keys(d).filter(k=>k.indexOf('box_')===0).map(k=>k.slice(4)));
@@ -19485,7 +19494,7 @@ views.permissions=function(){
     ${perso
       ?`<div class="filters" style="margin:0 0 12px;flex-wrap:wrap">${usersL.map(u=>`<div class="chip ${permSelUser===u.id?'active':''}" onclick="permSelUser='${u.id}';views.permissions()">${esc(fullName(u))}${u.role==='admin'?' 🛠️':''}</div>`).join('')}</div>`
       :`<div class="filters" style="margin:0 0 12px;flex-wrap:wrap">${roles.map(([k,l])=>`<div class="chip ${permRole===k?'active':''}" onclick="permRole='${k}';views.permissions()">${l}</div>`).join('')}</div>`}
-    <p style="color:var(--t3);font-size:12.5px;margin:0 2px 12px">${perso?`Réglages de <b>${esc(nomSujet)}</b> — un réglage fait ici ne vaut que pour ce compte et passe devant celui de son rôle.`:`Réglages de <b>${esc(nomSujet)}</b> — s'applique à tous les comptes de ce rôle, sauf réglage individuel par personne.`}</p>
+    <p style="color:var(--t3);font-size:12.5px;margin:0 2px 12px">${perso?`Réglages de <b>${esc(nomSujet)}</b> — même chose que dans sa fiche (Utilisateurs → ✎). Ce qui est réglé ici fait loi pour ce compte.`:`Réglages de <b>${esc(nomSujet)}</b> — ce n'est qu'un <b>point de départ</b> : il s'applique aux comptes de ce rôle dont la fiche n'a jamais été enregistrée. Dès qu'on ouvre la fiche de quelqu'un et qu'on l'enregistre, c'est SA fiche qui décide.`}</p>
     ${corps}`;
 };
 function permSetMod(k,val){
