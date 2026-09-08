@@ -1560,7 +1560,7 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '571',
+  version: '572',
   sujet: '🔗 Votre entreprise a maintenant son adresse',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
