@@ -854,7 +854,7 @@ function setTab(t,sansAnim){
   if(t==='support'&&!MSG.loaded) chargerMail();
   /* PBL porte les espaces : sans lui, « Leurs espaces » resterait sur « Chargement… » pour qui
      ouvre Entreprises sans être passé par Accès. */
-  if(t==='entreprises'){ if(!CLI.loaded) chargerClients(); if(!PBL.loaded) chargerAccesPublics(); }
+  if(t==='entreprises'){ if(!CLI.loaded) chargerClients(); if(!PBL.loaded) chargerAccesPublics(); if(!CS.loaded) chargerComptesSite(); }
   if(t==='connexions') chargerConnexions();
   if(t==='abonnements'&&!ABO.loaded) chargerAbos();
   if(t==='devisia'&&!DIA.loaded) chargerDevisIA();
@@ -886,6 +886,30 @@ var PB={nom:'',email:'',ident:'',pass:''};
    la bêta, et le patron qui venait d'en ouvrir un ne voyait rien. On les liste ici, à partir de
    l'annuaire des espaces que le serveur tient déjà. */
 var PBL={loaded:false,err:'',liste:[]};
+/* Les comptes du site, lus chez Firebase. Distincts de CLI : CLI ne connaît que les
+   entreprises qui se sont DÉJÀ connectées, alors qu'un compte créé sur espace.html et jamais
+   utilisé n'existait nulle part dans cette console. C'est ce qui rendait le ménage impossible. */
+var CS={loaded:false,err:'',comptes:[],q:''};
+function chargerComptesSite(){
+  CS.loaded=false; CS.err='';
+  apiGet('/api/monitor/comptes-site').then(function(d){
+    CS.comptes=(d&&d.comptes)||[];
+    CS.loaded=true; rafraichirSiConcerne();
+  }).catch(function(){ CS.err='Impossible de lire les comptes du site — clé admin Firebase absente, ou serveur injoignable.'; CS.loaded=true; rafraichirSiConcerne(); });
+}
+/* Supprime un compte du site. Le serveur REFUSE (409) si le compte porte une entreprise :
+   effacer le compte seul laisserait un espace orphelin que personne ne pourrait rouvrir.
+   On le dit ici aussi, pour que le refus ne surprenne pas. */
+function csSupprimer(email,btn){
+  if(!confirm('Supprimer définitivement le compte « '+email+' » ?\n\n• son accès à teamop.fr/espace.html\n• sa fiche et sa messagerie\n\nSa boîte mail, elle, n\'est pas touchée : elle continue de recevoir et d\'envoyer.')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Suppression…'; }
+  apiPost('/api/monitor/comptes-site/supprimer',{email:email}).then(function(r){
+    if(r&&r.ok&&r.d&&r.d.ok){ toast('🗑 Compte supprimé'); JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a supprimé le compte du site « '+email+' »'}); chargerComptesSite(); return; }
+    toast((r&&r.d&&r.d.error)||'Suppression refusée');
+    if(btn){ btn.disabled=false; btn.textContent='🗑 Supprimer'; }
+  }).catch(function(){ toast('Serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='🗑 Supprimer'; } });
+}
+function csQ(v){ CS.q=v; rafraichirSiConcerne(); }
 function chargerAccesPublics(){
   PBL.loaded=false; PBL.err='';
   apiGet('/api/monitor/espaces/liste').then(function(d){
@@ -2391,7 +2415,8 @@ function vueEntreprises(){
       '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CLI.q)+'" oninput="cliQ(this.value)"></div>'+
       liste+'</div>'+
     '<div class="col-detail"><div class="col-detail-sticky">'+ficheClient()+'</div></div></div>'+
-    blocEspacesSite();
+    blocEspacesSite()+
+    blocComptesSite();
 }
 /* Les espaces ouverts par une inscription sur teamop.fr. Ils vivaient dans l'onglet Accès, où
    ils n'avaient rien à faire : Accès, c'est ce que l'équipe s'ouvre à elle-même — la bêta et
@@ -2399,6 +2424,45 @@ function vueEntreprises(){
    Ils gardent ici les mêmes cartes et les MÊMES BOUTONS (suspendre, renommer, OP MESSAGES,
    supprimer) : les déplacer sans eux, c'était les perdre — l'onglet Entreprises ne portait
    aucune de ces actions. */
+/* TOUS les comptes créés sur teamop.fr, y compris ceux qui n'ont jamais ouvert d'espace et
+   qui n'apparaissaient donc nulle part. C'est la liste qu'il faut pour faire le ménage dans
+   les essais : le trousseau du navigateur les gardait, la console les ignorait.
+   Un compte qui porte une entreprise n'est PAS supprimable ici — il passe par « Fermer
+   définitivement », qui efface aussi son espace et ses données. Le bouton le dit. */
+function blocComptesSite(){
+  var t='<div style="margin-top:34px">'+
+    '<div style="font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:8px">👤 Tous les comptes du site</div>'+
+    '<div style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55">Lus directement chez Firebase — y compris ceux qui n’ont jamais ouvert d’espace, invisibles partout ailleurs. Supprimer un compte retire son accès à l’application ; sa boîte mail n’est pas touchée.</div>';
+  if(!CS.loaded) return t+'<div class="vide">Chargement des comptes…</div></div>';
+  if(CS.err) return t+'<div class="vide">'+esc(CS.err)+'</div></div>';
+  var q=(CS.q||'').toLowerCase().trim();
+  var l=CS.comptes.filter(function(c){ return !q||((c.email||'')+' '+(c.entreprise||'')).toLowerCase().indexOf(q)>=0; });
+  t+='<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Filtrer par adresse…" value="'+esc(CS.q)+'" oninput="csQ(this.value)"></div>';
+  if(!l.length) return t+'<div class="vide">'+(q?'Aucun compte ne correspond.':'Aucun compte sur le site.')+'</div></div>';
+  t+='<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+l.length+' compte'+(l.length>1?'s':'')+(q?' sur '+CS.comptes.length:'')+'</div>';
+  t+=l.map(function(c){
+    var lie=c.aUnEspace;
+    return '<div class="item" style="cursor:default">'+
+      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+        '<div style="flex:1;min-width:200px">'+
+          '<div class="mono" style="font-size:13px;font-weight:600;word-break:break-all">'+esc(c.email||'(sans adresse)')+'</div>'+
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+
+            (c.cree?'Créé le '+esc(fmtJour(c.cree)):'Date de création inconnue')+
+            (c.derniere?' · dernière connexion '+esc(fmtJour(c.derniere)):' · jamais connecté')+
+          '</div></div>'+
+        (lie?'<span class="past p-vert" title="Ce compte porte une entreprise avec des données">🏢 '+esc(c.entreprise||'entreprise')+'</span>'
+            :'<span class="past p-gris">Aucun espace</span>')+
+        (c.desactive?'<span class="past p-rouge">Désactivé</span>':'')+
+      '</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+        (lie
+          ? '<span style="font-size:12px;color:var(--muted)">Porte une entreprise — passe par « Fermer définitivement » ci-dessus, qui efface aussi son espace et ses données.</span>'
+          : '<button class="btn-fant" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="csSupprimer(\''+jsq(c.email)+'\',this)">🗑 Supprimer</button>')+
+      '</div>'+
+    '</div>';
+  }).join('');
+  return t+'</div>';
+}
 function blocEspacesSite(){
   var l=(PBL.liste||[]).filter(function(e){ return e.origine==='site'; });
   return '<div style="margin-top:34px">'+
