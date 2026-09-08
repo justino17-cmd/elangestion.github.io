@@ -157,11 +157,25 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
   .deux.md.choisi>.col-liste{display:none}
   .deux.md:not(.choisi)>.col-detail{display:none}
 }
-@media(min-width:900px){ .ent-retour{display:none} }
-.ent-retour{margin-bottom:14px}
-/* 44 px de haut : plancher tactile, pas une suggestion. Ce bouton est le seul chemin
-   de retour au telephone, et il se presse souvent au pouce, parfois gante. */
-@media(max-width:899px){ .ent-retour button{min-height:44px;padding-left:16px;padding-right:16px} }
+/* LA FICHE EN PLEINE PAGE. Elle n'est plus une colonne de 667 px : sur grand ecran
+   ses blocs se rangent en deux colonnes, et l'identite plus la formule tiennent
+   toute la largeur en tete — c'est ce qu'on lit en premier. Les colonnes sont en
+   grille, pas en `columns` CSS : un bloc ne doit jamais etre coupe en deux. */
+.fiche-page{display:grid;grid-template-columns:1fr;gap:18px;align-items:start}
+/* Les blocs etaient des sections d'une meme carte : ils portent un filet et une
+   marge de tete en style EN LIGNE. Devenus cartes a part entiere, ils n'en ont
+   plus besoin. On ne modifie pas leur balisage — blocDossier() sert aussi
+   ailleurs — donc on neutralise ici, et !important est le seul moyen de battre
+   un style en ligne. */
+.fiche-page>.carte>div:first-child{border-top:0!important;padding-top:0!important;margin-top:0!important}
+@media(min-width:1100px){
+  .fiche-page{grid-template-columns:1fr 1fr}
+  .fiche-page>.pleine{grid-column:1/-1}
+}
+.ent-retour{margin-bottom:18px}
+/* 44 px de haut : plancher tactile, pas une suggestion. C'est le seul chemin de
+   retour depuis la fiche, et il se presse au pouce, parfois gante. */
+.ent-retour button{min-height:44px;padding-left:16px;padding-right:16px}
 .item{background:var(--surface);border:0;border-radius:var(--r-3);padding:13px 15px;cursor:pointer;margin-bottom:6px;box-shadow:var(--ombre-1);
   transition:background-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
 .item:hover{background:var(--hover)}
@@ -691,6 +705,31 @@ function sigle(n){
   return mots[0].slice(0,2).toUpperCase();
 }
 function ini(n){ return (String(n||'?').trim()[0]||'?').toUpperCase(); }
+
+/* ══ LES VERSIONS ══════════════════════════════════════════════════════════════
+   Une version est un NOMBRE écrit en chaîne ('573'). Trier ces chaînes avec .sort()
+   place '99' après '573' — c'est ce que faisait l'écran Connexions, qui annonçait
+   donc « v573, v99 » comme les deux plus récentes. Tout passe par verNum(). */
+function verNum(v){ var n=parseInt(String(v||'').replace(/[^0-9]/g,''),10); return isFinite(n)?n:0; }
+/* Le serveur ne connaît pas la version déployée d'app.html : elle vit dans une constante
+   du fichier client. On la déduit — la plus haute version vue chez l'ensemble des
+   entreprises EST celle qui est en ligne, et ça se corrige tout seul à chaque publication.
+   Une entreprise seule ne suffit pas : c'est le maximum sur TOUTE la liste. */
+function verReference(){
+  var max=0;
+  (ENT.liste||[]).forEach(function(o){ Object.keys(o.versions||{}).forEach(function(v){ var n=verNum(v); if(n>max) max=n; }); });
+  return max;
+}
+/* Ce que sait l'entreprise o : sa version la plus récente, celles qui traînent derrière,
+   et si elle est en retard sur la référence. `versions` compte des APPAREILS DISTINCTS,
+   sur tout l'historique — un téléphone vu une fois il y a un an y figure encore. */
+function verEtat(o,ref){
+  var vs=Object.keys((o&&o.versions)||{}).map(verNum).filter(Boolean).sort(function(a,b){ return b-a; });
+  if(!vs.length) return {aucune:true,haute:0,retard:false,vieilles:[],appareils:0};
+  var appareils=0; Object.keys(o.versions).forEach(function(v){ appareils+=o.versions[v]||0; });
+  return {aucune:false,haute:vs[0],retard:!!ref&&vs[0]<ref,vieilles:vs.slice(1),appareils:appareils,toutes:vs};
+}
+
 function hAuth(){ return { 'Content-Type':'application/json', 'Authorization':'Bearer '+TOKEN }; }
 /* Le statut voyage avec l'erreur. Sans lui, un 403 « tu n'as pas ce droit » était rapporté
    comme « Serveur injoignable » : le message envoyait chercher une panne réseau inexistante. */
@@ -1086,7 +1125,7 @@ function cnxLigne(e){ var ev=CNX_EV[e.ev]||['•',e.ev];
     '<td>'+esc(cnxAppareil(e)||'—')+'</td>'+
     '<td>'+esc((e.app&&e.app!=='gestion')?e.app+' ':'')+(e.version?'v'+esc(e.version):'—')+'</td></tr>'; }
 function cnxResumeHtml(r,nom){ if(!r) return '';
-  var versions=Object.keys(r.versions||{}).sort().map(function(v){ return 'v'+esc(v)+' ×'+r.versions[v]; }).join(', ')||'—';
+  var versions=Object.keys(r.versions||{}).sort(function(a,b){ return verNum(b)-verNum(a); }).map(function(v){ return 'v'+esc(v)+' ×'+r.versions[v]; }).join(', ')||'—';
   var apps=Object.keys(r.apps||{}).map(function(a){ return esc(appNom(a))+' ('+r.apps[a]+')'; }).join(', ')||'—';
   var appareils=Object.keys(r.appareils||{}).map(function(a){ return esc(a)+' ('+r.appareils[a]+')'; }).join(', ')||'—';
   var kpi=function(v,l,c){ return '<div style="flex:1;min-width:110px;background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="font-size:20px;font-weight:800;color:'+(c||'inherit')+'">'+v+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
@@ -1129,7 +1168,7 @@ function vueConnexions(){
     ? '<button class="btn-fant" style="padding:6px 12px" onclick="cnxF(\'toutes\')">'+
         esc({actives:'Actives sur 7 jours',silence:'Silencieuses depuis 7 jours',echecs:'Avec des échecs'}[CNX.f]||'')+' ✕</button>'
     : '';
-  var rows=l.map(function(x){ var r=x.resume; var vers=Object.keys(r.versions||{}).sort().slice(-2).map(function(v){ return 'v'+v; }).join(', ')||'—';
+  var rows=l.map(function(x){ var r=x.resume; var vers=Object.keys(r.versions||{}).sort(function(a,b){ return verNum(b)-verNum(a); }).slice(0,2).map(function(v){ return 'v'+v; }).join(', ')||'—';
     return '<tr class="item'+(CNX.sel===x.t?' on':'')+'" style="cursor:pointer" onclick="cnxSel(\''+jsq(x.t)+'\')">'+
       '<td><b>'+esc(x.nom)+'</b>'+(x.formule?' <span style="color:var(--muted);font-size:11.5px">'+esc(x.formule)+'</span>':'')+'</td>'+
       '<td>'+(r.derniere?cnxDepuis(r.derniere):'<span style="color:var(--muted)">jamais</span>')+(r.dernierLogin?' <span style="color:var(--muted)">('+esc(r.dernierLogin)+')</span>':'')+'</td>'+
@@ -2581,10 +2620,15 @@ function cliCopierAdresses(btn){
 }
 function vueEntreprises(){
   var st=ENT.stats||{};
-  var tete=enTete('Entreprises',
-    'Toutes vos entreprises, d’où qu’elles viennent : inscrites sur le site, ouvertes depuis la Tour, ou simplement repérées par leurs connexions. Cliquez sur l’une d’elles pour ouvrir son dossier complet.',
-    '<button class="btn-fant" onclick="cliCopierAdresses(this)" title="Copie toutes les adresses connues, une par ligne">📋 Copier les adresses</button> '+
-    '<button class="btn-plein" onclick="annonceEnvoyer(this)" title="Envoie l’e-mail des nouveautés de la dernière mise à jour à toutes les entreprises">📣 Annoncer la mise à jour</button>');
+  /* Ces deux boutons agissent sur TOUTES les entreprises. Sur la fiche d'une seule, ils
+     n'ont rien à faire : au mieux c'est trompeur, au pire on écrit à tout le monde en
+     croyant répondre à un client. */
+  var tete=ENT.sel
+    ? enTete('Entreprises','')
+    : enTete('Entreprises',
+        'Toutes vos entreprises, d’où qu’elles viennent : inscrites sur le site, ouvertes depuis la Tour, ou simplement repérées par leurs connexions. Cliquez sur l’une d’elles pour ouvrir son dossier complet.',
+        '<button class="btn-fant" onclick="cliCopierAdresses(this)" title="Copie toutes les adresses connues, une par ligne">📋 Copier les adresses</button> '+
+        '<button class="btn-plein" onclick="annonceEnvoyer(this)" title="Envoie l’e-mail des nouveautés de la dernière mise à jour à toutes les entreprises">📣 Annoncer la mise à jour</button>');
   if(!ENT.loaded) return tete+'<div class="vide">Chargement des entreprises…</div>';
   if(ENT.err) return tete+'<div class="vide">'+esc(ENT.err)+'</div>';
   /* Ces quatre nombres ne sont pas un tableau de bord : ce sont les quatre façons d'entrer
@@ -2605,17 +2649,24 @@ function vueEntreprises(){
       '<div class="l">'+libelle+'</div>'+
     '</div>';
   };
+  /* Le retard de version se calcule ici, côté page : le serveur ne connaît pas la version
+     déployée d'app.html, et déduire la référence de la liste évite d'attendre une route. */
+  var refKpi=verReference();
+  var enRetard=(ENT.liste||[]).filter(function(o){ return verEtat(o,refKpi).retard; }).length;
   var kpi='<div class="grille-kpi" style="margin-bottom:20px">'+
     compteur(st.total||0,'entreprises connues','','')+
-    compteur(st.avecErreurs||0,'avec des erreurs','--redText','erreurs')+
-    compteur(st.avecEchecs||0,'avec des échecs de connexion','--amber','echecs')+
+    compteur(st.avecErreurs||0,'erreurs signalées','--redText','erreurs')+
+    compteur(st.avecEchecs||0,'échecs de connexion','--amber','echecs')+
+    compteur(enRetard,'sans la mise à jour','--amber','retard')+
     compteur(st.horsAnnuaire||0,'hors annuaire','','horsAnnuaire')+
-  '</div>';
+  '</div>'+
+  (refKpi?'<div style="font-size:12px;color:var(--muted);margin:-12px 0 18px">Version en ligne : <b class="mono">v'+refKpi+'</b> <span style="color:var(--dim)">— déduite de la plus récente vue chez vos clientes</span></div>':'');
   var q=(ENT.q||'').toLowerCase().trim();
   var passeFiltre=function(o){
     if(ENT.filtre==='erreurs') return o.erreurs>0;
     if(ENT.filtre==='echecs') return o.echecs24>0;
     if(ENT.filtre==='horsAnnuaire') return !o.dansAnnuaire;
+    if(ENT.filtre==='retard') return verEtat(o,verReference()).retard;
     return true;
   };
   var l=(ENT.liste||[]).filter(function(o){
@@ -2625,13 +2676,18 @@ function vueEntreprises(){
      identifiant est parlant (« teamopteste-7ir4 »). L'afficher vaut infiniment mieux que
      cinq lignes « (espace sans nom) » qu'on ne peut pas distinguer les unes des autres —
      c'était le défaut le plus criant de l'écran. */
+  var refV=verReference();
   var liste=l.length? l.map(function(o){
     var nm=o.nom||o.slug||o.t||'?';
+    var eV=verEtat(o,refV);
     var alertes='';
     if(o.erreurs) alertes+='<span class="past p-rouge" title="'+o.erreurs+' erreur(s) signalée(s)">🐛 '+o.erreurs+'</span> ';
     if(o.echecs24) alertes+='<span class="past p-ambre" title="échecs de connexion sur 24 h">🔑 '+o.echecs24+'</span> ';
     if(o.suspendu) alertes+='<span class="past p-rouge">⏸</span> ';
     if(o.promo&&o.promo.actif) alertes+='<span class="past p-vert" title="Formule offerte jusqu’au '+esc(o.promo.finLe)+'">🎁</span> ';
+    /* La version en retard vaut une alerte : c'est souvent l'explication des bugs qu'ils
+       remontent, et c'est la première chose à vérifier avant de chercher plus loin. */
+    if(eV.retard) alertes+='<span class="past p-ambre" title="Version en ligne : v'+refV+'">⬇ v'+eV.haute+'</span> ';
     /* Le sous-titre ne répète jamais le titre : quand le nom EST l'identifiant, il n'y a rien
        à redire en dessous, et une ligne vide vaut mieux qu'un doublon. */
     var sous=o.email||(o.dansAnnuaire?'':'');
@@ -2642,27 +2698,41 @@ function vueEntreprises(){
           '<div style="font-size:14px;font-weight:600;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"'+
             (o.dansAnnuaire?'':' class="mono"')+'>'+esc(nm)+'</div>'+
           (sous?'<div class="mono" style="font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(sous)+'</div>':'')+
-          '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">'+(o.derniere?esc(fmtJour(o.derniere)):'jamais connectée')+(o.utilisateurs7?' · '+o.utilisateurs7+' pers. / 7 j':'')+'</div>'+
+          '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">'+(o.derniere?esc(fmtJour(o.derniere)):'jamais connectée')+(o.utilisateurs7?' · '+o.utilisateurs7+' pers. / 7 j':'')+
+            (eV.aucune||eV.retard?'':' · <span class="mono">v'+eV.haute+'</span>'+
+              /* Une entreprise « à jour » peut avoir des postes restés en arrière : c'est
+                 souvent d'eux que vient un bug isolé. Le taire, c'est faire chercher. */
+              (eV.vieilles.length?' · <span style="color:var(--amber)">'+eV.vieilles.length+' version'+(eV.vieilles.length>1?'s':'')+' plus ancienne'+(eV.vieilles.length>1?'s':'')+'</span>':''))+'</div>'+
         '</div>'+
         '<div style="text-align:right;flex-shrink:0">'+alertes+'</div>'+
       '</div></div>';
   }).join('') : '<div class="vide">Aucune entreprise ne correspond.</div>';
+  /* Une entreprise ouverte prend toute la page : ni liste, ni compteurs. Les compteurs
+     parlent de l'ensemble des entreprises — les garder à côté d'une fiche, c'est occuper
+     un quart de l'écran avec autre chose que ce qu'on est venu lire. */
+  if(ENT.sel) return tete+ficheEntreprise();
   return tete+kpi+
-    '<div class="deux md'+(ENT.sel?' choisi':'')+'"><div class="col-liste">'+
+    '<div class="deux md"><div class="col-liste">'+
       '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
       '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
         '<span>'+l.length+' sur '+(ENT.liste||[]).length+'</span>'+
         (ENT.filtre?'<button class="btn-fant" style="padding:2px 10px;font-size:11.5px" onclick="entFiltre(\''+ENT.filtre+'\')">'+
-          esc({erreurs:'avec des erreurs',echecs:'avec des échecs de connexion',horsAnnuaire:'hors annuaire'}[ENT.filtre]||'')+' ✕</button>':'')+
+          esc({erreurs:'avec des erreurs',echecs:'avec des échecs de connexion',retard:'sans la dernière mise à jour',horsAnnuaire:'hors annuaire'}[ENT.filtre]||'')+' ✕</button>':'')+
       '</div>'+
       liste+'</div>'+
     '<div class="col-detail"><div class="col-detail-sticky">'+ficheEntreprise()+'</div></div></div>';
 }
+/* Ce que la fiche montre quand personne n'est choisi ne sert plus qu'à un cas : la liste
+   vide. On la garde donc, mais elle n'occupe plus la moitié de l'écran pour rien. */
 
 /* LA FICHE D'UNE ENTREPRISE — tout ce qui la concerne, et rien d'autre. Avant, l'onglet
    empilait sous la liste les espaces de TOUT LE MONDE puis les comptes de TOUT LE MONDE :
    on cliquait sur une entreprise et on lisait les données des autres. Ici chaque bloc est
    filtré sur celle qui est sélectionnée. */
+/* Un bloc qui n'a rien a dire ne merite pas une carte : blocEspaceDe() renvoie la
+   chaine vide quand l'entreprise n'a pas d'espace repertorie, et une carte vide a
+   l'ecran ne veut rien dire du tout. Ou le bloc parle, ou il n'existe pas. */
+function carteSi(html){ return html?'<div class="carte p24">'+html+'</div>':''; }
 function ficheEntreprise(){
   if(!ENT.sel) return '<div class="vide accueil"><span style="color:var(--dim)">'+svg('entreprises',28)+'</span>'+
     '<p>Choisissez une entreprise dans la liste.</p>'+
@@ -2672,7 +2742,7 @@ function ficheEntreprise(){
   /* Meme libelle et meme place que dans la Surveillance : un geste appris une fois. */
   var retour='<div class="ent-retour"><button class="btn-fant" onclick="entSel(\''+jsq(ENT.sel)+'\')">← Toutes les entreprises</button></div>';
   var nm=o.nom||o.slug||'(espace sans nom)';
-  var t=retour+'<div class="carte p24">'+
+  var t=retour+'<div class="fiche-page"><div class="carte p24 pleine">'+
     '<div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap">'+
       '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft);flex-shrink:0">'+esc(sigle(nm))+'</div>'+
       '<div style="flex:1;min-width:180px">'+
@@ -2694,11 +2764,15 @@ function ficheEntreprise(){
           : '<span style="color:var(--muted)">Aucun code promo.</span>')+
         '<br>OP MESSAGES : '+(o.opMessages?'<b style="color:var(--green)">ouvert</b>':'<span style="color:var(--muted)">fermé</span>')+
       '</div></div>'+
-    blocUtilisateurs()+
-    blocDossier()+
   '</div>'+
-  blocEspaceDe(o)+
-  blocComptesDe(o);
+  /* Chaque bloc devient une carte de la grille. Sur 1100 px et plus, deux colonnes ;
+     l'identite et la formule, elles, tiennent toute la largeur : c'est ce qu'on lit
+     en premier et ce qui doit rester au-dessus du reste. */
+  carteSi(blocUtilisateurs())+
+  carteSi(blocDossier())+
+  carteSi(blocEspaceDe(o))+
+  carteSi(blocComptesDe(o))+
+  '</div>';
   return t;
 }
 
@@ -2922,7 +2996,42 @@ function blocDossier(){
     puce((d.erreurs||[]).length,'erreurs',(d.erreurs||[]).length?'var(--redText)':'')+
     puce((d.connexions&&d.connexions.echecs||[]).length,'échecs de connexion',(d.connexions&&d.connexions.echecs||[]).length?'var(--amber)':'')+
   '</div>';
-  if(u.version) t+='<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Version utilisée : <b class="mono">v'+esc(u.version)+'</b>'+(u.dernier?' · vu le '+esc(fmtJour(u.dernier)):'')+'</div>';
+  /* ── LEURS VERSIONS ──
+     « Version utilisée » venait de usageData, qui n'en connaît QU'UNE : la dernière vue.
+     Une entreprise dont trois appareils sur cinq sont restés en arrière n'apparaissait
+     pas. Les connexions, elles, comptent par APPAREIL DISTINCT — sur tout l'historique,
+     sans fenêtre de temps : un téléphone vu une fois il y a un an y figure encore, et on
+     l'écrit plutôt que de laisser croire à un état courant. */
+  var ref=verReference();
+  var vObj=r.versions||{};
+  var vCles=Object.keys(vObj).sort(function(a,b){ return verNum(b)-verNum(a); });
+  if(vCles.length||u.version){
+    var hauteV=vCles.length?verNum(vCles[0]):verNum(u.version);
+    var retardV=!!ref&&hauteV<ref;
+    t+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">'+
+      '<div style="font-size:12px;font-weight:700;color:'+(retardV?'var(--amber)':'var(--muted)')+';margin-bottom:6px">'+
+        (retardV?'⬇ Ils n’ont pas la dernière mise à jour':'Leurs versions')+'</div>'+
+      (vCles.length
+        ? '<div style="display:flex;gap:6px;flex-wrap:wrap">'+vCles.map(function(v){
+            var vieux=!!ref&&verNum(v)<ref;
+            return '<span class="past '+(vieux?'p-ambre':'p-vert')+'" title="'+vObj[v]+' appareil(s) vu(s) sur cette version">v'+esc(v)+' · '+vObj[v]+' appareil'+(vObj[v]>1?'s':'')+'</span>';
+          }).join('')+'</div>'
+        : '<div style="font-size:12.5px;color:var(--text2)">v'+esc(u.version)+'</div>')+
+      '<div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.6">'+
+        (retardV
+          ? 'La version en ligne est la <b class="mono">v'+ref+'</b>. Tant qu’ils ne l’ont pas, les corrections publiées depuis ne sont pas chez eux — c’est la première chose à vérifier devant un bug qu’ils remontent.'
+          : (!ref
+              ? 'Version de référence inconnue tant qu’aucune connexion n’a remonté de version.'
+              : (vCles.length>1
+                  /* Troisième situation, et la plus parlante : ils ONT reçu la mise à jour,
+                     mais tous leurs postes ne l'ont pas ouverte. Un bug qui ne touche qu'une
+                     personne vient très souvent de là. */
+                  ? 'Ils ont la <b class="mono">v'+ref+'</b>, la version en ligne — mais <b>tous leurs appareils ne l’ont pas encore ouverte</b>. Un bug qui ne touche qu’une personne vient souvent de là.'
+                  : 'À jour sur la <b class="mono">v'+ref+'</b>, la version en ligne.')))+
+        (u.dernier?'<br>Dernier écran ouvert le '+esc(fmtJour(u.dernier))+'.':'')+
+        '<br><span style="color:var(--dim)">Compté par appareil distinct, sur tout l’historique : un appareil vu une seule fois y figure encore.</span>'+
+      '</div></div>';
+  }
   if(d.promo) t+='<div style="margin:8px 0;padding:9px 11px;border-radius:9px;background:var(--tint-gris);font-size:12.5px">🎁 Code <b class="mono">'+esc(d.promo.code)+'</b> — '+(d.promo.actif?'formule offerte jusqu’au <b>'+esc(d.promo.finLe)+'</b>':'terminée le '+esc(d.promo.finLe))+'</div>';
   /* Les echecs d'abord : « quelqu'un chez eux n'arrive pas a entrer » se traite avant tout. */
   var ech=(d.connexions&&d.connexions.echecs)||[];
@@ -2930,8 +3039,14 @@ function blocDossier(){
     ech.slice(0,5).map(function(e){ return '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+esc(fmtJour(e.ts))+' · <b>'+esc(e.login||'identifiant inconnu')+'</b>'+(e.motif?' — '+esc(e.motif):'')+'</div>'; }).join('')+'</div>';
   var er=(d.erreurs||[]);
   if(er.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--redText);margin-bottom:5px">🐛 Erreurs rencontrées</div>'+
-    er.slice(0,6).map(function(b){ return '<div style="font-size:12px;padding:5px 0;border-top:1px solid var(--line)"><div style="color:var(--text2)">'+esc(String(b.msg||'').slice(0,120))+'</div>'+
-      '<div style="color:var(--muted);font-size:11.5px;margin-top:1px">'+esc(fmtJour(b.ts))+(b.version?' · v'+esc(b.version):'')+(b.src?' · '+esc(b.src):'')+'</div></div>'; }).join('')+
+    er.slice(0,6).map(function(b){
+      /* Une erreur enregistrée sur une version dépassée est peut-être déjà corrigée : le
+         dire ici évite de rouvrir une enquête sur un bug qui n'existe plus. C'est le
+         rapprochement que Justin demandait, fait par l'écran plutôt qu'à la main. */
+      var perimee=!!ref&&b.version&&verNum(b.version)<ref;
+      return '<div style="font-size:12px;padding:5px 0;border-top:1px solid var(--line)"><div style="color:var(--text2)">'+esc(String(b.msg||'').slice(0,120))+'</div>'+
+      '<div style="color:var(--muted);font-size:11.5px;margin-top:1px">'+esc(fmtJour(b.ts))+(b.version?' · <span class="mono">v'+esc(b.version)+'</span>':'')+(b.src?' · '+esc(b.src):'')+
+      (perimee?' · <span style="color:var(--amber)">sur une version dépassée</span>':'')+'</div></div>'; }).join('')+
     (er.length>6?'<div style="font-size:11.5px;color:var(--muted);margin-top:5px">+ '+(er.length-6)+' autre(s)</div>':'')+'</div>';
   if(!er.length&&!ech.length) t+='<div style="margin-top:10px;font-size:12.5px;color:var(--green)">✓ Aucune erreur ni échec de connexion enregistré.</div>';
   var vues=(u.vues||[]).slice(0,6);
