@@ -4666,7 +4666,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '592';
+const APP_VERSION = '593';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5390,6 +5390,36 @@ async function syncAuth(){ try{
   const _u=firebase.auth().currentUser;
   if(_u) await _u.getIdToken();
 }catch(e){ try{ console.warn('auth sync :', e&&e.message); }catch(_e){} } }
+/* ══════════ UNE ÉQUIPE PASSE D'UNE VERSION À L'AUTRE ENSEMBLE ══════════════════════════
+   Demande de Justin, 8 septembre 2026 : « quand il y a une mise à jour, il faut que ça
+   synchronise tous les utilisateurs directement ».
+
+   Le contrôle automatique posé en v591 interroge le réseau toutes les quinze minutes. C'est
+   déjà sans bouton, mais un quart d'heure peut séparer deux appareils de la même équipe — et
+   c'est exactement l'écart qui produit les erreurs de synchro entre versions différentes.
+
+   La version voyage donc AVEC les données. Recevoir un instantané écrit par une version plus
+   récente que la sienne, c'est apprendre qu'une mise à jour existe : à la seconde, sans rien
+   demander au réseau. Le premier appareil qui passe entraîne tous les autres.
+
+   Deux garde-fous : production et bêta ne se comparent jamais (« 592 » et « 592-beta » ne
+   sont pas le même canal), et on ne réagit qu'à une version STRICTEMENT plus haute — sinon un
+   appareil en retard sur le réseau ferait redescendre les autres. Le rechargement lui-même
+   reste soumis aux mêmes conditions qu'en v591 : jamais pendant une saisie. */
+function majVersionVue(v){
+  try{
+    const moi=String(typeof APP_VERSION!=='undefined'?APP_VERSION:''), lui=String(v||'');
+    if(!moi||!lui||moi===lui) return;
+    const beta=x=>x.indexOf('beta')>=0;
+    if(beta(moi)!==beta(lui)) return;
+    const n=x=>parseInt(x,10)||0;
+    if(n(lui)<=n(moi)) return;
+    /* On demande quand même au service worker d'aller voir : c'est lui qui rangera la version
+       fraîche, et il se peut que ce soit le pair qui se trompe. */
+    try{ if(navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); }catch(e){}
+    if(typeof majArmer==='function') majArmer();
+  }catch(e){}
+}
 async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn||_syncDemarre) return; _syncDemarre=true;
   try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); await syncAuth(); const fs=firebase.firestore();
     _fbDoc=fs.collection('elan_teams').doc(syncTeam()); _syncOn=true; _syncGotInitial=false; try{updateSyncBtn();}catch(e){}
@@ -5397,7 +5427,11 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
       // Hors ligne (ou réseau trop lent), le SDK livre un instantané « depuis le cache », VIDE : il ne doit jamais
       // servir à amorcer l'espace ni à pousser quoi que ce soit — on attend un vrai instantané du serveur.
       if(!_syncGotInitial && snap.metadata && snap.metadata.fromCache) return;
-      const d=snap.data(); const plain=await syncReadRemote(d);
+      const d=snap.data();
+      /* AVANT tous les retours anticipés : même un instantané qu'on ignore (écrit par nous,
+         plus ancien que le nôtre) porte le numéro de version de celui qui l'a écrit. */
+      try{ majVersionVue(d&&d.ver); }catch(e){}
+      const plain=await syncReadRemote(d);
       // appareil qui vient de rejoindre l'espace (lien / code entreprise) : les données de l'équipe font foi, jamais la base de départ locale
       const frais=!!localStorage.getItem('elan_frais'); let premier=false;
       if(!_syncGotInitial){ _syncGotInitial=true; premier=true;
@@ -5450,7 +5484,7 @@ function planSyncDiff(oldDb,newDb,by){ try{
 setInterval(()=>{ try{ if(!currentUser||!_syncOn||_syncApplying) return; const u=(db.users||[]).find(x=>x.id===currentUser.id); if(!u) return;
   if(!u.lastSeen||Date.now()-u.lastSeen>120000){ u.lastSeen=Date.now(); save(); } }catch(e){} },60000);
 function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) return; clearTimeout(_syncTimer);
-  const go=async()=>{ try{ const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db)); _fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):'')}).catch(er=>console.error('push',er)); }catch(er){ console.error('encrypt',er); } };
+  const go=async()=>{ try{ const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db)); _fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||'')}).catch(er=>console.error('push',er)); }catch(er){ console.error('encrypt',er); } };
   if(now) go(); else _syncTimer=setTimeout(go,800); }
 function syncSave(){ const cfgT=(($('sync-cfg')||{}).value||'').trim(); const team=(($('sync-team')||{}).value||'').trim().toLowerCase();
   let cfg=null; try{ cfg=JSON.parse(cfgT); }catch(e){ toast('Configuration Firebase invalide (copie le JSON complet { … })'); return; }
@@ -17544,7 +17578,13 @@ function bonQteTot(b){ const ls=b.lignes||[];
            conv:ls.reduce((s,l)=>s+bonLU(l),0),
            allUpc:true }; }
 function bonQteTotTxt(b){ const t=bonQteTot(b); return t.u+' u'+(t.ctn?' (dont '+t.ctn+' carton'+(t.ctn>1?'s':'')+')':''); }
-let bonsTab='liste', bonsFilter='attente', bonsSearch='';
+/* « Par box » est le rangement par DÉFAUT — demande de Justin, 8 septembre 2026 : « je veux
+   que tous les bons après se rangent par box avec date et par mois, pour une meilleure
+   organisation de gestion ». Devant un historique de commandes, la question qu'on se pose
+   n'est pas « qu'est-ce qui est parti chez ARMOSA », c'est « qu'est-ce qui est parti pour
+   CETTE box, et quand ». Les trois autres rangements restent à un tap. */
+let bonsTab='box', bonsFilter='attente', bonsSearch='';
+let _bonMoisOuvert={};
 views.bons=function(){
   const mes=visibleBons(db.bons);   // ses box (ou les siens) — tout pour qui « voit tout »
   const att=mes.filter(b=>b.statut==='brouillon').length;
@@ -17555,7 +17595,7 @@ views.bons=function(){
       : `<span class="st" style="font-size:11px">👁️ Consultation seule</span>`);
   $('content').innerHTML=`
     <div class="filters" style="gap:0;background:var(--bg1);border:1px solid var(--brd);border-radius:10px;padding:3px;display:inline-flex">
-      ${[['liste','Liste'],['site','Par site'],['fournisseur','Par fournisseur']].map(([k,l])=>`<div onclick="bonsTab='${k}';views.bons()" style="padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;${bonsTab===k?'background:var(--acc);color:var(--on-acc)':'color:var(--t2)'}">${l}</div>`).join('')}
+      ${[['box','Par box'],['liste','Liste'],['site','Par site'],['fournisseur','Par fournisseur']].map(([k,l])=>`<div onclick="bonsTab='${k}';views.bons()" style="padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;${bonsTab===k?'background:var(--acc);color:var(--on-acc)':'color:var(--t2)'}">${l}</div>`).join('')}
     </div>
     <div class="filters" style="margin-top:12px">
       <div class="chip ${bonsFilter==='attente'?'active':''}" onclick="bonsFilter='attente';views.bons()">🛒 En préparation ${att?`(${att})`:''}</div>
@@ -17620,6 +17660,7 @@ function renderBonsList(){
       <button class="btn ghost sm" title="Voir le PDF" onclick="bonPdfOpen('${b.id}')">📄</button>
       ${b.statut==='brouillon'?`<button class="btn sm" onclick="bonStatut('${b.id}','prete')">✓ Prêt</button>`:b.statut==='prete'?`<button class="btn sm" onclick="envoiBonApercu('${b.id}')">✉️ Envoyer</button>`:''}
       <button class="btn danger sm" onclick="delItem('bons','${b.id}')">🗑</button></span></div>`; };
+  if(bonsTab==='box'){ el.innerHTML=bulkBtn+bonsParBoxHtml(list,bonRow); return; }
   if(bonsTab==='liste'){ el.innerHTML=bulkBtn+list.map(bonRow).join(''); return; }
   // groupé par site ou fournisseur
   const keyFn = bonsTab==='site' ? (b=>b.nomSiteLivraison||'Sans site') : (b=>fournName(b.fournisseurId)||b.fournisseur||'Sans fournisseur');
@@ -17627,6 +17668,38 @@ function renderBonsList(){
   el.innerHTML=Object.keys(groups).sort().map(g=>{
     return `<div class="card"><div class="card-head" style="margin-bottom:10px"><h3>${esc(g)}</h3><span style="margin-left:auto;color:var(--t3);font-size:13px">${groups[g].length} commande(s)</span></div>${groups[g].map(bonRow).join('')}</div>`;}).join('');
 }
+/* Une box, puis ses mois. Le mois le plus récent est ouvert d'office : c'est celui qu'on
+   vient chercher neuf fois sur dix ; les autres attendent d'être touchés, sinon un an de
+   commandes déroule un écran de plusieurs mètres. Chaque ligne garde sa date — c'est déjà
+   ce que `bonRow` affiche, on ne la répète pas. */
+function bonsParBoxHtml(list,bonRow){
+  const parBox={};
+  list.forEach(b=>{ const k=b.boxId||''; (parBox[k]=parBox[k]||[]).push(b); });
+  /* Les box nommées d'abord, « Sans box » en dernier : une commande sans box est une
+     exception, pas une catégorie qu'on veut lire en premier. */
+  const cles=Object.keys(parBox).sort((a,b)=>{
+    if(!a) return 1; if(!b) return -1;
+    return String(boxLabel(a)||'').localeCompare(String(boxLabel(b)||'')); });
+  return cles.map(bid=>{
+    const bons=parBox[bid];
+    const nom=bid?(boxLabel(bid)||'Box supprimée'):'Sans box';
+    const mois={}; bons.forEach(b=>{ const k=(b.date||'').slice(0,7)||'—'; (mois[k]=mois[k]||[]).push(b); });
+    const mcles=Object.keys(mois).sort().reverse();
+    if(_bonMoisOuvert[bid]===undefined) _bonMoisOuvert[bid]=mcles[0];
+    return `<div class="card" style="padding:12px 14px">
+      <div class="card-head" style="margin-bottom:10px"><h3>🧱 ${esc(nom)}</h3><span style="margin-left:auto;color:var(--t3);font-size:13px">${bons.length} commande${bons.length>1?'s':''}</span></div>
+      ${mcles.map(mk=>{ const ouvert=(_bonMoisOuvert[bid]===mk), bs=mois[mk];
+        const arts=bs.reduce((t,x)=>t+((x.lignes||[]).length),0);
+        return `<div class="dmo${ouvert?' on':''}">
+          <button type="button" class="dmo-h" onclick="bonMoisBascule('${bid}','${ouvert?'':mk}')" aria-expanded="${ouvert?'true':'false'}">
+            <span class="dmo-t">${esc(demMoisLabel(mk))}</span>
+            <span class="dmo-n">${bs.length} commande${bs.length>1?'s':''} · ${arts} article${arts>1?'s':''}</span>
+            <span class="dmo-c" aria-hidden="true">${ouvert?'⌄':'›'}</span></button>
+          ${ouvert?`<div class="dmo-l">${bs.map(bonRow).join('')}</div>`:''}
+        </div>`; }).join('')}
+    </div>`; }).join('');
+}
+function bonMoisBascule(bid,mk){ _bonMoisOuvert[bid]=mk; renderBonsList(); }
 /* ═══════════════ 📧 BOÎTE MAIL INTÉGRÉE ═══════════════
    Écrire à n'importe qui depuis l'app (au nom de l'utilisateur + entreprise), pièce jointe possible,
    et recevoir les réponses dans l'app — sans jamais ouvrir une boîte mail externe. */
