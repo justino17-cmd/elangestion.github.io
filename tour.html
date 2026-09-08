@@ -512,6 +512,42 @@ body.jour .reg-l.cli,body.jour .reg-l.haut{--rougeBg:rgba(179,46,46,.10);--ambre
   transition:background-color var(--d-1) var(--e-sortie)}
 .reg-tech-l:hover{background:var(--hover);color:var(--strong)}
 
+/* ── LES QUATRE CHIFFRES DU DOSSIER ─── « 5 échecs de connexion » ne disait pas POURQUOI ───
+   Demande de Justin, 8 septembre 2026. Le chiffre était mort : il devient une porte.
+   Seule la puce qui MÈNE quelque part devient un bouton — une puce cliquable qui n'ouvre
+   rien apprend à l'œil qu'on ne clique nulle part ici, et coûte les trois autres. */
+.dsr-p{flex:1 1 82px;min-width:82px;text-align:left;padding:7px 9px;border-radius:var(--r-2);
+  background:none;border:0;color:inherit;font:inherit}
+button.dsr-p{cursor:pointer;min-height:56px;-webkit-tap-highlight-color:transparent;
+  box-shadow:inset 0 0 0 1px var(--hairline);
+  transition:background-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie)}
+button.dsr-p:hover{background:var(--hover)}
+button.dsr-p:active{background:var(--sel);transition-duration:var(--d-0)}
+button.dsr-p:focus-visible{outline:none;box-shadow:var(--anneau)}
+.dsr-n{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.dsr-l{font-size:11.5px;color:var(--muted);line-height:1.35}
+/* Le chevron dit « ça s'ouvre » sans ajouter un mot : à cette taille, « voir le détail »
+   ferait une deuxième ligne et mangerait le libellé. */
+.dsr-x{display:inline-block;margin-left:4px;color:var(--acc);font-weight:700;
+  transition:transform var(--d-1) var(--e-sortie)}
+button.dsr-p[aria-expanded="true"] .dsr-x{transform:rotate(90deg)}
+
+/* ── POURQUOI ILS N'ENTRENT PAS ─── le panneau qui s'ouvre sous les chiffres ───
+   Cinq motifs seulement existent côté app.html, et ils n'appellent pas la même action : trois
+   ne demandent RIEN (l'identifiant n'existe pas, le mot de passe est oublié, le compte a été
+   coupé par leur propre administrateur) et un seul est de notre côté. Afficher le motif brut
+   les mettait tous les cinq sur le même plan. */
+.ech-p{margin-top:10px;border-radius:var(--r-3);box-shadow:inset 0 0 0 1px var(--hairline);overflow:hidden}
+.ech-g{padding:11px 13px}
+.ech-g+.ech-g{border-top:1px solid var(--line)}
+.ech-gt{font-size:13px;font-weight:600;color:var(--strong);line-height:1.4}
+.ech-gq{font-family:var(--fm);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ech-gd{font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:3px}
+.ech-gl{font-size:12px;color:var(--text2);line-height:1.6;margin-top:7px}
+.ech-gl b{font-weight:600;color:var(--strong)}
+.ech-h{font-family:var(--fm);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ech-notre{box-shadow:inset 2px 0 0 var(--amber)}
+
 /* ── LE RIDEAU ─── les lignes ne sont plus des .item, la cascade #vue.entre .item ne les
    atteint donc plus et la liste apparaîtrait d'un bloc. C'est le GROUPE qui se pose, pas la
    ligne : quatre délais au lieu de sept, et c'est le RANGEMENT qui s'annonce. */
@@ -1998,6 +2034,59 @@ function chargerAccesPublics(){
        restait figé, et on recliquait en croyant que ça n'avait pas pris. */
     PBL.loaded=true; rafraichirSiConcerne();
   }).catch(function(){ PBL.err='Serveur injoignable — impossible de lister les accès publics.'; PBL.loaded=true; rafraichirSiConcerne(); });
+}
+/* ── POURQUOI ILS N'ARRIVENT PAS À SE CONNECTER ────────────────────────────────────────────
+   Demande de Justin, 8 septembre 2026 : « j'aimerais pouvoir cliquer dessus et savoir
+   pourquoi ils ont eu un échec de connexion ».
+   app.html n'envoie que CINQ motifs (vérifié dans le code, pas supposé), et un seul est de
+   notre côté. Les afficher bruts les mettait tous sur le même plan : « identifiant inconnu »
+   — quelqu'un tape un identifiant qui n'existe pas, il n'y a rien à faire — se lisait comme
+   « comptes pas encore arrivés », qui veut dire que NOTRE synchro n'avait pas fini. D'où la
+   traduction, et le liseré ambre sur le seul motif qui appelle une enquête.
+   Aucun changement de serveur : ts, login, motif et appareil sont déjà renvoyés par
+   /api/monitor/espace. Cet écran se publie donc par Pages seul. */
+var ECH_SENS={
+  'identifiant inconnu':{t:'Cet identifiant n’existe pas chez eux',
+    d:'Une faute de frappe, un ancien identifiant, ou quelqu’un d’extérieur qui essaie. Rien à corriger de notre côté.'},
+  'mot de passe incorrect':{t:'Le compte existe, le mot de passe non',
+    d:'Oublié. Un mot de passe provisoire se pose depuis leur fiche utilisateur (🔑), dans la liste de gauche.'},
+  'compte désactivé':{t:'Compte coupé par leur propre administrateur',
+    d:'Le mot de passe était bon. C’est leur entreprise qui a fermé l’accès — normal, sauf si c’est une erreur de leur part.'},
+  'comptes pas encore arrivés':{t:'La synchro n’avait pas fini',nous:true,
+    d:'C’est de notre côté : l’appareil n’avait pas encore reçu les comptes de l’entreprise. Réseau lent, ou synchro en panne — le seul motif de cette liste qui mérite une enquête.'},
+  'bêta refusée':{t:'Accès bêta refusé par le serveur',
+    d:'L’accès a été coupé depuis l’onglet Accès, ou n’a jamais existé.'}
+};
+/* L'état d'ouverture vit dans DOS, jamais dans le DOM : la vue est reconstruite par
+   innerHTML à chaque render(), et un pli qui se referme tout seul est un bug — même
+   raison qu'au pavé des espaces techniques (voir le CSS .reg-tech). */
+function dossierEchecs(){ DOS.echecs=!DOS.echecs; rafraichirSiConcerne(); }
+function blocEchecsDetail(ech){
+  /* Groupé par motif, pas par ordre chronologique : cinq lignes « mot de passe incorrect »
+     à la suite sont UNE histoire — quelqu'un a oublié son mot de passe — pas cinq incidents.
+     C'est la lecture que la liste plate ne donnait pas. */
+  var par={}, ordre=[];
+  ech.forEach(function(e){ var m=e.motif||'motif non enregistré';
+    if(!par[m]){ par[m]=[]; ordre.push(m); } par[m].push(e); });
+  var t='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:6px">🔑 Pourquoi ils n’arrivent pas à se connecter</div><div class="ech-p">';
+  ordre.forEach(function(m){
+    var l=par[m];
+    var s=ECH_SENS[m]||{t:m,d:'Motif inconnu de cette console — il vient peut-être d’une version plus récente de l’application.'};
+    /* Les événements arrivent du plus récent au plus ancien (cnxData fait unshift) :
+       le premier de chaque groupe est donc la dernière tentative. */
+    var qui={}, ordreQui=[];
+    l.forEach(function(e){ var k=e.login||'(sans identifiant)';
+      if(!qui[k]){ qui[k]={n:0,der:e}; ordreQui.push(k); } qui[k].n++; });
+    t+='<div class="ech-g'+(s.nous?' ech-notre':'')+'">'+
+      '<div class="ech-gt">'+esc(s.t)+' <span class="ech-gq">· '+l.length+(l.length>1?' fois':' fois')+'</span></div>'+
+      '<div class="ech-gd">'+esc(s.d)+'</div>'+
+      '<div class="ech-gl">'+ordreQui.map(function(k){ var o=qui[k];
+        return '<b>'+esc(k)+'</b>'+(o.n>1?' × '+o.n:'')+
+          ' <span class="ech-h">'+esc(fmtJour(o.der.ts))+' à '+esc(fmtHeure(o.der.ts))+'</span>'+
+          (o.der.appareil?' <span class="ech-h">· '+esc(o.der.appareil)+'</span>':'');
+      }).join('<br>')+'</div></div>';
+  });
+  return t+'</div></div>';
 }
 function rafraichirSiConcerne(){
   /* 'abonnements' manquait : les codes promo arrivaient dans PRO sans que l'écran qui les
@@ -4525,12 +4614,21 @@ function blocDossier(){
   if(!DOS.loaded) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">Chargement du dossier…</div></div>';
   if(DOS.err) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">'+esc(DOS.err)+'</div></div>';
   var d=DOS.d||{}, r=(d.connexions&&d.connexions.resume)||{}, u=d.usage||{};
-  var puce=function(n,l,c){ return '<div style="flex:1;min-width:82px"><div style="font-size:19px;font-weight:700'+(c?';color:'+c:'')+'">'+n+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
-  t+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 4px">'+
+  /* Une puce devient un BOUTON dès qu'elle mène quelque part (4e argument), et seulement
+     là : rendre cliquable ce qui n'ouvre rien apprend à l'œil qu'on ne clique nulle part
+     ici, et fait perdre les trois autres avec. */
+  var puce=function(n,l,c,act){
+    var dedans='<div class="dsr-n"'+(c?' style="color:'+c+'"':'')+'>'+n+'</div>'+
+               '<div class="dsr-l">'+l+(act?'<span class="dsr-x">›</span>':'')+'</div>';
+    return act ? '<button class="dsr-p" type="button" aria-expanded="'+(DOS.echecs?'true':'false')+'" onclick="'+act+'">'+dedans+'</button>'
+               : '<div class="dsr-p">'+dedans+'</div>';
+  };
+  var nEch=((d.connexions&&d.connexions.echecs)||[]).length;
+  t+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px">'+
     puce(r.utilisateurs7||0,'personnes · 7 j')+
     puce(u.total||0,'écrans ouverts')+
     puce((d.erreurs||[]).length,'erreurs',(d.erreurs||[]).length?'var(--redText)':'')+
-    puce((d.connexions&&d.connexions.echecs||[]).length,'échecs de connexion',(d.connexions&&d.connexions.echecs||[]).length?'var(--amber)':'')+
+    puce(nEch,'échecs de connexion',nEch?'var(--amber)':'',nEch?'dossierEchecs()':'')+
   '</div>';
   /* ── LEURS VERSIONS ──
      « Version utilisée » venait de usageData, qui n'en connaît QU'UNE : la dernière vue.
@@ -4573,8 +4671,12 @@ function blocDossier(){
   if(d.promo) t+='<div style="margin:8px 0;padding:9px 11px;border-radius:9px;background:var(--tint-gris);font-size:12.5px">🎁 Code <b class="mono">'+esc(d.promo.code)+'</b> — '+(d.promo.actif?'formule offerte jusqu’au <b>'+esc(d.promo.finLe)+'</b>':'terminée le '+esc(d.promo.finLe))+'</div>';
   /* Les echecs d'abord : « quelqu'un chez eux n'arrive pas a entrer » se traite avant tout. */
   var ech=(d.connexions&&d.connexions.echecs)||[];
-  if(ech.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:5px">🔑 N’arrivent pas à se connecter</div>'+
-    ech.slice(0,5).map(function(e){ return '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+esc(fmtJour(e.ts))+' · <b>'+esc(e.login||'identifiant inconnu')+'</b>'+(e.motif?' — '+esc(e.motif):'')+'</div>'; }).join('')+'</div>';
+  /* Fermé : les cinq dernières lignes, comme avant. Ouvert (le chiffre a été cliqué) : le
+     même contenu groupé par motif, avec l'heure et ce que chaque motif veut dire. On ne
+     montre pas les deux — c'était déjà l'écran le plus chargé de la Tour. */
+  if(ech.length) t+= DOS.echecs ? blocEchecsDetail(ech)
+    : '<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:5px">🔑 N’arrivent pas à se connecter</div>'+
+      ech.slice(0,5).map(function(e){ return '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+esc(fmtJour(e.ts))+' · <b>'+esc(e.login||'identifiant inconnu')+'</b>'+(e.motif?' — '+esc(e.motif):'')+'</div>'; }).join('')+'</div>';
   var er=(d.erreurs||[]);
   if(er.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--redText);margin-bottom:5px">🐛 Erreurs rencontrées</div>'+
     er.slice(0,6).map(function(b){

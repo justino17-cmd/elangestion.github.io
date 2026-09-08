@@ -5042,8 +5042,16 @@ const COLLECTIONS_DONNEES=['techniciens','clients','interventions','boxes','enve
 const APPAREIL_DEJA_VU = (function(){ try{
   const rendu = localStorage.getItem('elanB_repli_v1');
   if(rendu !== null) return rendu === '1';   // déjà jugé : on ne rejuge pas sur nos propres traces
+  /* ⚠️ Ces quatre clés sont écrites par les pages SŒURS du site (connexion.html,
+     espace.html) : elles peuvent exister sur un appareil qui n'a JAMAIS ouvert OP GESTION.
+     connexion.html pose elan_savedLogin juste avant de rediriger vers app.html — la compter
+     ferait passer un appareil neuf pour un ancien et le rattacherait au repli, précisément
+     ce qu'on ferme ici. On ne lit donc que les traces laissées par l'application elle-même.
+     Les trois autres disent déjà un rattachement, et elan_sync_team est testée à part. */
+  const duSite = ['elanB_savedLogin','elanB_sync_on','elanB_sync_secret','elanB_sync_team'];
   let vu = false;
-  for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k && k.indexOf('elan')===0){ vu = true; break; } }
+  for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
+    if(k && k.indexOf('elan')===0 && duSite.indexOf(k)<0){ vu = true; break; } }
   localStorage.setItem('elanB_repli_v1', vu ? '1' : '0');
   return vu;
 }catch(e){ return true; } })();
