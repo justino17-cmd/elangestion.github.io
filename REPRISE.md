@@ -96,6 +96,69 @@ Ce n'est pas une régression et ça ne vient pas d'un lot récent. Signalé par 
 8 septembre 2026, laissé de côté délibérément : ça se conçoit, se teste et se publie seul.
 C'est le même chantier que celui du teamId — les deux se tiennent.
 
+## Journée du 8 septembre 2026 — huit lots partis depuis le terrain (v576 → v584)
+
+Justin était **chez ELAN**, et a signalé les gênes au fur et à mesure. Tout est publié et
+vérifié sur les fichiers réellement servis. Aucun de ces lots ne touche `server/`.
+
+| Version | Ce qui était cassé, et la vraie cause |
+|---|---|
+| **v576** | À chaque mouvement de stock, la synchro renvoyait à la liste des box. Une vue de DÉTAIL n'est pas `views[current]` : `views.boxes()` rend la liste. Chaque détail dépose désormais de quoi se redessiner (`ecranDetail`/`refreshEcran`). Corrige aussi fiches client, interventions, chantiers. |
+| **v576** | Le tableau de bord affichait planning, produits à commander, demandes et bons à qui n'a pas la rubrique — la règle ne valait que pour les cartes du haut. |
+| **v577** | « Je clique et ça marche pas » sur la barre d'onglets. Le **toast** masqué n'est pas retiré : `translateY(120px)` le pose EXACTEMENT sur la barre (mesuré à 390 px : toast 773–818, barre 786–844). Trois onglets sur cinq morts, en permanence. `pointer-events:none`, sauf « ↩︎ Annuler ». |
+| **v577** | Notifications dans le désordre : `dateValidation` ne porte qu'une date, donc toutes les décisions du jour étaient horodatées à midi. `tsValidation` posé à la décision. |
+| **v578** | Deux systèmes de permissions qui se contredisaient. La fiche n'enregistrait QUE ce qui différait du rôle : cocher une case déjà vraie pour le rôle n'écrivait rien, et l'accès changeait plus tard sans que personne n'ait rouvert la fiche. **La fiche fait loi.** Progressif : un compte jamais enregistré suit le rôle comme avant. |
+| **v579** | Sélection multiple de produits dans une box. Le lot existait déjà (`boxMvtAttente`) ; ce qui manquait c'était de DÉSIGNER plusieurs produits. La liste rappelle `boxAdj` en silence (`_boxLotSilence`) — la règle « DR ou pas » n'existe donc toujours qu'à un endroit. |
+| **v579** | **On pouvait descendre sous zéro.** Le garde-fou lisait le stock ACTUEL ; avec validation DR le stock ne bouge qu'après l'accord, donc deux taps sur 1 unité donnaient −2 en attente. `boxDispoU()` compte ce qui est déjà en attente. |
+| **v580** | Demande d'ELAN : leurs DR voient les commandes et le PDF pour comparer à l'arrivage, sans en passer. Droit « Bons de commande : consultation seule ». Sept portes verrouillées au niveau des FONCTIONS, pas des boutons. |
+| **v580** | L'adresse d'envoi d'un bon ne se voyait qu'après l'aperçu, dans une fenêtre à part. L'aperçu porte maintenant « Expéditeur » à côté de « Destinataire », modifiable, et le choix est rangé sur le bon. |
+
+⚠️ **Deux pièges à ne pas réintroduire**, tous deux attrapés en mesurant avant publication :
+
+- **Un droit nouveau doit être écrit dans le sens qui préserve l'existant.** `CAPS` met tous
+  les rôles à zéro : un droit « peut créer des bons » aurait valu NON par défaut et retiré la
+  création à tous ceux qui l'ont, sans que personne n'ait rien décoché. D'où
+  `bonsLectureSeule`, formulé en négatif.
+- **`userCap()` répond OUI à TOUT pour un administrateur.** Sur un droit inversé, ce oui
+  devient « il est en consultation seule » — l'administrateur perdait la création de bons.
+  Tout droit écrit en négatif doit traiter l'administrateur à part.
+
+**Ce qu'ELAN doit faire pour en profiter** : cocher « Bons de commande : consultation seule »
+sur la fiche de chaque DR (Utilisateurs → ✎), et leur donner la rubrique « Commandes en
+cours ». Rien n'est activé d'office.
+
+### Le soir du 8 septembre — v581 à v584
+
+| Version | Ce qui change |
+|---|---|
+| **v581** | « Repartir sur une base propre » : remise à zéro à la carte, huit lignes, sauvegarde `.json` téléchargée avant. Box, produits, fournisseurs, comptes et réglages ne sont JAMAIS touchés. |
+| **v582–583** | La liste de prélèvement se compose en tapant sur − et ＋, reste en brouillon, et ne part au DR qu'au « Valider ». Un DR peut donner la main pendant ses congés (dates, remplaçant, trace dans les deux historiques, extinction automatique au retour). |
+| **v584** | **On peut ÉCRIRE la quantité.** Le chiffre entre − et ＋ était un `<b>` : rien à toucher, dix taps pour dix unités. Il devient un bouton qui ouvre « Combien ? » — on écrit le nombre, on choisit le sens, et les DEUX issues sont écrites avant de valider. Un seul mouvement de −10 au journal, pas dix de −1. |
+| **v584** | La liste s'ouvre en grand : chaque ligne porte son nombre écrivable, son sens, ce qu'il restera, et on ajoute un autre produit de la box sans fermer. Jamais sous zéro, même au clavier — on plafonne et on le dit. |
+| **v584** | **« Permissions » quitte le menu.** Il n'y avait pas deux systèmes de droits : il y avait deux ENDROITS pour régler le même, d'où « il faut valider dans les deux ». Dans Utilisateurs, on touche un nom et tout s'affiche ; « ✎ Modifier » ouvre sa fiche, qui gagne les sous-droits par catégorie (＋ Ajouter / ✎ Modifier / 🗑 Supprimer) — ils n'existaient que dans l'écran supprimé. Le réglage PAR RÔLE reste à part, depuis l'en-tête. |
+| **v584** | « Mes demandes » et « Historique demandes » ne font plus qu'un écran, deux onglets, historique replié par mois. |
+| **v584** | Congés DR : le remplaçant voit AUSSI les box de l'absent, aux dates de la délégation. Valider un mouvement sur un stock qu'on ne peut pas ouvrir, ce n'était pas valider. |
+
+**La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
+navigateur, compte par compte) :
+
+- **« Commandes en cours » ne montre que les bons des box qu'on voit.** `visibleBons` →
+  `mesBoxIds()` → `visibleBoxes()`. Donc : pour qu'un DR voie les commandes des box de son
+  chef d'équipe, il faut soit « Tout voir », soit que ces box lui soient rattachées
+  (responsable, ou cochées pour lui).
+- **Par défaut, `db.permissions` donne « Tout voir » au DR ET au chef d'équipe.** Un chef
+  d'équipe voit donc tout jusqu'à ce qu'on le lui retire — c'est le contraire de ce que
+  croient les entreprises.
+- `CAPS` (le socle) met tous les rôles à zéro ; c'est `db.permissions` qui ouvre. Les deux
+  se lisent dans cet ordre : fiche de la personne, puis rôle de l'entreprise, puis `CAPS`.
+
+**Reste demandé et non fait** : rendre la Tour de contrôle cohérente — « il y a beaucoup trop
+de choses pour que ça soit cohérent et logique ». Les dix écrans ont été capturés et mesurés
+(médiane 12 boutons et 225 mots par écran, l'Accueil à 22 boutons et 2 405 px). Les quatre
+cadrages proposés ne correspondaient pas à ce qu'il voulait dire — **à reprendre avec lui, sans
+deviner.** Trouvé au passage : l'onglet affiché « Accès » s'appelle `essais` dans le code, et
+`.lien-sortie` est du CSS mort.
+
 ## Chantiers en cours
 
 ### Démarrage vierge — **FAIT ET PUBLIÉ en v574 le 8 septembre 2026**
