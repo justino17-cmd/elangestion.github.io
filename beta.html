@@ -4651,7 +4651,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '586-beta';
+const APP_VERSION = '587-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -16110,6 +16110,10 @@ function boxBrouillonLigne(boxId,pid){
 /* Envoyer la liste : c'est ICI, et seulement ici, que le DR est prévenu. */
 function boxBrouillonValider(boxId){
   var lot=boxBrouillon(boxId); if(!lot||!(lot.lignes||[]).length){ toast('Ta liste est vide'); return; }
+  /* Une ligne restée à zéro, c'est une intention abandonnée en cours de saisie : elle ne
+     demande rien. L'envoyer au DR lui ferait valider un mouvement qui ne bouge rien. */
+  lot.lignes=(lot.lignes||[]).filter(function(l){ return ((+l.du||0)+(+l.dc||0))!==0; });
+  if(!lot.lignes.length){ toast('Aucune quantité — écris ce que tu prends ou ce que tu reposes'); return; }
   lot.statut='enAttente'; lot.ts=Date.now();
   logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock');
   boxMvtPrevenir(lot);
@@ -16289,9 +16293,21 @@ function boxListeModal(boxId){
 function boxListeVider(){ var id=_listeBox; closeModal(); boxBrouillonVider(id); }
 /* Une ligne, rendue seule : le changement de sens la réécrit sans toucher aux autres, donc
    sans faire sauter le clavier de celle où l'on écrit. */
+/* ⛔ LE SENS NE SE DÉDUIT PLUS DU NOMBRE — signalé par Justin, 8 septembre 2026 : « quand je
+   choisis l'un des deux, après ça reste bloqué sur l'autre ».
+   Le sens se lisait sur le signe de `du`. À zéro, il n'y a pas de signe : `0 <= 0` renvoyait
+   « je retire » quoi qu'on ait touché. Toucher « J'ajoute » écrivait donc du = +1 × 0 = 0, et
+   le redessin rallumait « Je retire ». Bloqué — et exactement sur un produit à 0 en stock, où
+   « je retire » est justement le seul sens impossible.
+   Le sens est donc PORTÉ par la ligne. Il survit au zéro, et il se change à vide. */
+function boxLigneSens(l){
+  if(l&&(l.sens===-1||l.sens===1)) return l.sens;
+  var q=(+((l||{}).du)||0)+(+((l||{}).dc)||0);
+  return q>0?1:-1;   // lignes d'avant cette version : on retombe sur leur signe
+}
 function boxListeLigne(b,l){
   var p=produit(l.produitId)||{}; var s=(b.stock&&b.stock[l.produitId])||{u:0,ctn:0};
-  var q=(+l.du||0), n=Math.abs(q), neg=q<=0;
+  var n=Math.abs(+l.du||0), neg=boxLigneSens(l)<0;
   var pid=l.produitId;
   return '<div class="bl-h"><div class="bl-nom">'+esc(p.nom||'Produit supprimé')+'</div>'+
       '<button type="button" class="bl-x" onclick="boxListeRetirer(\''+pid+'\')" aria-label="Retirer de la liste">✕</button></div>'+
@@ -16311,8 +16327,10 @@ function boxListeLigne(b,l){
 function boxListeReste(b,l){
   var s=(b.stock&&b.stock[l.produitId])||{u:0}; var q=(+l.du||0);
   /* « Il restera » ne veut rien dire quand on repose du matériel : on dit alors « il y en
-     aura ». Deux mots, mais c'est la phrase qu'on relit avant d'engager le DR. */
-  return (s.u||0)+' en stock · '+(q>0?'il y en aura':'il restera')+' <b>'+Math.max(0,(s.u||0)+q)+'</b>'+
+     aura ». Deux mots, mais c'est la phrase qu'on relit avant d'engager le DR. À zéro, c'est
+     le sens choisi qui décide de la phrase — pas le signe, qui n'existe pas. */
+  var plus=(q>0)||(q===0&&boxLigneSens(l)>0);
+  return (s.u||0)+' en stock · '+(plus?'il y en aura':'il restera')+' <b>'+Math.max(0,(s.u||0)+q)+'</b>'+
     ((+l.dc||0)?' · '+(+l.dc>0?'+':'−')+Math.abs(+l.dc)+' carton'+(Math.abs(+l.dc)>1?'s':''):'');
 }
 function boxListeRender(){
@@ -16344,13 +16362,13 @@ function boxListeSet(pid,v){
   var li=(lot.lignes||[]).find(function(l){ return l.produitId===pid; }); if(!li) return;
   var b=db.boxes.find(function(x){ return x.id===_listeBox; });
   var s=(b&&b.stock&&b.stock[pid])||{u:0};
-  var sgn=((+li.du||0)<=0)?-1:1;
+  var sgn=boxLigneSens(li);
   var n=Math.abs(parseInt(v,10)||0);
   /* ⛔ Jamais sous zéro, même écrit — et c'est ICI que le garde-fou compte le plus : un doigt
      sur « − » ne peut pas dépasser d'un coup, un clavier si. On plafonne et on le dit, plutôt
      que de refuser la frappe : un champ qui se bat contre celui qui écrit est un champ cassé. */
   if(sgn<0 && n>(s.u||0)){ n=(s.u||0); var i=$('bl-i-'+pid); if(i) i.value=n; toast('Il n’y en a que '+n+' dans la box'); }
-  li.du=sgn*n;
+  li.sens=sgn; li.du=sgn*n;
   boxListeMaj(pid);
 }
 function boxListeStep(pid,d){
@@ -16358,10 +16376,10 @@ function boxListeStep(pid,d){
   var li=(lot.lignes||[]).find(function(l){ return l.produitId===pid; }); if(!li) return;
   var b=db.boxes.find(function(x){ return x.id===_listeBox; });
   var s=(b&&b.stock&&b.stock[pid])||{u:0};
-  var sgn=((+li.du||0)<=0)?-1:1;
+  var sgn=boxLigneSens(li);
   var n=Math.max(0,Math.abs(+li.du||0)+d);
   if(sgn<0 && n>(s.u||0)){ n=(s.u||0); toast('Il n’y en a que '+n+' dans la box'); }
-  li.du=sgn*n;
+  li.sens=sgn; li.du=sgn*n;
   var i=$('bl-i-'+pid); if(i) i.value=n;
   boxListeMaj(pid);
 }
@@ -16371,8 +16389,10 @@ function boxListeSens(pid,sens){
   var b=db.boxes.find(function(x){ return x.id===_listeBox; }); if(!b) return;
   var s=(b.stock&&b.stock[pid])||{u:0};
   var n=Math.abs(+li.du||0);
-  if(sens<0 && n>(s.u||0)) n=(s.u||0);
-  li.du=sens*n;
+  /* On dit pourquoi le nombre retombe à zéro : sans un mot, un champ qui se vide tout seul
+     passe pour la panne qu'on vient justement de corriger. */
+  if(sens<0 && n>(s.u||0)){ n=(s.u||0); toast((s.u||0)?'Il n’y en a que '+n+' dans la box':'Il n’y en a plus dans cette box'); }
+  li.sens=sens; li.du=sens*n;
   var r=$('bl-r-'+pid); if(r) r.innerHTML=boxListeLigne(b,li);
   boxListeMaj(pid);
 }
@@ -16422,7 +16442,7 @@ function boxListeAjout(pid){
   var s=(b.stock&&b.stock[pid])||{u:0};
   /* Un produit qu'on ajoute à la liste, c'est presque toujours pour en prendre. On part donc
      à −1 quand il y en a, à +1 quand la box est vide — et le sens reste changeable d'un tap. */
-  lot.lignes.push({produitId:pid,du:(s.u||0)>0?-1:1,dc:0});
+  lot.lignes.push({produitId:pid,du:(s.u||0)>0?-1:1,dc:0,sens:(s.u||0)>0?-1:1});
   lot.ts=Date.now(); save();
   _listeRech=''; boxListeRender(); renderBoxProdList();
 }
