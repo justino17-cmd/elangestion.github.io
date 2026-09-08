@@ -2472,6 +2472,62 @@ html[data-refonte][data-theme="light"]{
   }
 }
 
+/* ══════════ LA COULEUR D'ACCENT RETROUVE SON EFFET ═════════════════════════════════════
+   Signalé par Justin le 8 septembre 2026 : « avant, quand on changeait les couleurs, ça
+   changeait les couleurs du thème total. Pourquoi je ne l'ai plus ? »
+
+   La cause, et elle est arithmétique. Les accents nommés vivent en haut de la feuille sur
+   `html[data-accent="purple"]` — spécificité (0,1,1). La feuille de la refonte redéfinit
+   `--acc` sur `html[data-refonte]` — (0,1,1) aussi. À spécificité ÉGALE, c'est le dernier écrit
+   qui gagne : la refonte est 2 300 lignes plus bas, donc son vert écrasait la couleur choisie.
+   Personne ne l'a vu quand la refonte est passée en production, parce que le vert écrasait du
+   vert par défaut — le bug ne se voit qu'en choisissant une autre couleur.
+
+   « Ma couleur » continuait de fonctionner : `applyTheme()` la pose en style INLINE sur
+   <html>, et l'inline bat toutes les feuilles. C'est ce qui rendait le symptôme déroutant —
+   la palette semblait marcher à moitié.
+
+   Le correctif ajoute un cran de spécificité (0,2,1) et le pose APRÈS. Tout est dérivé d'une
+   seule teinte par `color-mix` : sans ça il faudrait tenir douze couleurs à la main, et la
+   treizième serait oubliée — ce sont ces oublis qui donnent un bouton resté vert au milieu
+   d'une interface violette. */
+html[data-refonte][data-accent="blue"]  { --acc-src:#3B82F6; --on-acc:#FFFFFF; }
+html[data-refonte][data-accent="purple"]{ --acc-src:#8B6BFF; --on-acc:#FFFFFF; }
+html[data-refonte][data-accent="orange"]{ --acc-src:#E79A3C; --on-acc:#2A1304; }
+html[data-refonte][data-accent]{
+  --acc:var(--acc-src);
+  --acc2:color-mix(in srgb,#000 18%,var(--acc-src));
+  --acc-txt:color-mix(in srgb,#fff 24%,var(--acc-src));
+  --acc-fill:color-mix(in srgb,#000 20%,var(--acc-src));
+  --acc-fill-hover:color-mix(in srgb,#000 12%,var(--acc-src));
+  --acc-fill-press:color-mix(in srgb,#000 30%,var(--acc-src));
+  --tint:color-mix(in srgb,var(--acc-src) 14%,transparent);
+  --side-active-ink:color-mix(in srgb,#fff 24%,var(--acc-src));
+  --side-avatar:var(--acc-src);
+  /* ⛔ `--green` N'EST PAS REPRIS. Justin : « les couleurs remplacent juste le vert » — le vert
+     de la MARQUE, celui des contours, des survols, du menu et des boutons. Pas le vert de SENS :
+     un badge « Validé », « Livrée », « En stock » doit rester vert même sous un thème violet,
+     sinon il ne veut plus rien dire à côté du rouge « Refusé ». Une couleur qui porte une
+     information ne se personnalise pas. */
+  --anneau:0 0 0 3px color-mix(in srgb,var(--acc-src) 30%,transparent);
+  --focus-champ:0 0 0 3px color-mix(in srgb,var(--acc-src) 24%,transparent);
+  --rf-halo:color-mix(in srgb,var(--acc-src) 9%,transparent);
+}
+/* De jour, la même teinte doit porter du blanc sur un fond clair : on la fonce. L'orange, lui,
+   garde son encre sombre — le blanc n'y tient à aucune profondeur raisonnable. */
+html[data-refonte][data-theme="light"][data-accent]{
+  --acc:color-mix(in srgb,#000 22%,var(--acc-src));
+  --acc2:color-mix(in srgb,#000 34%,var(--acc-src));
+  --acc-txt:color-mix(in srgb,#000 26%,var(--acc-src));
+  --acc-fill:color-mix(in srgb,#000 14%,var(--acc-src));
+  --acc-fill-hover:color-mix(in srgb,#000 24%,var(--acc-src));
+  --acc-fill-press:color-mix(in srgb,#000 36%,var(--acc-src));
+  --tint:color-mix(in srgb,var(--acc-src) 11%,transparent);
+  --side-active-ink:color-mix(in srgb,#000 26%,var(--acc-src));
+  --side-avatar:color-mix(in srgb,#000 18%,var(--acc-src));
+}
+html[data-refonte][data-theme="light"][data-accent="orange"]{ --on-acc:#2A1304; }
+
 /* ══ LE FOND ══ deux voiles très larges, l'un vert (l'accent), l'autre acier (la marque). Aucun
    trait : sur un fond clair, une diagonale traversant la page se lit comme un défaut d'affichage. */
 html[data-refonte] body::before{background:var(--rf-voile)}
@@ -3834,6 +3890,28 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .ec-bl b{display:block;font-size:12.5px;color:var(--t1)}
 .ec-bl span{display:block;font-size:11.5px;color:var(--t3);line-height:1.45;margin-top:2px}
 .ec-bl-non span{color:var(--org,#e8a33d)}
+/* ── Un dossier par commande : l'en-tête, puis les deux pièces côte à côte. ── */
+.dos-cmd{border:1px solid var(--brd);border-radius:13px;background:var(--bg1);margin-bottom:9px;overflow:hidden}
+.dos-h{display:flex;align-items:center;gap:10px;padding:11px 13px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.dos-h:active{background:color-mix(in srgb,var(--acc) 9%,transparent)}
+.dos-i{flex:1;min-width:0}
+.dos-t{font-size:14.5px;font-weight:800;color:var(--t1);line-height:1.3}
+.dos-m{font-size:12px;color:var(--t3);margin-top:3px;font-variant-numeric:tabular-nums;line-height:1.45}
+.dos-c{flex-shrink:0;font-size:17px;font-weight:700;color:var(--acc)}
+.dos-p{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 13px 12px}
+.dos-pi{display:flex;align-items:center;gap:9px;min-height:56px;padding:8px 10px;text-align:left;
+  border:1px solid var(--brd);border-radius:11px;background:var(--bg2);cursor:pointer;
+  -webkit-tap-highlight-color:transparent;color:inherit;font:inherit}
+.dos-pi:active{background:color-mix(in srgb,var(--acc) 12%,transparent)}
+.dos-pi.vide{cursor:default;border-style:dashed;background:transparent}
+.dos-pi img{width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--brd);flex-shrink:0}
+.dos-ic{width:38px;height:38px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;
+  justify-content:center;flex-shrink:0;font-size:17px}
+.dos-pi span:last-child{min-width:0}
+.dos-pi b{display:block;font-size:12.5px;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dos-pi i{display:block;font-style:normal;font-size:11px;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dos-pi.vide b,.dos-pi.vide i{color:var(--org,#e8a33d)}
+@media (max-width:430px){ .dos-p{grid-template-columns:1fr} }
 @media (max-width:780px){
   /* LE HAMBURGER RESTE. Il avait été caché quand la barre existait, « Plus » ouvrant le même
      tiroir : le coin haut gauche devenait vide et le menu n'était plus atteignable que tout en
@@ -4673,7 +4751,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '598-beta';
+const APP_VERSION = '599-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -15974,14 +16052,21 @@ function renderBoxDetail(){
       <button class="btn ghost" style="flex:1;justify-content:center;gap:8px;padding:12px;border-radius:100px;font-weight:800" onclick="shareBoxStock('${b.id}')">${fic('share',17)} Partager le stock</button>
       <button class="btn ghost" style="flex:1;justify-content:center;gap:8px;padding:12px;border-radius:100px;font-weight:800" onclick="openPassage('${b.id}')">${fic('csq',17)} Relevé</button>
     </div>
-    ${(()=>{ /* Tout l'historique des commandes de CETTE box derrière un seul bouton — demande
-         de Justin, 8 septembre 2026 : « on voit historique de commande du box, on clique
-         dessus, on a tous les bons de commande avant, les réceptions et les bons de livraison.
-         Ça évite trente-six mille choses. Comme ça, personne n'a accès aux bons de commande. »
-         Le menu « Bons de commande » reste pour qui PASSE les commandes ; ici, on consulte. */
-      const n=(db.bons||[]).filter(x=>x.boxId===b.id).length; if(!n) return '';
+    ${(()=>{ /* Tout l'historique des commandes ET des livraisons de CETTE box derrière un seul
+         bouton — demande de Justin, 8 septembre 2026 : « on voit historique de commande du box,
+         on clique dessus, on a tous les bons de commande avant, les réceptions et les bons de
+         livraison ». Le menu « Bons de commande » reste pour qui PASSE les commandes ; ici, on
+         consulte.
+         ⛔ LE BOUTON NE SE CACHE PLUS QUAND IL N'Y A RIEN. Il ne s'affichait qu'à partir d'une
+         commande rattachée à la box — et Justin, sur une box d'ELAN qui n'en avait aucune, a
+         simplement vu un bouton absent. Un bouton qui disparaît ne se lit pas comme « rien à
+         voir », il se lit comme une panne. Il est là, il annonce son compte, et l'écran dit
+         lui-même quand il est vide. */
+      const nb=(db.bons||[]).filter(x=>x.boxId===b.id).length;
+      const na=(b.arrivages||[]).filter(a=>!a.bcId).length;
+      const n=nb+na;
       return `<div style="display:flex;gap:8px;margin:0 0 14px">
-        <button class="btn ghost" style="flex:1;justify-content:center;gap:8px;padding:12px;border-radius:100px;font-weight:800" onclick="boxCommandes('${b.id}')">📋 Historique des commandes <span style="opacity:.6;font-weight:600">· ${n}</span></button>
+        <button class="btn ghost" style="flex:1;justify-content:center;gap:8px;padding:12px;border-radius:100px;font-weight:800" onclick="boxCommandes('${b.id}')">📋 Commandes &amp; livraisons${n?` <span style="opacity:.6;font-weight:600">· ${n}</span>`:''}</button>
       </div>`; })()}
     </div>
     ${(()=>{ const cs=(db.bons||[]).filter(x=>x.boxId===b.id&&!['livree','annulee'].includes(x.statut)); if(!cs.length) return '';
@@ -16173,32 +16258,61 @@ function delArrivage(boxId,aid){ const b=db.boxes.find(x=>x.id===boxId); if(!b) 
    commande », qui reste réservé à qui passe les commandes. */
 function boxCommandes(boxId){
   const b=db.boxes.find(x=>x.id===boxId); if(!b) return;
-  const bons=(db.bons||[]).filter(x=>x.boxId===boxId)
-    .sort((x,y)=>String(y.dateReception||y.livreLe||y.date||'').localeCompare(String(x.dateReception||x.livreLe||x.date||'')));
-  if(!bons.length){ toast('Aucune commande pour cette box'); return; }
-  const mois={}; bons.forEach(x=>{ const k=String(x.dateReception||x.livreLe||x.date||'').slice(0,7)||'—'; (mois[k]=mois[k]||[]).push(x); });
+  const bons=(db.bons||[]).filter(x=>x.boxId===boxId);
+  /* Une livraison sans bon de commande reste une livraison : arrivage libre, dépannage, dépôt
+     d'un collègue. Justin : « toutes les livraisons qui ont été dans le même mois ». Les
+     ranger ailleurs obligerait à chercher à deux endroits ce qui est arrivé un même mois. */
+  const libres=(b.arrivages||[]).filter(a=>!a.bcId).map(a=>({_arr:a}));
+  const dateDe=o=>o._arr?new Date(o._arr.ts||0).toISOString().slice(0,10)
+                        :String(o.dateReception||o.livreLe||o.date||'');
+  const tout=bons.concat(libres).sort((x,y)=>dateDe(y).localeCompare(dateDe(x)));
+  const mois={}; tout.forEach(x=>{ const k=dateDe(x).slice(0,7)||'—'; (mois[k]=mois[k]||[]).push(x); });
   const cles=Object.keys(mois).sort().reverse();
   const photoDe=x=>{ const m=(db.boxMvtAttente||[]).filter(z=>z.bcId===x.id&&z.photo).sort((p,q)=>(q.ts||0)-(p.ts||0))[0];
     if(m&&m.photo) return m.photo;
     const a=(b.arrivages||[]).filter(z=>z.bcId===x.id&&z.photo)[0]; return a?a.photo:''; };
-  const ligne=x=>{ const ph=photoDe(x); const e=demandeEtat?null:null;
+  /* UN DOSSIER PAR COMMANDE — demande de Justin, 8 septembre 2026 : « je voudrais que les
+     bons, par exemple un bon, une photo, soient rangés ensemble en dossier ». Une vignette
+     collée à gauche d'une ligne ne dit pas que les deux papiers vont ensemble ; deux pièces
+     posées côte à côte, si. Chacune s'ouvre seule — le PDF du bon d'un côté, la photo du bon
+     de livraison de l'autre — et l'en-tête ouvre le dossier complet, avec la comparaison. */
+  /* Une livraison sans bon : une seule pièce, sa photo. Le dossier garde la même forme —
+     c'est ce qui permet de lire la colonne d'un coup d'œil. */
+  const ligneArr=a=>`<div class="dos-cmd">
+      <div class="dos-h" style="cursor:default">
+        <div class="dos-i"><div class="dos-t">${esc(a.fournisseur||'Livraison')} — ${(a.lignes||[]).length} produit(s)</div>
+          <div class="dos-m">Sans bon de commande · ${(a.lignes||[]).reduce((t,l)=>t+(l.qte||0),0)} u · ${fmtTs(a.ts)}${a.par?` · par ${esc(a.par)}`:''}</div></div>
+        <span class="st st-blue">Livraison</span></div>
+      <div class="dos-p">
+        ${a.photo?`<button type="button" class="dos-pi" onclick="window.open('${a.photo}')"><img src="${a.photo}" alt="Bon de livraison"><span><b>Bon de livraison</b><i>Photo à la réception</i></span></button>`
+                 :`<div class="dos-pi vide"><span class="dos-ic">📷</span><span><b>Bon de livraison</b><i>Aucune photo prise</i></span></div>`}
+      </div></div>`;
+  const ligne=x=>{ if(x._arr) return ligneArr(x._arr); const ph=photoDe(x);
     const st=(typeof STATBC!=='undefined'&&STATBC[x.statut])||{l:x.statut||'',c:'st-grey'};
-    return `<div class="pl-row" onclick="ficheBon('${x.id}',true)">
-      ${ph?`<img src="${ph}" alt="Bon de livraison" style="width:44px;height:44px;object-fit:cover;border-radius:10px;border:1px solid var(--brd);flex-shrink:0">`
-          :`<span style="width:44px;height:44px;border-radius:10px;background:var(--bg3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:17px">📄</span>`}
-      <div class="pl-info"><div class="pl-title">${esc(fournName(x.fournisseurId)||x.fournisseur||'Fournisseur')} — ${(x.lignes||[]).length} article(s)</div>
-        <div class="pl-meta">${esc(bonNum(x))} · ${bonQteTotTxt(x)} · ${fmtShort(x.dateReception||x.livreLe||x.date)}${x.recuPar?` · reçu par ${esc(x.recuPar)}`:''}${ph?'':' · <span style="color:var(--org,#e8a33d)">sans photo</span>'}</div></div>
-      <span class="st ${st.c}">${esc(st.l)}</span></div>`; };
+    return `<div class="dos-cmd">
+      <div class="dos-h" onclick="ficheBon('${x.id}',true,'${boxId}')" role="button" tabindex="0">
+        <div class="dos-i"><div class="dos-t">${esc(fournName(x.fournisseurId)||x.fournisseur||'Fournisseur')} — ${(x.lignes||[]).length} article(s)</div>
+          <div class="dos-m">${esc(bonNum(x))} · ${bonQteTotTxt(x)} · ${fmtShort(x.dateReception||x.livreLe||x.date)}${x.recuPar?` · reçu par ${esc(x.recuPar)}`:''}</div></div>
+        <span class="st ${st.c}">${esc(st.l)}</span><span class="dos-c" aria-hidden="true">›</span></div>
+      <div class="dos-p">
+        <button type="button" class="dos-pi" onclick="event.stopPropagation();bonPdfOpen('${x.id}')">
+          <span class="dos-ic">📄</span><span><b>Bon de commande</b><i>PDF · ${esc(bonNum(x))}</i></span></button>
+        ${ph?`<button type="button" class="dos-pi" onclick="event.stopPropagation();window.open('${ph}')">
+          <img src="${ph}" alt="Bon de livraison"><span><b>Bon de livraison</b><i>Photo à la réception</i></span></button>`
+           :`<div class="dos-pi vide"><span class="dos-ic">📷</span><span><b>Bon de livraison</b><i>Aucune photo prise</i></span></div>`}
+      </div>
+    </div>`; };
   openModal(`<div class="modal-head sheet-head">
       <button type="button" class="btn ghost sm" onclick="closeModal();renderBoxDetail()">Fermer</button>
-      <h3>Commandes</h3><span style="width:62px"></span></div>
-    <div style="font-size:13px;color:var(--t2);margin:10px 2px 12px;line-height:1.55">🧱 <b>${esc(b.nom||b.numero||'Box')}</b> — ${bons.length} commande${bons.length>1?'s':''} depuis le début. Touche une ligne pour le <b>PDF du bon</b>, ce qui a été reçu, et la photo du <b>bon de livraison</b>.</div>
+      <h3>Commandes &amp; livraisons</h3><span style="width:62px"></span></div>
+    <div style="font-size:13px;color:var(--t2);margin:10px 2px 12px;line-height:1.55">🧱 <b>${esc(b.nom||b.numero||'Box')}</b> — ${tout.length} ${tout.length>1?'entrées':'entrée'} depuis le début. Chaque commande est un <b>dossier</b> : le PDF du bon d'un côté, la photo du <b>bon de livraison</b> de l'autre.</div>
+    ${!tout.length?`<div class="card">${emptyState('📋','Rien pour cette box, pour l\'instant.','','')}<p style="font-size:12.5px;color:var(--t3);line-height:1.6;margin:0 2px">Une commande apparaît ici dès qu'elle est <b>rattachée à cette box</b> — c'est le cas de celles nées d'une demande faite depuis la box. Les livraisons notées en <b>Arrivage</b> s'y rangent aussi, même sans bon.</p></div>`:''}
     ${cles.map((k,i)=>{ const bs=mois[k], ouvert=(i===0);
-      const arts=bs.reduce((t,x)=>t+((x.lignes||[]).length),0);
+      const arts=bs.reduce((t,x)=>t+(((x._arr?x._arr.lignes:x.lignes)||[]).length),0);
       return `<div class="dmo${ouvert?' on':''}" data-mois="${k}">
         <button type="button" class="dmo-h" onclick="var d=this.parentNode;var o=d.classList.toggle('on');d.querySelector('.dmo-l').hidden=!o;this.querySelector('.dmo-c').textContent=o?'⌄':'›';">
           <span class="dmo-t">${esc(demMoisLabel(k))}</span>
-          <span class="dmo-n">${bs.length} commande${bs.length>1?'s':''} · ${arts} article${arts>1?'s':''}</span>
+          <span class="dmo-n">${bs.length} ${bs.length>1?'entrées':'entrée'} · ${arts} article${arts>1?'s':''}</span>
           <span class="dmo-c" aria-hidden="true">${ouvert?'⌄':'›'}</span></button>
         <div class="dmo-l"${ouvert?'':' hidden'}>${bs.map(ligne).join('')}</div>
       </div>`; }).join('')}`);
@@ -17617,9 +17731,30 @@ function respBonsIds(){ return (db.users||[]).filter(u=>u&&u.actif!==false&&u.ac
 function respBonsMoi(){ return !!(currentUser&&currentUser.acces&&currentUser.acces.caps&&currentUser.acces.caps.respBons===true); }
 function respBonsPrevenir(bon,d){ try{ const dest=respBonsIds().filter(id=>id!==(currentUser&&currentUser.id)); if(!dest.length) return;
   pushNotify('🛒 Bon de commande à préparer',bonNum(bon)+' · '+(d.boxNom||boxLabel(d.boxId)||'')+' · demande de '+(d.chefNom||userName(d.chefId)||'')+', validée par '+fullName(currentUser),'/app.html#v=bons',dest); }catch(e){} }
+/* ⛔ LA PERSONNE QUI GÈRE LA BOX EST PRÉVENUE, MÊME SI ELLE NE VALIDE PAS.
+   Demande de Justin, 8 septembre 2026 : « le DR reçoit une notification, il clique, il voit
+   pour quelle box… la personne qui gère le box aussi, et les deux voient l'historique ».
+   `valideursPour()` n'ajoutait le responsable d'une box QUE s'il figurait déjà parmi les
+   valideurs (`tous.some(...)`). Un chef d'équipe responsable de sa box, sans droit de
+   validation, n'apprenait donc jamais qu'on commandait pour elle — alors que c'est lui qui
+   recevra le colis.
+   Deux messages, pas un : « à valider » est un ordre de travail, « pour ta box » est une
+   information. Les confondre, c'est apprendre à ignorer les deux. */
+function boxRespPrevenir(boxId,titre,corps,sauf){
+  try{
+    const b=(db.boxes||[]).find(x=>x.id===boxId); if(!b||!b.respUserId) return;
+    const moi=currentUser&&currentUser.id;
+    if(b.respUserId===moi) return;                       // on ne se prévient pas soi-même
+    if((sauf||[]).indexOf(b.respUserId)>=0) return;      // déjà prévenu comme valideur
+    const u=(db.users||[]).find(x=>x&&x.id===b.respUserId); if(!u||u.actif===false) return;
+    pushNotify(titre,corps,'/app.html#v=boxes',[b.respUserId]);
+  }catch(e){}
+}
 /* une nouvelle demande de commande prévient les DR / admin (comme un mouvement de box à valider) */
 function demandeNotifDR(d){ try{ if(!d||!currentUser) return; const dest=valideursPour((db.boxes||[]).find(x=>x.id===d.boxId)||null);
-  if(dest.length) pushNotify('🔒 À valider — demande de commande',(d.num||'')+' · '+(d.boxNom||boxLabel(d.boxId)||'')+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){} }
+  if(dest.length) pushNotify('🔒 À valider — demande de commande',(d.num||'')+' · '+(d.boxNom||boxLabel(d.boxId)||'')+' · par '+fullName(currentUser),'/app.html#v=validations',dest);
+  boxRespPrevenir(d.boxId,'📦 Demande de commande pour ta box',
+    (d.boxNom||boxLabel(d.boxId)||'')+' · '+(d.num||'')+' · demandée par '+fullName(currentUser)+' — en attente du DR',dest); }catch(e){} }
 
 /* ═══════════════ BONS DE COMMANDE ═══════════════ */
 const STATBC={brouillon:{l:'En préparation',c:'st-org'},prete:{l:'Prêt à envoyer',c:'st-blue'},envoyee:{l:'Envoyée',c:'st-blue'},enLivraison:{l:'En livraison',c:'st-org'},arrivageNote:{l:'Arrivage noté',c:'st-purple'},livree:{l:'Livrée',c:'st-green'},annulee:{l:'Annulée',c:'st-red'}};
@@ -18170,9 +18305,15 @@ async function renderBonsReponses(el){
    veux juste PDF. » Recommander et modifier appartiennent à celui qui passe les commandes, et
    il a son écran pour ça — les offrir ici, c'est offrir des gestes qu'on ne veut pas voir
    faits depuis le terrain. */
-function ficheBon(id,simple){ const b=db.bons.find(x=>x.id===id); if(!b)return;
+function ficheBon(id,simple,retourBox){ const b=db.bons.find(x=>x.id===id); if(!b)return;
+  /* ⛔ REVENIR D'OÙ L'ON VIENT — signalé par Justin, 8 septembre 2026 : « quand je ferme la
+     petite fenêtre, ça me ramène à la fiche de la box, je voudrais que ça reste sur les
+     commandes ». `openModal` remplace la fenêtre : fermer refermait TOUT, y compris
+     l'historique qu'on était en train de parcourir. On retient donc la box d'où l'on part et
+     on la rouvre — la croix comme le bouton du haut. */
+  const retour=retourBox?`closeModal();boxCommandes('${retourBox}')`:'closeModal()';
   const liv=[b.nomSiteLivraison,b.adresseLivraison,b.codePostalLivraison,b.villeLivraison].filter(Boolean).join(' ');
-  openModal(`<div class="modal-head"><h3>✉️ ${esc(bonNum(b))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  openModal(`<div class="modal-head">${retourBox?`<button type="button" class="btn ghost sm" onclick="${retour}" style="margin-right:10px">‹ Commandes</button>`:''}<h3>✉️ ${esc(bonNum(b))}</h3><button class="modal-close" onclick="${retour}">✕</button></div>
     <div style="margin-bottom:12px">${badge(STATBC,b.statut)}</div>
     <div class="detail-grid">
       <div><div class="dt-lbl">Fournisseur</div><div class="dt-val">${esc(fournName(b.fournisseurId)||b.fournisseur||'—')}</div></div>
@@ -18631,6 +18772,10 @@ function bonStatut(id,s){ if(!peutCommander()){ refusCommander(); return; } cons
      supprimé, la synchro a rattrapé. On le dit au lieu de planter. */
   if(!b){ toast('Ce bon n’existe plus — la liste vient d’être mise à jour'); go(current); return; }
   b.statut=s; if(s==='envoyee') b.dateEnvoi=todayISO();
+  /* Une commande PARTIE, c'est le signal qui compte pour la box : c'est à partir de là qu'on
+     attend un colis, et qu'on saura dire s'il tarde. */
+  if(s==='envoyee') boxRespPrevenir(b.boxId,'🚚 Commande envoyée pour ta box',
+    (boxLabel(b.boxId)||'')+' · '+bonNum(b)+' · '+(fournName(b.fournisseurId)||b.fournisseur||'fournisseur')+' — préviens à la livraison, avec la photo du bon',[]);
   let sep=0; if(s==='prete') sep=bonSeparer(id);
   logEvent('Bon '+STATBC[s].l.toLowerCase(),bonNum(b),'commande'); save();
   toast(STATBC[s].l+(sep?' — ✂️ séparé en '+(sep+1)+' bons, un par fournisseur':'')); go(current); }
