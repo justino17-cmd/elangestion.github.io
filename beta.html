@@ -3688,8 +3688,12 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .bbr-p{font-size:11px;font-weight:600;padding:3px 8px;border-radius:100px;
   background:var(--bg1);color:var(--t2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bbr-p b{color:var(--acc);font-weight:800;font-variant-numeric:tabular-nums}
-.bbr-ok{width:100%;justify-content:center;min-height:44px;border-radius:11px;font-weight:800;
-  font-size:13.5px;margin-top:8px}
+/* Pas un bouton : une invitation à ouvrir. Un vrai bouton vert ici se toucherait comme un
+   « Valider » — c'est exactement la confusion qu'on retire. */
+.bbr-go{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;min-height:44px;
+  border-radius:11px;border:1px dashed color-mix(in srgb,var(--acc) 45%,transparent);
+  color:var(--acc);font-size:13px;font-weight:800;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.bbr-go:active{background:color-mix(in srgb,var(--acc) 12%,transparent)}
 .bbr-ch{flex-shrink:0;font-size:19px;font-weight:700;color:var(--acc);line-height:1;opacity:.75}
 /* Sous le chiffre d'un produit : ce qu'on en prend, et ce qu'il restera. */
 .bst-eff{font-size:11.5px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums}
@@ -4647,7 +4651,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '585-beta';
+const APP_VERSION = '586-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -6157,7 +6161,7 @@ const PERM_GRPS=[['tdb','📊 Tableau de bord & historique'],['plan','🗓️ Pl
 const PERM_GRP_OF={'Tableau de bord':'tdb','Planification':'plan','Interventions':'int','CRM':'crm','Ventes':'ventes','Stock':'stock','Temps & équipe':'equipe','Communication / Fournisseurs':'com','Achats internes':'achats','Administration':'admin'};
 const COLL_GRP={interventions:'int',clients:'crm',devis:'ventes',factures:'ventes',contrats:'ventes',telecollectes:'ventes',produits:'stock',boxes:'stock',mouvements:'stock',produitsDonnes:'stock',enveloppes:'stock',brouillons:'achats',demandes:'achats',bons:'com',fournisseurs:'com',taches:'plan',absences:'plan',vehicules:'equipe',conducteurs:'equipe',pointages:'equipe',techniciens:'equipe'};
 /* droits spéciaux existants, rattachés à leur catégorie (libellés dans USER_CAPS) */
-const PERM_SPECIAUX={plan:['planifDeplacer','planifObligerTravail'],int:['voirTout','annuler','modifierPlans'],ventes:['devisIA','voirCompta'],com:['opMessages'],equipe:['creerUtilisateurs'],achats:['validerDR']};
+const PERM_SPECIAUX={plan:['planifDeplacer','planifObligerTravail'],int:['voirTout','annuler','modifierPlans'],ventes:['devisIA','voirCompta'],com:['opMessages','bonsLectureSeule','respBons'],equipe:['creerUtilisateurs'],achats:['validerDR']};
 function catDroit(u,grp,droit){
   if(!u) return false; if(u.role==='admin') return true;
   const k='cat_'+grp+'_'+droit;
@@ -16115,7 +16119,7 @@ function boxBrouillonValider(boxId){
   /* La question « remis à qui ? » se pose une seule fois, pour toute la liste, et au moment
      où elle part — pas pendant qu'on la compose. */
   var sort=(lot.lignes||[]).some(function(l){ return ((+l.du||0)+(+l.dc||0))<0; });
-  if(sort&&!lot.pourQui) setTimeout(function(){ remiseDestModal(lot.id); },200);
+  if(sort&&!lot.pourQui&&!db.bonsRemiseOff) setTimeout(function(){ remiseDestModal(lot.id); },200);
 }
 function boxBrouillonVider(boxId){
   var lot=boxBrouillon(boxId); if(!lot) return;
@@ -16446,7 +16450,12 @@ function boxBrouillonPanneau(boxId){
       '<button class="btn ghost sm bbr-ic" onclick="event.stopPropagation();boxBrouillonVider(\''+boxId+'\')" title="Vider la liste" aria-label="Vider la liste">✕</button>'+
     '</div>'+
     '<div class="bbr-l"'+ouvre+'>'+puces+'</div>'+
-    '<button class="btn bbr-ok" onclick="boxBrouillonValider(\''+boxId+'\')">Valider'+(boxValidRequis()?' — envoi au DR':' ma demande')+'</button>'+
+    /* Plus de « Valider » ICI — demande de Justin, 8 septembre 2026 : « il clique sur la
+       liste, il vérifie s'il y a tout, il peut encore ajouter s'il en manque, et après en
+       bas il y a le bouton valider ». Valider depuis ce panneau, c'était envoyer au DR sans
+       avoir relu : le raccourci sautait précisément l'étape qu'on venait de créer. Le
+       panneau annonce, la liste engage. */
+    '<div class="bbr-go"'+ouvre+'>Vérifier ma liste et valider <span aria-hidden="true">›</span></div>'+
   '</div>';
 }
 function boxLotBandeau(boxId){
@@ -16544,6 +16553,15 @@ function boxValidRequis(){ if(!currentUser||can('validerDR')) return false;
   return !!currentUser.boxValidDR; }
 /* L'interrupteur d'entreprise (Paramètres). Il est tracé dans l'historique : couper un
    contrôle doit se voir, et se savoir attribuable. */
+/* Les bons de remise sont utiles à qui veut savoir qui a reçu quel matériel — et une
+   question de trop pour qui ne s'en sert pas. L'interrupteur est d'entreprise, tracé au
+   journal comme celui de la validation DR : couper une trace doit se voir. Coupé, la question
+   « pour qui ? » ne se pose plus et aucun bon n'est écrit ; le stock, lui, bouge pareil. */
+function bonsRemiseSet(on){
+  db.bonsRemiseOff=!on;
+  logEvent(on?'Bons de remise réactivés':'Bons de remise coupés',on?'la question « pour qui ? » se pose à nouveau à chaque sortie':'plus de question ni de bon à la sortie de stock','stock');
+  save(); toast(on?'✔ Bons de remise activés':'Bons de remise coupés — le stock bouge sans question');
+  if(current==='parametres') views.parametres(); }
 function validDRTousSet(on){
   db.validDRTous=!!on;
   logEvent(on?'Validation DR rendue obligatoire':'Validation DR remise au cas par cas',
@@ -16703,6 +16721,7 @@ function remiseDestSave(mid){
   save(); closeModal(); toast('👤 Destinataire noté — en attente du DR');
 }
 function remiseAjoute(m,qte){
+  if(db.bonsRemiseOff) return;   // coupé dans Paramètres : rien n'est écrit, rien n'est demandé
   try{
     db.bonsRemise=db.bonsRemise||[];
     const jour=todayISO();
@@ -16747,7 +16766,7 @@ function removeBoxProd(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)ret
     if(!confirm('Demander le retrait de « '+(p.nom||'ce produit')+' » de la box ?\n\nLa demande partira au DR pour validation.')) return;
     const mR=boxMvtEnvoyer({type:'retrait',boxId:b.id,produitId:pid});
     closeModal(); renderBoxDetail(); toast('📨 Retrait envoyé au DR pour validation');
-    if(mR&&!mR.pourQui) setTimeout(()=>remiseDestModal(mR.id),150);
+    if(mR&&!mR.pourQui&&!db.bonsRemiseOff) setTimeout(()=>remiseDestModal(mR.id),150);
     return; }
   if(!confirm('Retirer « '+(p.nom||'ce produit')+' » de la box ?'+((s.u||s.ctn)?' La quantité restante ('+((s.u||0)+(s.ctn||0))+' u) sera sortie du stock.':''))) return;
   if(s.u){ traceBox(b,pid,-s.u,'u','Retiré de la box'); notifyDrBoxMove(b,pid,'sortie',s.u,'u'); }
@@ -17404,12 +17423,21 @@ function validerDemande(id,statut){ if(!currentUser||!can('validerDR')){ toast('
     db.bons.push({id:bonId,demandeId:d.id,numero:num,date:todayISO(),fournisseurId:'',boxId:d.boxId||'',statut:'brouillon',faitPar:fullName(currentUser),notes:'Depuis demande '+d.num,lignes:(d.lignes||[]).map(l=>{const p=produit(l.produitId);return {produitId:l.produitId,reference:p.ref||'',designation:p.nom||'',categorie:p.categorie||'',cartons:0,upc:p.qteCarton||0,quantite:l.quantite,prixUnitaireHT:p.prix||0,tvaRate:20,commentaire:''};})});
     logEvent('Demande validée',`${d.num} → bon de commande ${num}`,'demande',d.chefId); toast('Validée — bon de commande créé');
     delegationTracer(d,`Demande ${d.num} validée`);
+    respBonsPrevenir(db.bons[db.bons.length-1],d);
   } else { logEvent('Demande refusée',`${d.num}`+(d.motifRefus?' — '+d.motifRefus:''),'demande',d.chefId); toast('Demande refusée');
     delegationTracer(d,`Demande ${d.num} refusée`); }
   // seule la personne qui a fait la demande est prévenue de la décision
   try{ if(d.chefId&&d.chefId!==currentUser.id) pushNotify(statut==='valide'?'✅ Demande validée par le DR '+fullName(currentUser):'🚫 Demande refusée par le DR '+fullName(currentUser),d.num+' · '+(d.boxNom||boxLabel(d.boxId)||'')+(d.motifRefus?' — motif : '+d.motifRefus:''),'/app.html#v=demandes',[d.chefId]); }catch(e){}
   save(); if(current==='validations') views.validations(); else go(current);
 }
+/* Qui est responsable des bons : le droit coché EXPLICITEMENT, personne d'autre. userCap()
+   répond oui à tout pour un administrateur — pris tel quel, chaque administrateur recevrait
+   chaque bon, qu'il s'en occupe ou non. Un rôle qui prévient tout le monde ne prévient
+   personne. */
+function respBonsIds(){ return (db.users||[]).filter(u=>u&&u.actif!==false&&u.acces&&u.acces.caps&&u.acces.caps.respBons===true).map(u=>u.id); }
+function respBonsMoi(){ return !!(currentUser&&currentUser.acces&&currentUser.acces.caps&&currentUser.acces.caps.respBons===true); }
+function respBonsPrevenir(bon,d){ try{ const dest=respBonsIds().filter(id=>id!==(currentUser&&currentUser.id)); if(!dest.length) return;
+  pushNotify('🛒 Bon de commande à préparer',bonNum(bon)+' · '+(d.boxNom||boxLabel(d.boxId)||'')+' · demande de '+(d.chefNom||userName(d.chefId)||'')+', validée par '+fullName(currentUser),'/app.html#v=bons',dest); }catch(e){} }
 /* une nouvelle demande de commande prévient les DR / admin (comme un mouvement de box à valider) */
 function demandeNotifDR(d){ try{ if(!d||!currentUser) return; const dest=valideursPour((db.boxes||[]).find(x=>x.id===d.boxId)||null);
   if(dest.length) pushNotify('🔒 À valider — demande de commande',(d.num||'')+' · '+(d.boxNom||boxLabel(d.boxId)||'')+' · par '+fullName(currentUser),'/app.html#v=validations',dest); }catch(e){} }
@@ -19974,6 +20002,10 @@ const USER_CAPS=[
      Demande d'ELAN, 8 septembre 2026 : leurs DR doivent voir passer les commandes et leur
      PDF pour les comparer à l'arrivage, sans pouvoir en passer eux-mêmes. */
   ['bonsLectureSeule','Bons de commande : consultation seule','Voit les bons, leur PDF et les commandes en cours — pour comparer avec l\'arrivage — mais ne crée, ne modifie et n\'envoie aucune commande'],
+  /* Le circuit voulu par Justin : DR → Mes demandes → validation → le RESPONSABLE des bons
+     prépare et envoie. Sans ce droit, un bon créé par une validation restait en brouillon
+     jusqu'à ce que quelqu'un pense à ouvrir « Bons de commande ». */
+  ['respBons','Responsable des bons de commande','Prévenu dès qu\'une demande validée devient un bon à préparer : notification, et la liste des bons à préparer dans sa cloche'],
 ];
 /* Une seule question, un seul endroit : « cette personne a-t-elle le droit de passer une
    commande ? ». Les cinq portes (créer, suggérer, regrouper, envoyer en lot, envoyer un bon)
@@ -20695,6 +20727,9 @@ views.parametres=function(){
       <p style="color:var(--t2);font-size:13.5px;line-height:1.6;margin-bottom:12px">Jusqu'ici, la validation du DR se cochait <b>fiche par fiche</b>. Il suffisait d'oublier la case en créant un compte pour qu'un mouvement de stock parte sans contrôle — et personne ne s'en apercevait. Un contrôle qu'on peut oublier n'est pas un contrôle.</p>
       <label class="frow" style="cursor:pointer"><span class="frow-lbl">Toute sortie de stock passe par le DR</span>
         <span class="frow-val"><label class="switch"><input type="checkbox" ${db.validDRTous?'checked':''} onchange="validDRTousSet(this.checked)"><span class="track"></span><span class="knob"></span></label></span></label>
+      <label class="frow" style="cursor:pointer;margin-top:6px"><span class="frow-lbl">Bons de remise à la sortie de stock</span>
+        <span class="frow-val"><label class="switch"><input type="checkbox" ${db.bonsRemiseOff?'':'checked'} onchange="bonsRemiseSet(this.checked)"><span class="track"></span><span class="knob"></span></label></span></label>
+      <p style="color:var(--t3);font-size:11.5px;margin-top:6px;line-height:1.55">Activé : quand quelqu'un sort du matériel d'une box, on lui demande <b>pour qui</b>, et un bon de remise (BR-…, PDF) garde la trace de qui a reçu quoi. Coupé : plus de question, plus de bon — le stock bouge pareil.</p>
       <p style="color:var(--t3);font-size:11.5px;margin-top:9px;line-height:1.55">Activé : arrivages, réceptions, prises ＋/−, retraits de box et produits pris en intervention attendent le « Valider » du DR, <b>pour tout le monde</b> — la case des fiches n'a plus à être pensée. Les comptes qui ont le droit de valider ne sont jamais concernés : ils se valideraient eux-mêmes.</p>
     </div>`:''}
     <div class="card"><div class="card-head"><h3>🔐 Mon compte</h3></div>
@@ -24213,6 +24248,13 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
       (db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente'&&!m.bcId&&!notifMoi(m.par)).forEach(m=>{   // tout ce qui attend SA validation, quelle que soit la box (les réceptions de bons sont portées par « bonarr » ci-dessous)
         out.push({id:'mvatt:'+m.id,ts:m.ts||0,ic:'🔒',txt:`<b>À valider</b> — ${esc(boxMvtLibelle(m))} · par <b>${esc(m.par||'')}</b>`,act:"go('validations');cible('mvt','"+m.id+"'"+(mvtRetrait(m)?",'retrait'":"")+")"}); });
     }
+  }
+  /* Le responsable des bons voit dans sa cloche tout ce qui attend d'être préparé ou envoyé —
+     sinon la notification reçue est le seul fil, et une notification se perd. */
+  if(respBonsMoi() && notifVoitModule('bons')){
+    (db.bons||[]).filter(b=>b.statut==='brouillon'||b.statut==='prete').forEach(b=>out.push({id:'bonprep:'+b.id,ic:'🛒',txt:`<b>Bon à ${b.statut==='prete'?'envoyer':'préparer'}</b> — ${esc(bonNum(b))}${b.boxId?' · '+esc(boxLabel(b.boxId)):''}${b.demandeId?' · depuis une demande':''}`,act:"go('bons');ficheBon('"+b.id+"')"}));
+  }
+  if(estDir || can('validerDR')){
     if(estDir && notifVoitModule('enveloppes')) db.enveloppes.filter(e=>(e.paiements||[]).some(p=>p.statut==='attente')).forEach(e=>out.push({id:'env:'+e.id,ic:'📮',txt:`Enveloppe avec paiement en attente : <b>${esc(e.numero)}</b>`,act:"go('enveloppes');cible('env','"+e.id+"')"}));
     if(estDir && notifVoitModule('interventions')) db.interventions.filter(i=>i.date>=today&&i.statut!=='terminee'&&i.statut!=='annulee').forEach(i=>{ const k=keyForClient(i.clientId); if(k&&!techForKey(k)) out.push({id:'sect:'+i.id,ic:'🗺️',txt:`Secteur non couvert : <b>${esc(i.titre)}</b> (${esc(keyLabel(k))})`,act:"detailIntervention('"+i.id+"')"}); });
   }

@@ -400,6 +400,25 @@ input.inp,select.sel-f{display:block;line-height:normal}
    --dim : --dim tombe à 4,27:1 sur le fond de page en thème jour, ce qui va pour un chevron,
    pas pour une phrase qu'on lit. */
 .reg-sous{margin-top:3px;font-size:12.5px;line-height:1.55;color:var(--muted);max-width:62ch}
+/* ── LE PLIAGE DES GROUPES ────────────────────────────────────────────────────────────────
+   Justin, 8 septembre 2026 : « il y a beaucoup trop de choses pour que ça soit cohérent et
+   logique ». Mesuré au banc, à 390 px : l'Accueil fait 2 405 px de haut — six écrans de
+   défilement — et l'onglet Accès 2 306. Ce n'est pas un problème de mots (165 sur l'Accueil)
+   mais de HAUTEUR : quatre groupes ouverts en même temps, tous complets.
+
+   On ne retire rien. Le registre est déjà classé par urgence : seul le premier groupe reste
+   ouvert, les suivants se replient sur leur titre — qui porte déjà le nom et le compte, donc
+   on sait ce qu'on n'ouvre pas. Un tap ouvre, et le choix est retenu par groupe : après un
+   tap, c'est la préférence de Justin qui décide, plus la mienne. */
+/* min-height suffit à garantir la cible de 44 px : un padding en plus rallongerait chaque
+   titre sur les écrans où rien ne se replie, et là le pliage coûterait sans rien rapporter. */
+.reg-tete{cursor:pointer;-webkit-tap-highlight-color:transparent;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;min-height:44px}
+.reg-tete .reg-nom,.reg-tete .reg-n{margin-right:0}
+.reg-chev{margin-left:auto;flex-shrink:0;font-size:12px;color:var(--dim);transition:transform .22s cubic-bezier(.2,0,0,1);align-self:center}
+.reg-g.plie .reg-chev{transform:rotate(-90deg)}
+.reg-g.plie>*:not(.reg-tete){display:none}
+.reg-g.plie .reg-sous{display:none}
+@media (prefers-reduced-motion:reduce){ .reg-chev{transition:none} }
 
 /* ── LA LIGNE, commune aux trois natures ──
    Un vrai <button> : le focus clavier et :focus-visible arrivent gratuitement par la règle
@@ -2924,6 +2943,45 @@ function chargerMessages(){
    la recherche rejouait toute la transition et toutes les entrées de cartes : l'écran
    avait l'air de bugger. render() ne bouge donc plus ; seul renderAnime() croise les vues. */
 function render(){ var v=$('vue'); if(v) renderVue(v); }
+/* Rendre les groupes pliables APRÈS coup, une fois pour toutes : ils sont fabriqués à quatorze
+   endroits différents, et les rendre pliables un par un aurait été quatorze occasions d'en
+   oublier un — et quatorze à retoucher au prochain écran. */
+var PLIS_CLE='tour_plis_v1';
+function plisLus(){ try{ return JSON.parse(localStorage.getItem(PLIS_CLE)||'{}')||{}; }catch(e){ return {}; } }
+function plisEcrire(o){ try{ localStorage.setItem(PLIS_CLE,JSON.stringify(o)); }catch(e){} }
+function regBascule(cle,el){
+  var g=el.closest('.reg-g'); if(!g) return;
+  var plie=g.classList.toggle('plie');
+  var o=plisLus(); o[cle]=plie?1:0; plisEcrire(o);
+  var c=g.querySelector('.reg-chev'); if(c) c.textContent=plie?'\u203A':'\u2304';
+  el.setAttribute('aria-expanded',plie?'false':'true');
+}
+function regPliage(){
+  var v=$('vue'); if(!v) return;
+  var o=plisLus(), gs=v.querySelectorAll('.reg-g'), i=0;
+  [].forEach.call(gs,function(g){
+    var tete=g.querySelector('.reg-tete'); if(!tete||tete.dataset.pli) return;
+    var nom=(g.querySelector('.reg-nom')||{}).textContent||('g'+i);
+    var cle=TAB+'/'+nom.trim();
+    /* La règle, une seule, valable partout : le PREMIER groupe reste ouvert, et parmi les
+       suivants seuls les LONGS se replient. Mesurée ici, pas devinée par une liste d'écrans —
+       une liste aurait vieilli au premier écran ajouté. Le seuil de 300 px, c'est à peu près
+       un pouce de défilement : en dessous, replier ferait perdre plus (un titre de plus à
+       lire, un tap de plus) que ça ne fait gagner. Un résumé court comme « En un coup d'œil »
+       reste donc ouvert, une liste de quinze incidents se replie.
+       Dès que Justin touche un titre, son choix est enregistré et prime sur cette règle. */
+    var auto=(i>0) && g.scrollHeight>300;
+    var plie=(o[cle]===undefined)?auto:(o[cle]===1);
+    if(plie) g.classList.add('plie');
+    tete.dataset.pli='1'; tete.setAttribute('role','button'); tete.setAttribute('tabindex','0');
+    tete.setAttribute('aria-expanded',plie?'false':'true');
+    var chev=document.createElement('span'); chev.className='reg-chev'; chev.setAttribute('aria-hidden','true');
+    chev.textContent=plie?'\u203A':'\u2304'; tete.appendChild(chev);
+    tete.addEventListener('click',function(ev){ if(ev.target.closest('button,a,input,select,label')) return; regBascule(cle,tete); });
+    tete.addEventListener('keydown',function(ev){ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); regBascule(cle,tete); } });
+    i++;
+  });
+}
 /* Ouvrir un dossier, revenir, changer un filtre : trois mouvements, tous décidés par
    l'utilisateur. 'avant' pousse le nouvel écran depuis la droite, 'retour' le ramène par la
    gauche, 'fondu' croise simplement. 'detail' et 'lecture' ne font bouger que la colonne de
@@ -2973,6 +3031,10 @@ function renderVue(v){
   else if(TAB==='equipe') v.innerHTML=vueEquipe();
   else if(TAB==='journal') v.innerHTML=vueJournal();
   if(v.classList.contains('entre')) compterKpi(v);
+  /* ICI et pas dans render() : renderAnime() appelle renderVue() directement, sans passer par
+     render(). Accroché à render(), le pliage ne s'appliquait donc jamais lors d'un changement
+     d'onglet — c'est-à-dire presque jamais. */
+  regPliage();
 }
 
 /* ── outils partagés ── */

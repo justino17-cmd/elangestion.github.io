@@ -139,6 +139,11 @@ cours ». Rien n'est activé d'office.
 | **v584** | « Mes demandes » et « Historique demandes » ne font plus qu'un écran, deux onglets, historique replié par mois. |
 | **v584** | Congés DR : le remplaçant voit AUSSI les box de l'absent, aux dates de la délégation. Valider un mouvement sur un stock qu'on ne peut pas ouvrir, ce n'était pas valider. |
 
+| **v586** | Le panneau de la box n'a plus de « Valider » : il invite à ouvrir la liste, et c'est la liste qui engage. Valider depuis le panneau sautait l'étape de relecture qu'on venait de créer. |
+| **v586** | Droit **« Responsable des bons de commande »** (`respBons`) : prévenu dès qu'une demande validée devient un bon à préparer, et ses bons en attente dans sa cloche. Lu sur `acces.caps.respBons===true` et non sur `userCap()` — qui répond oui à tout pour un administrateur, ce qui aurait prévenu tous les admins de tous les bons. |
+| **v586** | **Bons de remise optionnels** (`db.bonsRemiseOff`, interrupteur d'entreprise dans Paramètres, tracé au journal). Coupé : plus de question « pour qui ? », plus de bon écrit ; le stock bouge pareil. |
+| **v586 · Tour** | **Les groupes du registre se replient.** Mesuré au banc à 390 px : l'Accueil faisait 2 405 px — six écrans. Règle unique, mesurée et non devinée : le premier groupe reste ouvert, et parmi les suivants seuls ceux qui dépassent 300 px se replient sur leur titre (qui porte déjà nom et compte). Un tap ouvre, et le choix est retenu par groupe dans `tour_plis_v1` — après un tap, c'est la préférence de Justin qui décide. Accueil 2 405 → 1 354 px (−44 %) ; total des dix écrans −12 %. Trois écrans qui ne replient rien gagnent ~130 px : c'est le prix des titres à 44 px, devenus des cibles tactiles. `regPliage()` est accroché à `renderVue()` — le seul entonnoir : accroché à `render()`, il ne s'appliquait jamais lors d'un changement d'onglet, car `renderAnime()` court-circuite `render()`. |
+
 **La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
 navigateur, compte par compte) :
 
