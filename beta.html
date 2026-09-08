@@ -4503,7 +4503,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '580-beta';
+const APP_VERSION = '581-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -20298,6 +20298,9 @@ views.parametres=function(){
     </div>`; })()}
     <div class="card"><div class="card-head"><h3>Mise à jour</h3></div>
     <p style="color:var(--t2);font-size:14px;margin-bottom:10px">Version installée : <b>v${APP_VERSION}</b>.</p></div>
+    ${currentUser.role==='admin'?`<div class="card" style="border-color:color-mix(in srgb,var(--org,#e8a33d) 40%,transparent)"><div class="card-head"><h3>Repartir sur une base propre</h3></div>
+    <p style="color:var(--t2);font-size:14px;margin-bottom:12px">Après une période d'essai : remettre à zéro l'<b>activité</b> (stock des box, mouvements…) <b>sans rien perdre de ce que vous avez créé</b> — vos box, vos produits, vos fournisseurs, vos clients et vos comptes restent en place. Vous choisissez ligne par ligne ce qui part.</p>
+    <button class="btn" style="background:var(--org,#e8a33d);border-color:var(--org,#e8a33d)" onclick="remiseZero()">↻ Choisir ce qu'on remet à zéro…</button></div>`:''}
     ${equipeTeamOP()?`<div class="card" style="border-color:color-mix(in srgb,var(--red) 35%,transparent)"><div class="card-head"><h3>Mise en production</h3></div>
     <p style="color:var(--t2);font-size:14px;margin-bottom:12px">Efface toutes les données de test créées dans l'application (clients, interventions, boxes, stock, ventes, journal…). Les <b>comptes utilisateurs</b>, les <b>techniciens</b>, les <b>permissions</b> et le <b>catalogue produits</b> sont conservés. Une sauvegarde .json est téléchargée automatiquement avant l'effacement, et la remise à zéro se synchronise avec toute l'équipe. (Visible uniquement par l'équipe TEAM OP.)</p>
     <button class="btn danger" onclick="resetProduction()">Tout effacer et repartir à zéro…</button></div>`:''}
@@ -20345,6 +20348,124 @@ function genTestNuisibles(){
   intView='semaine'; intSelDay=jour; intWeekRef=jour; toast(NUISIBLES.length+' interventions créées aujourd\'hui'); go('interventions');
 }
 /* Mise en production : efface toutes les données de test, garde comptes/techniciens/permissions/catalogue */
+/* ══════════ REPARTIR SUR UNE BASE PROPRE ═══════════════════════════════════════════════════
+   Demande d'ELAN transmise par Justin, 8 septembre 2026 : après leur période d'essai, ils
+   veulent « remettre à zéro tout ce qu'il y a dans les box et les mouvements », mais garder
+   « tout ce qu'ils ont créé » — box, produits, fournisseurs, clients, comptes.
+
+   resetProduction() ne pouvait pas servir : elle EFFACE les box ET les fournisseurs, soit
+   exactement ce qu'ils veulent garder. Et elle est réservée à l'équipe TEAM OP
+   (equipeTeamOP()), donc ELAN ne l'a jamais eue.
+
+   Trois règles de sûreté, parce que ceci détruit des données réelles et se propage à TOUTE
+   l'équipe par la synchro :
+   · ce qu'ils ont CRÉÉ n'est même pas proposé — pas de case à cocher pour supprimer les box,
+     les produits, les fournisseurs ou les comptes. On ne peut pas se tromper sur ce qui ne
+     figure pas ;
+   · chaque ligne annonce COMBIEN d'éléments elle emporte, comptés sur la vraie base — une
+     case qui dit « 0 » ne fait peur à personne, et une qui dit « 1 240 » fait réfléchir ;
+   · sauvegarde .json téléchargée d'abord, puis code à 6 chiffres par e-mail, comme pour la
+     mise en production. */
+const RAZ_LIGNES=[
+  {k:'stock',   defaut:1, t:'Vider le stock des box et du dépôt', d:'Les box, leurs codes d\'accès, leurs groupes et la liste des produits qu\'elles contiennent RESTENT — seules les quantités repassent à 0, dans les box comme sur les fiches produits.',
+   n:()=>(db.boxes||[]).reduce((t,b)=>t+Object.keys(b.stock||{}).length,0)},
+  {k:'mouv',    defaut:1, t:'Effacer les mouvements de stock',   d:'L\'historique des entrées et sorties.',
+   n:()=>(db.mouvements||[]).length},
+  {k:'attente', defaut:1, t:'Effacer les arrivages et ce qui attend une validation', d:'Arrivages enregistrés sur les box, demandes de commande et mouvements en attente du DR.',
+   n:()=>(db.boxes||[]).reduce((t,b)=>t+((b.arrivages||[]).length),0)+(db.demandes||[]).length+(db.boxMvtAttente||[]).length},
+  {k:'bons',    defaut:0, t:'Effacer les bons de commande',      d:'Y compris les bons envoyés et leurs réponses.',
+   n:()=>(db.bons||[]).length},
+  {k:'inter',   defaut:0, t:'Effacer les interventions et les rapports', d:'Interventions, archives, registre sanitaire et passages notés sur les box.',
+   n:()=>(db.interventions||[]).length+(db.interventionsArchive||[]).length+(db.registres||[]).length},
+  {k:'clients', defaut:0, t:'Effacer les clients',               d:'⚠️ Leurs interventions, devis et factures perdent leur rattachement.',
+   n:()=>(db.clients||[]).length},
+  {k:'vente',   defaut:0, t:'Effacer les devis, factures et contrats', d:'Ainsi que les télécollectes et les enveloppes.',
+   n:()=>(db.devis||[]).length+(db.factures||[]).length+(db.contrats||[]).length},
+  {k:'journal', defaut:0, t:'Effacer le journal',                d:'La trace de qui a fait quoi. À garder si vous voulez pouvoir remonter le fil.',
+   n:()=>(db.journal||[]).length}
+];
+let _razChoix={};
+function remiseZero(){
+  if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
+  RAZ_LIGNES.forEach(l=>{ if(_razChoix[l.k]===undefined) _razChoix[l.k]=!!l.defaut; });
+  const mail=((currentUser.email||'').trim());
+  openModal(`<div class="modal-head"><h3>↻ Repartir sur une base propre</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="card" style="border-color:color-mix(in srgb,var(--acc) 40%,transparent);background:color-mix(in srgb,var(--acc) 6%,transparent);margin-bottom:12px">
+      <p style="font-size:13.5px;line-height:1.65;color:var(--t2);margin:0">✅ <b>Jamais touchés, quoi qu'on coche :</b> vos <b>box</b>, vos <b>produits</b>, vos <b>fournisseurs</b>, vos <b>comptes utilisateurs</b>, vos <b>techniciens</b>, vos <b>véhicules</b>, vos <b>permissions</b> et vos <b>réglages</b>.</p></div>
+    <div class="form-sec">Ce qu'on remet à zéro</div>
+    <div id="raz-list">${razLignesHtml()}</div>
+    <p style="font-size:12.5px;color:var(--t3);line-height:1.6;margin:12px 2px">💾 Une sauvegarde <b>.json</b> est téléchargée juste avant. L'opération est <b>irréversible</b> et se propage à <b>toute l'équipe</b> par la synchronisation.</p>
+    <div id="raz-zone"></div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Annuler</button><button class="btn" style="background:var(--org,#e8a33d);border-color:var(--org,#e8a33d)" onclick="razSuite('${esc(mail)}')">Continuer →</button></div>`);
+}
+function razLignesHtml(){
+  return RAZ_LIGNES.map(l=>{ const n=(()=>{ try{ return l.n(); }catch(e){ return 0; } })();
+    const on=!!_razChoix[l.k];
+    return `<label style="display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border:1px solid ${on?'color-mix(in srgb,var(--org,#e8a33d) 45%,transparent)':'var(--brd)'};border-radius:12px;margin-bottom:8px;cursor:pointer;background:${on?'color-mix(in srgb,var(--org,#e8a33d) 7%,transparent)':'transparent'}">
+      <input type="checkbox" ${on?'checked':''} onchange="razCocher('${l.k}',this.checked)" style="width:20px;height:20px;flex-shrink:0;margin-top:1px">
+      <span style="flex:1;min-width:0">
+        <span style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><b style="font-size:14px;color:var(--t1)">${esc(l.t)}</b><span style="font-size:11.5px;font-weight:700;color:${n?'var(--org,#e8a33d)':'var(--t3)'};font-variant-numeric:tabular-nums">${n} élément${n>1?'s':''}</span></span>
+        <span style="display:block;font-size:12.5px;color:var(--t3);line-height:1.5;margin-top:3px">${l.d}</span>
+      </span></label>`; }).join('');
+}
+function razCocher(k,v){ _razChoix[k]=!!v; const el=$('raz-list'); if(el) el.innerHTML=razLignesHtml(); }
+function razSuite(mail){
+  const choisis=RAZ_LIGNES.filter(l=>_razChoix[l.k]);
+  if(!choisis.length){ toast('Coche au moins une ligne'); return; }
+  const total=choisis.reduce((t,l)=>{ try{ return t+l.n(); }catch(e){ return t; } },0);
+  if(!total){ toast('Ces lignes sont déjà vides — il n\'y a rien à remettre à zéro'); return; }
+  const z=$('raz-zone'); if(!z) return;
+  z.innerHTML=`<div class="card" style="border-color:rgba(220,60,60,.45);background:rgba(220,60,60,.06);margin-top:6px">
+    <p style="font-size:13.5px;line-height:1.6;color:var(--t2);margin:0"><b style="color:var(--red)">${total} élément${total>1?'s':''} vont être effacés</b> pour toute l'équipe :<br>${choisis.map(l=>'• '+esc(l.t)).join('<br>')}</p></div>`;
+  if(mail&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){
+    z.innerHTML+=`<p style="font-size:13px;color:var(--t2);margin:10px 0 8px">Un <b>code à 6 chiffres</b> va être envoyé à <b>${esc(mail)}</b> pour confirmer.</p>
+      <button class="btn block" onclick="razCodeEnvoi('${esc(mail)}')">M'envoyer le code par e-mail</button><div id="raz-code"></div>`;
+  } else {
+    z.innerHTML+=`<p style="font-size:13px;color:var(--t2);margin:10px 0 8px">Aucune adresse e-mail sur ton compte : confirme en tapant <b>REMETTRE A ZERO</b>.</p>
+      <input id="raz-mot" class="search-inp" placeholder="REMETTRE A ZERO" style="margin-bottom:8px;text-align:center">
+      <button class="btn block" style="background:var(--red);border-color:var(--red)" onclick="razMot()">Confirmer</button>`;
+  }
+}
+async function razCodeEnvoi(mail){ const z=$('raz-code'); if(!z) return; z.innerHTML='<p style="font-size:13px;color:var(--t3);margin-top:8px">Envoi du code…</p>';
+  try{
+    const r=await fetch(PUSH_API+'/api/sendcode',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),body:JSON.stringify({teamId:syncTeam(),email:mail,purpose:'reset'})});
+    const d=await r.json().catch(()=>({}));
+    if(r.ok){ z.innerHTML=`<p style="font-size:13px;color:var(--t2);margin:8px 0">📩 Code envoyé — valable 10 minutes (regarde aussi les indésirables).</p>
+      <input id="raz-code-c" class="search-inp" inputmode="numeric" maxlength="6" placeholder="Code à 6 chiffres" style="margin-bottom:8px;letter-spacing:4px;text-align:center;font-size:18px">
+      <button class="btn block" style="background:var(--red);border-color:var(--red)" onclick="razCodeGo()">Confirmer la remise à zéro</button>`; }
+    else { z.innerHTML=`<p style="font-size:13px;color:var(--t2);margin:8px 0">✉️ L'envoi d'e-mails n'est pas disponible. Confirme en tapant <b>REMETTRE A ZERO</b>.</p>
+      <input id="raz-mot" class="search-inp" placeholder="REMETTRE A ZERO" style="margin-bottom:8px;text-align:center">
+      <button class="btn block" style="background:var(--red);border-color:var(--red)" onclick="razMot()">Confirmer</button>`; }
+  }catch(e){ z.innerHTML='<p style="font-size:13px;color:var(--red);margin-top:8px">Serveur injoignable — réessaie.</p>'; } }
+async function razCodeGo(){ const code=(($('raz-code-c')||{}).value||'').trim(); if(code.length<6){ toast('Entre le code à 6 chiffres'); return; }
+  try{
+    const r=await fetch(PUSH_API+'/api/checkcode',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),body:JSON.stringify({teamId:syncTeam(),code,purpose:'reset'})});
+    if(!r.ok){ toast('Code incorrect ou expiré'); return; }
+    closeModal(); razAppliquer();
+  }catch(e){ toast('Serveur injoignable'); } }
+function razMot(){ const w=(($('raz-mot')||{}).value||'').trim().toUpperCase().replace(/\s+/g,' ');
+  if(w!=='REMETTRE A ZERO'){ toast('Tape exactement : REMETTRE A ZERO'); return; }
+  closeModal(); razAppliquer(); }
+function razAppliquer(){
+  /* La sauvegarde AVANT tout le reste : si le téléchargement échoue, on n'a rien effacé. */
+  try{ exportData(); }catch(e){ toast('⚠️ Sauvegarde impossible — rien n\'a été effacé'); return; }
+  const c=_razChoix, faits=[];
+  if(c.stock){ (db.boxes||[]).forEach(b=>{ Object.keys(b.stock||{}).forEach(pid=>{ b.stock[pid]={ctn:0,u:0}; }); }); faits.push('stock des box'); }
+  if(c.mouv){ db.mouvements=[]; db.produitsDonnes=[]; faits.push('mouvements'); }
+  if(c.attente){ (db.boxes||[]).forEach(b=>{ b.arrivages=[]; }); db.demandes=[]; db.boxMvtAttente=[]; db.brouillons=[]; faits.push('arrivages et validations en attente'); }
+  if(c.bons){ db.bons=[]; faits.push('bons de commande'); }
+  if(c.inter){ db.interventions=[]; db.interventionsArchive=[]; db.registres=[]; (db.boxes||[]).forEach(b=>{ b.passages=[]; }); faits.push('interventions et rapports'); }
+  if(c.clients){ db.clients=[]; db.plansSite={}; faits.push('clients'); }
+  if(c.vente){ db.devis=[]; db.factures=[]; db.contrats=[]; db.telecollectes=[]; db.enveloppes=[]; faits.push('devis, factures et contrats'); }
+  if(c.journal){ db.journal=[]; faits.push('journal'); }
+  /* Le catalogue garde ses fiches ; seules les quantités du stock central repartent à 0 —
+     c'est la même logique que « vider le stock des box », appliquée au dépôt. */
+  if(c.stock) db.produits=(db.produits||[]).map(p=>({...p,qte:0}));
+  logEvent('Remise à zéro','Repartir sur une base propre — '+faits.join(', '),'admin');
+  save(); if(typeof syncPush==='function') syncPush(true);
+  toast('✓ Base remise à zéro — '+faits.join(', '),5000);
+  go('dashboard');
+}
 function resetProduction(){ if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
   const mail=((currentUser.email||'').trim())||'justin.17553@gmail.com';
   openModal(`<div class="modal-head"><h3>⚠️ Mise en production</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
