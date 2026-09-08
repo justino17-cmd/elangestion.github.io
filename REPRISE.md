@@ -163,6 +163,8 @@ cours ». Rien n'est activé d'office.
 
 | **v596** | **Correctif de la v593 : l'appareil à jour annonce sa version sans attendre d'écrire des données.** `syncPush` ne part que depuis `save()`, donc depuis une vraie modification : un appareil mis à jour qui ne touchait à rien n'entraînait personne, et l'équipe restait en arrière jusqu'à ce que quelqu'un bouge une quantité. `majAnnoncer()` écrit LE SEUL champ `ver` (`set({ver},{merge:true})`) au premier instantané : ni le bloc chiffré, ni `ts` — les autres lisent le numéro, et leur garde `d.ts <= _syncTs` les empêche de réappliquer des données inchangées. On n'annonce que si l'on est DEVANT (sinon un appareil en retard ferait redescendre l'équipe), jamais entre canaux, et une seule fois par session. |
 
+| **v597** | **Tout l'historique des commandes d'une box derrière un bouton, et la fiche du bon en consultation.** « On voit historique de commande du box, on clique dessus, on a tous les bons de commande avant, les réceptions et les bons de livraison. Ça évite trente-six mille choses. Comme ça, personne n'a accès aux bons de commande. » Cinquième bouton sur la box (avec le compte), écran replié par mois, chaque ligne portant la vignette du bon de livraison — ou « sans photo » en ambre. La liste « Commandes passées » quitte la page de la box : elle vivait au milieu du stock, elle vit maintenant derrière son bouton. Et `ficheBon(id, true)` ne montre QUE le PDF : Recommander, Modifier, Email fournisseur, Partager, CSV appartiennent à qui passe les commandes, pas au terrain. Le menu « Bons de commande » garde la fiche complète. |
+
 **La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
 navigateur, compte par compte) :
 
