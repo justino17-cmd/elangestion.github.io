@@ -1193,18 +1193,29 @@ const BETA_PATH = path.join(DATA_DIR, 'beta-comptes.json');
 let betaComptes = [];
 try { betaComptes = JSON.parse(fs.readFileSync(BETA_PATH, 'utf8')) || []; } catch (e) {}
 function betaSave() { try { fs.writeFileSync(BETA_PATH, JSON.stringify(betaComptes)); } catch (e) { console.error('beta save:', e.message); } }
-const betaPublic = c => ({ id: c.id, login: c.login, nom: c.nom, actif: !!c.actif, ts: c.ts || 0, creePar: c.creePar || '', derniere: c.derniere || 0 });
+// Le chantier — ce que la personne teste — n'est pas décoratif : un accès bêta sans raison
+// écrite est un accès qu'on n'ose plus couper parce qu'on ne sait plus à quoi il servait.
+const betaPublic = c => ({ id: c.id, login: c.login, nom: c.nom, chantier: c.chantier || '', actif: !!c.actif, ts: c.ts || 0, creePar: c.creePar || '', derniere: c.derniere || 0 });
 app.get('/api/monitor/beta', monPatronStrict, (req, res) => { res.json({ comptes: betaComptes.map(betaPublic) }); });
 app.post('/api/monitor/beta', monPatronStrict, (req, res) => {
   const login = monStr((req.body || {}).login, 40).trim().toLowerCase();
   const nom = monStr((req.body || {}).nom, 60).trim();
   const pass = monStr((req.body || {}).pass, 200);
+  const chantier = monStr((req.body || {}).chantier, 120).trim();
   if (!/^[a-z0-9._@-]{3,40}$/.test(login)) return res.status(400).json({ error: 'identifiant : 3 à 40 caractères, lettres, chiffres, . _ @ -' });
   if (pass.length < 8) return res.status(400).json({ error: 'mot de passe de 8 caractères minimum' });
   if (betaComptes.some(c => c.login === login)) return res.status(409).json({ error: 'cet identifiant existe déjà' });
   if (betaComptes.length >= 50) return res.status(400).json({ error: 'trop d\'accès d\'essai (50 max)' });
-  const c = { id: 'b' + crypto.randomBytes(5).toString('hex'), login, nom: nom || login, hash: monHash(pass), actif: true, ts: Date.now(), creePar: req.tourUser.nom };
+  const c = { id: 'b' + crypto.randomBytes(5).toString('hex'), login, nom: nom || login, chantier, hash: monHash(pass), actif: true, ts: Date.now(), creePar: req.tourUser.nom };
   betaComptes.push(c); betaSave();
+  res.json({ ok: true, compte: betaPublic(c) });
+});
+// Un chantier se termine et un autre commence sans que l'accès change de main : il doit se
+// réécrire, sinon la seule façon de le corriger serait de supprimer l'accès et de le rouvrir.
+app.post('/api/monitor/beta/chantier', monPatronStrict, (req, res) => {
+  const c = betaComptes.find(x => x.id === (req.body || {}).id);
+  if (!c) return res.status(404).json({ error: 'accès introuvable' });
+  c.chantier = monStr((req.body || {}).chantier, 120).trim(); betaSave();
   res.json({ ok: true, compte: betaPublic(c) });
 });
 app.post('/api/monitor/beta/toggle', monPatronStrict, (req, res) => {
