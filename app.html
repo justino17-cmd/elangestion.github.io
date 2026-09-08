@@ -3827,6 +3827,13 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .ec-dif{background:color-mix(in srgb,var(--org,#e8a33d) 11%,transparent)}
 .ec-dif b:last-child{color:var(--org,#e8a33d)}
 .ec-p{padding:8px 11px;font-size:11.5px;line-height:1.5;color:var(--t3);border-top:1px solid var(--brd)}
+/* Le papier à côté des chiffres : une vignette, pas une pièce jointe qu'il faut aller chercher. */
+.ec-bl{display:flex;gap:11px;align-items:center;padding:9px 11px;border-bottom:1px solid var(--brd)}
+.ec-bl img{width:56px;height:56px;object-fit:cover;border-radius:9px;border:1px solid var(--brd);cursor:pointer;flex-shrink:0}
+.ec-bl div{min-width:0}
+.ec-bl b{display:block;font-size:12.5px;color:var(--t1)}
+.ec-bl span{display:block;font-size:11.5px;color:var(--t3);line-height:1.45;margin-top:2px}
+.ec-bl-non span{color:var(--org,#e8a33d)}
 @media (max-width:780px){
   /* LE HAMBURGER RESTE. Il avait été caché quand la barre existait, « Plus » ouvrant le même
      tiroir : le coin haut gauche devenait vide et le menu n'était plus atteignable que tout en
@@ -4666,7 +4673,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '593';
+const APP_VERSION = '594';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -16090,7 +16097,8 @@ function openArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) ret
     <div class="form-sec" style="margin-top:14px">Produits reçus *</div>
     <div id="arr-lignes"></div>
     <button type="button" class="btn ghost sm" style="margin-top:8px" onclick="arrLigneAdd()">＋ Ajouter un produit</button>
-    <div class="form-sec" style="margin-top:16px">Photo du bon de commande / livraison</div>
+    <div class="form-sec" style="margin-top:16px">Photo du bon de livraison</div>
+    <p style="font-size:12.5px;color:var(--t3);margin:0 0 8px;line-height:1.5">Le papier remis par le livreur. Il sera rangé <b>avec le bon de commande</b> : le DR verra la photo à côté des quantités au moment de valider, et les deux resteront ensemble.</p>
     <input type="file" id="arr-file" accept="image/*" capture="environment" style="display:none" onchange="arrPhoto(event)">
     <div id="arr-photo-zone"><button type="button" class="btn ghost" style="width:100%;justify-content:center;padding:13px" onclick="document.getElementById('arr-file').click()">Prendre / choisir une photo</button></div>
     <div style="font-size:11.5px;color:var(--t3);margin-top:12px">${boxValidRequis()?'À l\'enregistrement, l\'arrivage part au <b>DR pour validation</b> — le stock ne bougera qu\'après son accord.':'À l\'enregistrement, les quantités sont ajoutées directement au stock de la box et l\'équipe reçoit une notification « Arrivage box ».'}</div>`);
@@ -17633,8 +17641,19 @@ function bonEcartHtml(bon,mvt){
   const ls=bonEcartLignes(bon,mvt); if(!ls.length) return '';
   const ecarts=ls.filter(l=>l.ecart!==0).length;
   const tot=ls.reduce((t,l)=>({c:t.c+l.cmd,r:t.r+l.recu}),{c:0,r:0});
+  /* ⛔ LA PHOTO SE RANGE AVEC LE BON, PAS À CÔTÉ — demande de Justin, 8 septembre 2026 :
+     « chaque bon de commande et bon de livraison sont stockés ensemble, comme ça on sait qui
+     correspond à quoi ». Le chef photographiait déjà le bon de livraison à l'arrivage, mais
+     personne ne la revoyait ensuite : elle dormait sur le mouvement. Elle s'affiche désormais
+     là où l'on compare, et elle reste sur la fiche du bon — le papier et les chiffres au même
+     endroit, pour toujours. */
+  const bl=(mvt&&mvt.photo)?`<div class="ec-bl">
+      <img src="${mvt.photo}" alt="Bon de livraison photographié à la réception" onclick="window.open(this.src)">
+      <div><b>Bon de livraison</b><span>Photographié${mvt.par?' par '+esc(mvt.par):''}${mvt.ts?' le '+fmtShort(new Date(mvt.ts).toISOString().slice(0,10)):''} — toucher pour agrandir</span></div>
+    </div>`:`<div class="ec-bl ec-bl-non"><span>📄 Aucune photo du bon de livraison n\'a été prise à la réception.</span></div>`;
   return `<div class="ec">
     <div class="ec-h">📋 <b>${esc(bonNum(bon))}</b> — commandé ${tot.c} u · reçu ${tot.r} u${ecarts?` · <span class="ec-alerte">${ecarts} écart${ecarts>1?'s':''}</span>`:' · <span class="ec-ok">tout y est</span>'}</div>
+    ${bl}
     <div class="ec-t">
       <div class="ec-r ec-tete"><span>Produit</span><b>Commandé</b><b>Reçu</b><b>Écart</b></div>
       ${ls.map(l=>`<div class="ec-r${l.ecart?' ec-dif':''}"><span>${esc(l.nom)}</span><b>${l.cmd}</b><b>${l.recu}</b><b>${l.ecart>0?'+':''}${l.ecart||'—'}</b></div>`).join('')}
