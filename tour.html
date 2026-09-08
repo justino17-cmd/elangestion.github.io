@@ -2353,9 +2353,25 @@ function annonceEnvoyer(btn){
     else { toast((r&&r.error)||'Envoi impossible'); if(btn){ btn.disabled=false; btn.textContent='📣 Annoncer la mise à jour'; } }
   }).catch(function(){ toast('Envoi impossible — serveur injoignable'); if(btn){ btn.disabled=false; btn.textContent='📣 Annoncer la mise à jour'; } });
 }
+/* Faire le tri dans les comptes demande de les VOIR tous d'un coup, hors de l'écran : les
+   essais qu'on s'est créés à soi-même se reconnaissent à l'adresse, pas à la fiche. Le
+   presse-papiers évite d'aller les recopier un par un. Rien ne sort d'ici : la liste reste
+   sur le poste, elle n'est envoyée nulle part.
+   Retour de secours si le presse-papiers est refusé (il l'est hors HTTPS et parfois sans
+   geste utilisateur) : on affiche la liste, elle reste sélectionnable à la main. */
+function cliCopierAdresses(btn){
+  var l=(CLI.list||[]).map(function(c){ return (c.email||'')+(c.entreprise?'   — '+c.entreprise:''); }).filter(Boolean);
+  if(!l.length){ toast('Aucune entreprise dans la liste'); return; }
+  var txt=l.join('\n');
+  var fini=function(){ if(btn){ var t=btn.textContent; btn.textContent='✅ '+l.length+' adresses copiées'; setTimeout(function(){ btn.textContent=t; },2200); } };
+  try{
+    navigator.clipboard.writeText(txt).then(fini,function(){ tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:10px">📋 '+l.length+' adresse(s)</div><textarea readonly style="width:100%;height:60vh;font-family:ui-monospace,monospace;font-size:12.5px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--champ-fond);color:var(--text)">'+esc(txt)+'</textarea>'); });
+  }catch(e){ tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:10px">📋 '+l.length+' adresse(s)</div><textarea readonly style="width:100%;height:60vh;font-family:ui-monospace,monospace;font-size:12.5px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--champ-fond);color:var(--text)">'+esc(txt)+'</textarea>'); }
+}
 function vueEntreprises(){
   var tete=enTete('Entreprises',
     'Vos clients, leur formule et leur activité. Une entreprise apparaît ici dès sa prochaine visite sur teamop.fr — les comptes eux-mêmes vivent dans l’espace client.',
+    '<button class="btn-fant" onclick="cliCopierAdresses(this)" title="Copie toutes les adresses de la liste, une par ligne — pour faire le tri ailleurs">📋 Copier les adresses</button> '+
     '<button class="btn-plein" onclick="annonceEnvoyer(this)" title="Envoie l’e-mail des nouveautés de la dernière mise à jour à toutes les entreprises">📣 Annoncer la mise à jour</button>');
   if(!CLI.loaded) return tete+'<div class="vide">Chargement des entreprises…</div>';
   if(CLI.err) return tete+'<div class="vide">'+esc(CLI.err)+'</div>';
