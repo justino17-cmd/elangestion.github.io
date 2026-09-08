@@ -1049,7 +1049,7 @@ function chargerConnexions(){
     if(TAB==='connexions') render();
   }).catch(function(e){ CNX.err=msgErreur(e); CNX.loaded=true; if(TAB==='connexions') render(); });
 }
-function cnxSel(t){ CNX.sel=t; CNX.det=null; CNX.detErr=''; renderNav('detail');
+function cnxSel(t){ CNX.sel=t; CNX.det=null; CNX.detErr=''; renderNav('avant'); window.scrollTo(0,0);
   var e=CNX.list.filter(function(x){ return x.t===t; })[0]||{};
   apiPost('/api/monitor/espaces/connexions',{nom:e.slug?e.nom:'',t:t,n:120}).then(function(r){
     if(CNX.sel!==t) return;
@@ -1071,6 +1071,8 @@ var _rq=null;
 function rendreDifféré(){ clearTimeout(_rq); _rq=setTimeout(rendreEnGardantLeFocus,110); }
 function cnxQ(v){ CNX.q=v; rendreDifféré(); }
 function cnxF(v){ CNX.f=v; renderNav('fondu'); }
+/* Meme geste, meme libelle, meme place que dans les Entreprises et la Surveillance. */
+function cnxFermer(){ CNX.sel=null; CNX.det=null; CNX.detErr=''; renderNav('retour'); window.scrollTo(0,0); }
 var CNX_VIA={lien:'par le lien',entreprise:'nom d\'entreprise',session:'session gardée',identifiants:'identifiants',code:'code espace'};
 var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion']};
 function cnxDepuis(ts){ if(!ts) return 'jamais'; var m=Math.round((Date.now()-ts)/60000);
@@ -1090,8 +1092,8 @@ function cnxResumeHtml(r,nom){ if(!r) return '';
   var kpi=function(v,l,c){ return '<div style="flex:1;min-width:110px;background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="font-size:20px;font-weight:800;color:'+(c||'inherit')+'">'+v+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
   return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
     kpi(r.derniere?cnxDepuis(r.derniere):'jamais','dernière connexion'+(r.dernierLogin?' · '+esc(r.dernierLogin):''))+
-    kpi(r.utilisateurs7,'utilisateurs actifs 7 j')+kpi(r.utilisateurs30,'utilisateurs actifs 30 j')+kpi(r.appareils7,'appareils 7 j')+
-    kpi(r.connexions7,'connexions 7 j')+kpi(r.echecs24,'échecs 24 h',r.echecs24?'var(--redText)':'var(--green)')+'</div>'+
+    kpi(r.utilisateurs7||0,'utilisateurs actifs 7 j')+kpi(r.utilisateurs30||0,'utilisateurs actifs 30 j')+kpi(r.appareils7||0,'appareils 7 j')+
+    kpi(r.connexions7||0,'connexions 7 j')+kpi(r.echecs24||0,'échecs 24 h',r.echecs24?'var(--redText)':'var(--green)')+'</div>'+
     '<div style="font-size:12.5px;color:var(--text2);line-height:1.8"><b>Versions</b> (par appareil) : '+versions+'<br><b>Applications</b> (30 j) : '+apps+'<br><b>Appareils</b> (30 j) : '+appareils+'</div>'; }
 function vueConnexions(){
   var g=CNX.global||{};
@@ -1100,12 +1102,33 @@ function vueConnexions(){
     '<button class="btn-fant" onclick="chargerConnexions()">↻ Actualiser</button>');
   if(!CNX.loaded) return tete+'<div class="vide">Chargement des connexions…</div>';
   if(CNX.err) return tete+'<div class="vide">'+esc(CNX.err)+'</div>';
-  var kpi=function(v,l,c){ return '<div class="carte" style="flex:1;min-width:150px;padding:14px 16px"><div style="font-size:24px;font-weight:800;color:'+(c||'inherit')+'">'+v+'</div><div style="font-size:12px;color:var(--muted)">'+l+'</div></div>'; };
-  var bandeau='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">'+kpi(g.connexions24||0,'connexions sur 24 h')+kpi(g.actives7||0,'entreprises actives sur 7 j')+kpi(g.echecs24||0,'échecs de connexion sur 24 h',(g.echecs24||0)?'var(--redText)':'var(--green)')+'</div>';
+  /* Les chiffres ET les filtres disaient la même chose à deux endroits : « 2 échecs sur
+     24 h » en carte, « Avec échecs » en bouton juste en dessous, sans que l'un mène à
+     l'autre. Une seule rangée désormais, cliquable — le même geste que la Surveillance
+     et les Entreprises. « Connexions sur 24 h » n'a pas de filtre correspondant : c'est
+     un repère, il reste neutre et non cliquable, et le curseur le dit avant le clic. */
+  var kpi=function(v,l,c,f){
+    var actif=f&&CNX.f===f, clic=f&&v>0;
+    return '<div class="kpi'+(clic?' clic':'')+(actif?' sel':'')+'"'+
+      (clic?' onclick="cnxF(\''+(actif?'toutes':f)+'\')" tabindex="0" role="button" aria-pressed="'+(actif?'true':'false')+
+            '" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();cnxF(\''+(actif?'toutes':f)+'\')}"'+
+            ' title="'+(actif?'Revenir à toutes les entreprises':'Ne montrer que celles-là')+'"':'')+'>'+
+      '<div class="n"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+l+'</div></div>'; };
+  var bandeau='<div class="grille-kpi" style="margin-bottom:16px">'+
+    kpi(g.connexions24||0,'connexions sur 24 h','','')+
+    kpi(g.actives7||0,'entreprises actives sur 7 j','','actives')+
+    kpi(g.echecs24||0,'échecs de connexion sur 24 h',(g.echecs24||0)?'var(--redText)':'','echecs')+
+    kpi(CNX.list.filter(function(x){ return !(x.resume.derniere>Date.now()-7*86400000); }).length,'silencieuses depuis 7 jours','','silence')+
+  '</div>';
   var q=(CNX.q||'').toLowerCase().trim(); var now=Date.now();
   var l=CNX.list.filter(function(x){ if(q&&(x.nom||'').toLowerCase().indexOf(q)<0) return false;
     if(CNX.f==='actives') return x.resume.derniere>now-7*86400000; if(CNX.f==='silence') return !(x.resume.derniere>now-7*86400000); if(CNX.f==='echecs') return x.resume.echecs24>0; return true; });
-  var filtres=[['toutes','Toutes'],['actives','Actives 7 j'],['silence','Silencieuses'],['echecs','Avec échecs']].map(function(f){ return '<button class="'+(CNX.f===f[0]?'btn-plein':'btn-fant')+'" style="padding:6px 12px" onclick="cnxF(\''+f[0]+'\')">'+f[1]+'</button>'; }).join(' ');
+  /* Les quatre boutons ont fondu dans les cartes du haut. Reste ce qu'ils avaient
+     d'utile : dire en clair ce qui est filtré, et comment en sortir. */
+  var filtres=(CNX.f&&CNX.f!=='toutes')
+    ? '<button class="btn-fant" style="padding:6px 12px" onclick="cnxF(\'toutes\')">'+
+        esc({actives:'Actives sur 7 jours',silence:'Silencieuses depuis 7 jours',echecs:'Avec des échecs'}[CNX.f]||'')+' ✕</button>'
+    : '';
   var rows=l.map(function(x){ var r=x.resume; var vers=Object.keys(r.versions||{}).sort().slice(-2).map(function(v){ return 'v'+v; }).join(', ')||'—';
     return '<tr class="item'+(CNX.sel===x.t?' on':'')+'" style="cursor:pointer" onclick="cnxSel(\''+jsq(x.t)+'\')">'+
       '<td><b>'+esc(x.nom)+'</b>'+(x.formule?' <span style="color:var(--muted);font-size:11.5px">'+esc(x.formule)+'</span>':'')+'</td>'+
@@ -1117,13 +1140,17 @@ function vueConnexions(){
     '<tbody>'+(rows||'<tr><td colspan="7" class="vide">Aucune entreprise pour ce filtre.</td></tr>')+'</tbody></table></div>';
   var det='';
   if(CNX.sel){ var e=CNX.list.filter(function(x){ return x.t===CNX.sel; })[0]||{};
-    det='<div class="carte p24" style="margin-top:16px"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><div style="font-size:17px;font-weight:700">'+esc(e.nom||CNX.sel)+'</div><button class="btn-fant" onclick="CNX.sel=null;render()">Fermer</button></div>'+
+    det='<div style="margin-bottom:14px"><button class="btn-fant" onclick="cnxFermer()">← Toutes les entreprises</button></div>'+
+      '<div class="carte p24"><div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap">'+
+      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft);flex-shrink:0">'+esc(sigle(e.nom||CNX.sel))+'</div>'+
+      '<div style="font-size:17px;font-weight:700">'+esc(e.nom||CNX.sel)+'</div></div>'+
       (CNX.detErr?'<div class="vide">'+esc(CNX.detErr)+'</div>':(!CNX.det?'<div class="vide">Chargement…</div>':
         '<div style="margin-top:12px">'+cnxResumeHtml(CNX.det.resume,e.nom)+'</div>'+
         '<div class="sec" style="margin-top:16px">TOUTES LES CONNEXIONS ('+(CNX.det.evenements||[]).length+' dernières)</div>'+
         '<div style="overflow:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase"><th style="text-align:left;padding:6px 8px">Quand</th><th style="text-align:left;padding:6px 8px">Quoi</th><th style="text-align:left;padding:6px 8px">Utilisateur</th><th style="text-align:left;padding:6px 8px">Chemin</th><th style="text-align:left;padding:6px 8px">Appareil</th><th style="text-align:left;padding:6px 8px">Version</th></tr></thead><tbody>'+
         ((CNX.det.evenements||[]).map(cnxLigne).join('')||'<tr><td colspan="6" class="vide">Aucune connexion remontée pour l\'instant.</td></tr>')+'</tbody></table></div>'))+'</div>'; }
-  return tete+bandeau+'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><div class="rech" style="flex:1;min-width:220px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CNX.q)+'" oninput="cnxQ(this.value)"></div>'+filtres+'</div>'+table+det;
+  if(CNX.sel) return tete+det;
+  return tete+bandeau+'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><div class="rech" style="flex:1;min-width:220px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CNX.q)+'" oninput="cnxQ(this.value)"></div>'+filtres+'</div>'+table;
 }
 function tourConnexionsCharge(nm){
   apiPost('/api/monitor/espaces/connexions',{nom:nm,n:8}).then(function(r){
