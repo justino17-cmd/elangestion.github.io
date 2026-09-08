@@ -353,6 +353,10 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
         _signupBusy=true;
         const cred=await auth.createUserWithEmailAndPassword(email,pass);
         await fs.collection('teamop_requests').doc(cred.user.uid).set({uid:cred.user.uid,email,prenom,nom,name:(prenom+' '+nom).trim(),company,apps:[],app:'',besoin:'',status:'compte',createdAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+        /* L'équipe est prévenue par e-mail : le serveur ne voit pas passer les inscriptions,
+           puisqu'elles vont directement de la page à Firebase. Volontairement non bloquant —
+           un e-mail d'alerte qui échoue ne doit jamais empêcher un client de créer son compte. */
+        try{ fetch('https://api.teamop.fr/api/nouveau-compte',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,prenom:prenom,nom:nom,company:company})}).catch(()=>{}); }catch(_){}
         _signupBusy=false;
         if(RETOUR_PAIEMENT){ location.href=RETOUR_PAIEMENT; return; }
       } else { await auth.signInWithEmailAndPassword(email,pass); }
