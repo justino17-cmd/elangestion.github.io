@@ -27,8 +27,14 @@ if (s.indexOf("const BETA_ESSAI=true;") < 0) { console.error('ÉCHEC : la porte 
 // La refonte (nouveau dessin ne du logo : sapin, menthe, diagonale) est ARMEE PAR LA BETA seule.
 // app.html sert la v561 a tous les clients ; ici on pose data-refonte sur <html> et le bloc
 // <style id="refonte-css"> prend la main. Un seul attribut separe les deux mondes.
-if (s.indexOf('<html lang="fr">') < 0) { console.error('ÉCHEC : la balise <html> de la page est introuvable'); process.exit(1); }
-s = s.replace('<html lang="fr">', '<html lang="fr" data-refonte>');
+// Depuis que la refonte est allumée en production, app.html porte DÉJÀ l'attribut. On ne le
+// pose donc que s'il manque — sinon ce script échouait, ne trouvant plus « <html lang="fr"> »
+// exactement, et la bêta ne se régénérait plus du tout.
+if (s.indexOf('<html lang="fr" data-refonte>') >= 0) {
+  /* rien à poser : la page source l'a déjà */
+} else if (s.indexOf('<html lang="fr">') >= 0) {
+  s = s.replace('<html lang="fr">', '<html lang="fr" data-refonte>');
+} else { console.error('ÉCHEC : la balise <html> de la page est introuvable'); process.exit(1); }
 s = s.replace(/<link rel="manifest"[^>]*>/, '');
 /* La barre du haut ne porte QUE le nom — demande de Justin, 7 septembre 2026. Sur un
    téléphone il ne reste que 142 px entre le menu et les trois ronds, et « · 🧪 BÊTA » y

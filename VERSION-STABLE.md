@@ -1,7 +1,43 @@
 # Point stable TeamOP
 
-**Version stable : v572** — gravée le 8 septembre 2026.
+**Version stable : v573** — gravée le 8 septembre 2026.
 
+v573 — le nouveau dessin s'allume chez les entreprises.
+
+**Un attribut, et rien d'autre.** `app.html` porte désormais `data-refonte` sur sa balise
+`<html>` — la ligne 2, jamais les onze autres `<html lang="fr">` du fichier, qui sont les
+en-têtes des pages imprimées (bons, rapports, registres). Les 702 règles de la refonte
+étaient déjà téléchargées par toutes les entreprises depuis des semaines ; aucune ne
+s'appliquait. C'est ce mécanisme qui a permis de tout redessiner sans qu'un seul client s'en
+aperçoive, et c'est le même qui permet de revenir en arrière : retirer l'attribut suffit,
+sans toucher à une ligne de style.
+
+**Ce qui change à l'écran.** Les emojis laissent place aux icônes dessinées, la navigation
+passe en barre d'onglets en bas sur téléphone, les surfaces perdent leurs bordures au profit
+de plans, et le vert cesse d'être partout pour ne marquer que l'actif et l'action principale.
+
+**Vérifié avant d'allumer, sur la bêta qui porte le même attribut.** 26 écrans, en 390 px,
+768 px et bureau, thèmes clair et sombre, avec 40 clients aux noms à rallonge et 60
+interventions chargés en mémoire — jamais de `save()`. Aucun débordement horizontal, aucun
+élément hors écran, rien masqué par la barre du bas, aucun contraste sous les seuils WCAG,
+24 formulaires sur 25 ouverts proprement (le vingt-cinquième exige deux arguments), et
+**zéro erreur JavaScript**.
+
+**Les deux seuls reproches trouvés préexistent, à l'identique des deux côtés** : dix liens
+e-mail et téléphone hauts de 20 px sur l'écran Fournisseurs — que WCAG 2.5.8 exempte en tant
+que liens dans du texte courant — et 255 libellés non reliés à leur champ, qui sont du HTML
+partagé et que la refonte n'aggrave pas.
+
+**`beta-build.js` a dû être adapté d'abord.** Il exigeait `<html lang="fr">` exactement pour
+poser l'attribut et se serait arrêté en le trouvant déjà là : la bêta ne se serait plus
+régénérée du tout. Il tolère désormais l'attribut déjà présent.
+
+**L'annonce n'a pas été touchée**, ni son numéro ni ses cinq points : le texte relu part
+quand le bouton de la Tour est actionné, pas avant.
+
+## Ancien point
+
+**v572**
 v572 — la correspondance d'une entreprise ne se lit plus avec son seul identifiant d'espace.
 
 **Ce qui était ouvert.** Six routes du module mail ne demandaient qu'un `teamId` dans l'adresse
