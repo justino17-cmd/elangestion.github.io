@@ -60,12 +60,36 @@ restant posé pour qu'un retour en arrière ne remplisse pas après coup. Le bou
 Vérifié sur `beta.html` régénérée, deux contextes isolés : compte neuf → tout à 0 ; entreprise
 déjà installée → ses 2 fournisseurs, son produit et son client intacts, aucun intrus 3D.
 
-**La suite, demandée le 8 septembre et pas encore commencée :** le site annonce 9 packs métier
-(3D, plomberie, électricité, chauffage/clim, maçonnerie, menuiserie, peinture, paysagiste,
-nettoyage — 6 « disponibles », 3 « bientôt »), et l'application n'en connaît qu'un, celui de la
-3D, en dur. Le métier doit se choisir à la création du compte, chaque pack doit porter SON
-contenu, et un métier absent devient une demande d'application sur mesure — payante. Voir la
-décision à prendre plus bas.
+**Les packs métier : rien à faire, c'était une fausse piste.** Vérifié le 8 septembre contre la
+page réellement servie : site, formulaire d'inscription et application sont **parfaitement
+alignés** — 12 métiers, les 6 mêmes marqués prêts (3D, plomberie, électricité, chauffage,
+serrurerie, nettoyage), les 6 autres en « bientôt » qui partent en demande sur mesure. Les
+5 packs non-3D sont réellement remplis (10 à 11 types d'intervention, 8 à 12 prestations, 9 à
+18 champs de rapport). Personne ne peut choisir un métier que l'application ignore.
+
+Décision de Justin le 8 septembre, qui ferme le sujet : *« chaque métier aura des fournisseurs
+différents, des produits différents ; quand un nouvel utilisateur arrive, c'est à lui de tout
+rentrer. »* **On ne fournit donc de listes à personne** — ni 3D, ni plomberie. Inutile d'écrire
+des catalogues par métier.
+
+**Ce qui a été fait dans la foulée :** le bouton « ↻ Catalogue OP » posait les 110 références 3D
+et les 5 fournisseurs à n'importe qui, sans regarder le métier — un plombier recevait du
+raticide. Il n'apparaît plus que là où le catalogue est DÉJÀ en place : un filet de sécurité
+pour ELAN, jamais une liste offerte à un nouveau venu. Le test porte sur les données, pas sur
+`syncTeam()===FB_TEAM`, qui est vrai chez toute entreprise restée sur l'espace par défaut.
+
+**Boutons de test de la bêta, faits et vérifiés :** carte « Outils de bêta » dans les Réglages —
+remplir (jeu de test), remplir en grand nombre (200 clients / 400 interventions marqués
+`demo:1`, retirables par le bouton existant), tout vider. Garde `BETA_ESSAI` **et lui seul**
+(`equipeTeamOP()` est vrai en production chez qui n'a pas de clé personnalisée), plus le rôle
+administrateur parce que `scripts/apercu.sh` produit un `apercu/app.html` en mode bêta, servi
+publiquement sur teamop.fr.
+
+**Trois seuls écarts restants, cosmétiques :** le libellé d'un même pack diffère entre le site et
+le formulaire — 3D « Hygiène anti-nuisibles » / « Anti-nuisibles », Peinture « Finitions » /
+« Revêtements », Couverture « Toiture » / « Zinguerie ». Les identifiants `data-met`
+correspondent partout, donc rien ne casse : c'est un client qui lit deux mots pour la même
+chose.
 
 ### Refonte de la Tour
 Branche de travail `claude/op-gestion-interface-yb6p32`, publication par
