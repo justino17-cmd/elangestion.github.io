@@ -3812,6 +3812,21 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .usr-x{font-size:12.5px;color:var(--t3);line-height:1.55}
 .usr-b{margin-top:14px}
 .usr-b .btn{width:100%;justify-content:center;min-height:48px;border-radius:13px;font-weight:800}
+/* ── Commandé / reçu / écart ── posé sous la ligne où la décision se prend. */
+.ec{width:100%;margin:-4px 0 12px;border:1px solid var(--brd);border-radius:11px;background:var(--bg2);overflow:hidden}
+.ec-h{padding:8px 11px;font-size:12.5px;color:var(--t2);border-bottom:1px solid var(--brd);line-height:1.5}
+.ec-alerte{color:var(--org,#e8a33d);font-weight:800}
+.ec-ok{color:var(--acc);font-weight:800}
+.ec-t{padding:2px 0}
+.ec-r{display:grid;grid-template-columns:1fr 62px 52px 52px;gap:6px;align-items:center;
+  padding:5px 11px;font-size:12.5px;font-variant-numeric:tabular-nums}
+.ec-r span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)}
+.ec-r b{text-align:right;font-weight:700;color:var(--t1)}
+.ec-tete{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);padding-bottom:2px}
+.ec-tete b,.ec-tete span{color:var(--t3);font-weight:700}
+.ec-dif{background:color-mix(in srgb,var(--org,#e8a33d) 11%,transparent)}
+.ec-dif b:last-child{color:var(--org,#e8a33d)}
+.ec-p{padding:8px 11px;font-size:11.5px;line-height:1.5;color:var(--t3);border-top:1px solid var(--brd)}
 @media (max-width:780px){
   /* LE HAMBURGER RESTE. Il avait été caché quand la barre existait, « Plus » ouvrant le même
      tiroir : le coin haut gauche devenait vide et le menu n'était plus atteignable que tout en
@@ -4651,7 +4666,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '591';
+const APP_VERSION = '592';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -17373,15 +17388,21 @@ views.validations=function(){
   const MICO={arrivage:'📦',ajustement:'✏️',retrait:'🗑️'};
   const mv=visibleBoxMvts(db.boxMvtAttente||[]).filter(m=>m.statut==='enAttente');
   const mvHisto=visibleBoxMvts(db.boxMvtAttente||[]).filter(m=>m.statut!=='enAttente').slice(0,12);
+  /* Un arrivage né d'un bon porte SA comparaison, là où la décision se prend. Le DR ne
+     valide plus « 42 produits » : il voit produit par produit ce qui était commandé, ce qui
+     est arrivé, et l'écart. */
+  const mvEcart=m=>{ if(m.type!=='arrivage'||!m.bcId) return '';
+    const bon=(db.bons||[]).find(x=>x.id===m.bcId); if(!bon) return '';
+    return bonEcartHtml(bon,m); };
   const mvRow=m=>`<div class="pl-row" data-mvt="${m.id}" style="cursor:default"><div class="pl-info"><div class="pl-title">${MICO[m.type]||'📦'} ${esc(boxMvtLibelle(m))}</div><div class="pl-meta">${esc(m.par||'')} · ${new Date(m.ts||0).toLocaleDateString('fr-FR')}${m.motifRefus?' · motif : '+esc(m.motifRefus):''}</div></div>`;
   const blocMv=`<div class="card"><div class="card-head"><h3>Mouvements de box (${mv.length})</h3></div>
-    ${mv.length? mv.map(m=>mvRow(m)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button> <button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
+    ${mv.length? mv.map(m=>mvRow(m)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button> <button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`+mvEcart(m)).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
   </div>`;
   const bandeauV=demoV?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Pose des mouvements et une demande en attente de ton Valider, pour tester le circuit DR en vrai. Tout est marqué (démo).</div></div>${demoOnV?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer();views.validations()">Retirer la simulation</button>`:`<button type="button" class="btn sm" onclick="mvtDemoPoser();views.validations()">Lancer la simulation</button>`}</div>`:'';
   $('content').innerHTML=bandeauV+blocMv+`<div class="card"><div class="card-head"><h3>Demandes de commande (${att.length})</h3></div>
     ${att.length? att.map(d=>row(d)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="validerDemande('${d.id}','refuse')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
   </div>${(autres.length||mvHisto.length)?`<div class="card"><div class="card-head"><h3>Historique</h3></div>
-    ${mvHisto.map(m=>mvRow(m)+`<span class="st ${m.statut==='valide'?'st-green':'st-red'}">${m.statut==='valide'?'Validé':'Refusé'}${m.drNom?' · '+esc(m.drNom):''}</span></div>`).join('')}
+    ${mvHisto.map(m=>mvRow(m)+`<span class="st ${m.statut==='valide'?'st-green':'st-red'}">${m.statut==='valide'?'Validé':'Refusé'}${m.drNom?' · '+esc(m.drNom):''}</span></div>`+mvEcart(m)).join('')}
     ${autres.map(d=>row(d)+`${badge(STATV,d.statut)}</div>`).join('')}</div>`:''}`;
 };
 /* La trace de la délégation, écrite des DEUX côtés — c'est ce que Justin demandait : « ça se
@@ -17547,6 +17568,40 @@ views.bons=function(){
   renderBonsList();
 };
 /* une réception de ce bon attend-elle déjà la validation du DR ? */
+/* ══════════ COMPARER LE BON DE COMMANDE ET CE QUI EST ARRIVÉ ═══════════════════════════
+   Demande de Justin, 8 septembre 2026 : « quand elle est notée en arrivage, il peut comparer
+   le bon de commande avec le bon de livraison ». Jusqu'ici le DR validait une réception sur
+   UNE LIGNE de résumé — « Arrivage ARMOSA, 42 produits » — sans jamais voir ce qui avait été
+   commandé. Valider ça, ce n'est pas contrôler, c'est signer.
+
+   Les deux côtés ne comptent pas pareil : un bon compte en cartons ET en unités (bonLU fait
+   la conversion), un arrivage compte en unités. On ramène donc tout aux unités de stock,
+   sinon « 5 cartons » et « 60 unités » passeraient pour un écart de 55. */
+function bonEcartLignes(bon,mvt){
+  const par={};
+  const cle=l=>l.produitId||('txt:'+norm(l.designation||l.nom||''));
+  const nom=l=>{ const p=l.produitId?produit(l.produitId):null; return (p&&p.nom)||l.designation||l.nom||'Produit'; };
+  ((bon&&bon.lignes)||[]).forEach(l=>{ const k=cle(l); if(!k||k==='txt:') return;
+    par[k]=par[k]||{nom:nom(l),cmd:0,recu:0}; par[k].cmd+=bonLU(l); });
+  ((mvt&&mvt.lignes)||[]).forEach(l=>{ const k=cle(l); if(!k||k==='txt:') return;
+    par[k]=par[k]||{nom:nom(l),cmd:0,recu:0}; par[k].recu+=(+l.qte||0); });
+  return Object.keys(par).map(k=>{ const x=par[k]; return {nom:x.nom,cmd:x.cmd,recu:x.recu,ecart:x.recu-x.cmd}; })
+    .sort((a,b)=>Math.abs(b.ecart)-Math.abs(a.ecart)||a.nom.localeCompare(b.nom));
+}
+/* Le tableau, compact : il vit sous une ligne de validation, pas sur un écran à lui. */
+function bonEcartHtml(bon,mvt){
+  const ls=bonEcartLignes(bon,mvt); if(!ls.length) return '';
+  const ecarts=ls.filter(l=>l.ecart!==0).length;
+  const tot=ls.reduce((t,l)=>({c:t.c+l.cmd,r:t.r+l.recu}),{c:0,r:0});
+  return `<div class="ec">
+    <div class="ec-h">📋 <b>${esc(bonNum(bon))}</b> — commandé ${tot.c} u · reçu ${tot.r} u${ecarts?` · <span class="ec-alerte">${ecarts} écart${ecarts>1?'s':''}</span>`:' · <span class="ec-ok">tout y est</span>'}</div>
+    <div class="ec-t">
+      <div class="ec-r ec-tete"><span>Produit</span><b>Commandé</b><b>Reçu</b><b>Écart</b></div>
+      ${ls.map(l=>`<div class="ec-r${l.ecart?' ec-dif':''}"><span>${esc(l.nom)}</span><b>${l.cmd}</b><b>${l.recu}</b><b>${l.ecart>0?'+':''}${l.ecart||'—'}</b></div>`).join('')}
+    </div>
+    ${ecarts?'<div class="ec-p">Un écart n\'empêche pas de valider : le stock sera crédité de ce qui est <b>reçu</b>, pas de ce qui était commandé. Refuse si le colis ne correspond pas du tout.</div>':''}
+  </div>`;
+}
 function bonAttenteDR(b){ return !!b && (db.boxMvtAttente||[]).some(m=>m.bcId===b.id&&m.statut==='enAttente'); }
 function renderBonsList(){
   const el=$('bons-list'); if(!el) return;
@@ -17977,6 +18032,10 @@ function ficheBon(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
     <div style="text-align:right;margin-top:12px;font-size:14px;color:var(--t2)">${(b.lignes||[]).length} article(s) · <b style="color:var(--acc);font-size:16px">${bonQteTotTxt(b)}</b></div>
     ${b.notes?`<div class="detail-desc">${esc(b.notes)}</div>`:''}
     ${b.arrivage?`<div class="form-sec">Réception du ${fmtShort(b.arrivage.date)}${b.arrivage.par?' · '+esc(b.arrivage.par):''}</div><div class="detail-desc" style="margin-top:6px">${b.arrivage.conforme?'Livraison conforme.':'Écart de livraison.'}${b.arrivage.notes?'<br>'+esc(b.arrivage.notes):''}</div>${(b.arrivage.lignes||[]).some(l=>l.qteRecue!==l.qteCommandee)?`<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Désignation</th><th>Commandé</th><th>Reçu</th></tr></thead><tbody>${b.arrivage.lignes.map(l=>`<tr><td>${esc(l.designation)}</td><td>${l.qteCommandee}</td><td style="color:${l.qteRecue===l.qteCommandee?'var(--acc)':'var(--red)'}">${l.qteRecue}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
+    ${(()=>{ /* La comparaison reste consultable APRÈS la validation : le mouvement garde son
+         statut au lieu d'être effacé, donc le bon peut toujours dire ce qui est arrivé. */
+      const mv=(db.boxMvtAttente||[]).filter(m=>m.bcId===b.id).sort((x,y)=>(y.ts||0)-(x.ts||0))[0];
+      return mv?bonEcartHtml(b,mv):''; })()}
     <div class="modal-foot">${b.statut==='brouillon'?`<button class="btn" onclick="bonStatut('${b.id}','prete');closeModal()">✅ Prêt à envoyer</button>`:''}<button class="btn${b.statut==='brouillon'?' ghost':''}" onclick="envoiBonApercu('${b.id}')">✉️ Email fournisseur</button>${(b.statut==='envoyee'||b.statut==='enLivraison'||(b.statut==='arrivageNote'&&!bonAttenteDR(b)))?`<button class="btn" onclick="closeModal();bonReception('${b.id}')">Réceptionner</button>`:(b.statut==='arrivageNote'?'<span class="st st-purple">📦 Réception en attente du DR</span>':'')}<button class="btn ghost" onclick="bonDupliquer('${b.id}')">🔁 Recommander</button><button class="btn ghost" onclick="bonShare('${b.id}')">📤 Partager</button><button class="btn ghost" onclick="bonPdfOpen('${b.id}')">📄 PDF</button><button class="btn ghost" onclick="bonPdfDownload('${b.id}')">⬇️ Télécharger</button><button class="btn ghost" onclick="printBon('${b.id}')">🖨️</button><button class="btn ghost" onclick="exportBonCSV('${b.id}')">CSV</button><button class="btn ghost" onclick="closeModal();formBon('${b.id}')">Modifier</button></div>`);
 }
 let bonLignes=[]; let _bonEditId=''; let bonSites=[];
@@ -18984,7 +19043,13 @@ views.commandes=function(){
      où la retrouver — on croit l'avoir perdue. */
   const pied=`<div style="font-size:12.5px;color:var(--t3);margin:14px 2px 0;line-height:1.6">📄 Une commande <b>reçue</b> quitte cette liste : on la retrouve sur la <b>fiche de sa box</b> (« Commandes passées »), avec son PDF, et dans <b>Bons de commande</b>. Rien n'est effacé.</div>`;
   $('content').innerHTML=(list.length? list.map(b=>{
-    const suivi=(b.recuPar?` · reçu le ${fmtShort(b.recuLe)} par ${esc(b.recuPar)}`:'')+(b.valideDrNom?` · validé par ${esc(b.valideDrNom)}`:'');
+    /* Entre l'envoi et l'arrivage, une commande est EN COURS DE LIVRAISON — et tant que
+       personne n'a noté l'arrivage, elle y reste. « Envoyée » seul laissait croire que le
+       suivi s'arrêtait là. On compte les jours : c'est ce qui dit s'il faut relancer. */
+    const jours=b.dateEnvoi?Math.max(0,Math.floor((Date.now()-new Date(b.dateEnvoi+'T00:00:00').getTime())/86400000)):null;
+    const enRoute=(b.statut==='envoyee'||b.statut==='enLivraison')
+      ? ` · <b style="color:var(--blue)">en cours de livraison</b>${jours!==null?` depuis ${jours} jour${jours>1?'s':''}`:''}` : '';
+    const suivi=enRoute+(b.recuPar?` · reçu le ${fmtShort(b.recuLe)} par ${esc(b.recuPar)}`:'')+(b.valideDrNom?` · validé par ${esc(b.valideDrNom)}`:'');
     return `<div class="pl-row" onclick="ficheBon('${b.id}')"><div class="pl-info"><div class="pl-title">${esc(fournName(b.fournisseurId)||b.fournisseur||'Fournisseur')} · ${(b.lignes||[]).length} article(s)</div><div class="pl-meta">${esc(bonNum(b))} · ${bonQteTotTxt(b)}${suivi}</div></div>${b.statut==='arrivageNote'?'<span class="st st-purple">📦 Arrivée — attente DR</span>':badge(STATBC,b.statut)}</div>`;}).join('') : emptyState('📥','Aucune commande en cours.','',''))+pied;
 };
 
