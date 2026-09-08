@@ -311,9 +311,12 @@ main{width:100%;max-width:1200px;margin:0 auto;padding:28px 20px 96px;flex:1;min
    contempler, ce sont quatre raccourcis vers la liste — et la liste est le travail. */
 @media(max-width:640px){
   .grille-kpi{grid-template-columns:1fr 1fr;gap:8px}
-  .kpi{padding:12px 13px;display:flex;align-items:baseline;gap:8px}
-  .kpi .n{font-size:21px;flex-shrink:0}
-  .kpi .l{margin-top:0;font-size:12px;line-height:1.35}
+  /* .kpi est partagée : les cinq cartes de la Surveillance portent un sous-texte ou un
+     graphique en plus, et se retrouvaient tassées en ligne. Le resserrement ne vaut que
+     pour les compteurs SIMPLES — chiffre et libellé, rien d'autre. */
+  .grille-kpi.simple .kpi{padding:12px 13px;display:flex;align-items:baseline;gap:8px}
+  .grille-kpi.simple .kpi .n{font-size:21px;flex-shrink:0}
+  .grille-kpi.simple .kpi .l{margin-top:0;font-size:12px;line-height:1.35}
 }
 
 /* ══ MODALE + VOILE ═══ créée par le JS avec ses styles inline ; on impose la matière ══ */
@@ -1064,7 +1067,7 @@ function entSel(t){
   if(ENT.sel){
     var o=(ENT.liste||[]).find(function(x){ return x.t===ENT.sel; })||{};
     var nm=o.nom||o.slug||'';
-    if(nm){ chargerDossier(nm); ORPH={t:'',loaded:false,err:'',d:null}; }
+    if(nm){ chargerDossier(nm); DOS.nom=nm; ORPH={t:'',loaded:false,err:'',d:null}; }
     else { DOS={nom:'',loaded:true,err:'',d:null}; chargerOrphelin(ENT.sel); }
     CLI.sel=o.email||null;
     if(o.email) setTimeout(function(){ tourPackPrefill(nm||o.email); },150);
@@ -1215,7 +1218,7 @@ function vueConnexions(){
             '" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();cnxF(\''+(actif?'toutes':f)+'\')}"'+
             ' title="'+(actif?'Revenir à toutes les entreprises':'Ne montrer que celles-là')+'"':'')+'>'+
       '<div class="n"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+l+'</div></div>'; };
-  var bandeau='<div class="grille-kpi" style="margin-bottom:16px">'+
+  var bandeau='<div class="grille-kpi simple" style="margin-bottom:16px">'+
     kpi(g.connexions24||0,'connexions sur 24 h','','')+
     kpi(g.actives7||0,'entreprises actives sur 7 j','','actives')+
     kpi(g.echecs24||0,'échecs de connexion sur 24 h',(g.echecs24||0)?'var(--redText)':'','echecs')+
@@ -1991,13 +1994,28 @@ function allerIncident(id){ INC.sel=id; INC.f.statut=''; setTab('surveillance');
    c'est le seul point commun entre un incident (qui porte le nom de l'entreprise) et la liste
    des clients (indexée par e-mail). Si elle n'est pas dans la liste, on bascule quand même
    sur l'onglet et on le dit — mieux vaut un onglet ouvert qu'un clic sans effet. */
+/* Retrouver une entreprise par son NOM, et ouvrir sa fiche. On cherche dans ENT.liste et
+   non dans CLI.list : la première contient tout ce qui a vécu, la seconde seulement les
+   clientes inscrites sur le site. Un incident remonté par un espace hors annuaire mène
+   donc quand même quelque part. */
+function entParNom(nom){
+  var n=String(nom||'').toLowerCase().trim(); if(!n) return null;
+  return (ENT.liste||[]).find(function(o){
+    return String(o.nom||'').toLowerCase().trim()===n || String(o.slug||'').toLowerCase().trim()===n || String(o.t||'').toLowerCase().trim()===n;
+  })||null;
+}
 function allerFicheEntreprise(nom){
-  var n=String(nom||'').toLowerCase().trim();
-  var c=(CLI.list||[]).find(function(x){ return String(x.entreprise||x.nom||'').toLowerCase().trim()===n; });
   setTab('entreprises');
-  if(!c){ toast('« '+nom+' » n\'est pas dans la liste des entreprises'); return; }
-  CLI.sel=c.email; chargerDossier(c.entreprise||c.nom||c.email);
-  setTimeout(function(){ renderNav('detail'); window.scrollTo(0,0); },60);
+  /* La liste peut ne pas être encore chargée quand on arrive d'un autre onglet : on attend
+     qu'elle le soit plutôt que d'annoncer à tort que l'entreprise est introuvable. */
+  var ouvrir=function(){
+    var o=entParNom(nom);
+    if(!o){ toast('« '+nom+' » n\'est pas dans la liste des entreprises'); return; }
+    if(ENT.sel!==o.t) entSel(o.t); else { renderNav('detail'); window.scrollTo(0,0); }
+  };
+  if(ENT.loaded) setTimeout(ouvrir,60);
+  else { chargerEntreprises(); var essais=0;
+    var attendre=setInterval(function(){ if(ENT.loaded||++essais>40){ clearInterval(attendre); ouvrir(); } },100); }
 }
 function allerMessage(b,d,u){ setTab('support'); lireMessage(b,d,u); }
 function allerImpayes(){ ABO.f='past_due'; setTab('abonnements'); }
@@ -2634,9 +2652,22 @@ function vueSupport(){
     '</div>';
 }
 
-function voirClient(email){ var c=CLI.list.filter(function(x){ return x.email===email; })[0];
-  if(!c){ toast('Cette adresse ne correspond à aucune fiche client'); return; }
-  CLI.sel=c.email; setTab('entreprises'); }
+/* Depuis un message du Support : ouvrir la fiche de l'entreprise qui porte cette adresse.
+   Même chemin qu'ailleurs — entSel() est le seul qui ouvre une fiche. */
+function voirClient(email){
+  var m=String(email||'').toLowerCase().trim();
+  setTab('entreprises');
+  var ouvrir=function(){
+    var o=(ENT.liste||[]).find(function(x){ return String(x.email||'').toLowerCase()===m; });
+    if(!o){ var c=(CLI.list||[]).find(function(x){ return String(x.email||'').toLowerCase()===m; });
+      if(c) o=entParNom(c.entreprise||c.nom||''); }
+    if(!o){ toast('Cette adresse ne correspond à aucune entreprise connue'); return; }
+    if(ENT.sel!==o.t) entSel(o.t); else { renderNav('detail'); window.scrollTo(0,0); }
+  };
+  if(ENT.loaded) setTimeout(ouvrir,60);
+  else { chargerEntreprises(); var essais=0;
+    var attendre=setInterval(function(){ if(ENT.loaded||++essais>40){ clearInterval(attendre); ouvrir(); } },100); }
+}
 
 /* ══════════ 4. ENTREPRISES ══════════ */
 function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); renderNav('detail');
@@ -2724,7 +2755,7 @@ function vueEntreprises(){
      déployée d'app.html, et déduire la référence de la liste évite d'attendre une route. */
   var refKpi=verReference();
   var enRetard=(ENT.liste||[]).filter(function(o){ return verEtat(o,refKpi).retard; }).length;
-  var kpi='<div class="grille-kpi" style="margin-bottom:20px">'+
+  var kpi='<div class="grille-kpi simple" style="margin-bottom:20px">'+
     compteur(st.total||0,'entreprises connues','','')+
     compteur(st.avecErreurs||0,'erreurs signalées','--redText','erreurs')+
     compteur(st.avecEchecs||0,'échecs de connexion','--amber','echecs')+
@@ -2990,6 +3021,9 @@ function ficheEntreprise(){
   carteSi(blocUtilisateurs())+
   carteSi(blocDossier())+
   carteSi(blocEspaceDe(o))+
+  /* Pleine largeur : ce bloc porte des sélecteurs, des champs et sept boutons. Sur une
+     demi-colonne ils se replieraient les uns sous les autres. */
+  (blocGestionClient()?'<div class="carte p24 pleine">'+blocGestionClient()+'</div>':'')+
   carteSi(blocOrphelin(o))+
   carteSi(blocComptesDe(o))+
   blocSupprimer(o)+
@@ -3128,10 +3162,14 @@ function blocEspacesSite(){
     pubBloc(l,'Aucune entreprise inscrite depuis le site pour l’instant.')+
   '</div>';
 }
-function ficheClient(){
+/* LA GESTION DU CLIENT — ce qu'on FAIT, pas seulement ce qu'on lit : formule, code promo,
+   lien de connexion, OP MESSAGES, demandes, contact. Ce bloc était perdu quand la fiche est
+   passée en pleine page : il vivait dans l'ancienne colonne de détail, qui n'existe plus.
+   Sans lui, la Tour ne servait plus qu'à regarder. */
+function blocGestionClient(){
   var c=CLI.list.filter(function(x){ return x.email===CLI.sel; })[0];
   if(c){ var nmAct=c.entreprise||c.nom||c.email; clearTimeout(window._ficheActT); window._ficheActT=setTimeout(function(){ tourActiviteCharge(nmAct); },150); }
-  if(!c) return '<div class="vide"><span style="color:var(--dim)">'+svg('entreprises',22)+'</span><div style="margin-top:10px">Sélectionnez une entreprise pour afficher sa fiche.</div></div>';
+  if(!c) return '';   /* pas de compte du site rattaché : rien à gérer ici */
   var s=cliStatut(c), nm=c.entreprise||c.nom||c.email, prenom=String(c.nom||nm).split(' ')[0];
   var apps=(c.apps||[]).map(function(a){ return '<span class="chip acc">'+esc(a)+'</span>'; }).join(' ')||'<span style="color:var(--muted)">—</span>';
   var traites=c.demandesTraitees||{};
@@ -3154,18 +3192,21 @@ function ficheClient(){
   var sect=function(t,l){ return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">'+t+'</div>'+
     '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">'+l.map(function(x){
       return '<div style="display:flex;gap:12px;font-size:13px"><span style="color:var(--muted);min-width:104px;flex-shrink:0">'+x[0]+'</span><span style="color:var(--text2);word-break:break-word">'+x[1]+'</span></div>'; }).join('')+'</div></div>'; };
-  return '<div class="carte p24">'+
-    '<div style="display:flex;align-items:center;gap:13px">'+
-      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft)">'+esc(sigle(nm))+'</div>'+
-      '<div style="flex:1;min-width:0"><div style="font-size:17.5px;font-weight:700">'+esc(nm)+'</div>'+
-        '<div style="font-size:12.5px;color:var(--muted);margin-top:3px">'+esc(c.metier||'métier non renseigné')+'</div></div>'+
-      '<span class="past '+s[1]+'">'+esc(s[0])+'</span></div>'+
-    '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">'+
+  /* Pas d'en-tête ici : la fiche porte déjà le nom et l'avatar de l'entreprise. Le répéter
+     ferait deux titres pour un seul sujet. */
+  return '<div class="sec">GÉRER CE CLIENT</div>'+
+    '<div style="font-size:12.5px;color:var(--muted);margin-top:6px">'+esc(c.metier||'métier non renseigné')+' · statut du site : <span class="past '+s[1]+'">'+esc(s[0])+'</span></div>'+
+    '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:14px">'+
       '<button class="btn-plein" onclick="compoOuvrir(\''+jsq(c.email)+'\');setTab(\'support\')">Écrire à '+esc(prenom)+'</button>'+
       '<button class="btn-plein" onclick="tourAccepterDemande(\''+jsq(c.email)+'\',\''+jsq(nm)+'\')">✅ Accepter la demande</button>'+
       '<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(c.email)+'\',\''+jsq(nm)+'\')">🔗 Lien de connexion</button>'+
       '<button class="btn-fant" onclick="window.open(\'https://dashboard.stripe.com/search?query='+encodeURIComponent(c.email)+'\',\'_blank\',\'noopener\')">Voir dans Stripe '+svg('ext',14)+'</button>'+
-      '<button class="btn-fant" style="color:var(--redText)" onclick="tourRetirerEntreprise(\''+jsq(c.email)+'\')">Retirer de la liste</button></div>'+
+      /* Un seul geste destructif dans cette fiche, et c'est le complet : « Supprimer cette
+         entreprise » plus bas. L'ancien « Retirer de la liste » laissait derrière lui les
+         boîtes mail avec leurs mots de passe, les notifications avec le nom des salariés,
+         l'usage, les connexions et le carnet d'adresses. Deux boutons dont un incomplet,
+         c'est une invitation à se tromper. */
+      '</div>'+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ABONNEMENT</div>'+
       '<div style="font-size:12px;color:var(--muted);margin-top:8px">Réglé ici par TEAM OP : formule, places, statut et date de fin. Ce réglage <b>prime</b> sur Stripe et les codes promo, et s\'applique à l\'espace « '+esc(nm)+' » à sa prochaine ouverture de l\'app. Client depuis le '+esc(fmtJour(c.inscrit))+' · statut site : <span class="past '+s[1]+'">'+esc(s[0])+'</span></div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">'+
@@ -3197,15 +3238,18 @@ function ficheClient(){
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ PAR ONGLET & PROBLÈMES</div><div id="fiche-activite" style="margin-top:10px;font-size:13px;color:var(--muted)">Chargement…</div></div>'+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>'],['Téléphone',c.tel?('<a href="tel:'+esc(String(c.tel).replace(/[^0-9+]/g,''))+'">'+esc(c.tel)+'</a>'):'—']])+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ RÉCENTE</div>'+
-      '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">'+dem+'</div></div>'+
-    blocDossier()+
-  '</div>';
+      '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">'+dem+'</div></div>';
 }
 /* CE QUI SE PASSE CHEZ EUX — regroupe en un endroit ce qui etait eparpille sur quatre
    ecrans : leur usage, leurs connexions, leurs ECHECS de connexion, et surtout leurs
    erreurs, qui vivaient dans un journal protege par une autre cle que la session de la
    Tour et n'etaient donc visibles nulle part dans la console. */
 function blocDossier(){
+  /* Sans nom d'annuaire, il n'y a RIEN à interroger : ce bloc affichait alors « ✓ Aucune
+     erreur ni échec enregistré » — en vert, à côté de blocOrphelin() qui disait le
+     contraire sur le même écran. Deux cartes qui se contredisent sur la page qui sert à
+     décider d'une suppression définitive. Il se tait, et laisse blocOrphelin() parler. */
+  if(ENT.sel&&!DOS.nom) return '';
   var t='<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">CE QUI SE PASSE CHEZ EUX</div>';
   if(!DOS.loaded) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">Chargement du dossier…</div></div>';
   if(DOS.err) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">'+esc(DOS.err)+'</div></div>';
