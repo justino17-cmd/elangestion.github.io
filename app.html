@@ -4754,7 +4754,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '603';
+const APP_VERSION = '604';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -19420,6 +19420,18 @@ function exportBonCSV(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=bonNum(b)+'.csv'; a.click(); URL.revokeObjectURL(a.href); toast('CSV exporté'); }
 
 /* ═══════════════ COMMANDES EN COURS ═══════════════ */
+/* Une commande en cours s'efface aussi — même réserve au rôle que partout ailleurs. Elle n'a
+   pas encore été reçue, donc rien n'a été crédité : il n'y a pas de stock à discuter. */
+function cmdEnCoursSuppr(bonId){
+  if(!adminSeul()) return;
+  const b=(db.bons||[]).find(x=>x.id===bonId); if(!b) return;
+  if(!confirm('Supprimer définitivement la commande '+bonNum(b)+' ?\n\nElle n\'a pas encore été reçue — rien n\'a été ajouté au stock.')) return;
+  db.bons=(db.bons||[]).filter(x=>x.id!==bonId);
+  db.boxMvtAttente=(db.boxMvtAttente||[]).filter(m=>m.bcId!==bonId);
+  (db.demandes||[]).forEach(d=>{ if(d.bonId===bonId) delete d.bonId; });
+  logEvent('Commande supprimée',bonNum(b),'commande');
+  save(); toast('Commande supprimée'); views.commandes();
+}
 views.commandes=function(){
   setHeader('Commandes en cours','Bons envoyés / en livraison');
   const list=visibleBons(db.bons).filter(b=>['envoyee','enLivraison','arrivageNote'].includes(b.statut));   // ses box seulement (sauf « voir tout »)
@@ -19434,7 +19446,7 @@ views.commandes=function(){
     const enRoute=(b.statut==='envoyee'||b.statut==='enLivraison')
       ? ` · <b style="color:var(--blue)">en cours de livraison</b>${jours!==null?` depuis ${jours} jour${jours>1?'s':''}`:''}` : '';
     const suivi=enRoute+(b.recuPar?` · reçu le ${fmtShort(b.recuLe)} par ${esc(b.recuPar)}`:'')+(b.valideDrNom?` · validé par ${esc(b.valideDrNom)}`:'');
-    return `<div class="pl-row" onclick="ficheBon('${b.id}')"><div class="pl-info"><div class="pl-title">${esc(fournName(b.fournisseurId)||b.fournisseur||'Fournisseur')} · ${(b.lignes||[]).length} article(s)</div><div class="pl-meta">${esc(bonNum(b))} · ${bonQteTotTxt(b)}${suivi}</div></div>${b.statut==='arrivageNote'?'<span class="st st-purple">📦 Arrivée — attente DR</span>':badge(STATBC,b.statut)}</div>`;}).join('') : emptyState('📥','Aucune commande en cours.','',''))+pied;
+    return `<div class="pl-row" onclick="ficheBon('${b.id}')"><div class="pl-info"><div class="pl-title">${esc(fournName(b.fournisseurId)||b.fournisseur||'Fournisseur')} · ${(b.lignes||[]).length} article(s)</div><div class="pl-meta">${esc(bonNum(b))} · ${bonQteTotTxt(b)}${suivi}</div></div>${b.statut==='arrivageNote'?'<span class="st st-purple">📦 Arrivée — attente DR</span>':badge(STATBC,b.statut)}${currentUser&&currentUser.role==='admin'?`<button type="button" class="dos-x" onclick="event.stopPropagation();cmdEnCoursSuppr('${b.id}')" title="Supprimer définitivement" aria-label="Supprimer cette commande">🗑</button>`:''}</div>`;}).join('') : emptyState('📥','Aucune commande en cours.','',''))+pied;
 };
 
 /* ═══════════════ VÉHICULES (fiche complète : carte grise, assurance, conducteur — modèle ELAN) ═══════════════ */
@@ -24267,8 +24279,29 @@ function bandeauSimu(){
         :'<button type="button" class="btn ghost sm" onclick="mvtDemoPoser()">Petite simulation</button> <button type="button" class="btn ghost sm" onclick="mvtDemoDeuxMois()">Mois dernier vs ce mois-ci</button> <button type="button" class="btn sm" onclick="mvtDemoGrande()">Tout le catalogue &middot; 6 mois</button>')
     +'</div>';
 }
+/* ⛔ REMETTRE LA CONSOMMATION À ZÉRO — demande de Justin, 8 septembre 2026. Le geste existait
+   déjà dans « Repartir sur une base propre » (Paramètres, ligne « Effacer les mouvements de
+   stock »), mais il fallait le savoir : personne ne va chercher dans les réglages le bouton
+   qui vide l'écran qu'il a sous les yeux.
+   Ce qu'il faut dire, et que la confirmation dit : la consommation N'EST PAS une collection à
+   elle. Elle se CALCULE sur `db.mouvements` — le même magasin que « Mouvements stock ». La
+   vider vide donc les deux, et c'est une chose qu'on doit apprendre AVANT de cliquer, pas
+   après. Les quantités en stock, elles, ne bougent pas : on efface l'historique de ce qui a
+   été pris, pas ce qui reste dans les box. */
+function consoRemiseZero(){
+  if(!adminSeul()) return;
+  const n=(db.mouvements||[]).length;
+  if(!n){ toast('Aucun mouvement à effacer'); return; }
+  if(!confirm('Remettre la consommation à zéro ?\n\n'+n+' mouvement(s) de stock seront effacés — c\'est le même historique que l\'écran « Mouvements stock », il se videra aussi.\n\nLes quantités présentes dans les box ne changent PAS.\n\nIrréversible, et la synchro le propage à toute l\'équipe.')) return;
+  if(!confirm('Confirmer : effacer définitivement '+n+' mouvement(s) ?')) return;
+  db.mouvements=[];
+  logEvent('Consommation remise à zéro',n+' mouvement(s) effacé(s)','stock');
+  save(); toast('Consommation remise à zéro — '+n+' mouvement(s) effacé(s)',4000);
+  views.saisieConso();
+}
 views.saisieConso=function(){
-  setHeader('Consommation produits','Qui consomme quoi, combien, et depuis quand');
+  setHeader('Consommation produits','Qui consomme quoi, combien, et depuis quand',
+    (currentUser&&currentUser.role==='admin')?`<button class="btn ghost" onclick="consoRemiseZero()">↻ Remettre à zéro</button>`:'');
   const ong=(o,l)=>{ const on=consoOnglet===o;
     return '<button type="button" onclick="consoSetOnglet(\''+o+'\')" style="cursor:pointer;border:none;padding:8px 16px;border-radius:9px;font-size:12.5px;font-weight:700;white-space:nowrap;background:'+(on?'var(--acc)':'transparent')+';color:'+(on?'var(--on-acc)':'var(--t2)')+'">'+l+'</button>'; };
   const onglets='<div style="display:inline-flex;gap:2px;background:var(--bg1);border-radius:12px;padding:3px;margin:0 0 16px">'+ong('analyse','📈 Analyse')+ong('saisie','📋 Saisie')+'</div>';
