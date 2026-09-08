@@ -4503,7 +4503,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '579';
+const APP_VERSION = '580';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -16878,7 +16878,10 @@ views.bons=function(){
   const mes=visibleBons(db.bons);   // ses box (ou les siens) — tout pour qui « voit tout »
   const att=mes.filter(b=>b.statut==='brouillon').length;
   const prets=mes.filter(b=>b.statut==='prete').length;
-  setHeader('Bons de commande',`${mes.length} bon(s)${can('voirTout')?'':' (mes box)'}`,`<button class="btn ghost" onclick="bonSuggere()">⚡ Commande suggérée</button><button class="btn ghost" onclick="openRegroupBons()">Regrouper</button><button class="btn" onclick="formBon()">＋ Nouveau</button>`);
+  setHeader('Bons de commande',`${mes.length} bon(s)${can('voirTout')?'':' (mes box)'}`,
+    peutCommander()
+      ? `<button class="btn ghost" onclick="bonSuggere()">⚡ Commande suggérée</button><button class="btn ghost" onclick="openRegroupBons()">Regrouper</button><button class="btn" onclick="formBon()">＋ Nouveau</button>`
+      : `<span class="st" style="font-size:11px">👁️ Consultation seule</span>`);
   $('content').innerHTML=`
     <div class="filters" style="gap:0;background:var(--bg1);border:1px solid var(--brd);border-radius:10px;padding:3px;display:inline-flex">
       ${[['liste','Liste'],['site','Par site'],['fournisseur','Par fournisseur']].map(([k,l])=>`<div onclick="bonsTab='${k}';views.bons()" style="padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;${bonsTab===k?'background:var(--acc);color:var(--on-acc)':'color:var(--t2)'}">${l}</div>`).join('')}
@@ -17327,7 +17330,7 @@ function ficheBon(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
     <div class="modal-foot">${b.statut==='brouillon'?`<button class="btn" onclick="bonStatut('${b.id}','prete');closeModal()">✅ Prêt à envoyer</button>`:''}<button class="btn${b.statut==='brouillon'?' ghost':''}" onclick="envoiBonApercu('${b.id}')">✉️ Email fournisseur</button>${(b.statut==='envoyee'||b.statut==='enLivraison'||(b.statut==='arrivageNote'&&!bonAttenteDR(b)))?`<button class="btn" onclick="closeModal();bonReception('${b.id}')">Réceptionner</button>`:(b.statut==='arrivageNote'?'<span class="st st-purple">📦 Réception en attente du DR</span>':'')}<button class="btn ghost" onclick="bonDupliquer('${b.id}')">🔁 Recommander</button><button class="btn ghost" onclick="bonShare('${b.id}')">📤 Partager</button><button class="btn ghost" onclick="bonPdfOpen('${b.id}')">📄 PDF</button><button class="btn ghost" onclick="bonPdfDownload('${b.id}')">⬇️ Télécharger</button><button class="btn ghost" onclick="printBon('${b.id}')">🖨️</button><button class="btn ghost" onclick="exportBonCSV('${b.id}')">CSV</button><button class="btn ghost" onclick="closeModal();formBon('${b.id}')">Modifier</button></div>`);
 }
 let bonLignes=[]; let _bonEditId=''; let bonSites=[];
-function formBon(id){ const b=id?db.bons.find(x=>x.id===id):{}; _bonEditId=id||'';
+function formBon(id){ if(!peutCommander()){ refusCommander(); return; } const b=id?db.bons.find(x=>x.id===id):{}; _bonEditId=id||'';
   bonLignes = id&&b.lignes ? JSON.parse(JSON.stringify(b.lignes)) : [];
   bonSites = id ? [{nom:b.nomSiteLivraison||'',adresse:b.adresseLivraison||'',cp:b.codePostalLivraison||'',ville:b.villeLivraison||'',contact:b.contactSurPlace||'',tel:b.telephoneContact||''},...JSON.parse(JSON.stringify(b.sitesSupp||[]))]
               : [{nom:'',adresse:'',cp:'',ville:'',contact:'',tel:''}];
@@ -17358,12 +17361,12 @@ function formBon(id){ const b=id?db.bons.find(x=>x.id===id):{}; _bonEditId=id||'
   renderBonLignes(); renderBonSites();
 }
 /* ✎ Édition rapide d'un fournisseur (e-mail de commande, contact…) par-dessus le bon, sans perdre la saisie */
-function bonFourEdit(){ const sel=document.querySelector('#bonform select[name="fournisseurId"]'); const fid=sel?sel.value:'';
+function bonFourEdit(){ if(!peutCommander()){ refusCommander(); return; } const sel=document.querySelector('#bonform select[name="fournisseurId"]'); const fid=sel?sel.value:'';
   if(!fid){ toast('Choisis d\'abord un fournisseur dans la liste'); return; }
   _fourQuickEdit(fid,()=>{ const f=db.fournisseurs.find(x=>x.id===fid); if(sel&&f){ const opt=sel.querySelector('option[value="'+fid+'"]'); if(opt) opt.textContent=f.nom; } });
 }
 /* ＋ Créer un fournisseur directement depuis le bon (puis compléter son e-mail dans la foulée) */
-function bonFourNew(){ const nom=prompt('Nom du nouveau fournisseur :'); if(nom===null) return; const n=(nom||'').trim();
+function bonFourNew(){ if(!peutCommander()){ refusCommander(); return; } const nom=prompt('Nom du nouveau fournisseur :'); if(nom===null) return; const n=(nom||'').trim();
   if(!n){ toast('Indique un nom'); return; }
   if(db.fournisseurs.some(x=>(x.nom||'').trim().toUpperCase()===n.toUpperCase())){ toast('Ce fournisseur existe déjà'); return; }
   const nf={id:uid(),nom:n,contact:'',telephone:'',email:'',adresse:'',codePostal:'',ville:'',notes:''};
@@ -17418,7 +17421,7 @@ function renderBonSites(){ const el=$('bon-livraison'); if(!el) return;
 }
 /* ── Sélecteur catalogue : filtre par fournisseur, cocher les produits, valider, puis régler les quantités ── */
 let _bonCatSel=null; let _bonCatFour='';
-function bonCatOpen(){ _bonCatSel=new Set(bonLignes.filter(l=>l.produitId).map(l=>l.produitId)); _bonCatFour='';
+function bonCatOpen(){ if(!peutCommander()){ refusCommander(); return; } _bonCatSel=new Set(bonLignes.filter(l=>l.produitId).map(l=>l.produitId)); _bonCatFour='';
   const old=$('bon-cat'); if(old) old.remove();
   const ov=document.createElement('div'); ov.id='bon-cat';
   ov.style.cssText='position:fixed;inset:0;z-index:400;background:var(--bg);display:flex;flex-direction:column';
@@ -17459,7 +17462,7 @@ function bonCatApply(){
 }
 /* ── Tableau des quantités : regroupé par fournisseur, steppers, sous-totaux, barre de totaux fixe ── */
 let _bqtyGroups=[];
-function bonQtyOpen(){
+function bonQtyOpen(){ if(!peutCommander()){ refusCommander(); return; } 
   const old=$('bon-qty'); if(old) old.remove();
   const ov=document.createElement('div'); ov.id='bon-qty';
   ov.style.cssText='position:fixed;inset:0;z-index:410;background:var(--bg);display:flex;flex-direction:column';
@@ -17566,7 +17569,7 @@ function bonPdfDraftFour(k){ const d=_bonDraftGroups; if(!d) return; const ls=d.
 /* ── ⚡ Commande suggérée : pré-remplit un bon avec tout ce qui est à réapprovisionner ──
    Box : produits épuisés ou ≤ 2 u (besoin = remonter chaque box à 3 u minimum)
    Stock général : produits sous leur seuil (besoin = remonter à 2 × seuil) */
-function bonSuggere(){
+function bonSuggere(){ if(!peutCommander()){ refusCommander(); return; }
   const need={};
   visibleBoxes(db.boxes||[]).filter(b=>b.actif!==false).forEach(b=>{ const st=b.stock||{};
     Object.keys(st).forEach(pid=>{ const u=(st[pid]||{}).u||0; if(u<=2){ const p=produit(pid); if(!p.id) return; need[pid]=(need[pid]||0)+Math.max(3-u,1); } }); });
@@ -17586,7 +17589,7 @@ function bonMemorise(lignes){ (lignes||[]).forEach(l=>{ if(!l.produitId) return;
   if(u>0) p.qteCarton=u; }); }
 /* ✉️ Envoi groupé : les bons « Prêt à envoyer » COCHÉS partent chez leurs fournisseurs, chacun avec son PDF.
    (Avant, un clic envoyait TOUS les bons prêts d'un coup — d'où deux bons passés « Envoyée » alors qu'un seul devait partir.) */
-async function bonEnvoyerTousPrets(){
+async function bonEnvoyerTousPrets(){ if(!peutCommander()){ refusCommander(); return; }
   let prets=visibleBons(db.bons).filter(b=>b.statut==='prete');
   if(!prets.length){ toast('Aucun bon prêt à envoyer'); return; }
   prets.slice().forEach(b=>bonSeparer(b.id));   // aucun bon mixte ne part : séparation par fournisseur d'abord
@@ -17601,7 +17604,7 @@ async function bonEnvoyerTousPrets(){
     <div id="bte-list">${prets.map(row).join('')}</div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Annuler</button><button class="btn" onclick="bonEnvoyerCoches()">✉️ Envoyer les bons cochés</button></div>`);
 }
-async function bonEnvoyerCoches(){
+async function bonEnvoyerCoches(){ if(!peutCommander()){ refusCommander(); return; }
   const ids=[...document.querySelectorAll('.bte-chk:checked')].map(c=>c.value);
   const prets=ids.map(id=>db.bons.find(b=>b.id===id&&b.statut==='prete')).filter(Boolean);
   if(!prets.length){ toast('Coche au moins un bon à envoyer'); return; }
@@ -17625,7 +17628,7 @@ async function _bonTousEnvoi(prets,sans,mbId){
   } else toast('Aucun bon envoyé — vérifie les e-mails des fournisseurs et le contenu des bons');
 }
 /* 🔁 Recommander : duplique un ancien bon en brouillon du jour, prêt à ajuster et renvoyer */
-function bonDupliquer(id){ const b=db.bons.find(x=>x.id===id); if(!b) return;
+function bonDupliquer(id){ if(!peutCommander()){ refusCommander(); return; } const b=db.bons.find(x=>x.id===id); if(!b) return;
   const copy=JSON.parse(JSON.stringify(b));
   copy.id=uid(); copy.numero=nextNum('bons','BC','numero');
   copy.date=todayISO(); copy.statut='brouillon'; copy.faitPar=fullName(currentUser);
@@ -17759,7 +17762,7 @@ function bonSeparer(id){ const b=db.bons.find(x=>x.id===id); if(!b) return 0;
     db.bons.push({...base,id:uid(),numero:num,fournisseurId:fidOf(k),lignes:groups[k]});
     logEvent('Bon séparé par fournisseur',num+(k?' — '+k:''),'commande'); });
   save(); return n; }
-function bonStatut(id,s){ const b=db.bons.find(x=>x.id===id); b.statut=s; if(s==='envoyee') b.dateEnvoi=todayISO();
+function bonStatut(id,s){ if(!peutCommander()){ refusCommander(); return; } const b=db.bons.find(x=>x.id===id); b.statut=s; if(s==='envoyee') b.dateEnvoi=todayISO();
   let sep=0; if(s==='prete') sep=bonSeparer(id);
   logEvent('Bon '+STATBC[s].l.toLowerCase(),bonNum(b),'commande'); save();
   toast(STATBC[s].l+(sep?' — ✂️ séparé en '+(sep+1)+' bons, un par fournisseur':'')); go(current); }
@@ -17823,7 +17826,7 @@ function regroupGroups(){
   visibleBons(db.bons).filter(b=>b.statut==='brouillon'&&b.fournisseurId).forEach(b=>{ (groups[b.fournisseurId]=groups[b.fournisseurId]||[]).push(b); });
   return groups;
 }
-function openRegroupBons(){
+function openRegroupBons(){ if(!peutCommander()){ refusCommander(); return; }
   const groups=regroupGroups();
   const sansFourn=db.bons.filter(b=>b.statut==='brouillon'&&!b.fournisseurId).length;
   const regroupables=Object.keys(groups).filter(k=>groups[k].length>=2);
@@ -18176,8 +18179,14 @@ function bonPdfDownload(id){ const b=db.bons.find(x=>x.id===id); if(!b) return;
   }catch(e){ console.error(e); toast('Téléchargement impossible'); } }
 /* Aperçu avant envoi : à qui, quel message, et le PDF exact qui sera joint */
 /* Choisir la boîte d'envoi (si plusieurs connectées) puis envoyer le bon */
-async function bonEnvoiChoix(id){ await loadMailboxes();
-  mailChoisirBoite('Envoyer avec quelle adresse ?',(o)=>{ envoiBonEmail(id,false,o); });
+async function bonEnvoiChoix(id){ if(!peutCommander()){ refusCommander(); return; } await loadMailboxes();
+  /* Le choix a déjà été fait sur le bon (aperçu) : on ne repose pas la question au moment
+     d'appuyer sur « Envoyer maintenant ». */
+  const b=db.bons.find(x=>x.id===id);
+  if(b&&b.mbId){ const o=mailFromOptions().find(x=>x.kind==='mb'&&x.id===b.mbId); if(o){ envoiBonEmail(id,false,o); return; } }
+  mailChoisirBoite('Envoyer avec quelle adresse ?',(o)=>{
+    if(b){ b.mbId=(o&&o.kind==='mb')?o.id:''; save(); }
+    envoiBonEmail(id,false,o); });
 }
 /* ═══ L'ADRESSE OÙ PART UN BON ═══════════════════════════════════════════════════════════
    La fiche fournisseur d'abord : c'est la source de vérité, elle sert à tous ses bons. À
@@ -18185,6 +18194,26 @@ async function bonEnvoiChoix(id){ await loadMailboxes();
    fournisseur, parce qu'elle ne vaut que pour cet envoi : un bon sans fournisseur en fiche,
    une adresse de dépannage, un contact ponctuel. */
 function bonEmailDest(b,f){ return String((f&&f.email)||(b&&b.emailDest)||'').trim(); }
+/* ═══ L'ADRESSE D'OÙ PART UN BON ═════════════════════════════════════════════════════════
+   Elle ne se voyait qu'APRÈS l'aperçu, dans une fenêtre à part, et seulement quand plusieurs
+   boîtes étaient connectées : en relisant un bon, on ne savait pas avec quelle adresse il
+   allait partir — ni avec laquelle il était parti.
+   Demande d'ELAN, 8 septembre 2026 : que tout l'envoi se règle depuis le bon, l'expéditeur
+   comme le destinataire. Le choix est donc rangé SUR le bon : deux fournisseurs peuvent
+   répondre sur deux boîtes différentes, et un bon relu six mois plus tard dit toujours d'où
+   il est parti. */
+function bonBoiteChoisie(b){
+  const opts=mailFromOptions();
+  if(b&&b.mbId){ const o=opts.find(x=>x.kind==='mb'&&x.id===b.mbId); if(o) return o; }
+  return opts.find(o=>o.kind==='mb')||opts[0]||{kind:'plat'};
+}
+function bonBoiteTexte(o){ return (o&&o.kind==='mb')?o.email:('Plateforme — au nom de '+mailBrandName()); }
+function bonBoiteChanger(id){ const b=db.bons.find(x=>x.id===id); if(!b) return;
+  mailChoisirBoite('Envoyer ce bon avec quelle adresse ?',function(o){
+    b.mbId=(o&&o.kind==='mb')?o.id:'';
+    logEvent('Adresse d\'envoi du bon',bonNum(b)+' → '+bonBoiteTexte(o),'commande');
+    save(); envoiBonApercu(id); });
+}
 /* Avant, un bon sans adresse s'arrêtait sur un message qui disait d'aller la chercher ailleurs :
    il fallait quitter le bon, ouvrir Fournisseurs, modifier, revenir. On la demande ici, sur
    place, et on repart tout de suite vers l'aperçu du mail avec le PDF joint. */
@@ -18208,7 +18237,7 @@ function bonEmailSaisirOk(id){ const b=db.bons.find(x=>x.id===id); if(!b) return
   if(f&&garder){ f.email=v; logEvent('E-mail fournisseur ajouté',(f.nom||'')+' — '+v,'commande'); }
   save(); closeModal(); envoiBonApercu(id);
 }
-async function envoiBonApercu(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
+async function envoiBonApercu(id){ if(!peutCommander()){ refusCommander(); return; } const b=db.bons.find(x=>x.id===id); if(!b)return;
   const sep=bonSeparer(id);
   if(sep){ alert('✂️ Cette commande mélangeait plusieurs fournisseurs :\nelle vient d\'être séparée en '+(sep+1)+' bons (un par fournisseur).\n\nEnvoie-les un par un (bouton ✉️ Envoyer de chaque bon) ou avec « Envoyer les bons prêts… » en cochant lesquels.'); if(current==='bons') views.bons(); return; }
   const f=db.fournisseurs.find(x=>x.id===b.fournisseurId)||{};
@@ -18216,9 +18245,14 @@ async function envoiBonApercu(id){ const b=db.bons.find(x=>x.id===id); if(!b)ret
   const dest=bonEmailDest(b,f);
   if(!dest){ bonEmailSaisir(id); return; }   // on la demande sur place, puis on revient ici
   const feat=await srvFeatures();
+  /* Les boîtes doivent être connues AVANT le dessin : sans ça, l'aperçu ne peut pas dire
+     d'où le bon va partir, et c'est précisément ce qu'on vient corriger. */
+  try{ await loadMailboxes(); }catch(e){}
+  const envOpts=mailFromOptions(), envO=bonBoiteChoisie(b);
   openModal(`<div class="modal-head"><h3>✉️ Envoyer ${esc(bonNum(b))}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="detail-grid">
       <div><div class="dt-lbl">Destinataire</div><div class="dt-val">${esc(f.nom||b.fournisseur||'')}<br><span style="color:var(--acc)">${esc(dest)}</span> <button type="button" class="btn ghost sm" style="padding:2px 8px;font-size:11px" title="Changer l'adresse" onclick="${f.id?`fourEditRelance('${f.id}','${b.id}')`:`bonEmailSaisir('${b.id}')`}">✎</button>${!f.email?'<div style="font-size:11.5px;color:var(--t3);margin-top:3px">adresse saisie pour ce bon</div>':''}</div></div>
+      <div><div class="dt-lbl">Expéditeur</div><div class="dt-val"><span style="color:var(--acc)">${esc(bonBoiteTexte(envO))}</span>${envOpts.length>1?` <button type="button" class="btn ghost sm" style="min-height:32px;padding:2px 10px;font-size:11px" title="Changer l'adresse d'envoi" onclick="closeModal();bonBoiteChanger('${b.id}')">✎</button>`:''}${envO&&envO.kind==='mb'?'<div style="font-size:11.5px;color:var(--t3);margin-top:3px">les réponses reviennent dans l\'app</div>':'<div style="font-size:11.5px;color:var(--t3);margin-top:3px">aucune boîte connectée — envoi par la plateforme</div>'}</div></div>
       <div><div class="dt-lbl">Commande</div><div class="dt-val">${(b.lignes||[]).length} article(s)<br>${bonQteTotTxt(b)}</div></div>
     </div>
     <div class="form-sec" style="margin-top:14px">Message du mail</div>
@@ -19275,7 +19309,25 @@ const USER_CAPS=[
   ['opMessages','Accès à OP MESSAGES','Affiche OP MESSAGES dans sa barre latérale — sans effet tant que TEAM OP n\'a pas ouvert cette application à l\'entreprise (elle a son propre abonnement)'],
   ['creerUtilisateurs','Créer des utilisateurs','Peut ajouter des comptes terrain (technicien, chef d\'équipe, commercial…) dans la limite des places de l\'abonnement — la modification reste réservée à l\'administrateur'],
   ['devisIA','Utiliser Devis IA','Peut générer des devis automatiquement — l\'accès de l\'entreprise est activé par TeamOP, aucune clé ni code ne circule'],
+  /* ⚠️ Ce droit est écrit À L'ENVERS, et c'est délibéré. CAPS met tous les rôles à zéro : un
+     droit « peut créer des bons » vaudrait donc NON par défaut, et retirerait la création à
+     tous ceux qui l'ont aujourd'hui — sans que personne n'ait rien décoché. Formulé en
+     « consultation seule », ne rien régler garde exactement le comportement actuel.
+     Demande d'ELAN, 8 septembre 2026 : leurs DR doivent voir passer les commandes et leur
+     PDF pour les comparer à l'arrivage, sans pouvoir en passer eux-mêmes. */
+  ['bonsLectureSeule','Bons de commande : consultation seule','Voit les bons, leur PDF et les commandes en cours — pour comparer avec l\'arrivage — mais ne crée, ne modifie et n\'envoie aucune commande'],
 ];
+/* Une seule question, un seul endroit : « cette personne a-t-elle le droit de passer une
+   commande ? ». Les cinq portes (créer, suggérer, regrouper, envoyer en lot, envoyer un bon)
+   s'y réfèrent, et le refus se dit au lieu de se contenter de masquer un bouton — un écran
+   où l'action a disparu sans explication est un écran qu'on croit cassé. */
+/* ⚠️ L'administrateur se traite à part, et ce n'est pas un détail : userCap() lui répond OUI
+   à TOUT droit, par conception. Sur un droit écrit à l'envers, ce oui devient « oui, il est
+   en consultation seule » — et l'administrateur perdait la création de bons. Mesuré au
+   premier essai, avant publication. */
+function peutCommander(){ if(!currentUser) return false; if(currentUser.role==='admin') return true;
+  return !userCap(currentUser,'bonsLectureSeule'); }
+function refusCommander(){ toast('Consultation seule : tu vois les commandes et leur PDF, mais tu n’en passes pas.',4200); }
 function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUserNew=!id; window._formUserRole0=u.role||'technicien';
   // Rattachements vus depuis le DR : avec 65 techniciens, ouvrir 65 fiches n'a pas de sens.
   // Même donnée que le champ « Directeur régional responsable », lue dans l'autre sens.
