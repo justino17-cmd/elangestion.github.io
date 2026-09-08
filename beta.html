@@ -16197,7 +16197,7 @@ function boxQtePad(pid){
       (deja?' · <span class="qp-deja">'+(deja<0?'−':'+')+Math.abs(deja)+' déjà dans votre liste</span>':'')+'</div>'+
     '<div class="qp-in">'+
       '<button type="button" class="btn ghost qp-mm" onclick="boxQteStep(-1)" aria-label="Un de moins">−</button>'+
-      '<input id="qp-n" type="number" inputmode="numeric" min="0" step="1" value="1" oninput="boxQteApercu()">'+
+      '<input id="qp-n" type="number" inputmode="numeric" min="0" step="1" value="1" oninput="boxQteApercu()" aria-label="Quantité pour '+esc(p.nom)+'">'+
       '<button type="button" class="btn ghost qp-mm" onclick="boxQteStep(1)" aria-label="Un de plus">＋</button>'+
     '</div>'+
     '<div class="qp-ch">'+[1,2,3,5,10,20].map(function(k){ return '<button type="button" class="qp-c" onclick="boxQteMettre('+k+')">'+k+'</button>'; }).join('')+'</div>'+
@@ -16208,7 +16208,11 @@ function boxQtePad(pid){
     '</div>'+
     '<div class="detail-desc" style="margin-top:12px">'+(boxValidRequis()
       ? 'Ça ne bouge pas le stock tout de suite : ça remplit votre liste, que vous relisez avant de l’envoyer au DR.'
-      : 'Le stock est mis à jour immédiatement.')+'</div>');
+      : 'Le stock est mis à jour immédiatement.')+'</div>'+
+    /* Comme dans l'ancienne fenêtre : pas de garde ici, removeBoxProd fait passer la demande
+       par le DR quand la validation est requise. Gater sur « supprimer » aurait retiré en
+       silence un geste que les techniciens avaient hier. */
+    '<div style="text-align:center;margin-top:14px"><a onclick="closeModal();removeBoxProd(\''+pid+'\')" style="font-size:12.5px;color:var(--t3);text-decoration:underline;cursor:pointer">Retirer ce produit de la box</a></div>');
   boxQteApercu();
   /* Le clavier s'ouvre tout seul et le 1 est sélectionné : on tape son nombre par-dessus,
      sans avoir à effacer d'abord. */
@@ -16475,7 +16479,7 @@ function renderBoxProdList(){
     const dem=li?(li.vide?'tout retiré':((li.du?sgn(li.du,'u'):'')+(li.du&&li.dc?' · ':'')+(li.dc?sgn(li.dc,'ctn'):''))||'±0'):'';
     const fours=(p.fournisseurs||[]).map(fourBadge).join(' ');
     return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${li?'var(--org,#e8a33d)':(low?e.c:'transparent')};border-radius:12px;margin-bottom:8px;overflow:hidden">
-      <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="editBoxQte('${pid}')">
+      <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="boxQtePad('${pid}')">
         <div style="flex:1;min-width:0">
           <div style="font-size:15px;font-weight:800;color:var(--t1)">${esc(p.nom)}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:13px;font-weight:600;color:${e.c}"><span style="width:8px;height:8px;border-radius:50%;background:${e.c};flex-shrink:0"></span>${e.l}</div>
@@ -16498,13 +16502,11 @@ function renderBoxProdList(){
     </div>`;}).join('');
 }
 /* Modifier la quantité d'un produit dans la box (sheet ELAN "Quantité") */
-function editBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; const s=b.stock[pid]||{ctn:0,u:0}; const p=produit(pid);
-  openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>Quantité</h3><button type="button" class="btn sm" onclick="saveBoxQte('${pid}')">OK</button></div>
-    <div class="form-sec">${esc(p.nom)}</div>
-    <div class="field"><label>Unités</label><div style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" onclick="stepQte('eq-u',-1)">−</button><input id="eq-u" type="number" min="0" value="${s.u||0}" style="text-align:center"><button type="button" class="btn ghost" onclick="stepQte('eq-u',1)">＋</button></div></div>
-    <div class="detail-desc" style="margin-top:8px">0 unité = Épuisé · 1-2 = À commander · 3+ = En stock</div>
-    <div class="modal-foot"><button type="button" class="btn danger" onclick="removeBoxProd('${pid}')">Retirer de la box</button></div>`);
-}
+/* ⛔ L'ancienne fenêtre « Quantité » demandait le stock FINAL et laissait la soustraction à
+   celui qui tape. Elle n'a plus de porte : toute entrée passe par « Combien ? ». On garde le
+   nom pour ce qui l'appellerait encore ; « Retirer de la box » vit désormais au bas de
+   « Combien ? ». (Relecture du 8 septembre 2026.) */
+function editBoxQte(pid){ boxQtePad(pid); }
 function stepQte(id,d){ const i=$(id); if(i) i.value=Math.max(0,(parseInt(i.value)||0)+d); }
 /* ── TRAÇABILITÉ ── chaque changement de stock d'une box écrit un mouvement
    (qui, quoi, où, quand) dans le journal, automatiquement. */
@@ -16732,18 +16734,6 @@ async function remisePdf(id){
   doc.setFontSize(9); doc.setTextColor(150); doc.text('OP GESTION — genere le '+new Date().toLocaleDateString('fr-FR'),40,820);
   doc.save((r.num||'bon-remise')+'.pdf');
 }
-function saveBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; const prev=b.stock[pid]||{ctn:0,u:0}; const prevU=prev.u||0, prevC=prev.ctn||0;
-  const nc=$('eq-ctn')?Math.max(0,parseInt($('eq-ctn').value)||0):prevC, nu=Math.max(0,parseInt($('eq-u').value)||0);
-  if(((nu-prevU)||(nc-prevC)) && boxValidRequis()){
-    const mQ=boxMvtEnvoyer({type:'ajustement',boxId:b.id,produitId:pid,du:nu-prevU,dc:nc-prevC});
-    closeModal(); renderBoxDetail(); toast('📨 Modification envoyée au DR pour validation');
-    if(((nu-prevU)+(nc-prevC))<0&&mQ&&!mQ.pourQui) setTimeout(()=>remiseDestModal(mQ.id),150);
-    return; }
-  b.stock[pid]={ctn:nc,u:nu};
-  notifyDrBoxLow(b,pid,prevU);
-  const du=(b.stock[pid].u||0)-prevU; if(du){ notifyDrBoxMove(b,pid,du<0?'sortie':'entree',Math.abs(du),'u'); traceBox(b,pid,du,'u','Ajustement'); }
-  const dc=(b.stock[pid].ctn||0)-prevC; if(dc){ notifyDrBoxMove(b,pid,dc<0?'sortie':'entree',Math.abs(dc),'ctn'); traceBox(b,pid,dc,'ctn','Ajustement'); }
-  save(); closeModal(); renderBoxDetail(); toast('Quantité mise à jour'); }
 function removeBoxProd(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return;
   const s=(b.stock||{})[pid]||{ctn:0,u:0}; const p=produit(pid);
   if(boxValidRequis()){
@@ -20134,6 +20124,12 @@ function userToggleRole(role){
   if(window._formUserNew || role!==window._formUserRole0){ const f=acc?acc.closest('form'):null; if(f){ const ref={role};
     USER_CAPS.forEach(([k])=>{ const c=f.querySelector('[name="cap_'+k+'"]'); if(c) c.checked=!!userCap(ref,k); });
     NAV.flatMap(s=>s.items).forEach(m=>{ const c=f.querySelector('[name="mod_'+m.k+'"]'); if(c) c.checked=!!userSeesModule(ref,m.k); });
+    /* Les sous-droits suivent le rôle comme le reste. Sans cette ligne, un compte créé en
+       « technicien » puis passé en DR gardait les sous-droits du technicien, écrits comme
+       réglage personnel — et un administrateur rétrogradé gardait TOUT coché. (Relecture
+       du 8 septembre 2026.) */
+    PERM_GRPS.forEach(([g])=>{ if(['tdb','admin'].includes(g)) return;
+      ['ajouter','modifier','supprimer'].forEach(dr=>{ const c=f.querySelector('[name="cat_'+g+'_'+dr+'"]'); if(c) c.checked=!!catDroit(ref,g,dr); }); });
     userToggleVoirTout(!!userCap(ref,'voirTout')); } }
 }
 /* rétrocompat */ function userToggleTech(role){ userToggleRole(role); }
