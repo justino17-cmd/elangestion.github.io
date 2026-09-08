@@ -894,6 +894,9 @@ var CS={loaded:false,err:'',comptes:[],q:'',anonymes:0};
    Stripe - un code promo ne passe pas par lui - donc charge et affiche meme quand Stripe
    n'est pas relie au serveur. */
 var PRO={loaded:false,err:'',codes:[],actifsTotal:0};
+/* Le dossier de l'entreprise selectionnee : ce qu'elle utilise, qui s'y connecte, ce qui
+   plante chez elle, et sa formule offerte s'il y en a une. Un seul appel, un seul objet. */
+var DOS={nom:'',loaded:false,err:'',d:null};
 function chargerPromos(){
   PRO.loaded=false; PRO.err='';
   apiGet('/api/monitor/promos').then(function(d){
@@ -2368,7 +2371,20 @@ function voirClient(email){ var c=CLI.list.filter(function(x){ return x.email===
 /* ══════════ 4. ENTREPRISES ══════════ */
 function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); renderNav('detail');
   if(CLI.sel){ var c=(CLI.list||[]).find(function(x){ return x.email===CLI.sel; })||{};
-    setTimeout(function(){ tourPackPrefill(c.entreprise||c.nom||c.email); },150); } }
+    var nm=c.entreprise||c.nom||c.email;
+    setTimeout(function(){ tourPackPrefill(nm); },150);
+    chargerDossier(nm);
+  } else { DOS={nom:'',loaded:false,err:'',d:null}; } }
+/* Le dossier se recharge a chaque selection : deux entreprises differentes n'ont rien a
+   voir, et afficher les erreurs de l'une sous le nom de l'autre serait pire que rien. */
+function chargerDossier(nom){
+  DOS={nom:nom,loaded:false,err:'',d:null}; rafraichirSiConcerne();
+  apiPost('/api/monitor/entreprise/dossier',{nom:nom}).then(function(r){
+    if(DOS.nom!==nom) return;   // une autre entreprise a ete cliquee entre-temps
+    if(r&&r.ok&&r.d&&r.d.ok){ DOS.d=r.d; } else { DOS.err=(r&&r.d&&r.d.error)||'Dossier indisponible.'; }
+    DOS.loaded=true; rafraichirSiConcerne();
+  }).catch(function(){ if(DOS.nom!==nom) return; DOS.err='Serveur injoignable.'; DOS.loaded=true; rafraichirSiConcerne(); });
+}
 function cliQ(v){ CLI.q=v||''; rendreDifféré(); }
 function cliStatut(c){
   var p=String(c.planStatus||'').toLowerCase();
@@ -2560,7 +2576,41 @@ function ficheClient(){
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>'],['Téléphone',c.tel?('<a href="tel:'+esc(String(c.tel).replace(/[^0-9+]/g,''))+'">'+esc(c.tel)+'</a>'):'—']])+
     '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">ACTIVITÉ RÉCENTE</div>'+
       '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">'+dem+'</div></div>'+
+    blocDossier()+
   '</div>';
+}
+/* CE QUI SE PASSE CHEZ EUX — regroupe en un endroit ce qui etait eparpille sur quatre
+   ecrans : leur usage, leurs connexions, leurs ECHECS de connexion, et surtout leurs
+   erreurs, qui vivaient dans un journal protege par une autre cle que la session de la
+   Tour et n'etaient donc visibles nulle part dans la console. */
+function blocDossier(){
+  var t='<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">CE QUI SE PASSE CHEZ EUX</div>';
+  if(!DOS.loaded) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">Chargement du dossier…</div></div>';
+  if(DOS.err) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">'+esc(DOS.err)+'</div></div>';
+  var d=DOS.d||{}, r=(d.connexions&&d.connexions.resume)||{}, u=d.usage||{};
+  var puce=function(n,l,c){ return '<div style="flex:1;min-width:82px"><div style="font-size:19px;font-weight:700'+(c?';color:'+c:'')+'">'+n+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
+  t+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 4px">'+
+    puce(r.utilisateurs7||0,'personnes · 7 j')+
+    puce(u.total||0,'écrans ouverts')+
+    puce((d.erreurs||[]).length,'erreurs',(d.erreurs||[]).length?'var(--redText)':'')+
+    puce((d.connexions&&d.connexions.echecs||[]).length,'échecs de connexion',(d.connexions&&d.connexions.echecs||[]).length?'var(--amber)':'')+
+  '</div>';
+  if(u.version) t+='<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Version utilisée : <b class="mono">v'+esc(u.version)+'</b>'+(u.dernier?' · vu le '+esc(fmtJour(u.dernier)):'')+'</div>';
+  if(d.promo) t+='<div style="margin:8px 0;padding:9px 11px;border-radius:9px;background:var(--tint-gris);font-size:12.5px">🎁 Code <b class="mono">'+esc(d.promo.code)+'</b> — '+(d.promo.actif?'formule offerte jusqu’au <b>'+esc(d.promo.finLe)+'</b>':'terminée le '+esc(d.promo.finLe))+'</div>';
+  /* Les echecs d'abord : « quelqu'un chez eux n'arrive pas a entrer » se traite avant tout. */
+  var ech=(d.connexions&&d.connexions.echecs)||[];
+  if(ech.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:5px">🔑 N’arrivent pas à se connecter</div>'+
+    ech.slice(0,5).map(function(e){ return '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+esc(fmtJour(e.ts))+' · <b>'+esc(e.login||'identifiant inconnu')+'</b>'+(e.motif?' — '+esc(e.motif):'')+'</div>'; }).join('')+'</div>';
+  var er=(d.erreurs||[]);
+  if(er.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--redText);margin-bottom:5px">🐛 Erreurs rencontrées</div>'+
+    er.slice(0,6).map(function(b){ return '<div style="font-size:12px;padding:5px 0;border-top:1px solid var(--line)"><div style="color:var(--text2)">'+esc(String(b.msg||'').slice(0,120))+'</div>'+
+      '<div style="color:var(--muted);font-size:11.5px;margin-top:1px">'+esc(fmtJour(b.ts))+(b.version?' · v'+esc(b.version):'')+(b.src?' · '+esc(b.src):'')+'</div></div>'; }).join('')+
+    (er.length>6?'<div style="font-size:11.5px;color:var(--muted);margin-top:5px">+ '+(er.length-6)+' autre(s)</div>':'')+'</div>';
+  if(!er.length&&!ech.length) t+='<div style="margin-top:10px;font-size:12.5px;color:var(--green)">✓ Aucune erreur ni échec de connexion enregistré.</div>';
+  var vues=(u.vues||[]).slice(0,6);
+  if(vues.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px">Écrans les plus ouverts</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">'+vues.map(function(v){ return '<span class="past p-gris">'+esc(v.vue)+' · '+v.n+'</span>'; }).join('')+'</div></div>';
+  return t+'</div>';
 }
 
 /* ══════════ 5. ABONNEMENTS ══════════ */
