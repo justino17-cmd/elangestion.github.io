@@ -153,10 +153,11 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
 /* Empilee, une colonne de detail sous une liste de huit lignes n'est pas un detail :
    c'est un ecran que personne ne trouve. Sous 900 px on montre l'un OU l'autre, et le
    retour ramene a la liste — le motif de pile de navigation, pas la grille du bureau. */
-@media(max-width:899px){
-  .deux.md.choisi>.col-liste{display:none}
-  .deux.md:not(.choisi)>.col-detail{display:none}
-}
+/* La fiche d'une entreprise est passée en PAGE : elle ne partage plus l'écran avec la
+   liste, donc il n'y a plus de bascule à gérer. Ne reste que ceci — au téléphone, la
+   colonne de droite ne sert qu'à dire « choisissez une entreprise », ce que la liste
+   juste au-dessus dit déjà. */
+@media(max-width:899px){ .deux.md>.col-detail{display:none} }
 /* LA FICHE EN PLEINE PAGE. Elle n'est plus une colonne de 667 px : sur grand ecran
    ses blocs se rangent en deux colonnes, et l'identite plus la formule tiennent
    toute la largeur en tete — c'est ce qu'on lit en premier. Les colonnes sont en
@@ -275,6 +276,9 @@ main{width:100%;max-width:1200px;margin:0 auto;padding:28px 20px 96px;flex:1;min
      et s'efface, celle-ci rouvre et n'existe que repliee. 44 px : plancher tactile. */
   body.barre-repliee #replier{display:none}
   body.barre-repliee #rouvrir{display:flex}
+  /* #replier et #rouvrir font le même geste, l'un dans un sens et l'autre dans l'autre :
+     ils n'ont pas de raison d'avoir deux tailles. 44 px pour les deux. */
+  #replier{width:44px;height:44px}
   /* Le bouton flotte au-dessus du contenu : sans cette reserve il masque la premiere
      lettre du titre — 16 px de bord + 44 de bouton + 16 de respiration. */
   body.barre-repliee main{padding-left:76px}
@@ -2670,14 +2674,6 @@ function voirClient(email){
 }
 
 /* ══════════ 4. ENTREPRISES ══════════ */
-function cliSel(e){ CLI.sel=(CLI.sel===e?null:e); renderNav('detail');
-  if(CLI.sel){ var c=(CLI.list||[]).find(function(x){ return x.email===CLI.sel; })||{};
-    var nm=c.entreprise||c.nom||c.email;
-    setTimeout(function(){ tourPackPrefill(nm); },150);
-    chargerDossier(nm);
-  } else { DOS={nom:'',loaded:false,err:'',d:null}; } }
-/* Le dossier se recharge a chaque selection : deux entreprises differentes n'ont rien a
-   voir, et afficher les erreurs de l'une sous le nom de l'autre serait pire que rien. */
 function chargerDossier(nom){
   DOS={nom:nom,loaded:false,err:'',d:null}; rafraichirSiConcerne();
   apiPost('/api/monitor/entreprise/dossier',{nom:nom}).then(function(r){
@@ -2686,7 +2682,6 @@ function chargerDossier(nom){
     DOS.loaded=true; rafraichirSiConcerne();
   }).catch(function(){ if(DOS.nom!==nom) return; DOS.err='Serveur injoignable.'; DOS.loaded=true; rafraichirSiConcerne(); });
 }
-function cliQ(v){ CLI.q=v||''; rendreDifféré(); }
 function cliStatut(c){
   var p=String(c.planStatus||'').toLowerCase();
   if(p==='active'||p==='actif') return ['Actif','p-vert'];
@@ -2764,11 +2759,15 @@ function vueEntreprises(){
   '</div>'+
   (refKpi?'<div style="font-size:12px;color:var(--muted);margin:-12px 0 18px">Version en ligne : <b class="mono">v'+refKpi+'</b> <span style="color:var(--dim)">— déduite de la plus récente vue chez vos clientes</span></div>':'');
   var q=(ENT.q||'').toLowerCase().trim();
+  /* verReference() balaie toute la liste et toutes ses versions : l'appeler DANS le filtre
+     la relançait pour chaque entreprise. Une seule fois suffit — elle ne change pas d'une
+     ligne à l'autre. */
+  var refFiltre=verReference();
   var passeFiltre=function(o){
     if(ENT.filtre==='erreurs') return o.erreurs>0;
     if(ENT.filtre==='echecs') return o.echecs24>0;
     if(ENT.filtre==='horsAnnuaire') return !o.dansAnnuaire;
-    if(ENT.filtre==='retard') return verEtat(o,verReference()).retard;
+    if(ENT.filtre==='retard') return verEtat(o,refFiltre).retard;
     return true;
   };
   var l=(ENT.liste||[]).filter(function(o){
@@ -3274,8 +3273,10 @@ function blocDossier(){
     var hauteV=vCles.length?verNum(vCles[0]):verNum(u.version);
     var retardV=!!ref&&hauteV<ref;
     t+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">'+
-      '<div style="font-size:12px;font-weight:700;color:'+(retardV?'var(--amber)':'var(--muted)')+';margin-bottom:6px">'+
-        (retardV?'⬇ Ils n’ont pas la dernière mise à jour':'Leurs versions')+'</div>'+
+      /* Même classe que les autres titres de section de la fiche : sans elle, ce bloc
+         portait un titre en casse normale au milieu de cinq titres en capitales. */
+      '<div class="sec"'+(retardV?' style="color:var(--amber)"':'')+'>'+
+        (retardV?'⬇ ILS N’ONT PAS LA DERNIÈRE MISE À JOUR':'LEURS VERSIONS')+'</div>'+
       (vCles.length
         ? '<div style="display:flex;gap:6px;flex-wrap:wrap">'+vCles.map(function(v){
             var vieux=!!ref&&verNum(v)<ref;
