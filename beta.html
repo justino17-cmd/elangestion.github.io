@@ -4485,7 +4485,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '571-beta';
+const APP_VERSION = '572-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5060,6 +5060,24 @@ const SYNC_SECRET_DEFAULT='ELAN-GESTION-7F3A9C2E-cloud-2026';
 const SYNC_SALT='RUxBTi1HRVNUSU9OLXNhbHQtdjE='; /* sel fixe (base64) → clé dérivée une seule fois puis mise en cache (pas de latence). La sécurité vient de l'IV aléatoire par message + de la clé d'équipe. */
 function syncSecret(){ return (localStorage.getItem('elanB_sync_secret')||SYNC_SECRET_DEFAULT); }
 function syncHasCustomSecret(){ return !!localStorage.getItem('elanB_sync_secret'); }
+/* Preuve de possession de la clé d'équipe pour les routes mail du serveur.
+   EN-TÊTE, JAMAIS DANS L'URL : ce qui autorise ne doit pas se retrouver dans les journaux
+   d'accès du serveur, l'historique du navigateur ni l'en-tête Referer. Le teamId, lui, y
+   est déjà — raison de plus pour qu'il cesse d'être ce qui donne accès.
+   Le serveur ne fait encore qu'observer : il compte qui sait prouver sa clé avant que la
+   porte se ferme. Un échec ici ne doit donc rien casser — on renvoie une chaîne vide et
+   l'appel part sans preuve, exactement comme avant. */
+let _khCle='', _khVal='';
+async function khEquipe(){ try{
+  const k=syncSecret(); if(!k) return '';
+  if(k===_khCle && _khVal) return _khVal;
+  /* sha256() retombe sur un condensé maison ('fb'+…) quand crypto.subtle manque — hors
+     contexte sécurisé, donc en HTTP local. Ce n'est pas une empreinte : on n'envoie rien
+     plutôt qu'une preuve qui n'en est pas une, et le serveur comptera « absent ». */
+  const h=await sha256(k); if(!/^[0-9a-f]{64}$/.test(h||'')) return '';
+  _khCle=k; _khVal=h; return h;
+}catch(e){ return ''; } }
+async function enteteEquipe(base){ const h=Object.assign({}, base||{}); const kh=await khEquipe(); if(kh) h['x-teamop-kh']=kh; return h; }
 let _ck={};
 function _b64e(buf){ const b=new Uint8Array(buf); let s=''; const CH=0x8000; for(let i=0;i<b.length;i+=CH){ s+=String.fromCharCode.apply(null,b.subarray(i,i+CH)); } return btoa(s); }
 function _b64d(str){ const bin=atob(str); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return a; }
@@ -5181,7 +5199,7 @@ async function pushSubscribe(quiet){ try{
   if(Notification.permission!=='granted'){ const p=await Notification.requestPermission(); if(p!=='granted') return false; }
   const reg=await navigator.serviceWorker.ready;
   const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:_vapidArr(PUSH_VAPID)});
-  await fetch(PUSH_API+'/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sub:sub.toJSON(),teamId:syncTeam(),userId:currentUser.id,userName:fullName(currentUser)})});
+  await fetch(PUSH_API+'/api/subscribe',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),body:JSON.stringify({sub:sub.toJSON(),teamId:syncTeam(),userId:currentUser.id,userName:fullName(currentUser)})});
   localStorage.setItem('elanB_push_on','1');
   if(!quiet){ toast('Notifications activées sur cet appareil ✓'); if(current==='parametres') views.parametres(); }
   return true;
@@ -10976,13 +10994,13 @@ async function srvMail(to,subject,body,okMsg,cat,boxOverride,opts){
   if(b&&b.user&&b.pass){ payload.smtp={host:b.host||'smtp.mail.ovh.net',port:parseInt(b.port)||465,user:b.user,pass:b.pass,from:(b.from?b.from+' ':'')+'<'+b.user+'>'}; }
   else{ payload.brand={name:(opts&&opts.brandName)||mailBrandName(),replyTo:(opts&&opts.replyTo)||((currentUser&&currentUser.mailReply)||'').trim()||((db.mailReply||'').trim())}; }   // la plateforme envoie au nom de l'entreprise / de l'utilisateur
   try{
-    let r=await fetch(PUSH_API+'/api/sendmail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    let r=await fetch(PUSH_API+'/api/sendmail',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),body:JSON.stringify(payload)});
     if(!r.ok && payload.smtp){
       // la boîte pro configurée a échoué (identifiants, Hotmail/Outlook bloqué…) → on retente via la plateforme
       const d1=await r.json().catch(()=>({}));
       const p2={...payload}; delete p2.smtp;
       p2.brand={name:(opts&&opts.brandName)||mailBrandName(),replyTo:(opts&&opts.replyTo)||((db.mailReply||'').trim())||((b&&b.user)||'')};
-      const r2=await fetch(PUSH_API+'/api/sendmail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p2)});
+      const r2=await fetch(PUSH_API+'/api/sendmail',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),body:JSON.stringify(p2)});
       if(r2.ok){ _srvMailErr=''; toast('⚠️ Ta boîte e-mail pro a été refusée ('+(d1.error||'identifiants')+') — envoyé via la plateforme au nom de « '+mailBrandName()+' ». Corrige ou supprime la boîte dans Paramètres.'); return true; }
       r=r2;
     }
@@ -16594,11 +16612,11 @@ function renderBonsList(){
    Écrire à n'importe qui depuis l'app (au nom de l'utilisateur + entreprise), pièce jointe possible,
    et recevoir les réponses dans l'app — sans jamais ouvrir une boîte mail externe. */
 let mailTab='recu'; let _mailboxes=[]; let _mailReplies=null; let mailSearch=''; let mailSel=null; let mailBoxFiltre='';
-async function loadMailboxes(){ try{ const r=await fetch(PUSH_API+'/api/mailboxes?teamId='+encodeURIComponent(syncTeam())); const d=await r.json(); _mailboxes=d.mailboxes||[]; }catch(e){ _mailboxes=[]; } return _mailboxes; }
+async function loadMailboxes(){ try{ const r=await fetch(PUSH_API+'/api/mailboxes?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()}); const d=await r.json(); _mailboxes=d.mailboxes||[]; }catch(e){ _mailboxes=[]; } return _mailboxes; }
 /* _mailChargeEnCours empêche la boucle décrite plus bas, à l'endroit où la Réception se
    recharge. Il vit ici pour être lisible à côté de la fonction qu'il garde. */
 let _mailChargeEnCours=false;
-async function loadMailReplies(){ try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam())); const d=await r.json(); _mailReplies=d.replies||[]; }catch(e){ _mailReplies=null; } return _mailReplies; }
+async function loadMailReplies(){ try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()}); const d=await r.json(); _mailReplies=d.replies||[]; }catch(e){ _mailReplies=null; } return _mailReplies; }
 function _mailLus(){ try{ return new Set(JSON.parse(localStorage.getItem('elanB_mail_lus')||'[]')); }catch(e){ return new Set(); } }
 function _mailMarquerLu(k){ const st=_mailLus(); if(st.has(k)) return; st.add(k); localStorage.setItem('elanB_mail_lus',JSON.stringify([...st].slice(-600))); }
 const mailKey=r=>String(r.ts||'')+'|'+String(r.from||'');
@@ -16866,7 +16884,7 @@ async function mailDoConnect(){ const email=(($('mb-email')||{}).value||'').trim
     return; }
   if(!pass){ toast('Entre le mot de passe'); return; }
   const btn=$('mb-btn'); if(btn){ btn.textContent='Vérification en cours…'; btn.disabled=true; }
-  try{ const r=await fetch(PUSH_API+'/api/mailbox/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:syncTeam(),email,pass,name:mailBrandName()})});
+  try{ const r=await fetch(PUSH_API+'/api/mailbox/connect',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),body:JSON.stringify({teamId:syncTeam(),email,pass,name:mailBrandName()})});
     const d=await r.json();
     if(r.ok&&d.ok){ await loadMailboxes(); closeModal(); toast('✅ Boîte connectée — tes anciens mails arrivent…');
       const refresh=()=>{ if(current==='boiteMail'){ _mailReplies=null; mailSel=null; views.boiteMail(); } };
@@ -16905,7 +16923,7 @@ async function mailDoConnect(){ const email=(($('mb-email')||{}).value||'').trim
   }catch(e){ if(btn){ btn.textContent='Connecter et vérifier'; btn.disabled=false; } toast('Serveur injoignable'); }
 }
 async function mailDisconnect(id){ if(!confirm('Déconnecter cette boîte mail de l\'application ?')) return;
-  try{ await fetch(PUSH_API+'/api/mailbox/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({teamId:syncTeam(),id})}); }catch(e){}
+  try{ await fetch(PUSH_API+'/api/mailbox/disconnect',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),body:JSON.stringify({teamId:syncTeam(),id})}); }catch(e){}
   await loadMailboxes(); mailBoxesManage(); if(current==='boiteMail') setTimeout(()=>views.boiteMail(),100);
 }
 /* Choisir l'adresse d'envoi puis exécuter cb(option) — {kind:'mb'|'plat'} */
@@ -16963,7 +16981,7 @@ async function renderBonsReponses(el){
     return;
   }
   let data={replies:[]};
-  try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam())); data=await r.json(); }catch(e){}
+  try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()}); data=await r.json(); }catch(e){}
   const reps=data.replies||[];
   if(!reps.length){ el.innerHTML=`<div class="card">${emptyState('📥','Aucune réponse fournisseur pour l\'instant.','','')}</div><p class="detail-desc" style="margin-top:8px">Les réponses aux bons envoyés (adresse ${esc(feat.boiteAddr||'')}) apparaîtront ici automatiquement, avec une notification.</p>`; return; }
   el.innerHTML=reps.map(r=>{ const bon=r.bonNum?db.bons.find(x=>(x.numero||'').toUpperCase()===r.bonNum):null;

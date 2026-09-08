@@ -1,7 +1,52 @@
 # Point stable TeamOP
 
-**Version stable : v571** — gravée le 7 septembre 2026.
+**Version stable : v572** — gravée le 8 septembre 2026.
 
+v572 — la correspondance d'une entreprise ne se lit plus avec son seul identifiant d'espace.
+
+**Ce qui était ouvert.** Six routes du module mail ne demandaient qu'un `teamId` dans l'adresse
+ou dans le corps : `/api/replies`, `/api/mailboxes`, `/api/sendmail`, `/api/mailbox/connect`,
+`/api/mailbox/disconnect`, `/api/subscribe`. Or un `teamId` n'est pas un secret — il voyage dans
+les URL, donc dans les journaux du serveur, l'historique du navigateur et l'en-tête `Referer` ;
+il est écrit en clair dans le `localStorage` de chaque appareil ; et il ne se révoque pas. Le
+connaître suffisait pour lire 200 messages reçus avec leur corps, lister les boîtes connectées,
+**envoyer un e-mail depuis la vraie boîte SMTP de l'entreprise** — SPF et DKIM valides, sans
+jamais connaître son mot de passe —, déconnecter cette boîte, ou s'abonner à ses notifications.
+Ce n'était pas théorique : l'espace par défaut `elan-gestion` est écrit en clair dans un fichier
+servi publiquement.
+
+**La preuve existait déjà, elle n'a pas été inventée.** `app.html` détient la clé de synchro de
+l'entreprise et sait en calculer l'empreinte SHA-256 ; `/api/espaces/comptes` vérifiait déjà cette
+empreinte contre la clé de l'espace. Elle est désormais rendue en un seul endroit,
+`cleEquipeVerdict()`, et comparée en temps constant — une empreinte comparée octet par octet se
+mesure. L'empreinte part en **en-tête** `X-Teamop-Kh`, jamais dans l'URL : ce qui autorise ne doit
+pas se retrouver dans les journaux d'accès.
+
+**On observe avant de fermer, et c'est délibéré.** La vérification s'appuie sur `espaceParT()`,
+qui ne lit que `espacesReg` — le registre alimenté à la main, quand `cnxData` se remplit tout
+seul. Des entreprises actives ont donc un espace sans entrée d'annuaire. Refuser d'emblée les
+renverrait en 403, que `loadMailReplies()` avale dans son `catch` : Réception vide, aucun message
+d'erreur. Cette version compte donc sans rien refuser — `/api/mail/cles` rend le décompte — et la
+fermeture n'aura lieu que lorsque « inconnu » et « absent » seront à zéro pour les espaces vivants.
+
+**Publiée en deux fusions, dans cet ordre.** Le serveur d'abord, seul : il doit accepter l'en-tête
+`X-Teamop-Kh` dans `Access-Control-Allow-Headers` **avant** qu'`app.html` commence à l'envoyer,
+sinon la requête préalable échoue et le navigateur coupe les six routes sans erreur visible.
+GitHub Pages sert `app.html` dès la fusion, alors que le VPS attend son workflow : une fusion
+unique aurait ouvert exactement cette fenêtre.
+
+**Trois corrections de la même famille, au passage.** `Cache-Control: no-store` sur les réponses
+qui portent de la correspondance, sans quoi des corps d'e-mails se rangent dans le cache disque du
+navigateur. Le rattachement d'un message à une équipe n'accepte plus un indice ambigu : le numéro
+de bon ne vaut rien seul, `nextNum()` étant un compteur local à chaque entreprise, toutes
+démarrant à `BC-2026-001` — chemin mort aujourd'hui (`/health` rend `"boite":false`), mais armé
+pour la première boîte partagée configurée. Enfin `email` et `pass` sont bornés à l'entrée de
+`/api/mailbox/connect`, avant la vérification SMTP et non au moment d'écrire : tronquer après coup
+stockerait un mot de passe qui ne s'authentifie plus.
+
+## Ancien point
+
+**v571**
 v571 — OP GESTION est OP GESTION, OP MESSAGES est OP MESSAGES.
 
 **La demande, mot pour mot : « je veux que OP GESTION soit OP GESTION et OP MESSAGES soit
