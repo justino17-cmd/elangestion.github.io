@@ -1470,6 +1470,65 @@ app.post('/api/usage', (req, res) => {
   usageSave(); res.json({ ok: true });
 });
 // la Tour lit l'activité par onglet d'une entreprise, et ses problèmes ouverts
+/* ══ LE DOSSIER D'UNE ENTREPRISE — tout ce qu'on sait d'elle, en un seul appel ═══════════
+   Jusqu'ici il fallait ouvrir quatre écrans pour se faire une idée d'un client : son
+   activité ici, ses connexions là, ses erreurs dans un journal protégé par une AUTRE clé
+   que la session de la Tour (donc invisible depuis la console), son code promo nulle part.
+   On jugeait donc une entreprise sur des morceaux, et on ratait le principal : ses bugs.
+
+   Cette route rend le dossier complet pour UNE entreprise. Elle ne rend rien de plus que ce
+   que la Tour affiche déjà ailleurs — même niveau d'accès (monAdmin), pas de nouvelle
+   divulgation : c'est un regroupement, pas une ouverture. Tout est borné pour que la
+   réponse reste lisible : 25 erreurs, 40 connexions, 12 écrans les plus vus. */
+app.post('/api/monitor/entreprise/dossier', monAdmin, (req, res) => {
+  const nom = monStr((req.body || {}).nom, 80);
+  const slug = espSlug(nom);
+  const e = espacesReg[slug];
+  if (!e) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son lien de connexion' });
+  let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+  if (!t) return res.status(404).json({ error: 'Espace sans identifiant technique' });
+
+  // ── Ce qu'ils utilisent
+  const u = usageData[t] || { vues: {}, total: 0, dernier: 0, version: '' };
+  const vues = Object.entries(u.vues || {}).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => ({ vue: k, n: v }));
+
+  // ── Qui se connecte, et qui n'y arrive pas
+  const evts = (cnxData[t] || []).slice(0, 40).map(x => ({
+    ts: x.ts, ev: x.ev, login: x.login || '', role: x.role || '', version: x.version || '',
+    app: x.app || '', via: x.via || '', motif: x.motif || '', appareil: x.appareil || x.dev || ''
+  }));
+  /* Les échecs de connexion sont sortis à part : c'est le signal « quelqu'un chez eux
+     n'arrive pas à entrer », et c'est exactement ce qu'on veut voir sans fouiller. */
+  const echecs = evts.filter(x => x.ev === 'echec').slice(0, 15);
+
+  // ── Ce qui plante chez eux. Le journal des bugs est indexé par teamId : on le filtre.
+  let erreurs = [];
+  try {
+    erreurs = fs.readFileSync(BUGS_PATH, 'utf8').trim().split('\n')
+      .map(l => { try { return JSON.parse(l); } catch (err) { return null; } })
+      .filter(b => b && b.team === t)
+      .sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 25)
+      .map(b => ({ ts: b.ts, app: b.app, version: b.version, msg: b.msg, src: b.src, line: b.line, ua: b.ua }));
+  } catch (err) {}
+
+  // ── Formule offerte par code promo : elle ne passe pas par Stripe, donc elle n'apparaît
+  //    dans aucun écran d'abonnement. Sans elle, on croit le client « sans formule ».
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  let promo = null;
+  for (const [code, us] of Object.entries(promoUsages || {})) {
+    const x = us && us.equipes && us.equipes[t];
+    if (x && x.finLe) { const actif = x.finLe >= aujourdhui; if (actif || !promo) promo = { code, depuis: x.date || '', finLe: x.finLe, actif }; if (actif) break; }
+  }
+
+  res.json({
+    ok: true, t, slug,
+    espace: { nom: e.nom || slug, formule: e.formule || '', opMessages: !!e.opMessages, suspendu: entFermes.espaces.includes(t) },
+    usage: { total: u.total || 0, dernier: u.dernier || 0, version: u.version || '', vues },
+    connexions: { resume: cnxResume(t), evenements: evts, echecs },
+    erreurs, promo
+  });
+});
+
 app.post('/api/monitor/espaces/activite', monAdmin, (req, res) => {
   const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
   const e = espacesReg[slug];
