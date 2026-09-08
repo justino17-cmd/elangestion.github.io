@@ -1097,6 +1097,62 @@ body.jour #dia .dia-ctrl{border-top-color:rgba(20,28,48,.09)}
 }
 @media(prefers-reduced-motion:reduce){ #dia .dia-jauge i{transition:none} }
 
+/* ══ COURRIER ═══ trois natures dans la boîte, une seule matière au sol ═══════════════════
+   Le volet du milieu redevient un SOL : une carte élevée --plan-cli posée sur --surface ne
+   fait que 1,25:1 — la marche invisible. Posée sur le fond de page elle fait 1,46:1, et le
+   jour l'ombre porte enfin sur du gris perle au lieu de blanc sur blanc. */
+.mail-liste{background:var(--bg)}
+/* La branche LISTE du volet unique perd sa surface ; la branche LECTURE la garde — là, la
+   surface est voulue. Une classe plutôt que :has() : c'est plus sûr à relire. */
+.mail-plat{background:transparent;border:0;border-radius:0;overflow:visible}
+.mail-plat .mail-rows{padding:0}
+
+/* L'avatar dit UNE chose : est-ce une entreprise que je connais ? Les six teintes tirées
+   d'un hachage d'adresse — cinq couleurs de plus que l'accent unique autorisé — ne
+   portaient rien du tout. */
+.sup-ava{width:38px;height:38px;border-radius:11px;flex:0 0 38px;display:flex;align-items:center;
+  justify-content:center;font-size:14px;font-weight:700;
+  background:var(--avatar);box-shadow:inset 0 0 0 1px var(--avatarBorder);color:var(--blueSoft)}
+.sup-ava.inconnu{background:transparent;box-shadow:inset 0 0 0 1px var(--line);color:var(--dim)}
+.lec-qui .sup-ava{width:34px;height:34px;border-radius:50%;flex-basis:34px}
+
+/* La ligne d'un message : nom à gauche, heure à droite, sur la même ligne. */
+.sup-l1{display:flex;align-items:baseline;gap:10px}
+.sup-l1 .reg-t1{flex:1;min-width:0}
+.sup-h{flex-shrink:0;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Un message non lu : le sujet passe en --strong EN PLUS d'être dans un groupe qui le dit.
+   Le rond de non-lu disparaît : « non lu », c'est désormais le nom du groupe. */
+/* Sur une carte élevée, l’objet du message est la substance : il passe sur deux lignes
+   plutôt que de se couper. Le socle tronque .reg-l2 parce qu’ailleurs c’est une suite de
+   faits ; ici c’est une phrase écrite par une cliente. */
+.reg-l.att .reg-l2{color:var(--strong);font-weight:600}
+.reg-l.cli.att .reg-l2{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.sup-sig{font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* La navigation principale d'un écran ouvert au doigt faisait 35 px. Et un titre de section
+   n'est pas une étiquette de champ : les petites capitales en monospace sont l'un des cinq
+   réflexes d'interface générée. */
+.dos{min-height:44px;padding:0 10px;font-size:14px}
+.dos-bar .dos{min-height:44px;padding:0 14px}
+.dos-t{font-family:inherit;font-size:12.5px;font-weight:600;letter-spacing:0;text-transform:none;
+  color:var(--text2);margin:18px 0 6px 10px}
+.dos .n{font-variant-numeric:tabular-nums;min-width:18px;text-align:right}
+
+/* Les états vides parlent et donnent le geste suivant. */
+.sup-vide{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+  padding:38px 22px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
+.sup-vide .t{font-size:15px;font-weight:600;color:var(--text)}
+.sup-vide svg{color:var(--dim)}
+.sup-vide .btn-plein,.sup-vide .btn-fant{margin-top:6px;min-height:44px}
+/* Le chargement montre la FORME de ce qui arrive, pas un mot dans un cadre en pointillés. */
+.sup-squel{height:66px;border-radius:var(--r-2);background:var(--tint-gris);margin:0 0 8px;
+  animation:jrBat 1.4s ease-in-out infinite}
+
+@media(max-width:640px){
+  .sup-ava{width:34px;height:34px;flex-basis:34px;border-radius:10px;font-size:13px}
+}
+@media(prefers-reduced-motion:reduce){ .sup-squel{animation:none} }
+
 /* ══ MODALE + VOILE ═══ créée par le JS avec ses styles inline ; on impose la matière ══ */
 #tour-panneau{background:var(--scrim)!important;-webkit-backdrop-filter:blur(20px) saturate(140%);backdrop-filter:blur(20px) saturate(140%);animation:voileIn var(--d-2) var(--e-sortie) both}
 #tour-panneau>div{background:var(--surface)!important;border:0!important;border-radius:var(--r-5)!important;box-shadow:var(--ombre-3);transform-origin:50% 45%;animation:feuilleIn var(--d-4) var(--ressort) both;outline:none}
@@ -1779,7 +1835,7 @@ function setBdg(id,n){ var e=$(id); if(!e) return;
 
 /* ═══ LES DONNÉES (toutes réelles) ═══ */
 var INC={list:[],cnt:{},nbEnt:0,loaded:false,err:'',sel:null,grp:null,f:{type:'',grav:'',statut:'actifs',app:'',ent:''}};
-var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',
+var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',autoTout:false,
          sel:{boite:'toutes',dossier:'',nom:'Toutes les réceptions',role:'inbox'},lu:null,ouvert:null,q:'',
          compo:false,cDest:'',cSujet:'',cTexte:''};
 var CLI={list:[],total:0,loaded:false,err:'',sel:null,q:''};
@@ -3465,8 +3521,8 @@ function incCopier(id){
 }
 
 /* ══════════ 3. SUPPORT ══════════ */
-function mailAller(b,d,nom,role){ MSG.sel={boite:b,dossier:d,nom:nom,role:role}; MSG.ouvert=null; MSG.lu=null; chargerMessages(); render(); }
-function mailQ(v){ MSG.q=v||''; chargerMessages(); }
+function mailAller(b,d,nom,role){ MSG.autoTout=false; MSG.sel={boite:b,dossier:d,nom:nom,role:role}; MSG.ouvert=null; MSG.lu=null; chargerMessages(); render(); }
+function mailQ(v){ MSG.autoTout=false; MSG.q=v||''; chargerMessages(); }
 function mailActualiser(){ chargerMail(true); toast('Boîte support actualisée'); }
 function compoOuvrir(dest){ MSG.compo=true; if(dest) MSG.cDest=dest; renderNav('lecture'); }
 function compoFermer(){ MSG.compo=false; renderNav('lecture-retour'); }
@@ -3509,14 +3565,6 @@ function mailEtroit(){ try{ return window.innerWidth<1000; }catch(e){ return fal
 function mailRetour(){ MSG.ouvert=null; MSG.lu=null; MSG.envSel=null; renderNav('lecture-retour'); }
 function mailEnvoyes(){ return MSG.sel.boite==='envoyes'; }
 
-/* Un rond avec l'initiale : on reconnaît un correspondant avant même de lire son nom. */
-function mailPastille(nom, adr){
-  var s=String(nom||adr||'?').trim(), i=(s.charAt(0)||'?').toUpperCase();
-  var t=0, k=String(adr||s); for(var n=0;n<k.length;n++) t=(t*31+k.charCodeAt(n))|0;
-  var teintes=['#1E7A4E','#A05A12','#2F58B8','#7442A8','#B03A35','#17706A'];
-  return '<span class="m-ava" style="background:'+teintes[Math.abs(t)%teintes.length]+'">'+esc(i)+'</span>';
-}
-
 /* ── Volet 1 : les dossiers ─────────────────────────────────────────────────────────── */
 function mailDossiers(){
   var d=function(actif, clic, icone, nom, n){
@@ -3529,45 +3577,123 @@ function mailDossiers(){
   h+=MSG.boites.map(function(x){ var b=x.boite||{}, id=b.id||b.email||'';
     return d(MSG.sel.boite===id, 'mailAller(\''+jsq(id)+'\',\'\',\''+jsq(b.email||'Boîte')+'\',\'inbox\')', '✉️', b.email||'Boîte', x.nonLus);
   }).join('');
-  h+='<div class="dos-t">TeamOP</div>'+d(mailEnvoyes(), 'envoyesOuvrir()', '📤', 'Envoyés', 0);
+  h+='<div class="dos-t">TeamOP</div>'+d(mailEnvoyes(), 'envoyesOuvrir()', '📤', 'Envoyés', (MSG.envoyes||[]).length);
   return h;
 }
 
 /* ── Volet 2 : la liste ─────────────────────────────────────────────────────────────── */
+/* L'avatar dit UNE chose : est-ce une entreprise que je connais ? Les six teintes tirées d'un
+   hachage d'adresse étaient cinq couleurs de plus que l'accent unique, et ne portaient rien. */
+function supAva(nom,adr){
+  var a=String(adr||'').toLowerCase();
+  var connue=(CLI.list||[]).some(function(x){ return String(x.email||'').toLowerCase()===a; });
+  var i=(String(nom||adr||'?').trim().charAt(0)||'?').toUpperCase();
+  return '<span class="sup-ava'+(connue?'':' inconnu')+'">'+esc(i)+'</span>';
+}
+/* Trois natures, dans l'ordre du travail. Tous ces champs viennent tels quels de
+   /api/monitor/mail/liste — aucun changement serveur. m.suivi.statut serait une meilleure
+   source, mais le serveur ne crée le suivi qu'à la PREMIÈRE ouverture : un message jamais
+   ouvert a suivi:null. On garde donc `lu`, qui existe toujours. */
+function supNature(m){ if(m.auto) return 'auto'; if(!m.lu) return 'att'; return 'vu'; }
+function supAutoTout(){ MSG.autoTout=true; render(); }
+function supVide(ico,titre,txt,btn){
+  return '<div class="sup-vide">'+svg(ico,22)+'<div class="t">'+titre+'</div><div>'+txt+'</div>'+(btn||'')+'</div>';
+}
+function supSquel(){ return '<div style="padding:10px 12px"><div class="sup-squel"></div><div class="sup-squel"></div><div class="sup-squel"></div></div>'; }
+function supGroupe(titre,n,sous,opt,bloc,lignes,pied){
+  return '<div class="reg-g"><div class="reg-tete"><span class="reg-nom">'+titre+'</span>'+
+    '<span class="reg-n">'+n+'</span>'+
+    (sous?'<div class="reg-sous'+(opt?' opt':'')+'">'+sous+'</div>':'')+'</div>'+
+    '<div class="'+bloc+'">'+lignes+'</div>'+(pied||'')+'</div>';
+}
+/* Le chevron n'apparaît qu'en volet UNIQUE : à trois volets, la lecture est déjà à droite et
+   la ligne choisie porte son liseré — un chevron y mentirait sur la direction. C'est le seul
+   écart au socle sur cet écran, et il est motivé. */
+function supLigne(o){
+  var sig=[],reste=0;
+  var push=function(h){ if(sig.length<2) sig.push(h); else reste++; };
+  if(o.pieces) push('<span class="sup-sig" title="'+o.pieces+' pièce(s) jointe(s)">📎 '+o.pieces+'</span>');
+  if(o.marque) push('<span class="sup-sig" title="Marqué">⚑</span>');
+  if(o.repondu) push('<span class="sup-sig" title="Une réponse est partie">↩</span>');
+  if(reste) sig.push('<span class="reg-plus">+'+reste+'</span>');
+  return '<button type="button" class="reg-l'+(o.att?' cli att':'')+(o.on?' on':'')+'" onclick="'+o.action+'">'+
+    supAva(o.nom,o.adr)+
+    '<span class="reg-txt">'+
+      '<span class="sup-l1"><span class="reg-t1" title="'+esc(o.nom||o.adr||'')+'">'+esc(o.nom||o.adr||'expéditeur inconnu')+'</span>'+
+      '<span class="sup-h" title="'+esc(fmtDateLong(o.ts))+'">'+esc(fmtCourt(o.ts))+'</span></span>'+
+      '<span class="reg-l2">'+esc(o.objet||'(sans objet)')+'</span>'+
+      (o.l3?'<span class="reg-l3">'+o.l3+'</span>':'')+
+    '</span>'+
+    '<span class="reg-fin"><span class="reg-alertes">'+sig.join('')+'</span>'+
+    (mailEtroit()?'<span class="reg-chev" aria-hidden="true">›</span>':'')+'</span></button>';
+}
 function mailListeRecue(){
-  return (MSG.messages||[]).map(function(m){
-    var cle=m.boite+'|'+m.dossier+'|'+m.uid, sig='';
-    if(m.pieces) sig+='<span class="m-sig" title="'+m.pieces+' pièce(s) jointe(s)">📎</span>';
-    if(m.marque) sig+='<span class="m-sig" title="Marqué">⚑</span>';
-    if(m.repondu) sig+='<span class="m-sig" title="Répondu">↩</span>';
-    if(m.auto) sig+='<span class="m-auto" title="Message automatique, pas un client qui écrit">auto</span>';
-    return '<div class="mrow'+(m.lu?' lu':'')+(MSG.lu===cle?' on':'')+'" onclick="lireMessage(\''+jsq(m.boite)+'\',\''+jsq(m.dossier)+'\','+m.uid+')">'+
-      '<span class="pastille"></span>'+
-      '<div class="m-txt">'+
-        '<div class="m-l1"><span class="m-de">'+esc(m.deNom||m.de||'expéditeur inconnu')+'</span>'+
-          '<span class="m-h" title="'+esc(fmtDateLong(m.ts))+'">'+esc(fmtCourt(m.ts))+'</span></div>'+
-        '<div class="m-l2">'+esc(m.objet||'(sans objet)')+sig+'</div>'+
-        '<div class="m-l3">'+esc(m.de||'')+'</div>'+
-      '</div></div>';
-  }).join('')||'<div class="vide">'+(MSG.err?esc(MSG.err):(MSG.boites.length?'Aucun message dans ce dossier.':'Aucune boîte reliée pour le moment.'))+'</div>';
+  if(MSG.err) return supVide('support','Le serveur ne répond pas',esc(MSG.err),
+    '<button type="button" class="btn-fant" onclick="chargerMail(1)">Réessayer</button>');
+  if(!MSG.loaded) return supSquel();
+  if(!MSG.boites.length) return supVide('support','Aucune boîte reliée',
+    'Reliez la boîte support@teamop.fr pour lire ici ce que les clientes écrivent.',
+    '<button type="button" class="btn-plein" onclick="supConnecterBoite()">Connecter une boîte</button>');
+  var M=(MSG.messages||[]);
+  if(!M.length) return supVide('support','Rien dans ce dossier',
+    'Les nouveaux messages arrivent tout seuls ; le bouton ⟳ force une relève.');
+  var GR=[
+   {cle:'att', titre:'À traiter', sous:'Reçus, pas encore ouverts. C’est la pile qui attend une réponse.',opt:true,bloc:'reg-cli'},
+   {cle:'vu',  titre:'Déjà ouverts', sous:'Ouverts depuis cette console. Le ↩ marque ceux auxquels une réponse est partie.',opt:true,bloc:'reg-bloc'},
+   {cle:'auto',titre:'Notifications automatiques', sous:'Stripe, GitHub, les robots. Personne n’attend de réponse — elles restent là pour la trace.',opt:false,bloc:'reg-bloc mien'}
+  ];
+  var g=GR.map(function(G){
+    /* Un .filter, jamais un Object.keys ni un tri intermédiaire : l'ordre décroissant est
+       posé par le serveur et doit survivre au groupage. */
+    var l=M.filter(function(m){ return supNature(m)===G.cle; });
+    if(!l.length) return '';
+    var pied='',vus=l;
+    /* Sortir de la liste ne doit jamais vouloir dire rendre inaccessible. L'état vit dans MSG
+       et non dans un <details> : la vue étant reconstruite par innerHTML, un pli se
+       refermerait tout seul à chaque render(). */
+    if(G.cle==='auto'&&!MSG.autoTout&&l.length>5){
+      vus=l.slice(0,5);
+      pied='<button type="button" class="ac-plus" onclick="supAutoTout()">Voir les '+(l.length-5)+' autres notifications →</button>';
+    }
+    return supGroupe(G.titre,l.length,G.sous,G.opt,G.bloc,vus.map(function(m){
+      var cle=m.boite+'|'+m.dossier+'|'+m.uid;
+      var l3=[]; if(m.boiteNom||m.boite) l3.push(esc(m.boiteNom||m.boite));
+      if(m.deNom&&m.de&&m.deNom!==m.de) l3.push(esc(m.de));
+      return supLigne({nom:m.deNom||m.de,adr:m.de,ts:m.ts,objet:m.objet,l3:l3.join(' · '),
+        pieces:m.pieces,marque:m.marque,repondu:m.repondu,att:(G.cle==='att'),on:(MSG.lu===cle),
+        action:"lireMessage('"+jsq(m.boite)+"','"+jsq(m.dossier)+"',"+m.uid+")"});
+    }).join(''),pied);
+  }).join('');
+  return '<div class="reg" style="padding:4px 2px 12px">'+g+'</div>';
 }
 function mailListeEnvoyee(){
+  if(MSG.envErr) return supVide('avion','Les envois ne répondent pas',esc(MSG.envErr),
+    '<button type="button" class="btn-fant" onclick="envoyesOuvrir()">Réessayer</button>');
   var L=MSG.envoyes;
-  if(MSG.envErr) return '<div class="vide">'+esc(MSG.envErr)+'</div>';
-  if(!L) return '<div class="vide">Chargement des envois…</div>';
+  if(!L) return supSquel();
   var q=String(MSG.envQ||'').toLowerCase();
   var vus=L.map(function(m,i){ return {m:m,i:i}; }).filter(function(o){ if(!q) return true;
     return (mailEnt(o.m.a)+' '+(o.m.a||'')+' '+(o.m.sujet||'')).toLowerCase().indexOf(q)>=0; });
-  return vus.map(function(o){ var m=o.m;
-    return '<div class="mrow lu'+(MSG.envSel===o.i?' on':'')+'" onclick="envoyeLire('+o.i+')">'+
-      '<span class="pastille"></span>'+
-      '<div class="m-txt">'+
-        '<div class="m-l1"><span class="m-de">'+esc(mailEnt(m.a))+'</span>'+
-          '<span class="m-h" title="'+esc(fmtDateLong(m.ts))+'">'+esc(fmtCourt(m.ts))+'</span></div>'+
-        '<div class="m-l2">'+esc(m.sujet||'(sans objet)')+'</div>'+
-        '<div class="m-l3">→ '+esc(m.a||'')+'</div>'+
-      '</div></div>';
-  }).join('')||'<div class="vide">'+(q?'Aucun envoi ne correspond à « '+esc(MSG.envQ)+' ».':'Aucun e-mail envoyé pour l’instant — le journal se remplit à chaque envoi.')+'</div>';
+  if(!vus.length) return q
+    ? supVide('avion','Aucun envoi ne correspond','Rien ne correspond à « '+esc(MSG.envQ)+' ».',
+        '<button type="button" class="btn-fant" onclick="envoyesQ(\'\')">Effacer la recherche</button>')
+    : supVide('avion','Aucun e-mail envoyé','Le journal se remplit à chaque envoi.',
+        '<button type="button" class="btn-plein" onclick="compoOuvrir()">Écrire</button>');
+  /* Trois seaux par date, TOUS à plat : un journal d'envois ne demande aucune décision, il
+     ne mérite donc aucun plan élevé — et le refuser ici est ce qui garde le plan crédible
+     ailleurs. */
+  var j0=new Date().setHours(0,0,0,0), s7=j0-6*86400000;
+  var seaux=[{titre:'Aujourd’hui',l:[]},{titre:'Cette semaine',l:[]},{titre:'Plus ancien',l:[]}];
+  vus.forEach(function(o){ var t=o.m.ts||0;
+    seaux[t>=j0?0:(t>=s7?1:2)].l.push(o); });
+  return '<div class="reg" style="padding:4px 2px 12px">'+seaux.map(function(S){
+    if(!S.l.length) return '';
+    return supGroupe(S.titre,S.l.length,'',false,'reg-bloc',S.l.map(function(o){
+      var m=o.m;
+      return supLigne({nom:mailEnt(m.a),adr:m.a,ts:m.ts,objet:m.sujet,l3:'→ '+esc(m.a||''),
+        on:(MSG.envSel===o.i),action:'envoyeLire('+o.i+')'});
+    }).join(''),'');
+  }).join('')+'</div>';
 }
 /* e-mail du destinataire → nom de l'entreprise, quand la fiche existe */
 function mailEnt(a){ a=String(a||'').toLowerCase();
@@ -3580,15 +3706,15 @@ function mailTeteLecture(nom, adr, ts, sujet, badge){
   return '<div class="lec-tete">'+
     (mailEtroit()?'<button class="btn-fant lec-ret" onclick="mailRetour()">‹ Liste</button>':'')+
     '<div class="lec-obj">'+esc(sujet||'(sans objet)')+'</div>'+
-    '<div class="lec-qui">'+mailPastille(nom,adr)+
+    '<div class="lec-qui">'+supAva(nom,adr)+
       '<div class="lec-id"><b>'+esc(nom||adr||'—')+'</b><span>'+esc(adr||'')+'</span></div>'+
       '<div class="lec-h" title="'+esc(fmtDateLong(ts))+'">'+esc(fmtDateLong(ts))+'</div></div>'+
     (badge||'')+'</div>';
 }
 function lecture(){
   var m=MSG.ouvert;
-  if(!m) return '<div class="vide"><span style="color:var(--dim)">'+svg('support',22)+'</span>'+
-    '<div style="margin-top:10px">Choisissez un message pour le lire.</div></div>';
+  if(!m) return supVide('support','Aucun message ouvert','Choisissez un message à gauche.',
+    '<button type="button" class="btn-fant" onclick="compoOuvrir()">Écrire</button>');
   var corps=String(m.texte||'').trim()||'(message vide)';
   return '<div class="lec">'+
     mailTeteLecture(m.deNom, m.de, m.ts, m.objet,
@@ -3604,8 +3730,7 @@ function lecture(){
 function envoyeLire(i){ MSG.envSel=i; renderNav('lecture'); }
 function envoyeLecture(){
   var m=(MSG.envoyes||[])[MSG.envSel];
-  if(!m) return '<div class="vide"><span style="color:var(--dim)">'+svg('avion',22)+'</span>'+
-    '<div style="margin-top:10px">Choisissez un envoi pour le relire.</div></div>';
+  if(!m) return supVide('avion','Aucun envoi ouvert','Choisissez un envoi à gauche pour le relire.','');
   return '<div class="lec">'+
     mailTeteLecture(mailEnt(m.a), m.a, m.ts, m.sujet,
       '<div class="lec-act"><span class="past p-vert">📤 Envoyé par TeamOP</span></div>')+
@@ -3674,7 +3799,7 @@ function vueSupport(){
       '</div></div>':'';
 
   var rech=env
-    ? '<input placeholder="Rechercher un envoi…" value="'+esc(MSG.envQ||'')+'" onchange="envoyesQ(this.value)">'
+    ? '<input placeholder="Rechercher un envoi…" value="'+esc(MSG.envQ||'')+'" oninput="envoyesQ(this.value)">'
     : '<input placeholder="Rechercher un message…" value="'+esc(MSG.q)+'" onchange="mailQ(this.value)">';
   var rafraichir=env?'envoyesOuvrir()':'mailActualiser()';
 
@@ -3688,7 +3813,7 @@ function vueSupport(){
     if(ouvert) return tete+compo+'<div class="mail mail-1">'+(env?envoyeLecture():lecture())+'</div>';
     return tete+compo+
       '<div class="dos-bar">'+mailDossiers()+'</div>'+
-      '<div class="mail mail-1">'+
+      '<div class="mail mail-1 mail-plat">'+
         '<div class="mail-rech"><div class="rech">'+svg('loupe',16)+rech+'</div>'+
           '<button class="btn-icone" onclick="'+rafraichir+'" title="Actualiser">'+svg('refresh',15)+'</button></div>'+
         '<div class="mail-rows">'+(env?mailListeEnvoyee():mailListeRecue())+'</div></div>';
