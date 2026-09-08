@@ -159,6 +159,8 @@ cours ». Rien n'est activé d'office.
 
 | **v594** | **Le bon de commande et le bon de livraison sont rangés ensemble.** « Comme ça on sait qui correspond à quoi. » Le chef photographiait déjà le bon de livraison à l'arrivage, mais personne ne la revoyait : elle dormait sur le mouvement. La vignette s'affiche maintenant DANS le bloc de comparaison — donc sous les yeux du DR au moment de valider, et sur la fiche du bon pour toujours. Quand aucune photo n'a été prise, c'est écrit en ambre plutôt que tu : un contrôle sans pièce jointe doit se voir. |
 
+| **v595** | **Un seul chemin pour réceptionner : l'Arrivage.** Il y en avait deux — le bouton « Réceptionner » et « Arrivage » sur la box — et un seul acceptait la photo du bon de livraison. Justin l'a vu en une capture. L'Arrivage faisait déjà tout ce que faisait l'autre (il propose la commande, préremplit les quantités converties en unités par `arrBonPrefill`) plus la photo : le bouton disparaît de la carte de la box et de la fiche du bon, remplacé par la marche à suivre. `bonReception()` reste mais refuse et renvoie vers l'Arrivage — une adresse en mémoire ou la console pourraient encore l'appeler, et une réception sans photo rouvrirait le trou qu'on vient de fermer. À supprimer avec `recLignes` / `recRefresh` / `applyReception` au prochain ménage. |
+
 **La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
 navigateur, compte par compte) :
 
