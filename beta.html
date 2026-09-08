@@ -3898,6 +3898,9 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .dos-t{font-size:14.5px;font-weight:800;color:var(--t1);line-height:1.3}
 .dos-m{font-size:12px;color:var(--t3);margin-top:3px;font-variant-numeric:tabular-nums;line-height:1.45}
 .dos-c{flex-shrink:0;font-size:17px;font-weight:700;color:var(--acc)}
+.dos-x{flex-shrink:0;width:38px;height:38px;border:none;background:none;cursor:pointer;font-size:14px;
+  border-radius:10px;color:var(--t3);-webkit-tap-highlight-color:transparent}
+.dos-x:active{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
 .dos-p{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 13px 12px}
 .dos-pi{display:flex;align-items:center;gap:9px;min-height:56px;padding:8px 10px;text-align:left;
   border:1px solid var(--brd);border-radius:11px;background:var(--bg2);cursor:pointer;
@@ -4751,7 +4754,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '602-beta';
+const APP_VERSION = '603-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -16256,6 +16259,45 @@ function delArrivage(boxId,aid){ const b=db.boxes.find(x=>x.id===boxId); if(!b) 
    Les bons, leurs réceptions et les photos des bons de livraison, rangés par mois. On y entre
    depuis la box, on en ressort avec le PDF s'il le faut — sans passer par le menu « Bons de
    commande », qui reste réservé à qui passe les commandes. */
+/* ══════════ L'ADMINISTRATEUR PEUT TOUT EFFACER, ET LUI SEUL ═══════════════════════════
+   Justin, 8 septembre 2026 : « l'administrateur, lui, peut tout supprimer de partout — les
+   historiques de commande, les demandes, même les produits et les box. Il n'y a que lui qui a
+   tous les droits, et ce droit-là il ne peut pas le céder à quelqu'un d'autre. »
+
+   ⛔ LE TEST PORTE SUR LE RÔLE, PAS SUR UN DROIT. Partout ailleurs, une suppression demande
+   `canCat(groupe,'supprimer')` — un droit qui se coche, donc qui se donne. Ici on exige
+   `role === 'admin'` : il n'existe aucune case, dans aucun écran, qui accorde ce pouvoir à
+   quelqu'un d'autre. Le seul moyen de le transmettre est de faire de la personne un
+   administrateur — un changement de rôle, visible dans sa fiche, pas une coche perdue au
+   milieu d'une liste.
+
+   Ce qui part avec une commande : son PDF, sa réception et la photo du bon de livraison. Le
+   STOCK, lui, ne bouge pas — les unités entrées à la réception ont été consommées depuis, et
+   les retirer maintenant fausserait un inventaire au lieu de le corriger. C'est la même règle
+   que `delArrivage`, et elle est écrite dans la confirmation. */
+function adminSeul(){
+  if(currentUser&&currentUser.role==='admin') return true;
+  toast('Réservé à l\'administrateur — ce droit ne se délègue pas'); return false;
+}
+function boxCmdSuppr(bonId,boxId){
+  if(!adminSeul()) return;
+  const b=(db.bons||[]).find(x=>x.id===bonId); if(!b) return;
+  if(!confirm('Supprimer définitivement la commande '+bonNum(b)+' ?\n\nSon PDF, sa réception et la photo du bon de livraison partent avec.\nLe stock déjà crédité n\'est PAS retiré.')) return;
+  db.bons=(db.bons||[]).filter(x=>x.id!==bonId);
+  db.boxMvtAttente=(db.boxMvtAttente||[]).filter(m=>m.bcId!==bonId);
+  (db.boxes||[]).forEach(bx=>{ if(bx.arrivages) bx.arrivages=bx.arrivages.filter(a=>a.bcId!==bonId); });
+  (db.demandes||[]).forEach(d=>{ if(d.bonId===bonId) delete d.bonId; });   // la demande survit à son bon
+  logEvent('Commande supprimée',bonNum(b),'commande');
+  save(); toast('Commande supprimée'); boxCommandes(boxId);
+}
+function boxLivrSuppr(arrId,boxId){
+  if(!adminSeul()) return;
+  const bx=(db.boxes||[]).find(x=>x.id===boxId); if(!bx) return;
+  if(!confirm('Supprimer cette livraison et sa photo ?\n\nLe stock déjà crédité n\'est PAS retiré.')) return;
+  bx.arrivages=(bx.arrivages||[]).filter(a=>a.id!==arrId);
+  logEvent('Livraison supprimée',(bx.nom||bx.numero||''),'stock');
+  save(); toast('Livraison supprimée'); boxCommandes(boxId);
+}
 function boxCommandes(boxId){
   const b=db.boxes.find(x=>x.id===boxId); if(!b) return;
   const bons=(db.bons||[]).filter(x=>x.boxId===boxId);
@@ -16282,7 +16324,7 @@ function boxCommandes(boxId){
       <div class="dos-h" style="cursor:default">
         <div class="dos-i"><div class="dos-t">${esc(a.fournisseur||'Livraison')} — ${(a.lignes||[]).length} produit(s)</div>
           <div class="dos-m">Sans bon de commande · ${(a.lignes||[]).reduce((t,l)=>t+(l.qte||0),0)} u · ${fmtTs(a.ts)}${a.par?` · par ${esc(a.par)}`:''}</div></div>
-        <span class="st st-blue">Livraison</span></div>
+        <span class="st st-blue">Livraison</span>${currentUser&&currentUser.role==='admin'?`<button type="button" class="dos-x" onclick="event.stopPropagation();boxLivrSuppr('${a.id}','${boxId}')" title="Supprimer définitivement" aria-label="Supprimer cette livraison">🗑</button>`:''}</div>
       <div class="dos-p">
         ${a.photo?`<button type="button" class="dos-pi" onclick="window.open('${a.photo}')"><img src="${a.photo}" alt="Bon de livraison"><span><b>Bon de livraison</b><i>Photo à la réception</i></span></button>`
                  :`<div class="dos-pi vide"><span class="dos-ic">📷</span><span><b>Bon de livraison</b><i>Aucune photo prise</i></span></div>`}
@@ -16293,7 +16335,7 @@ function boxCommandes(boxId){
       <div class="dos-h" onclick="ficheBon('${x.id}',true,'${boxId}')" role="button" tabindex="0">
         <div class="dos-i"><div class="dos-t">${esc(fournName(x.fournisseurId)||x.fournisseur||'Fournisseur')} — ${(x.lignes||[]).length} article(s)</div>
           <div class="dos-m">${esc(bonNum(x))} · ${bonQteTotTxt(x)} · ${fmtShort(x.dateReception||x.livreLe||x.date)}${x.recuPar?` · reçu par ${esc(x.recuPar)}`:''}</div></div>
-        <span class="st ${st.c}">${esc(st.l)}</span><span class="dos-c" aria-hidden="true">›</span></div>
+        <span class="st ${st.c}">${esc(st.l)}</span>${currentUser&&currentUser.role==='admin'?`<button type="button" class="dos-x" onclick="event.stopPropagation();boxCmdSuppr('${x.id}','${boxId}')" title="Supprimer définitivement" aria-label="Supprimer cette commande">🗑</button>`:''}<span class="dos-c" aria-hidden="true">›</span></div>
       <div class="dos-p">
         <button type="button" class="dos-pi" onclick="event.stopPropagation();bonPdfOpen('${x.id}')">
           <span class="dos-ic">📄</span><span><b>Bon de commande</b><i>PDF · ${esc(bonNum(x))}</i></span></button>
@@ -17508,7 +17550,16 @@ function demLigneHtml(d){
   return `<div class="pl-row" data-dem="${d.id}" onclick="ficheDemande('${d.id}')"><div class="pl-info">
     <div class="pl-title">${esc(d.boxNom||boxLabel(d.boxId))}</div>
     <div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))} · ${(d.lignes||[]).length} produit(s) · ${fmtShort(d.date)}</div>
-    </div>${badgeEtat(demandeEtat(d))}</div>`;
+    </div>${badgeEtat(demandeEtat(d))}${currentUser&&currentUser.role==='admin'?`<button type="button" class="dos-x" onclick="event.stopPropagation();demHistoSuppr('${d.id}')" title="Supprimer définitivement" aria-label="Supprimer cette demande">🗑</button>`:''}</div>`;
+}
+/* L'historique des demandes se vide aussi — même règle, même réserve au rôle. */
+function demHistoSuppr(id){
+  if(!adminSeul()) return;
+  const d=(db.demandes||[]).find(x=>x.id===id); if(!d) return;
+  if(!confirm('Supprimer définitivement la demande '+(d.num||'')+' ?\n\nLe bon de commande qu\'elle a déclenché, s\'il existe, reste en place.')) return;
+  db.demandes=(db.demandes||[]).filter(x=>x.id!==id);
+  logEvent('Demande supprimée',d.num||'','demande');
+  save(); toast('Demande supprimée'); views.demandes();
 }
 let demOnglet='cours', demMoisOuvert=null;
 views.demandes=function(){
@@ -20377,7 +20428,8 @@ function usrDeplier(id){ usrOuvert=(usrOuvert===id)?'':id; views.utilisateurs();
    création, mais technicien, chef d'équipe, DR… ce ne sont que des noms, pas des rôles ». */
 function usrDroitsHtml(u,admin){
   if(u.role==='admin') return '<div class="usr-d"><div class="usr-t">🛠️ Administrateur</div>'+
-    '<p class="usr-x">Tous les droits, sur tout, tout le temps. Il n\'y a rien à régler pour ce compte — et rien qu\'on puisse lui retirer sans changer son rôle.</p></div>';
+    '<p class="usr-x">Tous les droits, sur tout, tout le temps. Il n\'y a rien à régler pour ce compte — et rien qu\'on puisse lui retirer sans changer son rôle.</p>'+
+    '<p class="usr-x" style="margin-top:8px">🗑 <b>Lui seul peut effacer définitivement</b> une commande, une livraison ou une demande d\'un historique. Ce pouvoir n\'est pas une case à cocher : il tient au rôle. Pour le donner à quelqu\'un, il faut en faire un administrateur.</p></div>';
   const dis=admin?'':' disabled';
   const swH=(name,on,extra)=>'<label class="switch"><input type="checkbox" data-d="'+name+'"'+(on?' checked':'')+dis+(extra||'')+'><span class="track"></span><span class="knob"></span></label>';
   const ligne=(lbl,desc,sw)=>'<div class="perm-row"><div class="pn">'+lbl+(desc?'<div class="pn-d">'+desc+'</div>':'')+'</div>'+sw+'</div>';
