@@ -4485,7 +4485,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '574-beta';
+const APP_VERSION = '575-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5022,6 +5022,32 @@ const badge = (map,k) => { const o=map[k]||Object.values(map)[0]; return `<span 
    l'application ne démarrait plus du tout. Même piège que annuaireDeposer (voir CLAUDE.md). */
 const COLLECTIONS_DONNEES=['techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages','messages','groupes','conducteurs','produitsDonnes','brouillons','champsPerso','fournisseurs','taches','absences','chantiers','telecollectes','registres'];
 
+/* ── Un espace par entreprise : la photo se prend AVANT load(), et pas ailleurs ──
+   Sans rattachement, un appareil synchronisait jusqu'ici sur l'espace de repli (FB_TEAM),
+   chiffré avec la clé écrite en clair plus bas. Pour fermer ce repli sans couper ceux qui y
+   vivent déjà, il faut distinguer un appareil qui a une histoire d'un appareil neuf.
+   Ce test ne PEUT pas se faire plus bas : load() écrit elan_vierge_v1, elan_fours_v1 et les
+   autres dès le premier démarrage — après lui, tout appareil a l'air « déjà vu ». Il ne peut
+   pas non plus agir ici : FB_TEAM et la clé ne sont déclarés qu'après (zone morte temporelle,
+   même piège que COLLECTIONS_DONNEES ci-dessus). D'où la coupure en deux — on mesure ici, on
+   agit à côté de syncTeam().
+   Stockage illisible → « déjà vu » : on ne coupe jamais une synchro sur un doute.
+
+   ⚠️ LE VERDICT SE REND UNE SEULE FOIS, ET SE GÈLE. Mesuré en navigateur, pas deviné : le
+   tout premier chargement écrit six clés (elan_prod_v1, elan_gestion_v2, elan_vierge_v1,
+   elan_prod_v2, elan_fours_v1, elan_seen_version). Sans ce gel, un appareil neuf paraissait
+   neuf au premier chargement… et « déjà vu » au second, qui le rattachait à l'espace
+   partagé — le correctif n'aurait tenu qu'une seule ouverture de page. Le drapeau fige donc
+   ce que l'ANCIENNE version avait laissé, seul état qui distingue vraiment les deux cas. */
+const APPAREIL_DEJA_VU = (function(){ try{
+  const rendu = localStorage.getItem('elanB_repli_v1');
+  if(rendu !== null) return rendu === '1';   // déjà jugé : on ne rejuge pas sur nos propres traces
+  let vu = false;
+  for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k && k.indexOf('elan')===0){ vu = true; break; } }
+  localStorage.setItem('elanB_repli_v1', vu ? '1' : '0');
+  return vu;
+}catch(e){ return true; } })();
+
 /* ── Données ── */
 let db = load();
 let currentUser = null;
@@ -5133,7 +5159,25 @@ async function syncDecrypt(o){ try{ const key=await syncKey(o.salt); const pt=aw
 async function syncReadRemote(d){ if(!d) return null; if(d.enc) return await syncDecrypt(d); if(d.db) return d.db; /* rétrocompat (ancien format clair) */ return null; }
 function dbWeight(d){ if(!d) return 0; let n=0; ['interventions','clients','produits','boxes','factures','devis','telecollectes','users','messages','demandes','vehicules','techniciens'].forEach(k=>{ n+=(d[k]&&d[k].length)||0; }); return n; }
 function syncGetCfg(){ try{ const c=JSON.parse(localStorage.getItem('elanB_sync_cfg')||'null'); if(c&&c.projectId) return c; }catch(e){} return FB_CONFIG; }
-function syncTeam(){ return (localStorage.getItem('elanB_sync_team')||FB_TEAM).trim(); }
+/* ⛔ L'espace de repli n'accueille plus personne de nouveau — 8 septembre 2026.
+   AVANT : un appareil sans rattachement tombait sur FB_TEAM, chiffré avec la clé écrite en
+   clair vingt lignes plus haut. Deux conséquences, et la seconde est restée invisible
+   longtemps : il téléchargeait ce que cet espace contenait, et equipeTeamOP() le prenait pour
+   l'équipe TEAM OP — lui ouvrant l'assistant IA, le planning de démonstration et « Tout
+   effacer et repartir à zéro ».
+   APRÈS : ceux qui vivaient déjà sur ce repli y restent. On inscrit noir sur blanc ce qui
+   n'était qu'un défaut silencieux — même espace, même clé, rien ne bouge pour eux. Un
+   appareil neuf, lui, ne synchronise avec RIEN tant qu'il n'a pas suivi le lien de son
+   entreprise ; syncEnabled() tombe de lui-même puisqu'il teste syncTeam().
+   Ce n'est PAS un changement de clé : SYNC_SECRET_DEFAULT n'est pas touché d'un caractère,
+   on se contente de l'écrire là où il s'appliquait déjà sans le dire. */
+(function espaceHerite(){ try{
+  if(localStorage.getItem('elanB_sync_team')) return;   // déjà rattaché à son entreprise
+  if(!APPAREIL_DEJA_VU) return;                        // appareil neuf : il n'hérite de rien
+  localStorage.setItem('elanB_sync_team',FB_TEAM);
+  localStorage.setItem('elanB_sync_secret',SYNC_SECRET_DEFAULT);
+}catch(e){} })();
+function syncTeam(){ return (localStorage.getItem('elanB_sync_team')||'').trim(); }
 function syncEnabled(){ return localStorage.getItem('elanB_sync_on')!=='0' && !!syncGetCfg() && !!syncTeam(); }
 function loadFirebase(){ return new Promise((res,rej)=>{ if(window.firebase&&window.firebase.firestore&&window.firebase.auth) return res();
   const add=src=>new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=ko; document.head.appendChild(s); });
@@ -5274,7 +5318,9 @@ function syncSetSecret(){ const v=(($('sync-secret')||{}).value||'').trim();
    Un « espace » = un identifiant d'équipe + une clé de chiffrement uniques.
    Chaque entreprise a son espace : données séparées et illisibles par les autres.
    Le « Code espace » encode (identifiant + clé + nom) pour rejoindre l'espace en 1 saisie. */
-function teamopCurrentSpace(){ return localStorage.getItem('elanB_sync_team')||FB_TEAM; }
+/* Affichage seulement. Depuis que le repli est fermé, répondre FB_TEAM ici serait un
+   mensonge : un appareil non rattaché ne synchronise avec rien, il faut que ça se lise. */
+function teamopCurrentSpace(){ return localStorage.getItem('elanB_sync_team')||'aucun (appareil non rattaché)'; }
 function teamopGenSpace(name){
   const slug=(name||'espace').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20)||'espace';
   const rnd=Array.from(crypto.getRandomValues(new Uint8Array(4))).map(b=>b.toString(16).padStart(2,'0')).join('');

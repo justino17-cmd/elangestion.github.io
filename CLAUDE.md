@@ -117,6 +117,11 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   autres clés sont construites à la volée (`elan_rappels_`+id, `elan_onboarded_`+id…) — une
   liste fixe les raterait toutes.
 
+  `elan_repli_v1` (ajouté en v575) est du même bois : il gèle, au premier démarrage de cette
+  version, le verdict « cet appareil vivait-il déjà sur l'espace de repli ? ». Le perdre ou le
+  renommer, c'est faire rejuger la question sur un stockage que l'application a elle-même
+  rempli depuis — et donc rattacher à l'espace partagé des appareils qui n'y ont jamais été.
+
 ## Chrome DevTools MCP — mesurer pour de vrai, sur la bêta seulement
 
 `.mcp.json` déclare un seul serveur : `chrome-devtools` (lancé par `npx`, avec
