@@ -4651,7 +4651,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '587';
+const APP_VERSION = '588';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -6238,7 +6238,22 @@ function userBoxIds(userId){ return (db.boxes||[]).filter(b=>(b.userIds||[]).inc
    validations DR, son véhicule, son historique. Admin / DR / rôles « voir tout » gardent la vue entière.
    Menu (badges), tableau de bord, listes et notifications passent tous par ces mêmes fonctions. */
 function mesBoxIds(){ return new Set(visibleBoxes(db.boxes||[]).map(b=>b.id)); }
-function visibleBons(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(b=>(b.boxId&&ids.has(b.boxId))||(b.faitPar&&b.faitPar===me)); }
+/* Ce qu'un DR voit des bons. Trois portes, et la troisième est celle que Justin a nommée :
+   « le DR ne voit que ce qui est prévu pour les box qu'il valide ».
+   · les box qu'il voit (responsable, cochées pour lui, visibles par tous, sa fiche technicien) ;
+   · les bons qu'il a faits lui-même ;
+   · ceux nés d'une DEMANDE de quelqu'un de son périmètre — même si la box, elle, ne lui est
+     pas rattachée. Sans cette troisième porte, il validait une demande puis perdait de vue la
+     commande qu'elle avait déclenchée. Le lien passe par le demandeur et non par `faitPar` :
+     pendant des congés, c'est le remplaçant qui valide et signe le bon, et le titulaire ne
+     l'aurait jamais revu à son retour. */
+function visibleBons(list){ if(can('voirTout')) return list||[]; if(!currentUser) return [];
+  const ids=mesBoxIds(), me=fullName(currentUser);
+  const perim=can('validerDR')?drPerimetre(currentUser):null;
+  const dansMonPerimetre=b=>{ if(!perim||!perim.size||!b.demandeId) return false;
+    const d=(db.demandes||[]).find(x=>x.id===b.demandeId);
+    return !!(d&&(d.chefId===currentUser.id||perim.has(d.chefId))); };
+  return (list||[]).filter(b=>(b.boxId&&ids.has(b.boxId))||(b.faitPar&&b.faitPar===me)||dansMonPerimetre(b)); }
 /* demandes et mouvements en attente : celui qui a le droit de VALIDER (DR, admin, droit accordé) voit tout ce qu'il y a à valider, même sans « Tout voir » */
 function visibleDemandes(list){ if(!currentUser) return [];
   if(currentUser.role==='admin') return list||[];

@@ -146,6 +146,8 @@ cours ». Rien n'est activé d'office.
 
 | **v587** | **Le sens d'une ligne ne se déduit plus du nombre.** Il se lisait sur le signe de `du` ; à zéro il n'y a pas de signe, donc `0 <= 0` renvoyait toujours « Je retire » : toucher « J'ajoute » écrivait `+1 × 0 = 0` et le redessin rallumait « Je retire ». Bloqué — et précisément sur un produit à 0 en stock, où « je retire » est le seul sens impossible. Le sens est désormais porté par la ligne (`l.sens`), survit au zéro et se change à vide ; les lignes d'avant retombent sur leur signe. Une ligne restée à zéro ne part plus au DR : c'est une intention abandonnée, pas une demande. |
 
+| **v588** | **Un DR voit les bons de ce qu'il valide, plus seulement des box qu'il voit.** Question de Justin : « le DR ne voit que ce qui est prévu pour les box qu'il valide ? » Mesuré : non — la règle était « les box qu'il VOIT », plus les bons signés de sa main. Un bon né d'une demande de quelqu'un de son périmètre, sur une box qui ne lui est pas rattachée, lui échappait. Troisième porte ajoutée à `visibleBons` : le lien passe par le DEMANDEUR (`b.demandeId` → `d.chefId` ∈ `drPerimetre`) et non par `faitPar` — pendant des congés c'est le remplaçant qui signe, et le titulaire n'aurait jamais revu la commande à son retour. |
+
 **La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
 navigateur, compte par compte) :
 
