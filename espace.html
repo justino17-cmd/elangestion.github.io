@@ -297,6 +297,17 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
   let _signupBusy=false;
   auth.onAuthStateChanged(user=>{
     if(_unsubMsgs){_unsubMsgs();_unsubMsgs=null;} if(_unsubReqs){_unsubReqs();_unsubReqs=null;} if(_unsubNews){_unsubNews();_unsubNews=null;}
+    /* ⛔ UNE SESSION ANONYME N'EST PAS UN CLIENT — ne pas retirer ce filtre.
+       OP GESTION (app.html) ouvre une session Firebase ANONYME sur CE MÊME projet et ce même
+       domaine : c'est syncAuth() qui le fait, parce que les règles Firestore exigent un
+       utilisateur connecté pour synchroniser. Cette session sert aux données de l'entreprise,
+       jamais à l'espace client. Sans ce filtre, ouvrir l'application puis revenir ici ouvrait
+       « Mon espace » sur ce compte sans e-mail : en-tête affichant « null », « Bonjour » sans
+       nom, et l'impression d'être connecté au compte de quelqu'un d'autre — y compris au beau
+       milieu d'une création de compte, avant même de l'avoir terminée.
+       Un client de l'espace a toujours une adresse e-mail. Tout le reste retourne à l'écran
+       de connexion. */
+    if(user && (user.isAnonymous || !user.email)) user=null;
     if(user && RETOUR_PAIEMENT && !_signupBusy){ location.href=RETOUR_PAIEMENT; return; }
     if(!user){ $('u-email').classList.add('hide'); $('btn-logout').classList.add('hide'); renderAuth(); return; }
     $('u-email').textContent=(isAdmin(user)?'👑 ':'')+user.email; $('u-email').classList.remove('hide'); $('btn-logout').classList.remove('hide');
