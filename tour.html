@@ -1757,6 +1757,18 @@ function ligneP(ic,coul,fond,titre,sous,tag,past,action){
     '<span style="color:var(--dim);display:flex">'+svg('chev',15)+'</span></div>';
 }
 function allerIncident(id){ INC.sel=id; INC.f.statut=''; setTab('surveillance'); }
+/* Depuis un incident, aller à l'entreprise concernée. Le rapprochement se fait sur le nom :
+   c'est le seul point commun entre un incident (qui porte le nom de l'entreprise) et la liste
+   des clients (indexée par e-mail). Si elle n'est pas dans la liste, on bascule quand même
+   sur l'onglet et on le dit — mieux vaut un onglet ouvert qu'un clic sans effet. */
+function allerFicheEntreprise(nom){
+  var n=String(nom||'').toLowerCase().trim();
+  var c=(CLI.list||[]).find(function(x){ return String(x.entreprise||x.nom||'').toLowerCase().trim()===n; });
+  setTab('entreprises');
+  if(!c){ toast('« '+nom+' » n\'est pas dans la liste des entreprises'); return; }
+  CLI.sel=c.email; chargerDossier(c.entreprise||c.nom||c.email);
+  setTimeout(function(){ renderNav('detail'); window.scrollTo(0,0); },60);
+}
 function allerMessage(b,d,u){ setTab('support'); lireMessage(b,d,u); }
 function allerImpayes(){ ABO.f='past_due'; setTab('abonnements'); }
 
@@ -1950,7 +1962,11 @@ function vueEntreprise(nom){
   var opt=function(v,cur,txt){ return '<option value="'+esc(v)+'"'+(cur===v?' selected':'')+'>'+esc(txt)+'</option>'; };
   var filtreSt='<div class="filtres" style="margin:18px 0 0">'+
     '<select class="sel-f" onchange="incF(\'statut\',this.value)">'+opt('actifs',INC.f.statut,'Nouveaux + en cours')+opt('',INC.f.statut,'Tout, corrigés inclus')+opt('nouveau',INC.f.statut,'Nouveaux')+opt('encours',INC.f.statut,'En cours')+opt('corrige',INC.f.statut,'Corrigés')+opt('ignore',INC.f.statut,'Ignorés')+opt('veille',INC.f.statut,'Écartés — mises en veille')+opt('interne',INC.f.statut,'Écartés — équipe TeamOP')+opt('transitoire',INC.f.statut,'Écartés — passagers')+'</select></div>';
-  return '<button class="btn-fant" onclick="entRetour()">← Toutes les entreprises</button>'+
+  /* Le passage vers la fiche complète de l'entreprise : ici on voit ses incidents, là-bas
+     tout le reste — qui s'y connecte, qui n'y arrive pas, sa formule, ce qu'elle utilise.
+     Sans ce lien il fallait retenir le nom, changer d'onglet et la retrouver à la main. */
+  return '<button class="btn-fant" onclick="entRetour()">← Toutes les entreprises</button> '+
+    '<button class="btn-fant" onclick="allerFicheEntreprise(\''+jsq(nom)+'\')">📇 Voir sa fiche complète</button>'+
     '<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:18px">'+
       '<div class="ttl-page">'+esc(nom)+'</div>'+
       (mail?'<span class="chip">'+esc(mail)+'</span>':'')+'</div>'+
