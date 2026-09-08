@@ -4485,7 +4485,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '575';
+const APP_VERSION = '576';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5235,7 +5235,7 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
         try{ localStorage.removeItem('elan_frais'); }catch(e){}
         if(currentUser&&!compteVerifier()){ _syncApplying=false; return; }   // supprimé / désactivé par l'entreprise → déconnecté
         try{ refreshBadges&&refreshBadges(); updateBell&&updateBell();
-          if(currentUser&&views[current]){ if(planEnGlissement()&&current==='planning'){ window._planPending=true; } else views[current](); } }catch(e){}
+          if(currentUser){ if(planEnGlissement()&&current==='planning'){ window._planPending=true; } else refreshEcran(); } }catch(e){}
         _syncApplying=false; if(currentUser){ try{ toast(diffMsg||'Données de l\'équipe mises à jour'); }catch(e){} }
         /* Les comptes viennent peut-être de changer sur un AUTRE appareil : la synchro écrit
            le stockage directement, sans passer par save(). Sans ce rappel, un compte retiré
@@ -5313,7 +5313,7 @@ function pushPropose(){ try{ if(!pushSupported()||!currentUser) return; if(Notif
 window.addEventListener('storage',e=>{ if(e.key!==STORE_KEY||!e.newValue||_syncApplying) return;
   try{ const nd=JSON.parse(e.newValue); _syncApplying=true; db=nd;
     if(currentUser&&!compteVerifier()){ _syncApplying=false; return; }
-    try{ refreshBadges(); updateBell(); const ov=document.querySelector('#overlay.open'); if(currentUser&&views[current]&&!ov) views[current](); }catch(_){}
+    try{ refreshBadges(); updateBell(); const ov=document.querySelector('#overlay.open'); if(currentUser&&!ov) refreshEcran(); }catch(_){}
     _syncApplying=false; }catch(_){ _syncApplying=false; } });
 function syncReactivate(){ localStorage.removeItem('elan_sync_on'); toast('Réactivation de la synchro…'); syncInit().then(()=>{ if(current==='parametres') views.parametres(); }); }
 function syncSetSecret(){ const v=(($('sync-secret')||{}).value||'').trim();
@@ -6245,8 +6245,28 @@ function placerGlisse(anime){
     if(!anime||sobre){ void g.offsetWidth; g.style.transition=''; }
   }catch(e){}
 }
+/* ══ CE QUE L'ÉCRAN AFFICHE VRAIMENT ═══════════════════════════════════════════════════
+   Une vue de DÉTAIL — une box ouverte, une fiche client, une intervention — n'est pas
+   views[current] : views.boxes() rend la LISTE des box, pas la box ouverte. Or les
+   rafraîchissements automatiques (la synchro de l'équipe, qui arrive quand elle veut, et
+   le relais entre onglets) appelaient views[current](). Résultat : en plein travail dans
+   une box, un simple mouvement de stock renvoyait l'utilisateur à la liste des box.
+   Signalé par Justin depuis chez ELAN, le 8 septembre 2026 : « à chaque mouvement ça nous
+   quitte la page où on est ».
+   Chaque vue de détail dépose donc ici de quoi SE redessiner. go() l'efface : changer de
+   rubrique est une décision de l'utilisateur, un rafraîchissement ne l'est pas. */
+let _ecranRendu=null;
+function ecranDetail(fn){ _ecranRendu=fn; }
+function refreshEcran(){
+  if(!currentUser) return;
+  /* Un détail qui plante ne doit pas figer l'écran sur une page morte : on oublie le
+     détail et on retombe sur sa liste, qui est toujours affichable. */
+  if(_ecranRendu){ try{ _ecranRendu(); return; }catch(e){ _ecranRendu=null; } }
+  try{ if(views[current]) views[current](); }catch(e){}
+}
 function go(view){
   if(!views[view]) view='dashboard';
+  _ecranRendu=null;   // on quitte le détail pour une rubrique : plus rien à redessiner
   try{ usageNote(view); }catch(e){}
   // garde d'accès : une vue qu'on n'a pas le droit de voir (menu, rôle, forfait)
   // n'est pas atteignable non plus en tapant l'adresse à la main
@@ -6910,6 +6930,12 @@ function tdbPlanning(){
 views.dashboard=function(){
   // une carte n'apparaît (ni ne se propose) que si la personne a accès à la rubrique qu'elle ouvre
   const carteOk=k=>!!DASH_CARDS[k]&&userSeesModule(currentUser,DASH_CARDS[k].view);
+  /* La règle valait pour les CARTES du haut, jamais pour les blocs du bas : le planning,
+     les demandes et les bons s'affichaient à qui n'a pas la rubrique dans sa barre — et
+     cliquer dessus menait à un écran interdit. Signalé par Justin le 8 septembre 2026 :
+     « s'ils n'ont pas les catégories autorisées dans la barre, ils ne le voient pas dans le
+     tableau de bord ». Une seule règle pour tout l'écran, désormais. */
+  const voitVue=v=>userSeesModule(currentUser,v);
   const layout=dashLayout().filter(carteOk);
   const aCommander=dashACommander();
   const demAtt=visibleDemandes(db.demandes).filter(d=>d.statut==='enAttente');
@@ -6924,20 +6950,20 @@ views.dashboard=function(){
   $('content').innerHTML=`
     ${dashEdit?`<div class="card" style="border-color:color-mix(in srgb,var(--acc) 40%,transparent);background:color-mix(in srgb,var(--acc) 6%,transparent)"><div style="font-size:13px;color:var(--t2)">Mode personnalisation : <b>glisse une carte</b> pour la déplacer (souris : cliquer-glisser · téléphone : rester appuyé puis glisser), <b>✕</b> pour retirer. <button class="btn ghost sm" onclick="dashReset()">↻ Réinitialiser</button></div></div>`:''}
     <div class="kpis">${layout.map(card).join('')}</div>
-    ${dashEdit?'':tdbPlanning()}
+    ${(dashEdit||!voitVue('planning'))?'':tdbPlanning()}
     ${dashEdit?`<div class="card" style="margin-top:12px"><div class="card-head"><h3>＋ Ajouter une carte</h3></div><div style="display:flex;flex-wrap:wrap;gap:8px">${hidden.length?hidden.map(k=>`<button class="btn ghost sm" onclick="dashAdd('${k}')">${DASH_CARDS[k].ic} ${DASH_CARDS[k].label}</button>`).join(''):'<div style="color:var(--t3);font-size:13px">Toutes les cartes sont affichées.</div>'}</div></div>`:`
     ${(()=>{ const secs=[];
-      if(aCommander.length) secs.push(`<div class="card">
+      if(aCommander.length&&voitVue('boxes')) secs.push(`<div class="card">
         <div class="card-head"><h3>Produits à commander</h3><button class="btn ghost sm" onclick="go('boxes')">Boxes</button></div>
         ${aCommander.slice(0,8).map(({box,p,u})=>{ const e=boxEtat(u);
           return `<div class="pl-row" onclick="openBox('${box.id}')"><div class="pl-info"><div class="pl-title">${esc(p.nom)}</div><div class="pl-meta">${esc(box.nom||box.numero||'Box')}</div></div><span class="st ${e.k==='epuise'?'st-red':'st-org'}">${e.l} · ${u} u</span></div>`;}).join('')}
         ${aCommander.length>8?`<div style="text-align:center;color:var(--t3);font-size:12px;padding:8px">+ ${aCommander.length-8} autre(s)</div>`:''}
       </div>`);
-      if(demAtt.length) secs.push(`<div class="card">
+      if(demAtt.length&&voitVue(toutVoir?'validations':'demandes')) secs.push(`<div class="card">
         <div class="card-head"><h3>${toutVoir?'Demandes en attente':'Mes demandes en attente'}</h3><button class="btn ghost sm" onclick="go('${toutVoir?'validations':'demandes'}')">${toutVoir?'Valider':'Voir'}</button></div>
         ${demAtt.slice(0,8).map(d=>`<div class="pl-row" onclick="go('${toutVoir?'validations':'demandes'}')"><div class="pl-info"><div class="pl-title">${esc(d.boxNom||'Demande')} · ${(d.lignes||[]).length} produit(s)</div><div class="pl-meta">${esc(d.num)} · ${esc(d.chefNom||userName(d.chefId))}</div></div><span class="st st-org">En attente</span></div>`).join('')}
       </div>`);
-      if(bonsAEnvoyer.length) secs.push(`<div class="card">
+      if(bonsAEnvoyer.length&&voitVue('bons')) secs.push(`<div class="card">
         <div class="card-head"><h3>Bons de commande à envoyer</h3><button class="btn ghost sm" onclick="go('bons')">Bons</button></div>
         ${bonsAEnvoyer.slice(0,8).map(b=>`<div class="pl-row" onclick="go('bons')"><div class="pl-info"><div class="pl-title">${esc(bonNum(b))}</div><div class="pl-meta">${esc(fournName(b.fournisseurId)||'Sans fournisseur')} · ${(b.lignes||[]).length} article(s) · ${bonQteTotTxt(b)}</div></div><span class="st st-org">Brouillon</span></div>`).join('')}
       </div>`);
@@ -11015,6 +11041,7 @@ function saveChantier(e,id){ e.preventDefault(); const d=Object.fromEntries(new 
   else db.chantiers.push({id:uid(),...d});
   logEvent(id?'Chantier modifié':'Nouveau chantier',d.nom,'crud'); save(); closeModal(); views.chantiers(); }
 function detailChantier(id){ const ch=db.chantiers.find(x=>x.id===id); if(!ch) return;
+  ecranDetail(()=>detailChantier(id));   // une synchro ne doit pas refermer le chantier ouvert
   const ints=db.interventions.filter(i=>i.chantierId===id).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const done=ints.filter(i=>i.statut==='terminee').length;
   openModal(`<div class="modal-head"><h3>🏗️ ${esc(ch.nom)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
@@ -13220,7 +13247,7 @@ let intTab='general', intBackView='interventions', infTab='plan', fsTab='medias'
    point d'ouverture, et jamais dans renderIntDetail() — celle-ci est aussi rappelée pour
    rafraîchir la fiche déjà ouverte (édition, changement d'onglet, fin de synchro), et ces
    rendus-là ne doivent pas rejouer une entrée. */
-function detailIntervention(id){ intTab='general'; fsTab='medias'; intEdit=false; const _i=db.interventions.find(x=>x.id===id); infTab=(_i&&(_i.statut==='terminee'||_i.debutReel))?'eff':'plan'; try{ closeModal(); }catch(e){} if(current&&current!=='intDetail') intBackView=current; rendreDirige('avant',()=>renderIntDetail(id)); }
+function detailIntervention(id){ intTab='general'; fsTab='medias'; intEdit=false; const _i=db.interventions.find(x=>x.id===id); infTab=(_i&&(_i.statut==='terminee'||_i.debutReel))?'eff':'plan'; try{ closeModal(); }catch(e){} if(current&&current!=='intDetail') intBackView=current; ecranDetail(()=>renderIntDetail(id)); rendreDirige('avant',()=>renderIntDetail(id)); }
 function fic(n,sz=18){ const P={
   file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
   map:'<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
@@ -14084,6 +14111,7 @@ views.clients=function(){
   $('content').innerHTML=tagBar+(_clis.length? rows:`<div class="card">${emptyState('🏢','Aucun client.','Ajouter','formClient()')}</div>`);
 }
 function ficheClient(id){ const c=db.clients.find(x=>x.id===id); if(!c) return;
+  ecranDetail(()=>ficheClient(id));   // une synchro ne doit pas refermer la fiche ouverte
   const ints=db.interventions.filter(i=>i.clientId===id).sort((a,b)=>(b.date+b.heure).localeCompare(a.date+a.heure));
   const devis=db.devis.filter(d=>d.clientId===id), facts=db.factures.filter(f=>f.clientId===id);
   const cli=db.clients.find(x=>x.id===id)||{}; const ctrs=db.contrats.filter(x=>x.clientId===id && x.statut==='actif'), envs=db.enveloppes.filter(e=>(e.clientNom||'')&&cli.nom&&norm(e.clientNom).includes(norm(cli.nom.split(' ')[0])));
@@ -15575,7 +15603,7 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
 let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
 /* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
-function openBox(id){ boxView=id; boxProdSearch=''; rendreDirige('avant',renderBoxDetail); }
+function openBox(id){ boxView=id; boxProdSearch=''; ecranDetail(renderBoxDetail); rendreDirige('avant',renderBoxDetail); }
 function renderBoxDetail(){
   const b=db.boxes.find(x=>x.id===boxView); if(!b){ go('boxes'); return; }
   b.stock=b.stock||{};
