@@ -1520,12 +1520,35 @@ app.post('/api/monitor/entreprise/dossier', monAdmin, (req, res) => {
     if (x && x.finLe) { const actif = x.finLe >= aujourdhui; if (actif || !promo) promo = { code, depuis: x.date || '', finLe: x.finLe, actif }; if (actif) break; }
   }
 
+  /* ── QUI TRAVAILLE CHEZ EUX ──
+     Deux sources, et aucune ne suffit seule. L'annuaire (comptesReg) liste les identifiants
+     qui PEUVENT se connecter — mais rien d'autre : ni nom, ni rôle. C'est voulu, un annuaire
+     de connexion n'est pas un fichier du personnel. Les connexions (cnxData), elles, disent
+     qui s'est connecté RÉELLEMENT, avec quel rôle, quelle version et depuis combien
+     d'appareils. On croise les deux : on obtient la liste des comptes, et pour chacun s'il
+     s'en sert ou pas. Un identifiant qui n'a jamais servi est une information — c'est souvent
+     un compte oublié, ou quelqu'un qui n'arrive pas à entrer. */
+  const annu = (comptesReg[t] && comptesReg[t].c) || {};
+  const parLogin = {};
+  for (const l of Object.keys(annu)) parLogin[l] = { login: l, dansAnnuaire: true, derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 };
+  const devs = {};
+  for (const x of (cnxData[t] || [])) {
+    const l = String(x.login || '').toLowerCase().trim(); if (!l) continue;
+    const o = parLogin[l] || (parLogin[l] = { login: l, dansAnnuaire: false, derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 });
+    if (x.ev === 'echec') { o.echecs++; continue; }
+    o.connexions++;
+    if ((x.ts || 0) > o.derniere) { o.derniere = x.ts || 0; o.role = x.role || o.role; o.version = x.version || o.version; }
+    if (x.dev) { (devs[l] = devs[l] || new Set()).add(x.dev); }
+  }
+  for (const l of Object.keys(parLogin)) parLogin[l].appareils = devs[l] ? devs[l].size : 0;
+  const utilisateurs = Object.values(parLogin).sort((a, b) => (b.derniere || 0) - (a.derniere || 0)).slice(0, 60);
+
   res.json({
     ok: true, t, slug,
     espace: { nom: e.nom || slug, formule: e.formule || '', opMessages: !!e.opMessages, suspendu: entFermes.espaces.includes(t) },
     usage: { total: u.total || 0, dernier: u.dernier || 0, version: u.version || '', vues },
     connexions: { resume: cnxResume(t), evenements: evts, echecs },
-    erreurs, promo
+    utilisateurs, erreurs, promo
   });
 });
 
