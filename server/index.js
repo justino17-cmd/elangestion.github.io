@@ -388,6 +388,48 @@ app.post('/api/bug', (req, res) => {
   }
   res.json({ ok: true });
 });
+/* ── 📬 Une inscription sur le site prévient l'équipe ──
+   espace.html crée le compte directement chez Firebase et écrit la fiche dans Firestore :
+   le serveur ne voyait donc RIEN passer, et personne n'était prévenu qu'un client venait
+   de s'inscrire. Cette route ne fait qu'une chose, envoyer l'alerte — elle n'écrit aucun
+   fichier et ne rend aucune donnée.
+   Le destinataire est TOUJOURS l'adresse de l'équipe fixée en configuration, jamais une
+   adresse fournie par l'appelant : une route ouverte qui écrirait à qui on lui dit serait
+   un relais à spam offert à Internet. Le quota par IP borne le reste — au pire du bruit
+   dans la boîte de l'équipe, et seulement dix fois par heure. */
+const compteQuota = new Map();
+app.post('/api/nouveau-compte', (req, res) => {
+  const b = req.body || {};
+  const email = monStr(b.email, 160).trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'adresse invalide' });
+  if (compteQuota.size > 5000) compteQuota.clear();
+  if (!quotaOk(compteQuota, 'ip:' + (req.ip || '?'), 10, 3600000)) return res.json({ ok: true, muted: true });
+  const prenom = monStr(b.prenom, 60).trim(), nom = monStr(b.nom, 60).trim();
+  const societe = monStr(b.company, 120).trim();
+  const qui = ((prenom + ' ' + nom).trim() || '(nom non renseigné)');
+  /* Rien de tout cela ne part dans les journaux : ce sont des données personnelles,
+     elles ne vont que dans l'e-mail adressé à l'équipe. */
+  if (mailer) {
+    const to = config.alertEmail || config.contactEmail || 'contact@teamop.fr';
+    mailerEnvoi({
+      from: config.smtp.from || config.smtp.user, to,
+      subject: '🎉 Nouveau compte sur teamop.fr — ' + (societe || qui),
+      text: 'Un compte vient d\'être créé sur l\'espace client.\n\nEntreprise : ' + (societe || '—')
+        + '\nPersonne : ' + qui + '\nAdresse : ' + email
+        + '\n\nLa fiche est dans la Tour de contrôle, onglet Entreprises.',
+      html: mailTeamOP({ chip: 'Inscription', chipBg: '#E8F5EE', chipColor: '#0A7A52',
+        titre: '🎉 Nouveau compte — ' + (societe || qui),
+        corpsHtml: 'Un compte vient d\'être créé sur l\'espace client de teamop.fr.',
+        blocHtml: '<div style="font-size:14px;line-height:1.9">'
+          + '<b>Entreprise :</b> ' + (societe || '—') + '<br>'
+          + '<b>Personne :</b> ' + qui + '<br>'
+          + '<b>Adresse :</b> ' + email + '</div>',
+        boutonTxt: 'Ouvrir la Tour de contrôle', boutonUrl: 'https://teamop.fr/tour.html' })
+    }).catch(e => console.error('mail nouveau compte:', e.message));
+  }
+  res.json({ ok: true });
+});
+
 // ── 📥 Boîte Commandes intégrée : les réponses des fournisseurs arrivent DANS l'application ──
 //    Les bons partent avec Reply-To = la boîte commandes ; le serveur la relève toutes les 2 min,
 //    rattache chaque réponse au bon (n° BC-… dans l'objet/le texte) et pousse une notification à l'équipe.
@@ -1560,7 +1602,7 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '572',
+  version: '571',
   sujet: '🔗 Votre entreprise a maintenant son adresse',
   intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
   points: [
