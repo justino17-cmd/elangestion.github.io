@@ -4673,7 +4673,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '595-beta';
+const APP_VERSION = '596-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5413,6 +5413,31 @@ async function syncAuth(){ try{
    sont pas le même canal), et on ne réagit qu'à une version STRICTEMENT plus haute — sinon un
    appareil en retard sur le réseau ferait redescendre les autres. Le rechargement lui-même
    reste soumis aux mêmes conditions qu'en v591 : jamais pendant une saisie. */
+/* ⛔ ANNONCER SA VERSION SANS ATTENDRE D'ÉCRIRE DES DONNÉES.
+   La v593 faisait voyager le numéro de version avec la synchro — mais `syncPush` ne part que
+   depuis `save()`, donc depuis une VRAIE modification. Un appareil qui se met à jour et ne
+   touche à rien n'annonçait donc rien : l'équipe restait en arrière jusqu'à ce que quelqu'un
+   bouge une quantité. Ce n'est pas ce que j'avais dit à Justin, et ce n'était pas ce qu'il
+   demandait.
+   `set({ver}, {merge:true})` écrit LE SEUL champ `ver` : ni le bloc chiffré, ni `ts`. Les
+   autres appareils lisent le numéro, puis leur garde habituelle (`d.ts <= _syncTs`) les
+   empêche de réappliquer des données qui n'ont pas changé.
+   On n'annonce QUE si l'on est devant : sinon un appareil en retard ferait redescendre le
+   numéro de toute l'équipe. Et jamais entre canaux — la bêta ne parle pas à la production. */
+let _majAnnonce=false;
+function majAnnoncer(d){
+  try{
+    if(!_fbDoc||_majAnnonce) return;
+    const moi=String(typeof APP_VERSION!=='undefined'?APP_VERSION:''); if(!moi) return;
+    const lui=String((d&&d.ver)||'');
+    const beta=x=>x.indexOf('beta')>=0;
+    if(lui&&beta(lui)!==beta(moi)) return;
+    const n=x=>parseInt(x,10)||0;
+    if(lui&&n(moi)<=n(lui)) return;
+    _majAnnonce=true;
+    _fbDoc.set({ver:moi},{merge:true}).catch(()=>{});
+  }catch(e){}
+}
 function majVersionVue(v){
   try{
     const moi=String(typeof APP_VERSION!=='undefined'?APP_VERSION:''), lui=String(v||'');
@@ -5438,6 +5463,9 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
       /* AVANT tous les retours anticipés : même un instantané qu'on ignore (écrit par nous,
          plus ancien que le nôtre) porte le numéro de version de celui qui l'a écrit. */
       try{ majVersionVue(d&&d.ver); }catch(e){}
+      /* Et l'inverse : si c'est NOUS qui sommes devant, on le dit sans attendre qu'une donnée
+         change — sinon un appareil à jour qui ne touche à rien n'entraîne personne. */
+      try{ majAnnoncer(d); }catch(e){}
       const plain=await syncReadRemote(d);
       // appareil qui vient de rejoindre l'espace (lien / code entreprise) : les données de l'équipe font foi, jamais la base de départ locale
       const frais=!!localStorage.getItem('elanB_frais'); let premier=false;
