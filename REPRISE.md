@@ -144,6 +144,9 @@ l'autre — à refaire si on reprend la Tour.
   les deux fragments les plus hauts perdaient la cascade sans que rien ne le signale.
 
 ### La suppression totale d'une entreprise — **FAITE ET PUBLIÉE le 8 septembre 2026**
+**Testée par Justin sur ses vraies données le 8 septembre au soir : elle marche.** C'est la
+seule vérification qui compte — tout le reste tournait sur un banc d'essai fabriqué d'après
+une capture d'écran, pas sur les entreprises réelles.
 Deux routes patron (`apercu-suppression` puis `supprimer` avec code à 6 chiffres par e-mail),
 plus le parcours complet dans la Tour. Le bouton supprime vraiment, vérifié de bout en bout
 avec une entreprise voisine comme témoin.
