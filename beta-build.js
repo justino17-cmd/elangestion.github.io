@@ -23,7 +23,13 @@ s = s.split(ENT_AVANT).join("${true?'':`<div class=\"field\"><label>Entreprise")
 const LIEN_AVANT = '<div style="text-align:center;margin-top:14px"><a onclick="teamopJoinPrompt()"';
 if (s.indexOf(LIEN_AVANT) < 0) { console.error('ÉCHEC : le lien « Rejoindre un espace » est introuvable'); process.exit(1); }
 s = s.split(LIEN_AVANT).join('<div style="display:none"><a onclick="teamopJoinPrompt()"');
-if (s.indexOf("const BETA_ESSAI=true;") < 0) { console.error('ÉCHEC : la porte serveur de la bêta (BETA_ESSAI) n\'est pas armée'); process.exit(1); }
+/* On vérifie l'ABSENCE de la déclaration d'origine, pas la présence de la nouvelle. Chercher
+   « const BETA_ESSAI=true; » n'importe où dans le fichier devenait creux : il suffisait qu'un
+   commentaire de app.html cite cette ligne en exemple pour que l'assertion passe alors que le
+   remplacement n'avait rien remplacé — la bêta serait partie identique à la production, sans
+   porte serveur et sans outils, sans un mot d'avertissement. */
+if (s.indexOf("const BETA_ESSAI=false;") >= 0) { console.error('ÉCHEC : la porte serveur de la bêta (BETA_ESSAI) n\'est pas armée — la déclaration d\'origine est toujours là'); process.exit(1); }
+if (s.indexOf("const BETA_ESSAI=true;") < 0) { console.error('ÉCHEC : la porte serveur de la bêta (BETA_ESSAI) est absente'); process.exit(1); }
 // La refonte (nouveau dessin ne du logo : sapin, menthe, diagonale) est ARMEE PAR LA BETA seule.
 // app.html sert la v561 a tous les clients ; ici on pose data-refonte sur <html> et le bloc
 // <style id="refonte-css"> prend la main. Un seul attribut separe les deux mondes.

@@ -5004,11 +5004,17 @@ try{
 }catch(e){}
 const badge = (map,k) => { const o=map[k]||Object.values(map)[0]; return `<span class="st ${o.c}">${o.l}</span>`; };
 
-/* Les 27 collections de données d'une entreprise. Écrite une seule fois : le démarrage vierge
-   et les outils de bêta doivent vider EXACTEMENT le même ensemble — deux listes recopiées
-   auraient divergé au premier ajout de collection. Le drapeau elan_vierge_v1 qui commande le
-   premier vidage ne change pas de nom : sans lui, load() vide une base pleine et la synchro
-   propage le vide sur tous les appareils de l'entreprise.
+/* Les 27 collections de données d'une entreprise, partagées par le démarrage vierge et par le
+   vidage de bêta — deux appelants qui doivent porter sur le même ensemble.
+
+   ⚠️ Ce n'est PAS la seule liste de collections du fichier : migrate() porte la sienne, plus
+   longue, quelques dizaines de lignes plus bas, et la synchro en a une troisième. Prétendre
+   ici qu'il n'y en a qu'une serait faux et endormirait le prochain lecteur. Qui ajoute une
+   collection doit regarder les trois. betaVider() complète d'ailleurs celle-ci par une liste
+   d'archives et de files d'attente que load() n'a pas besoin de vider.
+
+   Le drapeau elan_vierge_v1 qui commande le premier vidage ne change pas de nom : sans lui,
+   load() vide une base pleine et la synchro propage le vide sur tous les appareils.
 
    ⚠️ Déclarée AVANT « let db = load() », et pas à côté de load(). load() est une fonction
    hoistée : elle s'exécute pendant cette ligne-là, donc avant tout const écrit plus bas.
@@ -5034,11 +5040,7 @@ function load(){
      change. Le bouton « ↻ Catalogue OP » reste le chemin volontaire. */
   if(!localStorage.getItem('elan_prod_v2')){
     d.produits = d.produits || [];
-    const have = new Set(d.produits.map(p=>(p.nom||'').trim().toLowerCase()));
-    if(PACK_METIER_AUTO) CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||have.has(nom.toLowerCase()))return;
-      d.produits.push({id:uid(),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0});
-      have.add(nom.toLowerCase());
-    });
+    if(PACK_METIER_AUTO) cataloguePoser(d);
     localStorage.setItem('elan_prod_v1','1'); localStorage.setItem('elan_prod_v2','1');
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){}
   }
@@ -14647,6 +14649,23 @@ function rapportVia(id,canal){ const i=db.interventions.find(x=>x.id===id); if(!
 let prdCat='all';
 let prdSearch='';
 let prdExpanded={};
+/* Pose le catalogue métier et ses fiches fournisseurs dans une base, sans jamais écraser ni
+   dupliquer ce qui s'y trouve déjà. Nommée une fois parce que le même bloc existait en trois
+   exemplaires — load(), restoreCatalogue() et les outils de bêta : ajouter un champ au produit
+   (le n° AMM et la matière active que réclame le registre sanitaire) en aurait mis deux à jour
+   sur trois. Ne décide RIEN : c'est à l'appelant de dire s'il a le droit d'appeler. */
+function cataloguePoser(cible){
+  cible.produits=cible.produits||[]; cible.fournisseurs=cible.fournisseurs||[];
+  const vus=new Set(cible.produits.map(p=>(p.nom||'').trim().toLowerCase()));
+  let np=0;
+  CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||vus.has(nom.toLowerCase()))return;
+    cible.produits.push({id:uid(),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0});
+    vus.add(nom.toLowerCase()); np++; });
+  const vusF=new Set(cible.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
+  let nf=0;
+  FOURNISSEURS_ELAN.forEach(f=>{ if(vusF.has(f.nom.toUpperCase()))return; cible.fournisseurs.push({id:uid(),...f}); vusF.add(f.nom.toUpperCase()); nf++; });
+  return { produits:np, fournisseurs:nf };
+}
 /* Le bouton « ↻ Catalogue OP » ne se montre QUE là où le catalogue est déjà en place.
    Décision de Justin, 8 septembre 2026 : « chaque métier aura des fournisseurs différents, des
    produits différents ; quand un nouvel utilisateur arrive, c'est à lui de tout rentrer. »
@@ -14672,19 +14691,9 @@ function restoreCatalogue(){
   /* Deuxième verrou, et il n'est pas décoratif : la fonction est globale, donc appelable
      depuis la console d'un navigateur même quand le bouton n'est pas rendu. */
   if(!catalogueEnPlace()){ try{ toast('Catalogue non disponible pour ce métier — ajoute tes produits avec ＋ Produit'); }catch(e){} return; }
-  const existing=new Set(db.produits.map(p=>(p.nom||'').trim().toLowerCase()));
-  let added=0;
-  CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||existing.has(nom.toLowerCase()))return;
-    db.produits.push({id:uid(),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0});
-    existing.add(nom.toLowerCase()); added++;
-  });
-  // Réinjecte aussi les fiches fournisseurs ELAN manquantes (avec e-mails de commande)
-  db.fournisseurs=db.fournisseurs||[];
-  const haveF=new Set(db.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
-  let addedF=0;
-  FOURNISSEURS_ELAN.forEach(f=>{ if(haveF.has(f.nom.toUpperCase()))return; db.fournisseurs.push({id:uid(),...f}); haveF.add(f.nom.toUpperCase()); addedF++; });
+  const n=cataloguePoser(db);
   save(); views.produits();
-  toast(added||addedF?`${added} produit(s) et ${addedF} fournisseur(s) ajouté(s)`:'Le catalogue est déjà complet');
+  toast(n.produits||n.fournisseurs?`${n.produits} produit(s) et ${n.fournisseurs} fournisseur(s) ajouté(s)`:'Le catalogue est déjà complet');
 }
 /* ── Navigateur des catalogues fournisseurs : chercher dans les 2 700+ produits et les ajouter à mon catalogue ── */
 let fcFour='', fcQ='';
@@ -19440,44 +19449,78 @@ function permResume(sujet,nom){
 function betaOutils(){ return BETA_ESSAI===true; }
 function betaRemplir(gros){
   if(!betaOutils()) return;
-  if(!confirm(gros?'Remplir la bêta avec BEAUCOUP de données (200 clients, 400 interventions) ?\n\nDe quoi éprouver les listes longues et le défilement.':'Remplir la bêta avec un jeu de données de test ?\n\nProduits, fournisseurs, clients, techniciens et interventions.')) return;
+  if(!confirm(gros?'Remplir la bêta avec BEAUCOUP de données ?\n\n200 clients et 400 interventions de plus, pour éprouver les listes longues, le défilement et les filtres.\n\nTout est marqué « démonstration » : le bouton « Retirer la démonstration » les enlève sans toucher au reste.':'Remplir la bêta avec un jeu de données de test ?\n\nCatalogue, fournisseurs, techniciens, clients et interventions.')) return;
   try{
-    db.produits=db.produits||[]; db.fournisseurs=db.fournisseurs||[];
-    const dejaP=new Set(db.produits.map(x=>(x.nom||'').trim().toLowerCase()));
-    CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||dejaP.has(nom.toLowerCase()))return;
-      db.produits.push({id:uid(),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0}); dejaP.add(nom.toLowerCase()); });
-    const dejaF=new Set(db.fournisseurs.map(x=>(x.nom||'').trim().toUpperCase()));
-    FOURNISSEURS_ELAN.forEach(f=>{ if(dejaF.has(f.nom.toUpperCase()))return; db.fournisseurs.push({id:uid(),...f}); dejaF.add(f.nom.toUpperCase()); });
-    if(gros){
-      /* Volume délibéré : c'est le seul moyen de voir ce qu'une liste devient au-delà de
-         l'écran — défilement, en-têtes collants, recherche, pagination. Les jeux à sept
-         lignes flattent tous les dessins. */
-      db.clients=db.clients||[]; db.interventions=db.interventions||[];
-      const base=db.clients.length;
-      for(let i=0;i<200;i++) db.clients.push({id:uid(),nom:'Client de test '+(base+i+1),adresse:(i%90+1)+' rue de la Bêta',codePostal:String(75001+(i%20)),ville:'Ville '+(i%12+1),email:'test'+i+'@exemple.fr',telephone:'01 00 00 '+String(i%100).padStart(2,'0')+' 00'});
-      const cl=db.clients, tk=db.techniciens||[];
-      for(let i=0;i<400;i++){ const d=new Date(); d.setDate(d.getDate()+(i%45)-15);
-        db.interventions.push({id:uid(),clientId:cl.length?cl[i%cl.length].id:'',technicienId:tk.length?tk[i%tk.length].id:'',date:d.toLocaleDateString('sv-SE'),heure:String(7+(i%11)).padStart(2,'0')+':00',type:'Test',statut:['planifiee','en_cours','terminee'][i%3],notes:'Intervention de test n°'+(i+1)}); }
-    } else {
-      /* demoCharger() ne prend pas d'argument et redemande confirmation si un planning existe
-         déjà — c'est voulu de sa part, on ne le contourne pas. */
-      try{ demoCharger(); }catch(e){}
+    cataloguePoser(db);
+    /* Sans technicien, les 400 interventions tombent toutes dans la colonne « Non assigné » et
+       le planning multi-colonnes — la chose même qu'un gros volume doit éprouver — reste vide.
+       demoCharger() en pose trois, marqués demo:1 comme le reste. */
+    if(!(db.techniciens||[]).length){ try{ demoCharger(); }catch(e){} }
+    if(!gros){
+      save();
+      try{ toast('Bêta remplie avec le jeu de test'); }catch(e){}
+      try{ if(currentUser&&views[current]) views[current](); }catch(e){}
+      return;
+    }
+    /* Volume délibéré : un jeu à sept lignes flatte tous les dessins. Les noms de champs
+       suivent EXACTEMENT ceux que l'application lit — c'est demoCharger() qui fait foi, pas
+       l'intuition. Une première version écrivait technicienId, statut 'en_cours', telephone et
+       notes : quatre champs que rien ne lit. Résultat, 400 interventions « Non assigné », un
+       tiers affichées « À planifier », des téléphones vides et des descriptions absentes —
+       l'écran qu'on voulait juger ne montrait rien de vrai. */
+    db.clients=db.clients||[]; db.interventions=db.interventions||[];
+    const STATUTS=['aplanifier','planifiee','encours','terminee','annulee'];
+    const TYPES=(typeof INT_TYPES!=='undefined'&&INT_TYPES.length)?INT_TYPES:['Dératisation'];
+    const base=db.clients.length;
+    const neufs=[];
+    for(let i=0;i<200;i++){
+      const o={ id:uid(), nom:(i%3===0?'SARL ':(i%3===1?'Boulangerie ':''))+'Client de test '+(base+i+1),
+        adresse:((i%90)+1)+' rue de la Bêta', cp:String(17000+(i%40)), codePostal:String(17000+(i%40)),
+        ville:'Ville '+((i%12)+1), tel:'06'+String(10000000+i).slice(0,8),
+        /* domaine .invalid, réservé par la norme et non enregistrable : la bêta parle au même
+           api.teamop.fr que la production, et une future relance groupée ne doit jamais sortir
+           vers un domaine que quelqu'un peut acheter. */
+        email:'test'+i+'@exemple.invalid', typeClient:(i%3===0?'pro':'particulier'), demo:1 };
+      db.clients.push(o); neufs.push(o.id);
+    }
+    const tk=(db.techniciens||[]).map(t=>t.id);
+    for(let i=0;i<400;i++){
+      const d=new Date(); d.setDate(d.getDate()+(i%45)-15);
+      db.interventions.push({ id:uid(),
+        titre:TYPES[i%TYPES.length]+' — test n°'+(i+1),
+        type:TYPES[i%TYPES.length],
+        date:d.toLocaleDateString('sv-SE'), heure:String(7+(i%11)).padStart(2,'0')+':00', duree:60,
+        clientId:neufs[i%neufs.length],
+        techId:tk.length?tk[i%tk.length]:'', techIds:tk.length?[tk[i%tk.length]]:[],
+        statut:STATUTS[i%STATUTS.length],
+        desc:'Intervention de test n°'+(i+1)+' — texte volontairement assez long pour que la mise en page du bloc de description se juge sur plusieurs lignes.',
+        demo:1 });
     }
     save();
-    try{ toast(gros?'Bêta remplie — 200 clients, 400 interventions':'Bêta remplie avec le jeu de test'); }catch(e){}
+    try{ toast('Bêta remplie — 200 clients, 400 interventions (marqués démonstration)'); }catch(e){}
     try{ if(currentUser&&views[current]) views[current](); }catch(e){}
   }catch(e){ try{ toast('Remplissage impossible : '+e.message); }catch(_){} }
 }
 function betaVider(){
   if(!betaOutils()) return;
-  if(!confirm('Vider ENTIÈREMENT la bêta ?\n\nLes 27 collections repartent à zéro — comme une entreprise qui vient de s\'inscrire. Ton accès à la bêta est conservé.')) return;
+  /* Le message dit EXACTEMENT ce qui part et ce qui reste. Une première version promettait
+     « comme une entreprise qui vient de s'inscrire » : c'était faux — l'identité de
+     l'entreprise, le forfait, les archives et la file des validations survivaient. Un outil de
+     test qui décrit mal son propre effet fait juger un écran pour un autre. */
+  if(!confirm('Vider les données de la bêta ?\n\nPartent : les 27 collections de données, les archives d\'interventions et de techniciens, la file des validations, les plans et le journal de planning.\n\nRestent : ton accès, l\'identité de l\'entreprise et le forfait.')) return;
   try{
-    /* Les comptes ne sont PAS dans COLLECTIONS_DONNEES : les vider déconnecterait la personne
-       en train de tester, et dans la bêta le compte est le reflet d'un accès porté par le
-       serveur — il ne se recrée pas tout seul. */
     COLLECTIONS_DONNEES.forEach(c=>db[c]=[]);
+    /* Ces collections-ci ne sont pas dans COLLECTIONS_DONNEES — load() n'a pas besoin de les
+       vider, une base neuve les a déjà vides — mais un vidage de bêta, si : laissées pleines,
+       le chip « Supprimées » reste peuplé et les validations en attente pointent vers des
+       clients qui n'existent plus. */
+    ['interventionsArchive','techArchive','boxMvtAttente','bonsRemise','indispos','planJournal','planNotes','plansSite'].forEach(c=>{ if(Array.isArray(db[c])) db[c]=[]; else if(db[c]&&typeof db[c]==='object') db[c]={}; });
+    /* Drapeau de migration : sans cette remise à zéro, un remplissage ultérieur de
+       « telecollectes » ne serait plus jamais converti en registres et la Comptabilité
+       resterait vide sans que rien ne l'explique. */
+    try{ delete db._regMigre; }catch(e){}
     save();
-    try{ toast('Bêta vidée — état d\'une entreprise qui vient de s\'inscrire'); }catch(e){}
+    try{ toast('Bêta vidée'); }catch(e){}
     try{ if(currentUser&&views[current]) views[current](); }catch(e){}
   }catch(e){ try{ toast('Vidage impossible : '+e.message); }catch(_){} }
 }
