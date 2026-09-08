@@ -1606,6 +1606,91 @@ app.post('/api/monitor/espaces/connexions', monAdmin, (req, res) => {
   res.json({ ok: true, t, resume: cnxResume(t), evenements: (cnxData[t] || []).slice(0, parseInt((req.body || {}).n, 10) || 60) });
 });
 // la Tour : toutes les entreprises d'un coup, triées par dernière connexion
+/* ══ TOUTES LES ENTREPRISES, UNE SEULE LISTE ════════════════════════════════════════════
+   Le vrai problème de la console n'était pas d'afficher : c'était de RETROUVER. Une même
+   entreprise pouvait exister dans quatre endroits sans apparaître dans les trois autres :
+     · clientsData  — remplis à la première connexion sur le site, et là seulement ;
+     · espacesReg   — les espaces dont on a généré le lien ;
+     · cnxData      — TOUT espace qui s'est connecté un jour, annuaire ou pas. La source la
+                      plus complète, et la seule qui voyait les « espaces hors annuaire » ;
+     · Firebase     — les comptes créés sur le site, même sans espace derrière.
+   D'où des entreprises visibles dans un écran et absentes de l'autre, et l'impression que la
+   console en perdait. Ici on part de cnxData et espacesReg réunis — rien de ce qui a vécu ne
+   peut manquer — et on accroche à chaque ligne de quoi décider sans changer d'écran :
+   formule, code promo et son échéance, activité, échecs de connexion, erreurs.
+   Le journal des bugs est lu UNE fois et compté par espace : une lecture par entreprise
+   aurait relu un fichier de plusieurs mégaoctets autant de fois qu'il y a de clients. */
+app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+
+  // 1. les erreurs, comptées en une passe
+  const erreursPar = {};
+  try {
+    for (const l of fs.readFileSync(BUGS_PATH, 'utf8').trim().split('\n')) {
+      try { const b = JSON.parse(l); if (b && b.team) erreursPar[b.team] = (erreursPar[b.team] || 0) + 1; } catch (err) {}
+    }
+  } catch (err) {}
+
+  // 2. les codes promo, indexés par espace
+  const promoPar = {};
+  for (const [code, u] of Object.entries(promoUsages || {})) {
+    for (const [t, x] of Object.entries((u && u.equipes) || {})) {
+      if (!x || !x.finLe) continue;
+      const actif = x.finLe >= aujourdhui;
+      if (!promoPar[t] || (actif && !promoPar[t].actif)) promoPar[t] = { code, finLe: x.finLe, actif, depuis: x.date || '' };
+    }
+  }
+
+  // 3. les comptes du site, indexés par adresse
+  const compteParMail = {};
+  for (const [mail, c] of Object.entries(clientsData || {})) compteParMail[String(mail).toLowerCase()] = c;
+
+  const vus = new Set(); const liste = [];
+  const pousser = (t, slug, e) => {
+    if (!t || vus.has(t)) return; vus.add(t);
+    const r = cnxResume(t);
+    const mail = String((e && e.email) || '').toLowerCase();
+    const cli = mail ? compteParMail[mail] : null;
+    liste.push({
+      t, slug: slug || '',
+      nom: (e && e.nom) || slug || '',
+      email: mail,
+      /* D'où elle vient décide ce qu'on a le droit d'en faire : une cliente inscrite sur le
+         site ne se supprime pas comme un espace d'essai qu'on s'est ouvert. */
+      origine: e ? (e.origine || (cli ? 'site' : 'tour')) : 'hors-annuaire',
+      dansAnnuaire: !!e,
+      formule: (e && e.formule) || (cli && cli.formule) || '',
+      opMessages: !!(e && e.opMessages),
+      suspendu: entFermes.espaces.includes(t),
+      promo: promoPar[t] || null,
+      metier: (cli && cli.metier) || '',
+      derniere: r.derniere || 0,
+      utilisateurs7: r.utilisateurs7 || 0,
+      appareils7: r.appareils7 || 0,
+      echecs24: r.echecs24 || 0,
+      versions: r.versions || {},
+      erreurs: erreursPar[t] || 0,
+      comptesAnnuaire: Object.keys((comptesReg[t] && comptesReg[t].c) || {}).length
+    });
+  };
+  for (const [slug, e] of Object.entries(espacesReg)) {
+    let t = e.t; try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
+    pousser(t, slug, e);
+  }
+  /* Les espaces qui se sont connectés sans être dans l'annuaire : ce sont eux qu'on « perdait ».
+     Ils existent, ils ont des utilisateurs et parfois des erreurs — les ignorer, c'est croire
+     que la console montre tout alors qu'elle montre la moitié. */
+  for (const t of Object.keys(cnxData)) pousser(t, '', null);
+
+  liste.sort((a, b) => (b.derniere || 0) - (a.derniere || 0));
+  res.json({
+    ok: true, entreprises: liste, total: liste.length,
+    horsAnnuaire: liste.filter(x => !x.dansAnnuaire).length,
+    avecErreurs: liste.filter(x => x.erreurs > 0).length,
+    avecEchecs: liste.filter(x => x.echecs24 > 0).length
+  });
+});
+
 app.get('/api/monitor/connexions', monAdmin, (req, res) => {
   const vus = new Set(); const sortie = [];
   for (const [slug, e] of Object.entries(espacesReg)) {

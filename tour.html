@@ -234,9 +234,6 @@ main{width:100%;max-width:1200px;margin:0 auto;padding:28px 20px 96px;flex:1;min
   body.barre-repliee #app.on{--barre:0px}
   body.barre-repliee .bandeau{opacity:0;pointer-events:none;overflow:hidden}
   @media(prefers-reduced-motion:reduce){ #app.on{transition:none} }
-  /* Le bouton n'existe qu'à partir de 900 px : en dessous la barre est déjà escamotable par
-     le menu, et deux mécanismes pour la même chose se contrediraient. La règle par défaut le
-     masque (voir plus haut) — surtout ne pas remettre un style en ligne, il l'emporterait. */
   #replier{display:inline-flex}
   .bandeau{grid-row:1/3;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;border-bottom:0;border-right:1px solid var(--line);padding:16px 10px 12px;overflow-y:auto;scrollbar-width:thin}
   .bandeau::after{display:none}
@@ -867,7 +864,7 @@ function setTab(t,sansAnim){
   if(t==='support'&&!MSG.loaded) chargerMail();
   /* PBL porte les espaces : sans lui, « Leurs espaces » resterait sur « Chargement… » pour qui
      ouvre Entreprises sans être passé par Accès. */
-  if(t==='entreprises'){ if(!CLI.loaded) chargerClients(); if(!PBL.loaded) chargerAccesPublics(); if(!CS.loaded) chargerComptesSite(); }
+  if(t==='entreprises'){ if(!ENT.loaded) chargerEntreprises(); if(!CLI.loaded) chargerClients(); if(!PBL.loaded) chargerAccesPublics(); if(!CS.loaded) chargerComptesSite(); }
   if(t==='connexions') chargerConnexions();
   if(t==='abonnements'&&!ABO.loaded) chargerAbos();
   if(t==='devisia'&&!DIA.loaded) chargerDevisIA();
@@ -903,6 +900,9 @@ var PBL={loaded:false,err:'',liste:[]};
    entreprises qui se sont DÉJÀ connectées, alors qu'un compte créé sur espace.html et jamais
    utilisé n'existait nulle part dans cette console. C'est ce qui rendait le ménage impossible. */
 var CS={loaded:false,err:'',comptes:[],q:'',anonymes:0};
+/* TOUTES les entreprises, d'ou qu'elles viennent. CLI ne connait que les clients du site ;
+   ENT part de cnxData + espacesReg reunis, donc rien de ce qui a vecu ne peut manquer. */
+var ENT={loaded:false,err:'',liste:[],q:'',stats:{}};
 /* Les codes promo : qui profite d'une formule offerte, et jusqu'a quand. Independant de
    Stripe - un code promo ne passe pas par lui - donc charge et affiche meme quand Stripe
    n'est pas relie au serveur. */
@@ -916,6 +916,28 @@ function chargerPromos(){
     PRO.codes=(d&&d.codes)||[]; PRO.actifsTotal=(d&&d.actifsTotal)||0;
     PRO.loaded=true; rafraichirSiConcerne();
   }).catch(function(){ PRO.err='Codes promo illisibles - serveur injoignable.'; PRO.loaded=true; rafraichirSiConcerne(); });
+}
+function chargerEntreprises(){
+  ENT.loaded=false; ENT.err='';
+  apiGet('/api/monitor/entreprises').then(function(d){
+    ENT.liste=(d&&d.entreprises)||[];
+    ENT.stats={total:(d&&d.total)||0,horsAnnuaire:(d&&d.horsAnnuaire)||0,avecErreurs:(d&&d.avecErreurs)||0,avecEchecs:(d&&d.avecEchecs)||0};
+    ENT.loaded=true; rafraichirSiConcerne();
+  }).catch(function(){ ENT.err='Liste des entreprises illisible — serveur injoignable.'; ENT.loaded=true; rafraichirSiConcerne(); });
+}
+function entQ(v){ ENT.q=v; rafraichirSiConcerne(); }
+/* Selection par identifiant d'espace : c'est la seule cle que TOUTES les sources partagent.
+   L'e-mail manque aux espaces hors annuaire, le nom se renomme. */
+function entSel(t){
+  ENT.sel=(ENT.sel===t?null:t);
+  renderNav('detail');
+  if(ENT.sel){
+    var o=(ENT.liste||[]).find(function(x){ return x.t===ENT.sel; })||{};
+    var nm=o.nom||o.slug||'';
+    if(nm) chargerDossier(nm); else DOS={nom:'',loaded:true,err:'Espace hors annuaire : pas de dossier détaillé tant qu’il n’a pas de nom.',d:null};
+    CLI.sel=o.email||null;
+    if(o.email) setTimeout(function(){ tourPackPrefill(nm||o.email); },150);
+  } else { DOS={nom:'',loaded:false,err:'',d:null}; CLI.sel=null; }
 }
 function chargerComptesSite(){
   CS.loaded=false; CS.err='';
@@ -2464,30 +2486,159 @@ function cliCopierAdresses(btn){
   }catch(e){ tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:10px">📋 '+l.length+' adresse(s)</div><textarea readonly style="width:100%;height:60vh;font-family:ui-monospace,monospace;font-size:12.5px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--champ-fond);color:var(--text)">'+esc(txt)+'</textarea>'); }
 }
 function vueEntreprises(){
+  var st=ENT.stats||{};
   var tete=enTete('Entreprises',
-    'Vos clients, leur formule et leur activité. Une entreprise apparaît ici dès sa prochaine visite sur teamop.fr — les comptes eux-mêmes vivent dans l’espace client.',
-    '<button class="btn-fant" onclick="cliCopierAdresses(this)" title="Copie toutes les adresses de la liste, une par ligne — pour faire le tri ailleurs">📋 Copier les adresses</button> '+
+    'Toutes vos entreprises, d’où qu’elles viennent : inscrites sur le site, ouvertes depuis la Tour, ou simplement repérées par leurs connexions. Cliquez sur l’une d’elles pour ouvrir son dossier complet.',
+    '<button class="btn-fant" onclick="cliCopierAdresses(this)" title="Copie toutes les adresses connues, une par ligne">📋 Copier les adresses</button> '+
     '<button class="btn-plein" onclick="annonceEnvoyer(this)" title="Envoie l’e-mail des nouveautés de la dernière mise à jour à toutes les entreprises">📣 Annoncer la mise à jour</button>');
-  if(!CLI.loaded) return tete+'<div class="vide">Chargement des entreprises…</div>';
-  if(CLI.err) return tete+'<div class="vide">'+esc(CLI.err)+'</div>';
-  var q=(CLI.q||'').toLowerCase().trim();
-  var l=CLI.list.filter(function(c){ return !q||((c.nom||'')+' '+(c.entreprise||'')+' '+(c.email||'')).toLowerCase().indexOf(q)>=0; });
-  var liste=l.length? l.map(function(c){
-    var s=cliStatut(c), nm=c.entreprise||c.nom||c.email;
-    return '<div class="item'+(CLI.sel===c.email?' on':'')+'" onclick="cliSel(\''+jsq(c.email)+'\')">'+
+  if(!ENT.loaded) return tete+'<div class="vide">Chargement des entreprises…</div>';
+  if(ENT.err) return tete+'<div class="vide">'+esc(ENT.err)+'</div>';
+  /* Trois chiffres qui disent où regarder en premier : ce qui plante, ce qui bloque des gens
+     dehors, et ce qui existe sans être dans l'annuaire — donc invisible partout ailleurs. */
+  var kpi='<div class="grille-kpi" style="margin-bottom:20px">'+
+    '<div class="kpi"><div class="n">'+(st.total||0)+'</div><div class="l">entreprises connues</div></div>'+
+    '<div class="kpi"><div class="n"'+(st.avecErreurs?' style="color:var(--redText)"':'')+'>'+(st.avecErreurs||0)+'</div><div class="l">avec des erreurs</div></div>'+
+    '<div class="kpi"><div class="n"'+(st.avecEchecs?' style="color:var(--amber)"':'')+'>'+(st.avecEchecs||0)+'</div><div class="l">avec des échecs de connexion</div></div>'+
+    '<div class="kpi"><div class="n">'+(st.horsAnnuaire||0)+'</div><div class="l">hors annuaire</div></div>'+
+  '</div>';
+  var q=(ENT.q||'').toLowerCase().trim();
+  var l=(ENT.liste||[]).filter(function(o){ return !q||((o.nom||'')+' '+(o.email||'')+' '+(o.slug||'')+' '+(o.t||'')).toLowerCase().indexOf(q)>=0; });
+  var liste=l.length? l.map(function(o){
+    var nm=o.nom||o.slug||'(espace sans nom)';
+    var alertes='';
+    if(o.erreurs) alertes+='<span class="past p-rouge" title="'+o.erreurs+' erreur(s) signalée(s)">🐛 '+o.erreurs+'</span> ';
+    if(o.echecs24) alertes+='<span class="past p-ambre" title="échecs de connexion sur 24 h">🔑 '+o.echecs24+'</span> ';
+    if(o.suspendu) alertes+='<span class="past p-rouge">⏸</span> ';
+    if(o.promo&&o.promo.actif) alertes+='<span class="past p-vert" title="Formule offerte jusqu’au '+esc(o.promo.finLe)+'">🎁</span> ';
+    var sous=o.email||(o.dansAnnuaire?('espace '+String(o.t).slice(0,16)):'espace hors annuaire');
+    return '<div class="item'+(ENT.sel===o.t?' on':'')+'" onclick="entSel(\''+jsq(o.t)+'\')">'+
       '<div style="display:flex;align-items:center;gap:12px">'+
         '<div style="width:38px;height:38px;border-radius:10px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(nm))+'</div>'+
-        '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(nm)+'</div>'+
-          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+esc(c.metier||'métier non renseigné')+'</div></div>'+
-        '<span class="past '+s[1]+'">'+esc(s[0])+'</span></div></div>';
-  }).join('') : '<div class="vide">Aucune entreprise ne correspond à cette recherche.</div>';
-  return tete+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(nm)+'</div>'+
+          '<div class="mono" style="font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(sous)+'</div>'+
+          '<div style="font-size:11.5px;color:var(--muted);margin-top:2px">'+(o.derniere?esc(fmtJour(o.derniere)):'jamais connectée')+(o.utilisateurs7?' · '+o.utilisateurs7+' pers. / 7 j':'')+'</div>'+
+        '</div>'+
+        '<div style="text-align:right;flex-shrink:0">'+alertes+'</div>'+
+      '</div></div>';
+  }).join('') : '<div class="vide">Aucune entreprise ne correspond.</div>';
+  return tete+kpi+
     '<div class="deux"><div class="col-liste">'+
-      '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CLI.q)+'" oninput="cliQ(this.value)"></div>'+
+      '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+l.length+' sur '+(ENT.liste||[]).length+'</div>'+
       liste+'</div>'+
-    '<div class="col-detail"><div class="col-detail-sticky">'+ficheClient()+'</div></div></div>'+
-    blocEspacesSite()+
-    blocComptesSite();
+    '<div class="col-detail"><div class="col-detail-sticky">'+ficheEntreprise()+'</div></div></div>';
+}
+
+/* LA FICHE D'UNE ENTREPRISE — tout ce qui la concerne, et rien d'autre. Avant, l'onglet
+   empilait sous la liste les espaces de TOUT LE MONDE puis les comptes de TOUT LE MONDE :
+   on cliquait sur une entreprise et on lisait les données des autres. Ici chaque bloc est
+   filtré sur celle qui est sélectionnée. */
+function ficheEntreprise(){
+  if(!ENT.sel) return '<div class="vide"><span style="color:var(--dim)">'+svg('entreprises',22)+'</span>'+
+    '<div style="margin-top:10px">Sélectionnez une entreprise pour ouvrir son dossier : ses utilisateurs, ses erreurs, ses échecs de connexion, sa formule et ses comptes.</div></div>';
+  var o=(ENT.liste||[]).find(function(x){ return x.t===ENT.sel; });
+  if(!o) return '<div class="vide">Entreprise introuvable — la liste a peut-être changé.</div>';
+  var nm=o.nom||o.slug||'(espace sans nom)';
+  var t='<div class="carte p24">'+
+    '<div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap">'+
+      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft);flex-shrink:0">'+esc(ini(nm))+'</div>'+
+      '<div style="flex:1;min-width:180px">'+
+        '<div style="font-size:17.5px;font-weight:700">'+esc(nm)+'</div>'+
+        '<div class="mono" style="font-size:12px;color:var(--muted);margin-top:3px;word-break:break-all">'+esc(o.email||o.t)+'</div>'+
+      '</div>'+
+      (o.suspendu?'<span class="past p-rouge">⏸ Suspendue</span> ':'')+
+      '<span class="past '+(o.origine==='site'?'p-vert':(o.origine==='tour'?'p-orange':'p-gris'))+'">'+
+        (o.origine==='site'?'🏢 Cliente du site':(o.origine==='tour'?'🌍 Ouverte d’ici':'❔ Hors annuaire'))+'</span>'+
+    '</div>'+
+    /* L'ARGENT, en haut : c'est la première question qu'on se pose devant un client. */
+    '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)"><div class="sec">FORMULE ET PAIEMENT</div>'+
+      '<div style="margin-top:9px;font-size:13.5px;line-height:1.9">'+
+        'Formule : <b>'+esc(o.formule||'aucune')+'</b><br>'+
+        (o.promo
+          ? (o.promo.actif
+              ? '🎁 Code <b class="mono">'+esc(o.promo.code)+'</b> — offert jusqu’au <b>'+esc(o.promo.finLe)+'</b> <span style="color:var(--muted)">('+joursRestants(o.promo.finLe)+')</span>'
+              : '🎁 Code <b class="mono">'+esc(o.promo.code)+'</b> — <span style="color:var(--muted)">terminé le '+esc(o.promo.finLe)+'</span>')
+          : '<span style="color:var(--muted)">Aucun code promo.</span>')+
+        '<br>OP MESSAGES : '+(o.opMessages?'<b style="color:var(--green)">ouvert</b>':'<span style="color:var(--muted)">fermé</span>')+
+      '</div></div>'+
+    blocUtilisateurs()+
+    blocDossier()+
+  '</div>'+
+  blocEspaceDe(o)+
+  blocComptesDe(o);
+  return t;
+}
+
+/* Combien de jours restent sur un code : « jusqu'au 2026-11-17 » ne dit pas s'il faut
+   relancer le client cette semaine ou dans trois mois. */
+function joursRestants(fin){
+  try{
+    var d=new Date(fin+'T00:00:00'), n=new Date(); n.setHours(0,0,0,0);
+    var j=Math.round((d-n)/86400000);
+    if(j<0) return 'terminé';
+    if(j===0) return 'se termine aujourd’hui';
+    if(j===1) return 'plus qu’un jour';
+    if(j<31) return 'encore '+j+' jours';
+    return 'encore '+Math.round(j/30)+' mois';
+  }catch(e){ return ''; }
+}
+
+/* QUI TRAVAILLE CHEZ EUX. Deux sources croisées côté serveur : l'annuaire dit qui PEUT se
+   connecter, les connexions disent qui le fait vraiment. Un identifiant qui n'a jamais servi
+   est une information — compte oublié, ou personne qui n'arrive pas à entrer. */
+function blocUtilisateurs(){
+  var d=(DOS&&DOS.d)||null;
+  if(!DOS||!DOS.loaded) return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS</div><div style="margin-top:9px;color:var(--muted);font-size:13px">Chargement…</div></div>';
+  if(!d||!d.utilisateurs||!d.utilisateurs.length) return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS</div><div style="margin-top:9px;color:var(--muted);font-size:13px">Aucun compte connu pour cet espace.</div></div>';
+  return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+d.utilisateurs.length+'</span></div>'+
+    '<div style="margin-top:9px">'+d.utilisateurs.map(function(u){
+      var souci=u.echecs>0, jamais=!u.derniere;
+      return '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--line)">'+
+        '<span class="mono" style="flex:1;min-width:130px;font-size:13px;font-weight:600">'+esc(u.login)+
+          (u.role?'<span style="font-weight:400;color:var(--muted);font-size:11.5px"> · '+esc(u.role)+'</span>':'')+'</span>'+
+        '<span style="font-size:12px;color:var(--muted)">'+(jamais?'jamais connecté':esc(fmtJour(u.derniere)))+
+          (u.appareils?' · '+u.appareils+' appareil'+(u.appareils>1?'s':''):'')+
+          (u.version?' · v'+esc(u.version):'')+'</span>'+
+        (souci?'<span class="past p-ambre" title="échecs de connexion">🔑 '+u.echecs+'</span>':'')+
+        (jamais&&u.dansAnnuaire?'<span class="past p-gris">inutilisé</span>':'')+
+      '</div>';
+    }).join('')+'</div></div>';
+}
+
+/* SON espace — pas ceux de tout le monde. Même carte qu'avant, filtrée sur l'entreprise. */
+function blocEspaceDe(o){
+  var e=(PBL.liste||[]).filter(function(x){
+    if(o.email&&x.email&&String(x.email).toLowerCase()===o.email) return true;
+    return espSlugJs(x.nom||x.slug||'')===espSlugJs(o.nom||o.slug||'');
+  })[0];
+  if(!e) return '';
+  return '<div style="margin-top:20px"><div class="sec">SON ESPACE</div><div style="margin-top:8px">'+pubLigne(e)+'</div></div>';
+}
+
+/* SES comptes du site. Les comptes sans entreprise rattachée ne sont pas ici : ils vivent
+   dans l'onglet Accès, où se fait le ménage. Mélanger les deux, c'est ce qui rendait cet
+   écran illisible. */
+function blocComptesDe(o){
+  if(!CS.loaded) return '<div style="margin-top:20px"><div class="sec">SES COMPTES DU SITE</div><div style="margin-top:8px;color:var(--muted);font-size:13px">Chargement…</div></div>';
+  var l=(CS.comptes||[]).filter(function(c){
+    if(o.email&&c.email&&String(c.email).toLowerCase()===o.email) return true;
+    return !!(c.societe&&espSlugJs(c.societe)===espSlugJs(o.nom||''))||!!(c.entreprise&&espSlugJs(c.entreprise)===espSlugJs(o.nom||''));
+  });
+  if(!l.length) return '<div style="margin-top:20px"><div class="sec">SES COMPTES DU SITE</div><div style="margin-top:8px;color:var(--muted);font-size:13px">Aucun compte du site rattaché à cette entreprise.</div></div>';
+  return '<div style="margin-top:20px"><div class="sec">SES COMPTES DU SITE <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+l.length+'</span></div>'+
+    '<div style="margin-top:8px">'+l.map(function(c){
+      return '<div class="item" style="cursor:default"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+        '<div style="flex:1;min-width:200px">'+
+          '<div style="font-size:13.5px;font-weight:600">'+esc(c.nom||'(nom non renseigné)')+'</div>'+
+          '<div class="mono" style="font-size:12.5px;color:var(--text2);word-break:break-all">'+esc(c.email)+'</div>'+
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+(c.cree?'Créé le '+esc(fmtJour(c.cree)):'')+(c.derniere?' · dernière connexion '+esc(fmtJour(c.derniere)):' · jamais connecté')+'</div>'+
+        '</div>'+
+        (c.aUnEspace?'<span class="past p-vert">🏢 porte l’espace</span>':'<span class="past p-gris">sans espace</span>')+
+      '</div>'+
+      (c.aUnEspace?'':'<div style="margin-top:9px"><button class="btn-fant" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="csSupprimer(\''+jsq(c.email)+'\',this)">🗑 Supprimer ce compte</button></div>')+
+      '</div>';
+    }).join('')+'</div></div>';
 }
 /* Les espaces ouverts par une inscription sur teamop.fr. Ils vivaient dans l'onglet Accès, où
    ils n'avaient rien à faire : Accès, c'est ce que l'équipe s'ouvre à elle-même — la bêta et
