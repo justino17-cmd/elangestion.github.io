@@ -1776,6 +1776,18 @@ app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
   const compteParMail = {};
   for (const [mail, c] of Object.entries(clientsData || {})) compteParMail[String(mail).toLowerCase()] = c;
 
+  /* La clé par défaut d'app.html. Elle est servie publiquement par GitHub Pages, donc la
+     connaître ici n'ajoute AUCUN secret — c'est justement le problème qu'elle pose. On ne s'en
+     sert que pour RÉPONDRE À UNE QUESTION : cet espace a-t-il sa propre clé, ou partage-t-il
+     celle que tout le monde peut lire ? ⛔ Ne JAMAIS la modifier, ici ou ailleurs : elle
+     déchiffre les données de toutes les entreprises qui n'en ont pas reçu d'autre. */
+  const CLE_PAR_DEFAUT = 'ELAN-GESTION-7F3A9C2E-cloud-2026';
+  /* Vrai quand l'espace porte une clé qui n'est PAS celle-là. On rend un booléen, jamais la
+     clé : cette route est en monAdmin, un cran sous le patron. */
+  const cleePropre = (e) => {
+    if (!e || !e.code) return false;
+    try { const k = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); return !!k && k !== CLE_PAR_DEFAUT; } catch (err) { return false; }
+  };
   const vus = new Set(); const liste = [];
   const pousser = (t, slug, e) => {
     if (!t || vus.has(t)) return; vus.add(t);
@@ -1792,6 +1804,9 @@ app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
       dansAnnuaire: !!e,
       formule: (e && e.formule) || (cli && cli.formule) || '',
       opMessages: !!(e && e.opMessages),
+      /* La question qui décide du chantier « un teamId par entreprise » : celles qui ont déjà
+         leur clé n'ont rien à migrer. Booléen seulement — la clé ne sort pas d'ici. */
+      cleePropre: cleePropre(e),
       suspendu: entFermes.espaces.includes(t),
       promo: promoPar[t] || null,
       metier: (cli && cli.metier) || '',
