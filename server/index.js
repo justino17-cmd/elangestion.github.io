@@ -3456,33 +3456,69 @@ app.post('/api/clients/sync', async (req, res) => {
 app.get('/api/monitor/comptes-site', monAdmin, async (req, res) => {
   const tok = await fbAdminJeton();
   if (!tok) return res.status(503).json({ error: 'clé admin Firebase absente sur le serveur (firebase-admin.json)' });
-  const comptes = []; let pageTok = '';
+  /* Les fiches d'inscription, lues EN UNE PASSE puis croisées par uid. Une requête par
+     compte aurait fait des centaines d'allers-retours ; et sans elles on n'a que l'adresse,
+     alors qu'il faut le nom de la personne et son entreprise pour supprimer sans se tromper. */
+  const fiches = {};
+  const val = f => f && (f.stringValue !== undefined ? f.stringValue
+    : f.integerValue !== undefined ? f.integerValue
+    : f.timestampValue !== undefined ? f.timestampValue : '');
   try {
-    for (let tour = 0; tour < 20; tour++) {   // 20 pages de 500 = 10 000 comptes, large de reste
+    let pt = '';
+    for (let tour = 0; tour < 20; tour++) {
+      const r = await fbAdminFetch(fsBase() + '/teamop_requests?pageSize=300' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''), { method: 'GET' }, tok);
+      if (!r.ok) break;                       // pas de fiches lisibles : on continue sans, l'adresse seule vaut mieux que rien
+      const j = await r.json().catch(() => ({}));
+      for (const d of (j.documents || [])) {
+        const uid = String(d.name || '').split('/').pop();
+        const f = d.fields || {};
+        fiches[uid] = {
+          nom: String(val(f.name) || ((val(f.prenom) + ' ' + val(f.nom)).trim())).slice(0, 80),
+          societe: String(val(f.company) || '').slice(0, 80),
+          statut: String(val(f.status) || '').slice(0, 30)
+        };
+      }
+      pt = j.nextPageToken || ''; if (!pt) break;
+    }
+  } catch (e) { /* sans fiches, la liste reste utilisable : on ne bloque pas dessus */ }
+
+  const comptes = []; let anonymes = 0; let pageTok = '';
+  try {
+    for (let tour = 0; tour < 20; tour++) {
       const url = 'https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET
         + '/accounts:batchGet?maxResults=500' + (pageTok ? '&nextPageToken=' + encodeURIComponent(pageTok) : '');
       const r = await fbAdminFetch(url, { method: 'GET' }, tok);
       if (!r.ok) return res.status(502).json({ error: 'Firebase a refusé la lecture (HTTP ' + r.status + ')' });
       const j = await r.json().catch(() => ({}));
       for (const u of (j.users || [])) {
-        const mail = String(u.email || '').toLowerCase();
+        const mail = String(u.email || '').trim().toLowerCase();
+        /* ⛔ LES COMPTES ANONYMES NE SONT PAS DES PERSONNES — ne jamais les lister ici.
+           app.html ouvre une session anonyme par appareil (syncAuth), parce que les règles
+           Firestore exigent un utilisateur connecté pour synchroniser. Il y en a donc autant
+           que d'appareils chez les clients : ils n'ont ni adresse, ni nom, et EN SUPPRIMER UN
+           COUPERAIT LA SYNCHRO DE L'APPAREIL CORRESPONDANT. Ils sont comptés, pas montrés. */
+        if (!mail) { anonymes++; continue; }
+        const fi = fiches[u.localId] || {};
         comptes.push({
           email: mail,
+          nom: fi.nom || '',
+          societe: fi.societe || '',
+          statut: fi.statut || '',
           cree: Number(u.createdAt || 0) || 0,
           derniere: Number(u.lastLoginAt || 0) || 0,
           verifie: !!u.emailVerified,
           desactive: !!u.disabled,
           /* Le point décisif pour trier : ce compte porte-t-il une entreprise avec des
              données, ou n'est-ce qu'un compte d'essai qu'on peut effacer sans rien perdre ? */
-          entreprise: (mail && clientsData[mail]) ? (clientsData[mail].entreprise || clientsData[mail].nom || '') : '',
-          aUnEspace: !!(mail && clientsData[mail])
+          entreprise: clientsData[mail] ? (clientsData[mail].entreprise || clientsData[mail].nom || '') : '',
+          aUnEspace: !!clientsData[mail]
         });
       }
       pageTok = j.nextPageToken || ''; if (!pageTok) break;
     }
   } catch (e) { return res.status(502).json({ error: 'lecture Firebase impossible : ' + String(e.message).slice(0, 120) }); }
   comptes.sort((a, b) => (b.cree || 0) - (a.cree || 0));
-  res.json({ comptes, total: comptes.length });
+  res.json({ comptes, total: comptes.length, anonymes });
 });
 
 /* Suppression d'un compte du site — patron seulement, et JAMAIS un compte qui porte une
@@ -4045,6 +4081,58 @@ const PROMO_USAGE_PATH = path.join(DATA_DIR, 'promos-usages.json');
 let promoUsages = {};
 try { promoUsages = JSON.parse(fs.readFileSync(PROMO_USAGE_PATH, 'utf8')); } catch (e) {}
 function savePromoUsages() { try { fs.writeFileSync(PROMO_USAGE_PATH, JSON.stringify(promoUsages)); } catch (e) {} }
+
+/* ── 🎁 Les codes promo, vus depuis la Tour ──────────────────────────────────────────────
+   Les codes sont définis dans config.promos (sur le VPS) et leurs usages vivent dans
+   promos-usages.json : quel espace, à quelle date, jusqu'à quand. Rien de tout cela
+   n'apparaissait dans la console — on ne pouvait donc pas savoir qui bénéficiait d'une
+   formule offerte, ni jusqu'à quand, ni combien d'utilisations restaient sur un code.
+
+   Chaque usage est rendu avec le NOM de l'espace quand l'annuaire le connaît, parce qu'un
+   identifiant « ent-a1b2c3… » ne dit rien à personne. Et « actif » se calcule ici, sur la
+   date du jour : un code dont l'échéance est passée ne coûte plus rien et ne doit pas être
+   compté comme une formule offerte en cours. */
+app.get('/api/monitor/promos', monAdmin, (req, res) => {
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const codes = (config.promos || []).map(p => {
+    const c = String(p.code || '').trim().toUpperCase();
+    const u = promoUsages[c] || { n: 0, equipes: {} };
+    const usages = Object.entries(u.equipes || {}).map(([t, e]) => {
+      const esp = espaceParT(t);
+      return {
+        t,
+        nom: esp ? (esp.nom || esp.slug || '') : '',
+        depuis: (e && e.date) || '',
+        finLe: (e && e.finLe) || '',
+        actif: !!(e && e.finLe && e.finLe >= aujourdhui)
+      };
+    }).sort((a, b) => String(b.finLe || '').localeCompare(String(a.finLe || '')));
+    return {
+      code: c,
+      formule: p.formule || '',
+      mois: Number(p.mois) || 1,
+      maxUtilisations: Number(p.maxUtilisations) || 0,
+      utilisations: Number(u.n) || 0,
+      restantes: p.maxUtilisations ? Math.max(0, Number(p.maxUtilisations) - (Number(u.n) || 0)) : null,
+      actifs: usages.filter(x => x.actif).length,
+      usages
+    };
+  }).sort((a, b) => (b.actifs - a.actifs) || a.code.localeCompare(b.code));
+  /* Un code peut avoir été retiré de la configuration alors que des espaces en profitent
+     encore : sans cette reprise, ces espaces disparaîtraient de la vue tout en gardant leur
+     formule offerte — exactement ce qu'on ne veut pas rater. */
+  const connus = new Set(codes.map(c => c.code));
+  for (const [c, u] of Object.entries(promoUsages || {})) {
+    if (connus.has(c)) continue;
+    const usages = Object.entries((u && u.equipes) || {}).map(([t, e]) => {
+      const esp = espaceParT(t);
+      return { t, nom: esp ? (esp.nom || esp.slug || '') : '', depuis: (e && e.date) || '', finLe: (e && e.finLe) || '', actif: !!(e && e.finLe && e.finLe >= aujourdhui) };
+    });
+    codes.push({ code: c, formule: '', mois: 0, maxUtilisations: 0, utilisations: Number(u.n) || 0, restantes: null,
+      actifs: usages.filter(x => x.actif).length, usages, horsConfig: true });
+  }
+  res.json({ codes, total: codes.length, actifsTotal: codes.reduce((n, c) => n + c.actifs, 0) });
+});
 
 app.post('/api/promo/valider', (req, res) => {
   const { code, teamId, apercu } = req.body || {};
