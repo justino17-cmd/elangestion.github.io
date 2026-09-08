@@ -157,7 +157,29 @@ coordonnées de vrais clients — un flux de données qui n'est pas couvert par
 `sous-traitance.html`. On ne pointe donc le navigateur piloté que sur `beta.html` ou une
 copie d'aperçu : la bêta est isolée par construction (préfixe `elanB_`, espace
 `elan-gestion-beta`, jamais de données d'entreprise). Cette règle est écrite aussi dans les
-agents `concepteur` et `testeur`, qui sont les deux à s'en servir.
+agents `concepteur` et `testeur`.
+
+⛔ **Mais ces deux agents ne PEUVENT pas s'en servir, et il faut le savoir avant d'essayer.**
+Un sous-agent dont le frontmatter porte une liste `tools:` explicite n'atteint AUCUN outil MCP.
+Éprouvé le 8 septembre 2026, quatre essais, tous concluants dans le même sens :
+
+| ce qu'on déclare dans `tools:` | ce que l'agent voit |
+|---|---|
+| `mcp__chrome-devtools__*` | rien |
+| les 13 outils nommés un par un | rien |
+| les 13 outils **plus** `ToolSearch` | rien — `ToolSearch` lui-même est retiré |
+| `tools: *` (agent `general-purpose`) | **tout** : schéma chargé, `list_pages` répond |
+
+Le mécanisme : les outils MCP arrivent *différés* — nommés, mais sans schéma — et il faut
+`ToolSearch` pour le charger. Une liste `tools:` explicite retire `ToolSearch`, donc ferme la
+porte, même quand les outils MCP y sont écrits noir sur blanc. Rien n'avertit : la ligne est
+acceptée, les entrées sont simplement ignorées.
+
+Conséquence pratique : **le navigateur piloté ne se conduit que depuis la session principale**
+(ou un agent à `tools: *`, ce qu'on ne veut pas pour `concepteur` ni `testeur` — leur liste
+restreinte est délibérée). Les deux agents mesurent donc avec Playwright par `Bash`, ce que
+`testeur` fait déjà. Pour une vraie trace de performance, c'est la session principale qui la
+prend.
 
 ## Attention : deux copies de travail
 
