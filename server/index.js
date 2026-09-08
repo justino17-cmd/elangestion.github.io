@@ -2986,9 +2986,9 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
       inv.comptesSite + ' compte(s) du site'
     ].join('\n· ')
     + (inv.opMessages
-        ? '\n\n⚠️ OP MESSAGES N\'EST PAS CONCERNÉ : ses conversations, ses salons et ses pièces jointes '
-          + 'vivent dans un espace Firestore séparé, dont l\'identifiant n\'est pas relié à celui-ci. '
-          + 'Ils resteront en place — à supprimer à part.'
+        ? '\n\nOP MESSAGES N\'EST PAS TOUCHÉ, ET C\'EST VOULU : l\'application est encore en '
+          + 'développement et ne doit pas être supprimée. Ses conversations, ses salons et ses pièces '
+          + 'jointes vivent dans un espace séparé d\'OP GESTION et y restent.'
         : '');
     try {
       await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,

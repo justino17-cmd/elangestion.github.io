@@ -1019,6 +1019,11 @@ var PRO={loaded:false,err:'',codes:[],actifsTotal:0};
 /* Le dossier de l'entreprise selectionnee : ce qu'elle utilise, qui s'y connecte, ce qui
    plante chez elle, et sa formule offerte s'il y en a une. Un seul appel, un seul objet. */
 var DOS={nom:'',loaded:false,err:'',d:null};
+/* Le dossier d'un espace SANS NOM. Il ne passe pas par /entreprise/dossier, qui part
+   du nom d'annuaire — il n'en a pas. Il passe par les connexions, qui n'ont besoin que
+   de l'identifiant technique. C'est tout ce qu'on a sur lui, et c'est assez pour
+   décider s'il se supprime. */
+var ORPH={t:'',loaded:false,err:'',d:null};
 function chargerPromos(){
   PRO.loaded=false; PRO.err='';
   apiGet('/api/monitor/promos').then(function(d){
@@ -1059,10 +1064,48 @@ function entSel(t){
   if(ENT.sel){
     var o=(ENT.liste||[]).find(function(x){ return x.t===ENT.sel; })||{};
     var nm=o.nom||o.slug||'';
-    if(nm) chargerDossier(nm); else DOS={nom:'',loaded:true,err:'Espace hors annuaire : pas de dossier détaillé tant qu’il n’a pas de nom.',d:null};
+    if(nm){ chargerDossier(nm); ORPH={t:'',loaded:false,err:'',d:null}; }
+    else { DOS={nom:'',loaded:true,err:'',d:null}; chargerOrphelin(ENT.sel); }
     CLI.sel=o.email||null;
     if(o.email) setTimeout(function(){ tourPackPrefill(nm||o.email); },150);
   } else { DOS={nom:'',loaded:false,err:'',d:null}; CLI.sel=null; }
+}
+/* Ce que le serveur sait d'un espace qu'aucun annuaire ne nomme : ses connexions. La route
+   accepte l'identifiant technique seul, sans nom — c'est justement le cas ici. */
+function chargerOrphelin(t){
+  ORPH={t:t,loaded:false,err:'',d:null}; rafraichirSiConcerne();
+  apiPost('/api/monitor/espaces/connexions',{t:t,n:120}).then(function(r){
+    if(ORPH.t!==t) return;   /* on a changé d'espace entre-temps */
+    if(r&&r.ok&&r.d&&r.d.ok) ORPH.d=r.d; else ORPH.err=(r&&r.d&&r.d.error)||'Indisponible.';
+    ORPH.loaded=true; rafraichirSiConcerne();
+  }).catch(function(){ if(ORPH.t===t){ ORPH.err=INJOIGNABLE; ORPH.loaded=true; rafraichirSiConcerne(); } });
+}
+/* Ce qu'on peut DÉDUIRE, et rien de plus. Chaque phrase repose sur un champ qui existe
+   vraiment ; on ne devine pas, on compte. */
+function orphelinLecture(d){
+  var ev=(d&&d.evenements)||[], r=(d&&d.resume)||{};
+  var logins={}, devs={}, vers={}, echecs=0, betas=0;
+  ev.forEach(function(x){
+    if(x.login) logins[String(x.login).toLowerCase()]=1;
+    if(x.dev) devs[x.dev]=1;
+    if(x.version){ vers[x.version]=1; if(String(x.version).indexOf('-beta')>=0) betas++; }
+    if(x.ev==='echec') echecs++;
+  });
+  var nbL=Object.keys(logins).length, nbD=Object.keys(devs).length;
+  var premiere=ev.length?ev[ev.length-1].ts:0;
+  var reussies=ev.length-echecs;
+  return {
+    ev:ev, nbLogins:nbL, nbAppareils:nbD, echecs:echecs, reussies:reussies,
+    premiere:premiere, derniere:r.derniere||0,
+    /* La version de la bêta porte « -beta » : c'est le seul marqueur fiable, le champ
+       « app » vaut 'gestion' partout, y compris dans beta.html. */
+    beta:betas>0&&betas===Object.keys(vers).length,
+    versions:Object.keys(vers),
+    /* Personne n'est jamais entré : que des échecs. Ce n'est pas « jamais connecté ». */
+    jamaisEntre:ev.length>0&&reussies===0,
+    /* Un seul identifiant, un seul appareil, peu d'événements : un essai, très probablement. */
+    essai:nbL<=1&&nbD<=1&&ev.length<=12&&reussies>0
+  };
 }
 function chargerComptesSite(){
   CS.loaded=false; CS.err='';
@@ -2762,6 +2805,51 @@ function vueEntreprises(){
    l'ecran ne veut rien dire du tout. Ou le bloc parle, ou il n'existe pas. */
 function carteSi(html){ return html?'<div class="carte p24">'+html+'</div>':''; }
 
+/* ══ CE QU'ON SAIT D'UN ESPACE SANS NOM ══════════════════════════════════════
+   Il n'a pas d'entrée d'annuaire, donc ni nom, ni adresse, ni formule — rien de ce qui
+   remplit la fiche d'une cliente. Mais il a des CONNEXIONS, et elles disent presque
+   toujours de quoi il s'agit. On les montre, avec une lecture prudente : « très
+   probablement un essai » n'est pas « un essai ». C'est cette nuance qui empêche de
+   supprimer une entreprise dont on a seulement perdu le nom. */
+function blocOrphelin(o){
+  if(o.dansAnnuaire) return '';
+  var t='<div class="sec">CE QU’ON SAIT DE CET ESPACE</div>';
+  if(!ORPH.loaded) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">Lecture de ses connexions…</div>';
+  if(ORPH.err) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">'+esc(ORPH.err)+'</div>';
+  var L=orphelinLecture(ORPH.d);
+  if(!L.ev.length) return t+'<div style="margin-top:10px;font-size:13px;color:var(--text2)">Aucune connexion enregistrée. Cet espace n’a jamais servi — rien à perdre à le supprimer.</div>';
+
+  var puce=function(n,l,c){ return '<div style="flex:1;min-width:88px"><div style="font-size:19px;font-weight:700'+(c?';color:'+c:'')+'">'+n+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
+  t+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 4px">'+
+    puce(L.reussies,'connexion'+(L.reussies>1?'s':'')+' réussie'+(L.reussies>1?'s':''))+
+    puce(L.nbLogins,'identifiant'+(L.nbLogins>1?'s':''))+
+    puce(L.nbAppareils,'appareil'+(L.nbAppareils>1?'s':''))+
+    puce(L.echecs,'échec'+(L.echecs>1?'s':''),L.echecs?'var(--amber)':'')+
+  '</div>';
+  /* « Repéré le », jamais « créé le » : la liste des événements est plafonnée à 500, donc
+     le plus ancien qu'on garde n'est pas forcément le premier qui a eu lieu. */
+  t+='<div style="font-size:12.5px;color:var(--text2);line-height:1.8;margin-top:8px">'+
+    'Repéré le <b>'+esc(fmtJour(L.premiere))+'</b>'+(L.derniere?', vu pour la dernière fois le <b>'+esc(fmtJour(L.derniere))+'</b>':'')+'.'+
+    (L.versions.length?'<br>Version'+(L.versions.length>1?'s':'')+' : <span class="mono">v'+L.versions.map(esc).join(', v')+'</span>':'')+
+  '</div>';
+
+  /* La conclusion, et son degré de certitude. Trois cas seulement, parce qu'au-delà on
+     devinerait. */
+  var av;
+  if(L.beta) av=['p-gris','🧪 Application bêta — c’est un espace de test de l’équipe, jamais une cliente.'];
+  else if(L.jamaisEntre) av=['p-ambre','⛔ Que des échecs, aucune connexion réussie : personne n’est jamais entré ici. C’est presque sûrement quelqu’un qui s’est trompé sur l’écran de connexion.'];
+  else if(L.essai) av=['p-gris','Un seul identifiant, un seul appareil, peu de connexions : très probablement un essai. « Très probablement » — vérifiez la date avant de supprimer.'];
+  else av=['p-rouge','⚠️ Plusieurs personnes ou beaucoup de connexions : quelqu’un travaille là-dedans. Un espace sans nom n’est pas forcément un espace sans client — ce peut être une entreprise dont l’annuaire a été perdu. Ne supprimez pas sans en être sûr.'];
+  t+='<div style="margin-top:12px;padding:11px 13px;border-radius:10px;background:var(--tint-gris);font-size:12.5px;line-height:1.65;color:var(--text2)">'+av[1]+'</div>';
+
+  var der=L.ev.slice(0,6);
+  if(der.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px">Dernières connexions</div>'+
+    der.map(function(e){ return '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+esc(fmtJour(e.ts))+' · <b>'+esc(e.login||'sans identifiant')+'</b>'+
+      (e.ev==='echec'?' — <span style="color:var(--amber)">échec'+(e.motif?' : '+esc(e.motif):'')+'</span>':'')+
+      (e.version?' · <span class="mono">v'+esc(e.version)+'</span>':'')+'</div>'; }).join('')+'</div>';
+  return t;
+}
+
 /* ══ SUPPRIMER UNE ENTREPRISE, PARTOUT ═══════════════════════════════════════
    En dernier dans la fiche, dans un cadre à elle, en rouge : ce n'est pas une action
    parmi d'autres. Elle prend toute la largeur pour qu'on ne la clique pas en visant
@@ -2802,13 +2890,13 @@ function entSupprimer(t,nm){
         'que pour un espace réellement ouvert. Il n’est plus à l’annuaire, mais ce n’est pas forcément un essai : '+
         'ce peut être une entreprise dont on a perdu le nom. Vérifiez ses connexions avant de supprimer.</div>'
       : '';
-    /* OP MESSAGES vit dans un espace Firestore separe, dont l'identifiant n'est pas relie
-       a celui-ci : il ne part PAS avec le reste. Le taire ferait croire les conversations
-       supprimees alors qu'elles restent. */
+    /* OP MESSAGES ne se supprime PAS, et c'est une decision de Justin : l'application est
+       encore en developpement. Elle est simplement separee d'OP GESTION — leurs donnees ne
+       vivent pas au meme endroit. On l'ecrit pour que ce ne soit pas pris pour un oubli. */
     var msg=a.opMessages
       ? '<div style="margin-top:14px;padding:12px 14px;border-radius:10px;background:var(--tint-gris);font-size:13px;line-height:1.6;color:var(--text2)">'+
-        '💬 <b>OP MESSAGES n’est pas concerné.</b> Ses conversations, ses salons et ses pièces jointes vivent dans un espace séparé, '+
-        'qui n’est pas relié à celui-ci. Ils resteront en place — à supprimer à part.</div>'
+        '💬 <b>OP MESSAGES n’est pas touché, et c’est voulu.</b> L’application est encore en développement : '+
+        'elle ne se supprime pas. Ses conversations vivent dans un espace séparé d’OP GESTION et y restent.</div>'
       : '';
     tourPanneau(
       '<div style="font-size:18px;font-weight:700;color:var(--redText)">🗑 Supprimer « '+esc(nm)+' » partout</div>'+
@@ -2902,6 +2990,7 @@ function ficheEntreprise(){
   carteSi(blocUtilisateurs())+
   carteSi(blocDossier())+
   carteSi(blocEspaceDe(o))+
+  carteSi(blocOrphelin(o))+
   carteSi(blocComptesDe(o))+
   blocSupprimer(o)+
   '</div>';
