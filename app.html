@@ -4651,7 +4651,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '588';
+const APP_VERSION = '589';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -18388,11 +18388,17 @@ function bonSeparer(id){ const b=db.bons.find(x=>x.id===id); if(!b) return 0;
     db.bons.push({...base,id:uid(),numero:num,fournisseurId:fidOf(k),lignes:groups[k]});
     logEvent('Bon séparé par fournisseur',num+(k?' — '+k:''),'commande'); });
   save(); return n; }
-function bonStatut(id,s){ if(!peutCommander()){ refusCommander(); return; } const b=db.bons.find(x=>x.id===id); b.statut=s; if(s==='envoyee') b.dateEnvoi=todayISO();
+function bonStatut(id,s){ if(!peutCommander()){ refusCommander(); return; } const b=db.bons.find(x=>x.id===id);
+  /* Le bon a pu disparaître entre l'affichage de la liste et le tap : un autre appareil l'a
+     supprimé, la synchro a rattrapé. On le dit au lieu de planter. */
+  if(!b){ toast('Ce bon n’existe plus — la liste vient d’être mise à jour'); go(current); return; }
+  b.statut=s; if(s==='envoyee') b.dateEnvoi=todayISO();
   let sep=0; if(s==='prete') sep=bonSeparer(id);
   logEvent('Bon '+STATBC[s].l.toLowerCase(),bonNum(b),'commande'); save();
   toast(STATBC[s].l+(sep?' — ✂️ séparé en '+(sep+1)+' bons, un par fournisseur':'')); go(current); }
-function bonRecu(id){ const b=db.bons.find(x=>x.id===id); b.statut='livree';
+function bonRecu(id){ const b=db.bons.find(x=>x.id===id);
+  if(!b){ toast('Ce bon n’existe plus — la liste vient d’être mise à jour'); return; }
+  b.statut='livree';
   const bx=b.boxId?(db.boxes||[]).find(x=>x.id===b.boxId):null;
   (b.lignes||[]).forEach(l=>{ if(l.produitId){ const p=produit(l.produitId); if(p.id){ const q=bonLU(l);
     if(bx){ bx.stock=bx.stock||{}; const cur=bx.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+q; bx.stock[l.produitId]=cur;
@@ -21385,7 +21391,12 @@ const DEVIS_ST={brouillon:{l:'Brouillon',c:'st-grey'},envoye:{l:'Envoyé',c:'st-
 const FACT_ST={brouillon:{l:'En attente',c:'st-grey'},envoyee:{l:'Envoyée',c:'st-blue'},payee:{l:'Payée',c:'st-green'},retard:{l:'En retard',c:'st-red'}};
 const DOC={ devis:{coll:'devis',titre:'Devis',un:'devis',prefix:'DEV',st:DEVIS_ST}, factures:{coll:'factures',titre:'Facture',un:'facture',prefix:'FAC',st:FACT_ST} };
 const ligHT=ls=>(ls||[]).reduce((s,l)=>s+((+l.qte||0)*(+l.pu||0)),0);
-function docTot(d){ const ht=ligHT(d.lignes), tva=ht*(d.tva||0)/100; return {ht,tva,ttc:ht+tva}; }
+/* ⛔ `d` PEUT être introuvable, et ça arrive vraiment : la synchro efface un devis sur un
+   appareil pendant qu'un autre l'affiche encore, ou un lien pointe sur un document supprimé.
+   `d.lignes` sur undefined jetait « Cannot read properties of undefined (reading 'lignes') »
+   — vue dans la Tour, chez une entreprise dont les six appareils tournaient sur six versions
+   différentes. Un total à zéro se voit et se corrige ; un écran blanc sur un chantier, non. */
+function docTot(d){ d=d||{}; const ht=ligHT(d.lignes), tva=ht*(d.tva||0)/100; return {ht,tva,ttc:ht+tva}; }
 function docNum(kind){ return nextNum(DOC[kind].coll, DOC[kind].prefix, 'num'); }
 /* ── DEVIS IA ── on décrit le travail avec ses mots, le serveur TeamOP demande
    à l'IA des lignes chiffrées, et le devis s'ouvre en brouillon à relire.
@@ -23527,7 +23538,9 @@ function devisToFacture(id){ const d=db.devis.find(x=>x.id===id); const num=docN
   logEvent('Facture créée depuis devis',num,'finance'); save(); factFilter='brouillon'; toast('Facture '+num+' créée — elle est En attente : vérifie l\'aperçu puis envoie-la'); go('factures'); }
 
 function printDoc(kind,id){
-  const cfg=DOC[kind], d=db[cfg.coll].find(x=>x.id===id), c=db.clients.find(x=>x.id===d.clientId)||{}, t=docTot(d); const soc=rapportSociete(d.rapportModele);
+  const cfg=DOC[kind], d=db[cfg.coll].find(x=>x.id===id);
+  if(!d){ toast('Ce document n’existe plus'); return; }
+  const c=db.clients.find(x=>x.id===d.clientId)||{}, t=docTot(d); const soc=rapportSociete(d.rapportModele);
   const E=db.entreprise||{};
   const estFact=(kind==='factures'), paye=(d.statut==='payee');
   /* chaque société a son habit : sa couleur et son logo colorent le document */
