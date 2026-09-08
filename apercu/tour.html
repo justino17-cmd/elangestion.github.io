@@ -3925,12 +3925,18 @@ function vueEntreprises(){
      déployée d'app.html, et déduire la référence de la liste évite d'attendre une route. */
   var refKpi=verReference();
   var enRetard=(ENT.liste||[]).filter(function(o){ return verEtat(o,refKpi).retard; }).length;
+  /* On ne compte QUE les espaces d'annuaire : un espace hors annuaire n'a pas de code, donc
+     pas de clé connue — le compter « à migrer » ferait un chiffre qui ne descend jamais. */
+  var aMigrer=(ENT.liste||[]).filter(function(x){ return x.dansAnnuaire && !x.cleePropre; }).length;
   var kpi='<div class="grille-kpi simple" style="margin-bottom:20px">'+
     compteur(st.total||0,'entreprises connues','','')+
     compteur(st.avecErreurs||0,'erreurs signalées','--redText','erreurs')+
     compteur(st.avecEchecs||0,'échecs de connexion','--amber','echecs')+
     compteur(enRetard,'sans la mise à jour','--amber','retard')+
     compteur(st.horsAnnuaire||0,'hors annuaire','','horsAnnuaire')+
+    /* Le chiffre qui dimensionne le chantier « un teamId par entreprise » : celles qui
+       partagent encore la clé écrite en clair dans app.html. À zéro, le chantier est fini. */
+    compteur(aMigrer,'à migrer (clé partagée)',(aMigrer?'--amber':''),'migrer')+
   '</div>'+
   (refKpi?'<div style="font-size:12px;color:var(--muted);margin:-12px 0 18px">Version en ligne : <b class="mono">v'+refKpi+'</b> <span style="color:var(--dim)">— déduite de la plus récente vue chez vos clientes</span></div>':'');
   var q=(ENT.q||'').toLowerCase().trim();
@@ -3943,6 +3949,7 @@ function vueEntreprises(){
     if(ENT.filtre==='echecs') return o.echecs24>0;
     if(ENT.filtre==='horsAnnuaire') return !o.dansAnnuaire;
     if(ENT.filtre==='retard') return verEtat(o,refFiltre).retard;
+    if(ENT.filtre==='migrer') return o.dansAnnuaire && !o.cleePropre;
     return true;
   };
   var l=(ENT.liste||[]).filter(function(o){
@@ -4253,6 +4260,15 @@ function ficheEntreprise(){
       '<div style="flex:1;min-width:180px">'+
         '<div style="font-size:17.5px;font-weight:700">'+esc(nm)+'</div>'+
         '<div class="mono" style="font-size:12px;color:var(--muted);margin-top:3px;word-break:break-all">'+esc(o.email||o.t)+'</div>'+
+        /* L'identifiant d'espace n'apparaissait NULLE PART sur la fiche d'une entreprise qui a
+           une adresse : « o.email || o.t » montrait l'un OU l'autre. C'est pourtant lui qui dit
+           où vivent ses données. Il s'affiche maintenant TOUJOURS, avec ce qu'il signifie. */
+        (o.email?'<div class="mono" style="font-size:12px;color:var(--dim);margin-top:2px;word-break:break-all">espace '+esc(o.t)+'</div>':'')+
+        '<div style="font-size:12.5px;margin-top:6px;line-height:1.5">'+
+          (o.cleePropre
+            ? '<span style="color:var(--acc-txt)">🔐 <b>Clé propre</b></span> <span style="color:var(--muted)">— ses données ne se déchiffrent qu’avec sa clé à elle. Rien à migrer.</span>'
+            : '<span style="color:var(--amber)">🔓 <b>Clé partagée par défaut</b></span> <span style="color:var(--muted)">— celle qui est écrite en clair dans app.html. À migrer.</span>')+
+        '</div>'+
       '</div>'+
       (o.suspendu?'<span class="past p-rouge">⏸ Suspendue</span> ':'')+
       '<span class="past '+(o.origine==='site'?'p-vert':(o.origine==='tour'?'p-orange':'p-gris'))+'">'+
