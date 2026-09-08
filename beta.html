@@ -4673,7 +4673,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '597-beta';
+const APP_VERSION = '598-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -25998,7 +25998,7 @@ function updateSyncBtn(){ const b=$('sync-btn'); if(!b) return; b.style.color=_s
 /* Bannière « nouvelle version » */
 function showUpdateBanner(){ if($('update-banner')) return; const d=document.createElement('div'); d.id='update-banner';
   d.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));z-index:130;background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:12px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5);display:flex;gap:12px;align-items:center';
-  d.innerHTML='Mise à jour disponible <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
+  d.innerHTML='Mise à jour disponible'+(typeof majAttenteTxt==='function'?majAttenteTxt():'')+' <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
   document.body.appendChild(d); }
 /* « Mettre à jour » : on demande d'abord au service worker de ranger la version fraîche
    (réseau lent compris), puis on recharge — sinon l'ancienne copie revenait et le bandeau avec. */
@@ -26011,50 +26011,38 @@ function majAppliquer(){ const b=$('update-banner'); if(b) b.innerHTML='⏳ Mise
         else go(); };
       sw.postMessage({op:'maj-forcer',url:location.pathname},[ch.port2]); return; } }catch(e){}
   go(); }
-/* ══════════ LA MISE À JOUR S'APPLIQUE TOUTE SEULE ══════════════════════════════════════
-   Demande de Justin, 8 septembre 2026 : « j'ai peur qu'à cause de ce bouton-là, beaucoup de
-   gens évitent de le faire ». Mesuré le jour même sur le dossier d'une entreprise : six
-   appareils, six versions, dont un trente-six versions en arrière — donc sans aucune des
-   corrections de la journée. Le bouton n'était pas une sécurité, c'était un barrage.
+/* ══════════ LA MISE À JOUR SE DEMANDE, MAIS ELLE INSISTE ═══════════════════════════════
+   Retour en arrière assumé, décidé par Justin le 8 septembre 2026 après l'avoir essayé :
+   « remets le bouton mise à jour, c'est plus sûr — et s'ils ne la font pas, ça leur met un
+   message toutes les dix minutes ».
 
-   Mais recharger sous les doigts de quelqu'un lui fait perdre ce qu'il est en train de taper,
-   et sur un chantier ça ne se rattrape pas. On ne recharge donc QUE quand il n'y a rien à
-   perdre, et l'un des deux suffit :
-   · l'application n'est pas au premier plan — personne ne la regarde ;
-   · ou elle l'est, mais au repos : aucune fenêtre ouverte, aucun champ en cours de saisie,
-     et plus un geste depuis vingt-cinq secondes.
-   Le bandeau reste affiché pour qui veut la version immédiatement. */
-let _majArmee=false, _majTimer=null, _dernierGeste=Date.now();
-['pointerdown','keydown','wheel','touchstart'].forEach(ev=>{
-  try{ window.addEventListener(ev,()=>{ _dernierGeste=Date.now(); },{passive:true,capture:true}); }catch(e){}
-});
-/* Ce qu'on refuse d'interrompre. Renvoie la raison, vide quand la voie est libre. */
-function majRisque(){
-  try{
-    const ov=document.getElementById('overlay');
-    if(ov&&ov.classList.contains('open')) return 'fenêtre ouverte';
-    const a=document.activeElement;
-    if(a&&(/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)||a.isContentEditable)) return 'saisie en cours';
-    if(Date.now()-_dernierGeste<25000) return 'utilisée à l\'instant';
-  }catch(e){}
-  return '';
-}
+   Le rechargement automatique de la v591 ne franchissait jamais une saisie en cours ; il
+   restait qu'il décidait à la place de quelqu'un, sur un outil de travail, parfois au milieu
+   d'une tournée. C'est son droit de refuser ça.
+
+   Ce n'est PAS un retour à la situation de départ, celle où six appareils vivaient sur six
+   versions : ce qui bloquait, ce n'était pas le bouton, c'était de ne jamais savoir qu'une
+   version existait. Trois choses le disent maintenant, et elles restent :
+   · le contrôle toutes les quinze minutes et à chaque retour au premier plan (v591) ;
+   · la version qui voyage avec la synchro — le premier appareil à jour prévient les autres
+     à la seconde (v593), et il l'annonce dès l'ouverture (v596) ;
+   · et désormais l'insistance : le bandeau REVIENT toutes les dix minutes tant que la mise à
+     jour n'est pas faite. Le fermer le repousse de dix minutes, il ne l'éteint pas. */
+let _majArmee=false, _majTimer=null, _majDepuis=0;
 function majArmer(){
+  if(_majArmee) return; _majArmee=true; _majDepuis=Date.now();
   try{ showUpdateBanner(); }catch(e){ try{ toast('Mise à jour disponible'); }catch(_){} }
-  if(_majArmee) return; _majArmee=true;
-  /* ⛔ UNE SEULE TENTATIVE AUTOMATIQUE PAR HEURE, et le repère survit au rechargement (il vit
-     dans sessionStorage). Si la version fraîche se révélait identique à celle qu'on affiche
-     déjà — réseau qui ressert l'ancienne, cache intermédiaire — on rechargerait en boucle,
-     sans fin et sans que personne comprenne pourquoi. */
-  let dernier=0; try{ dernier=+(sessionStorage.getItem('elanB_maj_auto')||0); }catch(e){}
-  if(Date.now()-dernier<3600000) return;
   clearInterval(_majTimer);
-  _majTimer=setInterval(()=>{
-    if(document.visibilityState!=='hidden' && majRisque()) return;
-    clearInterval(_majTimer);
-    try{ sessionStorage.setItem('elanB_maj_auto',String(Date.now())); }catch(e){}
-    majAppliquer();
-  },5000);
+  _majTimer=setInterval(()=>{ try{ showUpdateBanner(); }catch(e){} },600000);
+}
+/* Depuis combien de temps elle attend — c'est ce qui transforme un rappel en argument. */
+function majAttenteTxt(){
+  if(!_majDepuis) return '';
+  const min=Math.floor((Date.now()-_majDepuis)/60000);
+  if(min<10) return '';
+  if(min<60) return ' — en attente depuis '+min+' min';
+  const h=Math.floor(min/60);
+  return ' — en attente depuis '+h+' h';
 }
 function avatarAccentSync(){ try{ if(!currentUser) return; const u=db.users.find(x=>x.id===currentUser.id); const m=u&&u.photoMeta; if(!m||!u.photo) return;
   const logoAJour=(m.type!=='insta')||(m.logoV===3 && m.badgeKey===brandBadgeKey());
