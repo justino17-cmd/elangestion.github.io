@@ -15887,11 +15887,28 @@ function renderBoxDetail(){
     <div id="boxprod-haut"></div>
     <input class="search-inp" id="boxprod-search" placeholder="Rechercher un produit…" value="${esc(boxProdSearch)}" oninput="boxProdSearch=this.value;renderBoxProdList()">
     <div id="boxprod-list"></div>
+    ${(()=>{ /* ⛔ Les commandes reçues DISPARAISSAIENT de la box : le bloc du haut ne montre que
+         ce qui n'est ni livré ni annulé, et « Commandes en cours » s'arrête à la réception. Une
+         fois l'arrivage validé, plus rien sur la box ne disait ce qui avait été commandé — or
+         c'est exactement le moment où l'on veut comparer. Demande de Justin, 8 septembre 2026 :
+         « quand la personne va valider dans le box la commande, il ne faut pas qu'il perde
+         quand même la main sur les commandes précédentes passées avant. » */
+      const passees=(db.bons||[]).filter(x=>x.boxId===b.id&&['livree','annulee'].includes(x.statut))
+        .sort((x,y)=>String(y.dateReception||y.livreLe||y.date||'').localeCompare(String(x.dateReception||x.livreLe||x.date||'')));
+      if(!passees.length) return '';
+      return `<div class="card-head" style="margin:18px 2px 6px"><h3>Commandes passées (${passees.length})</h3></div>
+      <div style="font-size:12.5px;color:var(--t3);margin:0 2px 8px;line-height:1.5">Ce qui a déjà été commandé pour cette box, même après réception — touche une ligne pour rouvrir son <b>PDF</b> et le comparer à l'arrivage.</div>
+      ${passees.slice(0,25).map(x=>`<div class="pl-row" onclick="ficheBon('${x.id}')">
+        <span style="width:40px;height:40px;border-radius:10px;background:color-mix(in srgb,var(--acc) 13%,transparent);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:17px">${x.statut==='annulee'?'🚫':'📄'}</span>
+        <div class="pl-info"><div class="pl-title">${esc(fournName(x.fournisseurId)||x.fournisseur||'Fournisseur')} — ${(x.lignes||[]).length} article(s)</div>
+        <div class="pl-meta">${esc(bonNum(x))} · ${bonQteTotTxt(x)}${(x.dateReception||x.livreLe)?` · reçu le ${fmtShort(x.dateReception||x.livreLe)}`:''}${x.recuPar?` par ${esc(x.recuPar)}`:''}${x.valideDrNom?` · validé par ${esc(x.valideDrNom)}`:''}</div></div>
+        <span class="st ${x.statut==='annulee'?'st-red':'st-green'}">${x.statut==='annulee'?'Annulée':'Reçue'}</span></div>`).join('')}
+      ${passees.length>25?`<div style="font-size:12px;color:var(--t3);padding:4px 2px">… + ${passees.length-25} plus anciennes — elles restent dans <b>Bons de commande</b>.</div>`:''}`; })()}
     <div class="card-head" style="margin:18px 2px 6px"><h3>Arrivages (${(b.arrivages||[]).length})</h3></div>
     ${(b.arrivages&&b.arrivages.length)? b.arrivages.map(a=>`<div class="pl-row" style="cursor:default">
       ${a.photo?`<img src="${a.photo}" onclick="window.open(this.src)" style="width:52px;height:52px;object-fit:cover;border-radius:9px;border:1px solid var(--brd);cursor:pointer;flex-shrink:0">`:''}
       <div class="pl-info"><div class="pl-title">${esc(a.fournisseur||'')} — ${(a.lignes||[]).reduce((t,l)=>t+(l.qte||0),0)} produit(s)</div>
-      <div class="pl-meta">${fmtTs(a.ts)} · par ${esc(a.par||'')}</div>
+      <div class="pl-meta">${fmtTs(a.ts)} · par ${esc(a.par||'')}${a.bcId&&(db.bons||[]).some(x=>x.id===a.bcId)?` · <a onclick="event.stopPropagation();ficheBon('${a.bcId}')" style="color:var(--acc);font-weight:700;text-decoration:underline;cursor:pointer">📄 ${esc(a.bcNum||'voir le bon')}</a>`:''}</div>
       <div style="font-size:11px;color:var(--t3);margin-top:3px">${(a.lignes||[]).map(l=>{const p=produit(l.produitId);return esc((p.nom||'?'))+' ×'+l.qte;}).join(' · ')}</div></div>
       ${can('supprimer')?`<button class="btn ghost sm" style="padding:2px 8px" onclick="delArrivage('${b.id}','${a.id}')">✕</button>`:''}
     </div>`).join('') : '<div style="color:var(--t3);font-size:13px;padding:2px 2px 6px">Aucun arrivage — touche « Arrivage » pour enregistrer une réception.</div>'}
@@ -16009,7 +16026,10 @@ function saveArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) ret
   lignes.forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
     db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+four+' — '+(b.nom||b.numero||''),vehiculeId:'',boxId:b.id,technicien:fullName(currentUser)}); });
   b.arrivages=b.arrivages||[];
-  b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:four,lignes:lignes.map(l=>({produitId:l.produitId,qte:l.qte})),photo:_arrPhoto||'',par:fullName(currentUser)});
+  /* L'arrivage garde le bon dont il vient. Sans ce lien, comparer « ce qui a été commandé » à
+     « ce qui est arrivé » demandait d'ouvrir un autre écran et de retrouver le bon à la main —
+     donc, en pratique, personne ne comparait. */
+  b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:four,lignes:lignes.map(l=>({produitId:l.produitId,qte:l.qte})),photo:_arrPhoto||'',par:fullName(currentUser),bcId:bonLie?bonLie.id:'',bcNum:bonLie?bonNum(bonLie):''});
   if(b.arrivages.length>40) b.arrivages.length=40;
   if(bonLie){ bonLie.statut='livree'; bonLie.recuPar=fullName(currentUser); bonLie.recuLe=todayISO(); bonLie.livreLe=todayISO();
     logEvent('Commande livrée',bonNum(bonLie)+' — arrivage en box '+(b.nom||b.numero||''),'commande'); }
@@ -16610,7 +16630,8 @@ function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('V
   if(m.type==='arrivage'){
     (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
       db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR)',vehiculeId:'',boxId:b.id,boxNomTxt:(b.nom||b.numero||''),technicien:m.par||'',validePar:fullName(currentUser),roleConso:roleDeNom(m.par||'')}); });
-    b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).map(l=>({produitId:l.produitId,qte:l.qte})),photo:m.photo||'',par:m.par||''});
+    const bonArr=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||null):null;
+    b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).map(l=>({produitId:l.produitId,qte:l.qte})),photo:m.photo||'',par:m.par||'',bcId:m.bcId||'',bcNum:bonArr?bonNum(bonArr):''});
     if(b.arrivages.length>40) b.arrivages.length=40;
     if(m.bcId){ const bonV=(db.bons||[]).find(x=>x.id===m.bcId);
       if(bonV){ bonV.statut='livree'; bonV.valideDrNom=fullName(currentUser); bonV.livreLe=todayISO(); bonV.dateReception=bonV.dateReception||todayISO();
@@ -18869,9 +18890,12 @@ function exportBonCSV(id){ const b=db.bons.find(x=>x.id===id); if(!b)return;
 views.commandes=function(){
   setHeader('Commandes en cours','Bons envoyés / en livraison');
   const list=visibleBons(db.bons).filter(b=>['envoyee','enLivraison','arrivageNote'].includes(b.statut));   // ses box seulement (sauf « voir tout »)
-  $('content').innerHTML=list.length? list.map(b=>{
+  /* Dire où va la suite : une commande reçue quitte cet écran, et sans un mot personne ne sait
+     où la retrouver — on croit l'avoir perdue. */
+  const pied=`<div style="font-size:12.5px;color:var(--t3);margin:14px 2px 0;line-height:1.6">📄 Une commande <b>reçue</b> quitte cette liste : on la retrouve sur la <b>fiche de sa box</b> (« Commandes passées »), avec son PDF, et dans <b>Bons de commande</b>. Rien n'est effacé.</div>`;
+  $('content').innerHTML=(list.length? list.map(b=>{
     const suivi=(b.recuPar?` · reçu le ${fmtShort(b.recuLe)} par ${esc(b.recuPar)}`:'')+(b.valideDrNom?` · validé par ${esc(b.valideDrNom)}`:'');
-    return `<div class="pl-row" onclick="ficheBon('${b.id}')"><div class="pl-info"><div class="pl-title">${esc(fournName(b.fournisseurId)||b.fournisseur||'Fournisseur')} · ${(b.lignes||[]).length} article(s)</div><div class="pl-meta">${esc(bonNum(b))} · ${bonQteTotTxt(b)}${suivi}</div></div>${b.statut==='arrivageNote'?'<span class="st st-purple">📦 Arrivée — attente DR</span>':badge(STATBC,b.statut)}</div>`;}).join('') : emptyState('📥','Aucune commande en cours.','','');
+    return `<div class="pl-row" onclick="ficheBon('${b.id}')"><div class="pl-info"><div class="pl-title">${esc(fournName(b.fournisseurId)||b.fournisseur||'Fournisseur')} · ${(b.lignes||[]).length} article(s)</div><div class="pl-meta">${esc(bonNum(b))} · ${bonQteTotTxt(b)}${suivi}</div></div>${b.statut==='arrivageNote'?'<span class="st st-purple">📦 Arrivée — attente DR</span>':badge(STATBC,b.statut)}</div>`;}).join('') : emptyState('📥','Aucune commande en cours.','',''))+pied;
 };
 
 /* ═══════════════ VÉHICULES (fiche complète : carte grise, assurance, conducteur — modèle ELAN) ═══════════════ */

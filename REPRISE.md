@@ -96,7 +96,7 @@ Ce n'est pas une régression et ça ne vient pas d'un lot récent. Signalé par 
 8 septembre 2026, laissé de côté délibérément : ça se conçoit, se teste et se publie seul.
 C'est le même chantier que celui du teamId — les deux se tiennent.
 
-## Journée du 8 septembre 2026 — cinq lots partis depuis le terrain (v576 → v580)
+## Journée du 8 septembre 2026 — huit lots partis depuis le terrain (v576 → v584)
 
 Justin était **chez ELAN**, et a signalé les gênes au fur et à mesure. Tout est publié et
 vérifié sur les fichiers réellement servis. Aucun de ces lots ne touche `server/`.
@@ -126,6 +126,31 @@ vérifié sur les fichiers réellement servis. Aucun de ces lots ne touche `serv
 **Ce qu'ELAN doit faire pour en profiter** : cocher « Bons de commande : consultation seule »
 sur la fiche de chaque DR (Utilisateurs → ✎), et leur donner la rubrique « Commandes en
 cours ». Rien n'est activé d'office.
+
+### Le soir du 8 septembre — v581 à v584
+
+| Version | Ce qui change |
+|---|---|
+| **v581** | « Repartir sur une base propre » : remise à zéro à la carte, huit lignes, sauvegarde `.json` téléchargée avant. Box, produits, fournisseurs, comptes et réglages ne sont JAMAIS touchés. |
+| **v582–583** | La liste de prélèvement se compose en tapant sur − et ＋, reste en brouillon, et ne part au DR qu'au « Valider ». Un DR peut donner la main pendant ses congés (dates, remplaçant, trace dans les deux historiques, extinction automatique au retour). |
+| **v584** | **On peut ÉCRIRE la quantité.** Le chiffre entre − et ＋ était un `<b>` : rien à toucher, dix taps pour dix unités. Il devient un bouton qui ouvre « Combien ? » — on écrit le nombre, on choisit le sens, et les DEUX issues sont écrites avant de valider. Un seul mouvement de −10 au journal, pas dix de −1. |
+| **v584** | La liste s'ouvre en grand : chaque ligne porte son nombre écrivable, son sens, ce qu'il restera, et on ajoute un autre produit de la box sans fermer. Jamais sous zéro, même au clavier — on plafonne et on le dit. |
+| **v584** | **« Permissions » quitte le menu.** Il n'y avait pas deux systèmes de droits : il y avait deux ENDROITS pour régler le même, d'où « il faut valider dans les deux ». Dans Utilisateurs, on touche un nom et tout s'affiche ; « ✎ Modifier » ouvre sa fiche, qui gagne les sous-droits par catégorie (＋ Ajouter / ✎ Modifier / 🗑 Supprimer) — ils n'existaient que dans l'écran supprimé. Le réglage PAR RÔLE reste à part, depuis l'en-tête. |
+| **v584** | « Mes demandes » et « Historique demandes » ne font plus qu'un écran, deux onglets, historique replié par mois. |
+| **v584** | Congés DR : le remplaçant voit AUSSI les box de l'absent, aux dates de la délégation. Valider un mouvement sur un stock qu'on ne peut pas ouvrir, ce n'était pas valider. |
+
+**La chaîne des droits, mesurée le 8 septembre** (pas déduite du code — éprouvée dans le
+navigateur, compte par compte) :
+
+- **« Commandes en cours » ne montre que les bons des box qu'on voit.** `visibleBons` →
+  `mesBoxIds()` → `visibleBoxes()`. Donc : pour qu'un DR voie les commandes des box de son
+  chef d'équipe, il faut soit « Tout voir », soit que ces box lui soient rattachées
+  (responsable, ou cochées pour lui).
+- **Par défaut, `db.permissions` donne « Tout voir » au DR ET au chef d'équipe.** Un chef
+  d'équipe voit donc tout jusqu'à ce qu'on le lui retire — c'est le contraire de ce que
+  croient les entreprises.
+- `CAPS` (le socle) met tous les rôles à zéro ; c'est `db.permissions` qui ouvre. Les deux
+  se lisent dans cet ordre : fiche de la personne, puis rôle de l'entreprise, puis `CAPS`.
 
 **Reste demandé et non fait** : rendre la Tour de contrôle cohérente — « il y a beaucoup trop
 de choses pour que ça soit cohérent et logique ». Les dix écrans ont été capturés et mesurés
