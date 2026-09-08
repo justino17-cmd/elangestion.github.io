@@ -156,6 +156,11 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
 .item:active{transform:scale(.99);transition-duration:var(--d-0)}
 .item.on{background:var(--sel);box-shadow:inset 0 0 0 1.5px var(--acc)}
 .vide{border:1.5px dashed var(--line);border-radius:var(--r-4);padding:36px 22px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
+/* L'invitation a choisir occupe la colonne : elle repond a la liste d'en face,
+   au lieu de flotter en haut d'un vide de 500 px. Plafonnee, pour qu'une liste
+   tres longue ne l'etire pas absurdement. */
+.col-detail .vide.accueil{min-height:min(52vh,420px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:40px 32px}
+.col-detail .vide.accueil p{margin:0;max-width:34ch}
 .code{background:var(--inset);border-radius:var(--r-2);padding:12px 13px;font-family:var(--fm);font-size:12.5px;color:var(--code);white-space:pre;overflow-x:auto;line-height:1.55}
 .encart{display:flex;gap:12px;align-items:flex-start;background:var(--accBg);border-radius:var(--r-3);padding:14px 16px;margin-top:16px}
 .encart-tx{font-size:13px;color:var(--muted);line-height:1.55}
@@ -654,6 +659,15 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ ret
 function jsq(s){ return String(s==null?'':s)
   .replace(/\\/g,'\\\\').replace(/'/g,"\\'")
   .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+/* Deux lettres valent mieux qu'une pour distinguer d'un coup d'œil, et une parenthèse ne
+   vaut rien : ini() renvoyait « ( » pour « (espace sans nom) ». On ignore la ponctuation et
+   on prend les initiales des deux premiers mots, ou les deux premières lettres. */
+function sigle(n){
+  var mots=String(n||'?').replace(/[^\p{L}\p{N}\s.-]/gu,' ').trim().split(/[\s.-]+/).filter(Boolean);
+  if(!mots.length) return '?';
+  if(mots.length>1) return (mots[0][0]+mots[1][0]).toUpperCase();
+  return mots[0].slice(0,2).toUpperCase();
+}
 function ini(n){ return (String(n||'?').trim()[0]||'?').toUpperCase(); }
 function hAuth(){ return { 'Content-Type':'application/json', 'Authorization':'Bearer '+TOKEN }; }
 /* Le statut voyage avec l'erreur. Sans lui, un 403 « tu n'as pas ce droit » était rapporté
@@ -902,7 +916,7 @@ var PBL={loaded:false,err:'',liste:[]};
 var CS={loaded:false,err:'',comptes:[],q:'',anonymes:0};
 /* TOUTES les entreprises, d'ou qu'elles viennent. CLI ne connait que les clients du site ;
    ENT part de cnxData + espacesReg reunis, donc rien de ce qui a vecu ne peut manquer. */
-var ENT={loaded:false,err:'',liste:[],q:'',stats:{}};
+var ENT={loaded:false,err:'',liste:[],q:'',stats:{},filtre:''};
 /* Les codes promo : qui profite d'une formule offerte, et jusqu'a quand. Independant de
    Stripe - un code promo ne passe pas par lui - donc charge et affiche meme quand Stripe
    n'est pas relie au serveur. */
@@ -926,6 +940,11 @@ function chargerEntreprises(){
   }).catch(function(){ ENT.err='Liste des entreprises illisible — serveur injoignable.'; ENT.loaded=true; rafraichirSiConcerne(); });
 }
 function entQ(v){ ENT.q=v; rafraichirSiConcerne(); }
+/* Cliquer un compteur restreint la liste ; le recliquer la rouvre. C'est le seul geste
+   de cet ecran, donc il doit etre reversible sans chercher un bouton « tout voir »
+   ailleurs. La selection en cours est conservee : on filtre ce qu'on regarde, on ne
+   perd pas la fiche ouverte. */
+function entFiltre(f){ ENT.filtre=(ENT.filtre===f?'':f); rafraichirSiConcerne(); }
 /* Selection par identifiant d'espace : c'est la seule cle que TOUTES les sources partagent.
    L'e-mail manque aux espaces hors annuaire, le nom se renomme. */
 function entSel(t){
@@ -2493,31 +2512,62 @@ function vueEntreprises(){
     '<button class="btn-plein" onclick="annonceEnvoyer(this)" title="Envoie l’e-mail des nouveautés de la dernière mise à jour à toutes les entreprises">📣 Annoncer la mise à jour</button>');
   if(!ENT.loaded) return tete+'<div class="vide">Chargement des entreprises…</div>';
   if(ENT.err) return tete+'<div class="vide">'+esc(ENT.err)+'</div>';
-  /* Trois chiffres qui disent où regarder en premier : ce qui plante, ce qui bloque des gens
-     dehors, et ce qui existe sans être dans l'annuaire — donc invisible partout ailleurs. */
+  /* Ces quatre nombres ne sont pas un tableau de bord : ce sont les quatre façons d'entrer
+     dans le travail. « 3 avec des erreurs » ne sert à rien si on doit ensuite chercher
+     lesquelles à la main — donc on clique dessus et la liste ne montre plus qu'elles.
+     Un compteur à zéro n'est pas cliquable : proposer un filtre qui ne filtre rien est une
+     promesse vide, et le curseur le dirait avant même le clic.
+     La couleur ne porte le sens QUE si elle a quelque chose à dire — un « 0 erreur » en
+     rouge crie pour rien. Et elle ne le porte jamais seule : le libellé nomme déjà ce qui
+     est compté, l'état choisi est repris en clair sous la recherche. */
+  var compteur=function(n,libelle,ton,cle){
+    var vif=n>0&&ton, actif=!!cle&&ENT.filtre===cle, clic=n>0&&!!cle;
+    return '<div class="kpi'+(clic?' clic':'')+(actif?' sel':'')+'"'+
+      (clic?' onclick="entFiltre(\''+cle+'\')" tabindex="0" role="button" aria-pressed="'+(actif?'true':'false')+
+            '" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();entFiltre(\''+cle+'\')}"'+
+            ' title="'+(actif?'Revenir à toutes les entreprises':'Ne montrer que ces entreprises')+'"':'')+'>'+
+      '<div class="n"'+(vif?' style="color:var('+ton+')"':'')+'>'+n+'</div>'+
+      '<div class="l">'+libelle+'</div>'+
+    '</div>';
+  };
   var kpi='<div class="grille-kpi" style="margin-bottom:20px">'+
-    '<div class="kpi"><div class="n">'+(st.total||0)+'</div><div class="l">entreprises connues</div></div>'+
-    '<div class="kpi"><div class="n"'+(st.avecErreurs?' style="color:var(--redText)"':'')+'>'+(st.avecErreurs||0)+'</div><div class="l">avec des erreurs</div></div>'+
-    '<div class="kpi"><div class="n"'+(st.avecEchecs?' style="color:var(--amber)"':'')+'>'+(st.avecEchecs||0)+'</div><div class="l">avec des échecs de connexion</div></div>'+
-    '<div class="kpi"><div class="n">'+(st.horsAnnuaire||0)+'</div><div class="l">hors annuaire</div></div>'+
+    compteur(st.total||0,'entreprises connues','','')+
+    compteur(st.avecErreurs||0,'avec des erreurs','--redText','erreurs')+
+    compteur(st.avecEchecs||0,'avec des échecs de connexion','--amber','echecs')+
+    compteur(st.horsAnnuaire||0,'hors annuaire','','horsAnnuaire')+
   '</div>';
   var q=(ENT.q||'').toLowerCase().trim();
-  var l=(ENT.liste||[]).filter(function(o){ return !q||((o.nom||'')+' '+(o.email||'')+' '+(o.slug||'')+' '+(o.t||'')).toLowerCase().indexOf(q)>=0; });
+  var passeFiltre=function(o){
+    if(ENT.filtre==='erreurs') return o.erreurs>0;
+    if(ENT.filtre==='echecs') return o.echecs24>0;
+    if(ENT.filtre==='horsAnnuaire') return !o.dansAnnuaire;
+    return true;
+  };
+  var l=(ENT.liste||[]).filter(function(o){
+    return passeFiltre(o)&&(!q||((o.nom||'')+' '+(o.email||'')+' '+(o.slug||'')+' '+(o.t||'')).toLowerCase().indexOf(q)>=0);
+  });
+  /* Un espace sans nom d'entreprise n'est pas anonyme : il a un identifiant, et cet
+     identifiant est parlant (« teamopteste-7ir4 »). L'afficher vaut infiniment mieux que
+     cinq lignes « (espace sans nom) » qu'on ne peut pas distinguer les unes des autres —
+     c'était le défaut le plus criant de l'écran. */
   var liste=l.length? l.map(function(o){
-    var nm=o.nom||o.slug||'(espace sans nom)';
+    var nm=o.nom||o.slug||o.t||'?';
     var alertes='';
     if(o.erreurs) alertes+='<span class="past p-rouge" title="'+o.erreurs+' erreur(s) signalée(s)">🐛 '+o.erreurs+'</span> ';
     if(o.echecs24) alertes+='<span class="past p-ambre" title="échecs de connexion sur 24 h">🔑 '+o.echecs24+'</span> ';
     if(o.suspendu) alertes+='<span class="past p-rouge">⏸</span> ';
     if(o.promo&&o.promo.actif) alertes+='<span class="past p-vert" title="Formule offerte jusqu’au '+esc(o.promo.finLe)+'">🎁</span> ';
-    var sous=o.email||(o.dansAnnuaire?('espace '+String(o.t).slice(0,16)):'espace hors annuaire');
+    /* Le sous-titre ne répète jamais le titre : quand le nom EST l'identifiant, il n'y a rien
+       à redire en dessous, et une ligne vide vaut mieux qu'un doublon. */
+    var sous=o.email||(o.dansAnnuaire?'':'');
     return '<div class="item'+(ENT.sel===o.t?' on':'')+'" onclick="entSel(\''+jsq(o.t)+'\')">'+
       '<div style="display:flex;align-items:center;gap:12px">'+
-        '<div style="width:38px;height:38px;border-radius:10px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(nm))+'</div>'+
+        '<div style="width:36px;height:36px;border-radius:9px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;letter-spacing:.02em;color:var(--blueSoft);flex-shrink:0">'+esc(sigle(nm))+'</div>'+
         '<div style="flex:1;min-width:0">'+
-          '<div style="font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(nm)+'</div>'+
-          '<div class="mono" style="font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(sous)+'</div>'+
-          '<div style="font-size:11.5px;color:var(--muted);margin-top:2px">'+(o.derniere?esc(fmtJour(o.derniere)):'jamais connectée')+(o.utilisateurs7?' · '+o.utilisateurs7+' pers. / 7 j':'')+'</div>'+
+          '<div style="font-size:14px;font-weight:600;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"'+
+            (o.dansAnnuaire?'':' class="mono"')+'>'+esc(nm)+'</div>'+
+          (sous?'<div class="mono" style="font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(sous)+'</div>':'')+
+          '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">'+(o.derniere?esc(fmtJour(o.derniere)):'jamais connectée')+(o.utilisateurs7?' · '+o.utilisateurs7+' pers. / 7 j':'')+'</div>'+
         '</div>'+
         '<div style="text-align:right;flex-shrink:0">'+alertes+'</div>'+
       '</div></div>';
@@ -2525,7 +2575,11 @@ function vueEntreprises(){
   return tete+kpi+
     '<div class="deux"><div class="col-liste">'+
       '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+l.length+' sur '+(ENT.liste||[]).length+'</div>'+
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+        '<span>'+l.length+' sur '+(ENT.liste||[]).length+'</span>'+
+        (ENT.filtre?'<button class="btn-fant" style="padding:2px 10px;font-size:11.5px" onclick="entFiltre(\''+ENT.filtre+'\')">'+
+          esc({erreurs:'avec des erreurs',echecs:'avec des échecs de connexion',horsAnnuaire:'hors annuaire'}[ENT.filtre]||'')+' ✕</button>':'')+
+      '</div>'+
       liste+'</div>'+
     '<div class="col-detail"><div class="col-detail-sticky">'+ficheEntreprise()+'</div></div></div>';
 }
@@ -2535,14 +2589,15 @@ function vueEntreprises(){
    on cliquait sur une entreprise et on lisait les données des autres. Ici chaque bloc est
    filtré sur celle qui est sélectionnée. */
 function ficheEntreprise(){
-  if(!ENT.sel) return '<div class="vide"><span style="color:var(--dim)">'+svg('entreprises',22)+'</span>'+
-    '<div style="margin-top:10px">Sélectionnez une entreprise pour ouvrir son dossier : ses utilisateurs, ses erreurs, ses échecs de connexion, sa formule et ses comptes.</div></div>';
+  if(!ENT.sel) return '<div class="vide accueil"><span style="color:var(--dim)">'+svg('entreprises',28)+'</span>'+
+    '<p>Choisissez une entreprise dans la liste.</p>'+
+    '<p style="font-size:13px;color:var(--dim)">Vous verrez son espace, ses utilisateurs, ses erreurs, ses échecs de connexion, sa formule et ses comptes du site — et rien de ceux des autres.</p></div>';
   var o=(ENT.liste||[]).find(function(x){ return x.t===ENT.sel; });
   if(!o) return '<div class="vide">Entreprise introuvable — la liste a peut-être changé.</div>';
   var nm=o.nom||o.slug||'(espace sans nom)';
   var t='<div class="carte p24">'+
     '<div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap">'+
-      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft);flex-shrink:0">'+esc(ini(nm))+'</div>'+
+      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft);flex-shrink:0">'+esc(sigle(nm))+'</div>'+
       '<div style="flex:1;min-width:180px">'+
         '<div style="font-size:17.5px;font-weight:700">'+esc(nm)+'</div>'+
         '<div class="mono" style="font-size:12px;color:var(--muted);margin-top:3px;word-break:break-all">'+esc(o.email||o.t)+'</div>'+
@@ -2729,7 +2784,7 @@ function ficheClient(){
       return '<div style="display:flex;gap:12px;font-size:13px"><span style="color:var(--muted);min-width:104px;flex-shrink:0">'+x[0]+'</span><span style="color:var(--text2);word-break:break-word">'+x[1]+'</span></div>'; }).join('')+'</div></div>'; };
   return '<div class="carte p24">'+
     '<div style="display:flex;align-items:center;gap:13px">'+
-      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft)">'+esc(ini(nm))+'</div>'+
+      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft)">'+esc(sigle(nm))+'</div>'+
       '<div style="flex:1;min-width:0"><div style="font-size:17.5px;font-weight:700">'+esc(nm)+'</div>'+
         '<div style="font-size:12.5px;color:var(--muted);margin-top:3px">'+esc(c.metier||'métier non renseigné')+'</div></div>'+
       '<span class="past '+s[1]+'">'+esc(s[0])+'</span></div>'+
@@ -3015,7 +3070,7 @@ function pubLigne(e){
   var qui=(r.utilisateurs7?' · '+r.utilisateurs7+' utilisateur'+(r.utilisateurs7>1?'s':'')+' sur 7 j':'');
   return '<div class="item" style="cursor:default">'+
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-      '<div style="width:38px;height:38px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(e.nom))+'</div>'+
+      '<div style="width:38px;height:38px;border-radius:10px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;color:var(--blueSoft);flex-shrink:0">'+esc(sigle(e.nom))+'</div>'+
       /* min-width:200px, PAS 0 : l'avatar et les deux pastilles sont sur la même ligne flex, et
          avec min-width:0 le bloc de texte leur cédait toute la place — 152 px sur un écran de
          390, si bien que le nom et les dates tombaient en colonne d'un mot par ligne. Avec un
