@@ -852,7 +852,9 @@ function setTab(t,sansAnim){
   placerIndic(!sansAnim);
   if(sansAnim) render(); else renderAnime();
   if(t==='support'&&!MSG.loaded) chargerMail();
-  if(t==='entreprises'&&!CLI.loaded) chargerClients();
+  /* PBL porte les espaces : sans lui, « Leurs espaces » resterait sur « Chargement… » pour qui
+     ouvre Entreprises sans être passé par Accès. */
+  if(t==='entreprises'){ if(!CLI.loaded) chargerClients(); if(!PBL.loaded) chargerAccesPublics(); }
   if(t==='connexions') chargerConnexions();
   if(t==='abonnements'&&!ABO.loaded) chargerAbos();
   if(t==='devisia'&&!DIA.loaded) chargerDevisIA();
@@ -2372,7 +2374,22 @@ function vueEntreprises(){
     '<div class="deux"><div class="col-liste">'+
       '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CLI.q)+'" oninput="cliQ(this.value)"></div>'+
       liste+'</div>'+
-    '<div class="col-detail"><div class="col-detail-sticky">'+ficheClient()+'</div></div></div>';
+    '<div class="col-detail"><div class="col-detail-sticky">'+ficheClient()+'</div></div></div>'+
+    blocEspacesSite();
+}
+/* Les espaces ouverts par une inscription sur teamop.fr. Ils vivaient dans l'onglet Accès, où
+   ils n'avaient rien à faire : Accès, c'est ce que l'équipe s'ouvre à elle-même — la bêta et
+   les espaces de test. Un client n'est pas un accès qu'on se donne.
+   Ils gardent ici les mêmes cartes et les MÊMES BOUTONS (suspendre, renommer, OP MESSAGES,
+   supprimer) : les déplacer sans eux, c'était les perdre — l'onglet Entreprises ne portait
+   aucune de ces actions. */
+function blocEspacesSite(){
+  var l=(PBL.liste||[]).filter(function(e){ return e.origine==='site'; });
+  return '<div style="margin-top:34px">'+
+    '<div style="font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:8px">🏢 Leurs espaces</div>'+
+    '<div style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55">Ouverts par une inscription sur teamop.fr. Ce sont de vrais espaces d’entreprise, avec de vraies données : on les suspend, on ne les efface pas à la légère.</div>'+
+    pubBloc(l,'Aucune entreprise inscrite depuis le site pour l’instant.')+
+  '</div>';
 }
 function ficheClient(){
   var c=CLI.list.filter(function(x){ return x.email===CLI.sel; })[0];
@@ -2603,9 +2620,60 @@ async function pbCreer(btn){
   }catch(err){ toast('Création impossible'); }
   if(btn){ btn.disabled=false; btn.textContent='Ouvrir l’accès public'; }
 }
+/* pubLigne / pubBloc vivaient dans vueEssais() : sorties au niveau global pour que
+   l'onglet Entreprises puisse rendre les mêmes cartes. Une entreprise inscrite sur le
+   site n'a rien à faire dans l'onglet Accès — Accès, c'est ce que l'équipe s'ouvre à
+   elle-même (bêta et espaces de test) ; les clients ont leur onglet. */
+/* La liste des accès PUBLICS, sous celle de la bêta et clairement séparée : les confondre
+   reviendrait à croire qu'un accès bêta ouvre des données d'entreprise. */
+function pubLigne(e){
+  var r=e.resume||{};
+  var quand=r.derniere?('Dernière connexion '+esc(fmtJour(r.derniere))):'Jamais connecté';
+  var qui=(r.utilisateurs7?' · '+r.utilisateurs7+' utilisateur'+(r.utilisateurs7>1?'s':'')+' sur 7 j':'');
+  return '<div class="item" style="cursor:default">'+
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+      '<div style="width:38px;height:38px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(e.nom))+'</div>'+
+      '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(e.nom||e.slug)+
+        (e.email?' <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">'+esc(e.email)+'</span>':'')+'</div>'+
+        '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+
+          (e.ident?'Identifiant <b class="mono" style="color:var(--text);font-weight:600">'+esc(e.ident)+'</b> · ':'')+quand+qui+
+          (e.ouvertLe?' · ouvert le '+esc(fmtJour(e.ouvertLe)):'')+(e.ouvertPar?' par '+esc(e.ouvertPar):'')+
+          /* Sans cette ligne, impossible de savoir depuis la Tour si l'entreprise peut déjà
+             se connecter avec un simple identifiant, ou si elle dépend encore de son code. */
+          '<br>'+(e.annuaire?('🔓 Connexion par identifiant prête — '+e.annuaire+' compte'+(e.annuaire>1?'s':'')):'🔑 Connexion par identifiant pas encore active — code d’accès nécessaire une première fois')+
+          /* Ce que l'entreprise UTILISE vraiment (mesuré sur 30 jours) et ce qui lui est
+             OUVERT (décidé) sont deux choses : les afficher côte à côte évite de croire
+             qu'une application est en service parce qu'on l'a autorisée. */
+          '<br>'+(appsUtilisees(r)?('📊 Utilise : '+appsUtilisees(r)):'📊 Aucune connexion enregistrée sur 30 jours')+
+          '</div></div>'+
+      '<span class="past '+(e.origine==='site'?'p-vert':'p-orange')+'">'+(e.origine==='site'?'🏢 Client du site':'🌍 Ouvert d’ici')+'</span> '+
+      '<span class="past '+(e.opMessages?'p-vert':'p-gris')+'" title="OP MESSAGES est une application à part, avec son propre abonnement">'+(e.opMessages?'💬 OP MESSAGES ouvert':'💬 OP MESSAGES fermé')+'</span> '+
+      '<span class="past '+(e.suspendu?'p-rouge':(r.derniere?'p-vert':'p-gris'))+'">'+(e.suspendu?'⏸ Suspendu':(r.derniere?'Actif':'Jamais ouvert'))+'</span>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+      (e.email?'<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(e.email)+'\',\''+jsq(e.nom||'')+'\',false,\''+jsq(e.ident||'')+'\')">🔗 Revoir le lien et le code</button>':'')+
+      /* Changer identifiant et mot de passe n'a de sens QUE tant que personne ne s'est
+         connecté : après, le vrai mot de passe vit dans les données chiffrées de l'espace,
+         hors de portée du serveur. On ne montre donc pas un bouton qui mentirait. */
+      (r.derniere?'<span style="font-size:12px;color:var(--muted)">Déjà utilisé — le mot de passe vit dans les données chiffrées de l’espace, le serveur ne peut plus le changer. Ouvre l’espace avec son lien et remets-le à zéro dans <b>Utilisateurs</b>.</span>'
+                 :'<button class="btn-fant" onclick="tourIdentModifier(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\',\''+jsq(e.ident||'')+'\')">✏️ Changer identifiant / mot de passe</button>')+
+      '<button class="btn-fant" onclick="tourAccesSuspendre(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\','+(e.suspendu?'true':'false')+')">'+(e.suspendu?'▶️ Rouvrir':'⏸ Suspendre')+'</button>'+
+      '<button class="btn-fant" onclick="tourApps(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\','+(e.opMessages?'false':'true')+')">'+(e.opMessages?'💬 Fermer OP MESSAGES':'💬 Ouvrir OP MESSAGES')+'</button>'+
+      '<button class="btn-fant" onclick="tourAccesRenommer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">✏️ Renommer (change l’adresse)</button>'+
+      '<button class="btn-fant" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="tourAccesSupprimer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">🗑 Supprimer</button>'+
+    '</div>'+
+  '</div>';
+}
+function pubBloc(l,vide){
+  if(!PBL.loaded) return '<div class="vide" style="margin-top:10px">Chargement…</div>';
+  if(PBL.err) return '<div class="vide" style="margin-top:10px">'+esc(PBL.err)+'</div>';
+  if(!l.length) return '<div class="vide" style="margin-top:10px">'+vide+'</div>';
+  return l.map(pubLigne).join('');
+}
+
 function vueEssais(){
   var tete=enTete('Accès',
-    'Trois familles, à ne jamais confondre. <b>1 · Accès bêta</b> (teamop.fr/beta.html) — l’outil de ceux qui développent : ils n’ouvrent que la bêta, jamais les données d’une entreprise. <b>2 · Accès à la version publique ouverts d’ici</b> — de vrais espaces, que j’ouvre pour essayer ou faire essayer. <b>3 · Entreprises inscrites sur le site</b> — des clients : on les suspend ou on les renomme, on ne les supprime pas pour faire du ménage.');
+    'Ce que l’équipe s’ouvre à elle-même, et rien d’autre. <b>1 · Accès bêta</b> (teamop.fr/beta.html) — l’outil de ceux qui développent : ils n’ouvrent que la bêta, jamais les données d’une entreprise. <b>2 · Accès à la version publique ouverts d’ici</b> — de vrais espaces, que j’ouvre pour essayer ou faire essayer. Les entreprises inscrites sur le site ne sont plus ici : ce sont des clients, elles vivent dans l’onglet <b>Entreprises</b> avec leurs espaces.');
   if(!BT.loaded) return tete+'<div class="vide">Chargement des accès…</div>';
   if(BT.err) return tete+'<div class="vide">'+esc(BT.err)+'</div>';
   var liste=(BT.comptes||[]).map(function(c){
@@ -2654,57 +2722,10 @@ function vueEssais(){
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;color:var(--link)">'+IC.cadenas+'</svg>'+
       '<div class="encart-tx">L’adresse sert de clé : réutiliser une adresse déjà connue <b>rouvre le même espace</b> au lieu d’en créer un second. Pour repartir d’un espace vide, passe par Entreprises → sa fiche → « Repartir à neuf ».</div></div>'+
   '</div>';
-  /* La liste des accès PUBLICS, sous celle de la bêta et clairement séparée : les confondre
-     reviendrait à croire qu'un accès bêta ouvre des données d'entreprise. */
-  function pubLigne(e){
-    var r=e.resume||{};
-    var quand=r.derniere?('Dernière connexion '+esc(fmtJour(r.derniere))):'Jamais connecté';
-    var qui=(r.utilisateurs7?' · '+r.utilisateurs7+' utilisateur'+(r.utilisateurs7>1?'s':'')+' sur 7 j':'');
-    return '<div class="item" style="cursor:default">'+
-      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-        '<div style="width:38px;height:38px;border-radius:50%;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--blueSoft);flex-shrink:0">'+esc(ini(e.nom))+'</div>'+
-        '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">'+esc(e.nom||e.slug)+
-          (e.email?' <span class="mono" style="font-size:12px;color:var(--muted);font-weight:400">'+esc(e.email)+'</span>':'')+'</div>'+
-          '<div style="font-size:12px;color:var(--muted);margin-top:2px">'+
-            (e.ident?'Identifiant <b class="mono" style="color:var(--text);font-weight:600">'+esc(e.ident)+'</b> · ':'')+quand+qui+
-            (e.ouvertLe?' · ouvert le '+esc(fmtJour(e.ouvertLe)):'')+(e.ouvertPar?' par '+esc(e.ouvertPar):'')+
-            /* Sans cette ligne, impossible de savoir depuis la Tour si l'entreprise peut déjà
-               se connecter avec un simple identifiant, ou si elle dépend encore de son code. */
-            '<br>'+(e.annuaire?('🔓 Connexion par identifiant prête — '+e.annuaire+' compte'+(e.annuaire>1?'s':'')):'🔑 Connexion par identifiant pas encore active — code d’accès nécessaire une première fois')+
-            /* Ce que l'entreprise UTILISE vraiment (mesuré sur 30 jours) et ce qui lui est
-               OUVERT (décidé) sont deux choses : les afficher côte à côte évite de croire
-               qu'une application est en service parce qu'on l'a autorisée. */
-            '<br>'+(appsUtilisees(r)?('📊 Utilise : '+appsUtilisees(r)):'📊 Aucune connexion enregistrée sur 30 jours')+
-            '</div></div>'+
-        '<span class="past '+(e.origine==='site'?'p-vert':'p-orange')+'">'+(e.origine==='site'?'🏢 Client du site':'🌍 Ouvert d’ici')+'</span> '+
-        '<span class="past '+(e.opMessages?'p-vert':'p-gris')+'" title="OP MESSAGES est une application à part, avec son propre abonnement">'+(e.opMessages?'💬 OP MESSAGES ouvert':'💬 OP MESSAGES fermé')+'</span> '+
-        '<span class="past '+(e.suspendu?'p-rouge':(r.derniere?'p-vert':'p-gris'))+'">'+(e.suspendu?'⏸ Suspendu':(r.derniere?'Actif':'Jamais ouvert'))+'</span>'+
-      '</div>'+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
-        (e.email?'<button class="btn-fant" onclick="tourLienEntreprise(\''+jsq(e.email)+'\',\''+jsq(e.nom||'')+'\',false,\''+jsq(e.ident||'')+'\')">🔗 Revoir le lien et le code</button>':'')+
-        /* Changer identifiant et mot de passe n'a de sens QUE tant que personne ne s'est
-           connecté : après, le vrai mot de passe vit dans les données chiffrées de l'espace,
-           hors de portée du serveur. On ne montre donc pas un bouton qui mentirait. */
-        (r.derniere?'<span style="font-size:12px;color:var(--muted)">Déjà utilisé — le mot de passe vit dans les données chiffrées de l’espace, le serveur ne peut plus le changer. Ouvre l’espace avec son lien et remets-le à zéro dans <b>Utilisateurs</b>.</span>'
-                   :'<button class="btn-fant" onclick="tourIdentModifier(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\',\''+jsq(e.ident||'')+'\')">✏️ Changer identifiant / mot de passe</button>')+
-        '<button class="btn-fant" onclick="tourAccesSuspendre(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\','+(e.suspendu?'true':'false')+')">'+(e.suspendu?'▶️ Rouvrir':'⏸ Suspendre')+'</button>'+
-        '<button class="btn-fant" onclick="tourApps(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\','+(e.opMessages?'false':'true')+')">'+(e.opMessages?'💬 Fermer OP MESSAGES':'💬 Ouvrir OP MESSAGES')+'</button>'+
-        '<button class="btn-fant" onclick="tourAccesRenommer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">✏️ Renommer (change l’adresse)</button>'+
-        '<button class="btn-fant" style="color:var(--redText);border-color:rgba(255,107,107,.35)" onclick="tourAccesSupprimer(\''+jsq(e.slug||'')+'\',\''+jsq(e.nom||'')+'\')">🗑 Supprimer</button>'+
-      '</div>'+
-    '</div>';
-  }
   /* TROIS listes, pas une. Ce que TEAM OP s'ouvre à lui-même et ce qu'une entreprise a créé en
      s'inscrivant sur le site sont de vrais espaces tous les deux — mais les mélanger, c'est
      supprimer un client en croyant faire le ménage dans ses propres essais. */
-  function pubBloc(l,vide){
-    if(!PBL.loaded) return '<div class="vide" style="margin-top:10px">Chargement…</div>';
-    if(PBL.err) return '<div class="vide" style="margin-top:10px">'+esc(PBL.err)+'</div>';
-    if(!l.length) return '<div class="vide" style="margin-top:10px">'+vide+'</div>';
-    return l.map(pubLigne).join('');
-  }
   var pubTour=(PBL.liste||[]).filter(function(e){ return e.origine!=='site'; });
-  var pubSite=(PBL.liste||[]).filter(function(e){ return e.origine==='site'; });
   /* Les deux listes portent leur titre. Sans celui du haut, on lisait une suite de cartes sans
      savoir laquelle ouvre quoi — et confondre les deux, c'est croire qu'un accès bêta touche
      des données d'entreprise. */
@@ -2712,14 +2733,10 @@ function vueEssais(){
   var stFam='font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:12px';
   var sTitre=function(t,ss,mt){ return '<div style="'+(mt?'margin-top:'+mt+'px;':'')+stTitre+';margin-bottom:8px">'+t+' <span style="font-weight:400;text-transform:none;letter-spacing:0">— '+ss+'</span></div>'; };
   var famTour='<div style="'+stFam+'">🔧 Ce que j’ouvre depuis la Tour</div>';
-  var famSite='<div style="'+stFam+';margin-top:30px">🏢 Entreprises inscrites sur le site</div>';
   return tete+'<div class="deux"><div class="col-liste">'+
       famTour+
       sTitre('Accès à la bêta','n’ouvrent que beta.html, jamais de données d’entreprise')+liste+
       sTitre('Accès à la version publique','de vrais espaces, que j’ai ouverts moi-même',22)+pubBloc(pubTour,'Aucun accès ouvert depuis la Tour.')+
-      famSite+
-      '<div style="'+stTitre+';font-weight:400;text-transform:none;letter-spacing:0;margin:-4px 0 10px;line-height:1.55">Elles se sont inscrites seules sur teamop.fr. Ce sont des clients : on ne les supprime pas pour faire du ménage.</div>'+
-      pubBloc(pubSite,'Aucune entreprise inscrite depuis le site pour l’instant.')+
     '</div><div class="col-detail">'+form+formPub+'</div></div>';
 }
 function vueEquipe(){
