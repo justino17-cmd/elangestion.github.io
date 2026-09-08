@@ -3657,6 +3657,14 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
      Il passe AU-DESSUS d'elle : les deux se voient, aucun des deux ne bloque l'autre. */
   html[data-refonte] body.rf-onglets .toast{bottom:calc(146px + env(safe-area-inset-bottom))!important;max-width:min(90vw,440px)}
   html[data-refonte] body.rf-onglets .plm-fab{bottom:calc(78px + env(safe-area-inset-bottom))!important}
+  /* La barre « Retirer / Ajouter » de la sélection multiple est collante en bas de la liste :
+     à bottom:0 elle passait SOUS la barre d'onglets et ses deux boutons étaient coupés.
+     Elle s'arrête donc juste au-dessus. */
+  html[data-refonte] body.rf-onglets .boxsel-pied{bottom:calc(74px + env(safe-area-inset-bottom))!important}
+  /* Pendant une sélection multiple, la bulle d'assistance et le bouton flottant se posent
+     PAR-DESSUS « ＋ Ajouter » — mesuré au téléphone. Ni l'un ni l'autre ne sert à ce
+     moment-là : ils s'effacent le temps du geste et reviennent après. */
+  body.boxsel .fab,body.boxsel #assistant > .fab,body.boxsel .plm-fab{display:none!important}
   /* LE HAMBURGER RESTE. Il avait été caché quand la barre existait, « Plus » ouvrant le même
      tiroir : le coin haut gauche devenait vide et le menu n'était plus atteignable que tout en
      bas de l'écran. C'est très exactement ce qui a fait rejeter la barre. Les deux coexistent
@@ -4495,7 +4503,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '578';
+const APP_VERSION = '579';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -6277,6 +6285,9 @@ function refreshEcran(){
 function go(view){
   if(!views[view]) view='dashboard';
   _ecranRendu=null;   // on quitte le détail pour une rubrique : plus rien à redessiner
+  /* Quitter l'écran d'une box abandonne la sélection en cours — sinon le drapeau resterait
+     sur <body> et la bulle d'assistance disparaîtrait pour le reste de la session. */
+  try{ boxSelOn=false; boxSelQ={}; document.body.classList.remove('boxsel'); }catch(e){}
   try{ usageNote(view); }catch(e){}
   // garde d'accès : une vue qu'on n'a pas le droit de voir (menu, rôle, forfait)
   // n'est pas atteignable non plus en tapant l'adresse à la main
@@ -15933,7 +15944,7 @@ function renderBoxProdList(){
     const ea=boxEtat(a.s.u),eb=boxEtat(b2.s.u); if(ord[ea.k]!==ord[eb.k]) return ord[ea.k]-ord[eb.k];
     if(qa!==qb) return qb-qa; return (a.p.nom||'').localeCompare(b2.p.nom||''); });
   if(!entries.length){ el.innerHTML=`<div style="color:var(--t3);font-size:13px;padding:18px;text-align:center">${boxProdSearch?'Aucun résultat.':'Aucun produit dans cette box. Touche ＋ Ajouter.'}</div>`; return; }
-  el.innerHTML=boxLotBandeau(b.id)+entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
+  el.innerHTML=boxLotBandeau(b.id)+boxSelEnTete(b,entries)+entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
     const li=boxAttenteProduit(b.id,pid);
     /* Court, et sur UNE ligne : le bandeau au-dessus dit déjà « en attente de validation DR »,
        la ligne n'a plus qu'à dire combien. Vrai signe moins (−), comme le bouton de la fiche. */
@@ -15941,7 +15952,8 @@ function renderBoxProdList(){
     const dem=li?(li.vide?'tout retiré':((li.du?sgn(li.du,'u'):'')+(li.du&&li.dc?' · ':'')+(li.dc?sgn(li.dc,'ctn'):''))||'±0'):'';
     const fours=(p.fournisseurs||[]).map(fourBadge).join(' ');
     return `<div data-pid="${pid}" style="background:var(--bg1);border:1px solid var(--brd);border-left:3px solid ${li?'var(--org,#e8a33d)':(low?e.c:'transparent')};border-radius:12px;margin-bottom:8px;overflow:hidden">
-      <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="editBoxQte('${pid}')">
+      <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer" onclick="${boxSelOn?`boxSelCocher('${pid}')`:`editBoxQte('${pid}')`}">
+        ${boxSelOn?`<span aria-hidden="true" style="flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;${boxSelQ[pid]!=null?'background:var(--acc);color:var(--on-acc,#fff)':'box-shadow:inset 0 0 0 2px var(--brd);color:transparent'}">✓</span>`:''}
         <div style="flex:1;min-width:0">
           <div style="font-size:15px;font-weight:800;color:var(--t1)">${esc(p.nom)}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:13px;font-weight:600;color:${e.c}"><span style="width:8px;height:8px;border-radius:50%;background:${e.c};flex-shrink:0"></span>${e.l}</div>
@@ -15949,15 +15961,129 @@ function renderBoxProdList(){
           ${(s.ctn||0)?`<div style="font-size:11.5px;color:var(--blue);margin-top:3px">${s.ctn} carton${s.ctn>1?'s':''} en réserve</div>`:''}
           ${li?`<div style="display:flex;align-items:center;gap:7px;margin-top:5px;font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);white-space:nowrap"><span>🔒 ${esc(dem)} en attente</span><button class="btn ghost sm" style="padding:1px 8px;font-size:10.5px;min-height:0;line-height:1.6" onclick="event.stopPropagation();boxLotLigneAnnuler('${b.id}','${pid}')">retirer</button></div>`:''}
         </div>
-        <div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
-          <button class="btn ghost sm" style="width:38px;height:38px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:11px" onclick="boxAdj('${pid}','u',-1)">−</button>
+        ${boxSelOn?`<div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
+          ${boxSelQ[pid]!=null?`<button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxSelPas('${pid}',-1)" aria-label="Moins un">−</button>
+          <b style="font-size:20px;font-weight:800;font-family:ui-monospace,'SF Mono',monospace;color:var(--acc);min-width:28px;text-align:center">${boxSelQ[pid]}</b>
+          <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px;color:var(--acc)" onclick="boxSelPas('${pid}',1)" aria-label="Plus un">＋</button>`:`<span style="font-size:13px;color:var(--t3);white-space:nowrap">${s.u||0} en stock</span>`}
+        </div>`:`<div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
+          <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxAdj('${pid}','u',-1)" aria-label="Retirer une unité">−</button>
           <b style="font-size:22px;font-weight:800;font-family:ui-monospace,'SF Mono',monospace;color:${e.c};min-width:30px;text-align:center">${s.u||0}</b>
-          <button class="btn ghost sm" style="width:38px;height:38px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:11px;color:var(--acc)" onclick="boxAdj('${pid}','u',1)">＋</button>
-        </div>
+          <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px;color:var(--acc)" onclick="boxAdj('${pid}','u',1)" aria-label="Ajouter une unité">＋</button>
+        </div>`}
       </div>
-      ${(fours||low)?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 14px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">${fours}<span style="flex:1"></span>${low?`<button style="cursor:pointer;padding:4px 10px;font-size:11px;font-weight:700;border-radius:6px;color:${e.c};background:color-mix(in srgb,${e.c} 15%,transparent);border:.5px solid color-mix(in srgb,${e.c} 40%,transparent)" onclick="event.stopPropagation();boxDemande('${b.id}','${pid}')">＋ Demande</button>`:''}</div>`:''}
-    </div>`;}).join('');
+      ${(fours||low)?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 14px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">${fours}<span style="flex:1"></span>${low?`<button style="cursor:pointer;min-height:44px;padding:0 14px;font-size:12px;font-weight:700;border-radius:10px;color:${e.c};background:color-mix(in srgb,${e.c} 15%,transparent);border:.5px solid color-mix(in srgb,${e.c} 40%,transparent)" onclick="event.stopPropagation();boxDemande('${b.id}','${pid}')">＋ Demande</button>`:''}</div>`:''}
+    </div>`;}).join('')+boxSelPied();
 }
+/* La bascule, au-dessus de la liste : « Sélectionner » ne s'affiche que s'il y a au moins deux
+   produits — proposer une sélection multiple sur un seul produit ne sert à rien et ajoute un
+   bouton à un écran qui en a déjà. */
+function boxSelEnTete(b,entries){
+  /* Le drapeau vit sur <body> : c'est le seul moyen d'atteindre en CSS la bulle d'assistance
+     et le bouton flottant, qui sont posés hors de cette liste. Retiré dès qu'on sort. */
+  try{ document.body.classList.toggle('boxsel', !!boxSelOn); }catch(e){}
+  if((entries||[]).length<2) return '';
+  if(!boxSelOn) return `<div style="display:flex;justify-content:flex-end;margin:0 0 8px">
+    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelBasculer()">☑︎ Sélectionner plusieurs</button></div>`;
+  const vus=boxSelVisibles(b), tout=vus.length&&vus.every(pid=>boxSelQ[pid]!=null);
+  return `<div style="display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap">
+    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelTout()">${tout?'Tout décocher':'Tout cocher'}</button>
+    <span style="flex:1"></span>
+    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelBasculer()">Annuler</button></div>`;
+}
+/* La barre d'action, collée en bas de la liste. Elle ne paraît qu'une fois quelque chose de
+   coché : une barre vide qui attend est un espace perdu sur un téléphone.
+   Le SENS se choisit ici, à la fin — pas produit par produit : on désigne d'abord ce qu'on
+   touche, on dit ensuite ce qu'on en fait. */
+function boxSelPied(){
+  if(!boxSelOn) return '';
+  const n=boxSelCombien();
+  if(!n) return `<div class="boxsel-pied" style="position:sticky;bottom:0;padding:10px 2px;background:linear-gradient(to top,var(--bg) 60%,transparent);text-align:center;color:var(--t3);font-size:13px">Touche les produits à modifier.</div>`;
+  const tot=Object.keys(boxSelQ).reduce((t,k)=>t+(boxSelQ[k]||0),0);
+  const parDR=boxValidRequis();
+  return `<div class="boxsel-pied" style="position:sticky;bottom:0;z-index:5;padding:10px 2px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 68%,transparent)">
+    <div style="background:var(--bg1);border:1px solid var(--brd);border-radius:16px;padding:11px 12px;box-shadow:0 10px 26px rgba(0,0,0,.16)">
+      <div style="font-size:12.5px;color:var(--t2);margin-bottom:9px"><b style="color:var(--t1)">${n} produit${n>1?'s':''}</b> · ${tot} unité${tot>1?'s':''} au total${parDR?' — partira au DR pour validation':''}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelAppliquer(-1)">− Retirer</button>
+        <button class="btn" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelAppliquer(1)">＋ Ajouter</button>
+      </div>
+    </div></div>`;
+}
+/* ══════════ PLUSIEURS PRODUITS D'UN COUP ══════════════════════════════════════════════════
+   Demande de Justin depuis chez ELAN, 8 septembre 2026 : « quand on déduit ou on ajoute c'est
+   1 par 1, il faudrait pouvoir choisir plusieurs produits, ça fait une liste, il envoie au DR
+   et il valide ».
+   Le regroupement en UNE demande existait déjà (boxMvtAttente, un lot par box et par
+   personne) — ce qui manquait, c'est de pouvoir DÉSIGNER plusieurs produits au lieu de taper
+   −/+ sur chacun. On ne double donc pas la logique : la liste rappelle boxAdj produit par
+   produit, en silence, et c'est boxAdj qui décide comme d'habitude si ça part au DR ou si ça
+   s'applique tout de suite. Une seule règle, un seul endroit. */
+/* Ce qu'on peut RÉELLEMENT sortir d'un produit : le stock, moins ce qui en est déjà parti et
+   attend l'accord du DR. Sans cette soustraction, deux gestes d'affilée passent sous zéro —
+   le stock ne bougeant qu'à la validation, il paraît intact au second. */
+function boxDispoU(b,pid){
+  let n=((b.stock&&b.stock[pid])||{}).u||0;
+  const moi=currentUser&&currentUser.id;
+  const lot=(db.boxMvtAttente||[]).find(x=>x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
+  const li=lot&&(lot.lignes||[]).find(l=>l.produitId===pid);
+  if(li) n+=(li.du||0);   // du est négatif pour une sortie
+  return Math.max(0,n);
+}
+let boxSelOn=false, boxSelQ={};
+function boxSelBasculer(){ boxSelOn=!boxSelOn; boxSelQ={}; renderBoxProdList(); }
+function boxSelCocher(pid){ if(boxSelQ[pid]==null) boxSelQ[pid]=1; else delete boxSelQ[pid]; renderBoxProdList(); }
+function boxSelPas(pid,d){ var q=(boxSelQ[pid]||0)+d; if(q<1) q=1; if(q>999) q=999; boxSelQ[pid]=q; renderBoxProdList(); }
+function boxSelCombien(){ return Object.keys(boxSelQ).length; }
+function boxSelTout(){
+  const b=db.boxes.find(x=>x.id===boxView); if(!b) return;
+  const vus=boxSelVisibles(b);
+  if(vus.every(pid=>boxSelQ[pid]!=null)) boxSelQ={};
+  else vus.forEach(pid=>{ if(boxSelQ[pid]==null) boxSelQ[pid]=1; });
+  renderBoxProdList();
+}
+/* Les produits RÉELLEMENT à l'écran — la recherche filtre la liste, « tout cocher » ne doit
+   pas cocher en douce ce qu'on ne voit pas. */
+function boxSelVisibles(b){
+  const q=norm(boxProdSearch);
+  return Object.keys(b.stock||{}).filter(pid=>{ const p=produit(pid); if(!p||!p.id) return false;
+    return !q || norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+(p.fournisseurs||[]).join(' ')).includes(q); });
+}
+function boxSelAppliquer(sens){
+  const b=db.boxes.find(x=>x.id===boxView); if(!b) return;
+  const pids=Object.keys(boxSelQ).filter(k=>(boxSelQ[k]||0)>0);
+  if(!pids.length){ toast('Choisis au moins un produit'); return; }
+  const avant=JSON.stringify(b.stock||{});
+  let faits=0, ignores=[];
+  _boxLotSilence=true;
+  try{
+    pids.forEach(pid=>{
+      const q=Math.abs(boxSelQ[pid]||0); if(!q) return;
+      /* Retirer plus qu'il n'y a n'est pas une erreur à refuser : on retire ce qu'il reste, et
+         on le DIT. Bloquer toute la liste pour un produit à 2 quand on en demande 3 ferait
+         recommencer la sélection entière. */
+      const dispo=boxDispoU(b,pid);
+      const n=(sens<0)?Math.min(q,dispo):q;
+      if(sens<0&&dispo<q) ignores.push(produit(pid).nom+(dispo?' ('+dispo+' au lieu de '+q+')':' (déjà à 0)'));
+      if(!n) return;
+      boxAdj(pid,'u',sens*n); faits++;
+    });
+  } finally { _boxLotSilence=false; }
+  const parDR=boxValidRequis();
+  if(!faits){ toast('Rien à '+(sens<0?'retirer':'ajouter')+' — ces produits sont déjà à 0'); return; }
+  boxSelOn=false; boxSelQ={}; renderBoxProdList();
+  if(parDR){
+    const moi=currentUser&&currentUser.id;
+    const lot=(db.boxMvtAttente||[]).find(x=>x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
+    toast('📨 '+faits+' produit'+(faits>1?'s':'')+' envoyé'+(faits>1?'s':'')+' au DR — le stock bougera après son accord',4000);
+    // la question « remis à qui ? » : une seule fois pour toute la liste
+    if(lot&&(lot.lignes||[]).some(l=>((+l.du||0)+(+l.dc||0))<0)&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),200);
+  } else {
+    toast('✓ '+faits+' produit'+(faits>1?'s':'')+(sens<0?' retiré':' ajouté')+(faits>1?'s':''),3200);
+  }
+  if(ignores.length) setTimeout(()=>toast('Ajusté au stock restant : '+ignores.slice(0,3).join(', ')+(ignores.length>3?'…':''),5000),parDR?4200:3400);
+  if(avant===JSON.stringify(b.stock||{})&&!parDR) toast('Aucun changement');
+}
+
 /* Modifier la quantité d'un produit dans la box (sheet ELAN "Quantité") */
 function editBoxQte(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; const s=b.stock[pid]||{ctn:0,u:0}; const p=produit(pid);
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>Quantité</h3><button type="button" class="btn sm" onclick="saveBoxQte('${pid}')">OK</button></div>
@@ -16241,8 +16367,14 @@ function addBoxProd(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; i
   abpSel.forEach(pid=>{ b.stock[pid]={ctn:0,u:0}; }); save(); closeModal(); renderBoxDetail(); toast(abpSel.size+' produit(s) ajouté(s) — quantités à zéro, à toi de les régler'); }
 /* Steppers ＋/− de la fiche box : un tap = le stock bouge, le mouvement est
    tracé (qui/quoi/où/quand) et le responsable reçoit la notification. */
+/* ══ SÉLECTION MULTIPLE ══ vrai pendant qu'une liste de produits s'applique d'un coup.
+   boxAdj est alors appelée une fois par produit : sans ce silence, on aurait un message et un
+   redessin PAR produit, et autant de fenêtres « remis à qui ? ». Le lot parle une seule fois,
+   à la fin. On ne duplique pas la logique de boxAdj — c'est elle qui décide si ça passe par le
+   DR ou non, et cette règle ne doit exister qu'à un endroit. */
+let _boxLotSilence=false;
 function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; b.stock=b.stock||{}; b.stock[pid]=b.stock[pid]||{ctn:0,u:0}; const prevU=b.stock[pid].u||0;
-  if(delta<0&&(b.stock[pid][field]||0)<=0){ toast('Déjà à 0'); return; }
+  if(delta<0&&(b.stock[pid][field]||0)<=0){ if(!_boxLotSilence) toast('Déjà à 0'); return; }
   if(boxValidRequis()){
     /* UN SEUL LOT par (box, personne), et non plus une demande par produit.
        Avant : les taps sur un MÊME produit se regroupaient, mais chaque produit différent
@@ -16261,35 +16393,51 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
     if(neuf){ lot=boxMvtEnvoyer({type:'ajustementLot',boxId:b.id,lignes:[]},true); }
     lot.lignes=lot.lignes||[];
     let li=lot.lignes.find(l=>l.produitId===pid);
+    /* ⛔ ON NE DESCEND PAS SOUS ZÉRO — signalé par Justin, 8 septembre 2026.
+       Le garde-fou du haut regarde le stock ACTUEL. Or, quand la validation du DR est
+       requise, le stock ne bouge pas au moment du tap : il attend l'accord. Avec 1 en stock,
+       on pouvait donc taper « − » deux fois — le stock valait toujours 1 aux deux passages —
+       et se retrouver avec −2 en attente sur un produit qui n'en a qu'un. On voyait alors
+       « Épuisé · 0 » avec « −1 en attente » dessous, ce qui ne veut rien dire.
+       On compte donc ce qui est DÉJÀ en attente pour ce produit. Si la demande créait un
+       vide, on refuse et on le dit. */
+    const dejaLa=li?((field==='u')?(li.du||0):(li.dc||0)):0;
+    if(delta<0 && ((b.stock[pid][field]||0) + dejaLa + delta) < 0){
+      if(!_boxLotSilence) toast(dejaLa<0
+        ? 'Déjà '+Math.abs(dejaLa)+' en attente sur ce produit — il n’en reste pas assez'
+        : 'Il n’y en a pas assez dans la box');
+      return; }
     if(!li){ li={produitId:pid,du:0,dc:0}; lot.lignes.push(li); }
     if(field==='u') li.du=(li.du||0)+delta; else li.dc=(li.dc||0)+delta;
     // une ligne revenue à zéro ne veut plus rien dire : on la retire, et un lot vide disparaît
     if(!li.du&&!li.dc) lot.lignes=lot.lignes.filter(l=>l!==li);
     if(!lot.lignes.length){
       db.boxMvtAttente=db.boxMvtAttente.filter(x=>x!==lot); save();
-      toast('Demande annulée (retour à zéro)'); renderBoxProdList(); return; }
+      if(!_boxLotSilence){ toast('Demande annulée (retour à zéro)'); renderBoxProdList(); } return; }
     lot.ts=Date.now();
     save();
-    if(neuf){ logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock'); boxMvtPrevenir(lot); toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
+    if(neuf){ logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock'); boxMvtPrevenir(lot); if(!_boxLotSilence) toast('📨 Envoyé au DR pour validation — le stock bougera après son accord'); }
     /* Le libellé complet du lot fait trois lignes et se répète à CHAQUE tap : au cinquième
        produit, l'écran n'est plus qu'une pile de messages identiques. Le détail est désormais
        écrit en permanence sur la fiche (bandeau + mention par ligne) — le message se contente
        donc de compter. */
-    else { var nl=lot.lignes.length; toast('🔒 '+nl+' produit'+(nl>1?'s':'')+' en attente du DR'); }
-    renderBoxProdList();
+    else if(!_boxLotSilence){ var nl=lot.lignes.length; toast('🔒 '+nl+' produit'+(nl>1?'s':'')+' en attente du DR'); }
+    if(!_boxLotSilence) renderBoxProdList();
     // la question « pour qui ? » se pose UNE fois pour le lot, pas à chaque produit sorti
     /* On regarde s'il SORT quelque chose, pas si le total est négatif. Un lot où l'on repose
        dix unités et où l'on en reprend deux a un total POSITIF — mais deux unités partent quand
        même avec quelqu'un, et le bon de remise doit les porter. Le bon lui-même ne retient déjà
        que les lignes négatives (voir boxMvtValider), il ne restait qu'à poser la question. */
     const sortQqc=lot.lignes.some(l=>((+l.du||0)+(+l.dc||0))<0);
-    if(sortQqc&&!lot.pourQui) setTimeout(()=>remiseDestModal(lot.id),150);
+    /* En sélection multiple, la question « remis à qui ? » se pose une seule fois, après la
+       boucle — sinon autant de fenêtres empilées qu'il y a de produits sortis. */
+    if(sortQqc&&!lot.pourQui&&!_boxLotSilence) setTimeout(()=>remiseDestModal(lot.id),150);
     return; }
   b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
   traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box');
   if(field==='u') notifyDrBoxLow(b,pid,prevU);
   notifyDrBoxMove(b,pid,delta<0?'sortie':'entree',Math.abs(delta),field);
-  save(); renderBoxProdList(); }
+  save(); if(!_boxLotSilence) renderBoxProdList(); }
 function boxDemande(boxId,pid){ const b=db.boxes.find(x=>x.id===boxId), p=produit(pid); if(!b||!p.id)return;
   const s=(b.stock&&b.stock[pid])||{ctn:0,u:0};
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>Demande de commande</h3><button type="button" class="btn sm" onclick="envoyerDemandeBox('${boxId}','${pid}')">Envoyer</button></div>
