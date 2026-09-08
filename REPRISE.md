@@ -42,6 +42,31 @@ authentification, pas à côté.
 
 ## Chantiers en cours
 
+### Démarrage vierge + packs métier  ⚠️ TOUCHE `app.html`
+Branche `fix/demarrage-vierge`. **Deux conversations travaillent en parallèle sur ce dépôt :
+prévenir avant toute publication d'`app.html`.**
+
+Décision de Justin, 8 septembre 2026 : *« quand quelqu'un prend OP GESTION, tout est vide. Ce
+sera à eux de tout mettre, ou à nous demander de mettre une liste. »*
+
+**Fait, mesuré en navigateur, pas publié.** Le code se contredisait : `load()` vidait
+27 collections (drapeau `elan_vierge_v1`), puis TROIS réinjections les remplissaient — 110
+produits du CATALOGUE et les 5 fiches fournisseurs 3D. La troisième (`elan_fours_v1`) ne
+s'appelle pas « seed » : une recherche sur ce mot la rate, elle n'a été trouvée qu'en mesurant.
+Un drapeau `PACK_METIER_AUTO=false` les ferme toutes les trois, le drapeau de chaque base
+restant posé pour qu'un retour en arrière ne remplisse pas après coup. Le bouton
+« ↻ Catalogue OP » (écran Produits) reste le chemin volontaire.
+
+Vérifié sur `beta.html` régénérée, deux contextes isolés : compte neuf → tout à 0 ; entreprise
+déjà installée → ses 2 fournisseurs, son produit et son client intacts, aucun intrus 3D.
+
+**La suite, demandée le 8 septembre et pas encore commencée :** le site annonce 9 packs métier
+(3D, plomberie, électricité, chauffage/clim, maçonnerie, menuiserie, peinture, paysagiste,
+nettoyage — 6 « disponibles », 3 « bientôt »), et l'application n'en connaît qu'un, celui de la
+3D, en dur. Le métier doit se choisir à la création du compte, chaque pack doit porter SON
+contenu, et un métier absent devient une demande d'application sur mesure — payante. Voir la
+décision à prendre plus bas.
+
 ### Refonte de la Tour
 Branche de travail `claude/op-gestion-interface-yb6p32`, publication par
 `publication/tour-etape2`.
