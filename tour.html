@@ -150,6 +150,18 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
 .col-liste{flex:1 1 340px;min-width:0}
 .col-detail{flex:1.4 1 440px;min-width:0}
 @media(min-width:1000px){.col-detail-sticky{position:sticky;top:24px}}
+/* Empilee, une colonne de detail sous une liste de huit lignes n'est pas un detail :
+   c'est un ecran que personne ne trouve. Sous 900 px on montre l'un OU l'autre, et le
+   retour ramene a la liste — le motif de pile de navigation, pas la grille du bureau. */
+@media(max-width:899px){
+  .deux.choisi>.col-liste{display:none}
+  .deux:not(.choisi)>.col-detail{display:none}
+}
+@media(min-width:900px){ .ent-retour{display:none} }
+.ent-retour{margin-bottom:14px}
+/* 44 px de haut : plancher tactile, pas une suggestion. Ce bouton est le seul chemin
+   de retour au telephone, et il se presse souvent au pouce, parfois gante. */
+@media(max-width:899px){ .ent-retour button{min-height:44px;padding-left:16px;padding-right:16px} }
 .item{background:var(--surface);border:0;border-radius:var(--r-3);padding:13px 15px;cursor:pointer;margin-bottom:6px;box-shadow:var(--ombre-1);
   transition:background-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
 .item:hover{background:var(--hover)}
@@ -265,6 +277,16 @@ main{width:100%;max-width:1200px;margin:0 auto;padding:28px 20px 96px;flex:1;min
   .pied{grid-column:2}
 }
 @media(max-width:640px){ .hbadge,.hqui{display:none} .hbar{padding:10px 14px} main{padding:22px 14px 76px} .ttl-page{font-size:26px} }
+/* Sur telephone, les quatre compteurs empiles coutaient 409 px — la moitie de l'ecran
+   avant la premiere entreprise. Ils se resserrent en deux colonnes, chiffre et libelle
+   sur la meme ligne de base : ~130 px au lieu de 409. Ce ne sont pas des indicateurs a
+   contempler, ce sont quatre raccourcis vers la liste — et la liste est le travail. */
+@media(max-width:640px){
+  .grille-kpi{grid-template-columns:1fr 1fr;gap:8px}
+  .kpi{padding:12px 13px;display:flex;align-items:baseline;gap:8px}
+  .kpi .n{font-size:21px;flex-shrink:0}
+  .kpi .l{margin-top:0;font-size:12px;line-height:1.35}
+}
 
 /* ══ MODALE + VOILE ═══ créée par le JS avec ses styles inline ; on impose la matière ══ */
 #tour-panneau{background:var(--scrim)!important;-webkit-backdrop-filter:blur(20px) saturate(140%);backdrop-filter:blur(20px) saturate(140%);animation:voileIn var(--d-2) var(--e-sortie) both}
@@ -870,10 +892,25 @@ function compterKpi(racine){
     setTimeout(function(){ if(!fini){ fini=true; el.textContent=txt; } }, duree+250);
   });
 }
+/* Sous 900 px la barre d'onglets defile horizontalement : elle fait 1 416 px de large
+   dans une fenetre de 390. Rien ne la ramenait sur l'onglet choisi, si bien qu'on
+   arrivait sur « Entreprises » en voyant « Accueil / Surveillance / Support » — la page
+   ne repondait plus a « ou suis-je ? ». On l'y ramene, sans a-coup, et sans mouvement
+   pour qui l'a desactive. */
+function amenerOngletEnVue(){
+  try{
+    var nav=document.querySelector('nav.tabs'); if(!nav||nav.scrollWidth<=nav.clientWidth) return;
+    var on=nav.querySelector('.tab.on'); if(!on) return;
+    var cible=on.offsetLeft-(nav.clientWidth-on.offsetWidth)/2;
+    var doux=!window.matchMedia||!matchMedia('(prefers-reduced-motion:reduce)').matches;
+    nav.scrollTo({left:Math.max(0,cible),behavior:doux?'smooth':'auto'});
+  }catch(e){}
+}
 function setTab(t,sansAnim){
   TAB=t; try{ if(location.hash!=='#'+t) location.hash=t; }catch(e){}
   [].forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('on',b.getAttribute('data-t')===t); });
   placerIndic(!sansAnim);
+  amenerOngletEnVue();
   if(sansAnim) render(); else renderAnime();
   if(t==='support'&&!MSG.loaded) chargerMail();
   /* PBL porte les espaces : sans lui, « Leurs espaces » resterait sur « Chargement… » pour qui
@@ -948,8 +985,19 @@ function entFiltre(f){ ENT.filtre=(ENT.filtre===f?'':f); rafraichirSiConcerne();
 /* Selection par identifiant d'espace : c'est la seule cle que TOUTES les sources partagent.
    L'e-mail manque aux espaces hors annuaire, le nom se renomme. */
 function entSel(t){
+  var ouvre=ENT.sel!==t;
   ENT.sel=(ENT.sel===t?null:t);
   renderNav('detail');
+  /* Au telephone la fiche REMPLACE la liste : sans ce recadrage on resterait sur le pave
+     de tete et le clic n'aurait aucun effet visible. Sur grand ecran les deux colonnes
+     sont cote a cote, donc rien a bouger. */
+  if(window.innerWidth<900) setTimeout(function(){
+    var c=document.querySelector(ouvre?'.col-detail':'.col-liste'); if(!c) return;
+    var doux=!window.matchMedia||!matchMedia('(prefers-reduced-motion:reduce)').matches;
+    var b=document.querySelector('.bandeau');
+    var chapeau=(b&&getComputedStyle(b).position==='sticky')?b.getBoundingClientRect().height:0;
+    window.scrollTo({top:Math.max(0,c.getBoundingClientRect().top+window.pageYOffset-chapeau-12),behavior:doux?'smooth':'auto'});
+  },60);
   if(ENT.sel){
     var o=(ENT.liste||[]).find(function(x){ return x.t===ENT.sel; })||{};
     var nm=o.nom||o.slug||'';
@@ -2573,7 +2621,7 @@ function vueEntreprises(){
       '</div></div>';
   }).join('') : '<div class="vide">Aucune entreprise ne correspond.</div>';
   return tete+kpi+
-    '<div class="deux"><div class="col-liste">'+
+    '<div class="deux'+(ENT.sel?' choisi':'')+'"><div class="col-liste">'+
       '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
       '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
         '<span>'+l.length+' sur '+(ENT.liste||[]).length+'</span>'+
@@ -2594,8 +2642,10 @@ function ficheEntreprise(){
     '<p style="font-size:13px;color:var(--dim)">Vous verrez son espace, ses utilisateurs, ses erreurs, ses échecs de connexion, sa formule et ses comptes du site — et rien de ceux des autres.</p></div>';
   var o=(ENT.liste||[]).find(function(x){ return x.t===ENT.sel; });
   if(!o) return '<div class="vide">Entreprise introuvable — la liste a peut-être changé.</div>';
+  /* Meme libelle et meme place que dans la Surveillance : un geste appris une fois. */
+  var retour='<div class="ent-retour"><button class="btn-fant" onclick="entSel(\''+jsq(ENT.sel)+'\')">← Toutes les entreprises</button></div>';
   var nm=o.nom||o.slug||'(espace sans nom)';
-  var t='<div class="carte p24">'+
+  var t=retour+'<div class="carte p24">'+
     '<div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap">'+
       '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft);flex-shrink:0">'+esc(sigle(nm))+'</div>'+
       '<div style="flex:1;min-width:180px">'+
