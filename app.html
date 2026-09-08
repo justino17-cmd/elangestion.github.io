@@ -3665,6 +3665,31 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
      PAR-DESSUS « ＋ Ajouter » — mesuré au téléphone. Ni l'un ni l'autre ne sert à ce
      moment-là : ils s'effacent le temps du geste et reviennent après. */
   body.boxsel .fab,body.boxsel #assistant > .fab,body.boxsel .plm-fab{display:none!important}
+}
+/* ── L'EN-TÊTE DE LA SÉLECTION ─── ce qu'on est en train de faire, et où on en est ───
+   Il tient les deux temps : la question d'intention (déduire ou ajouter), puis le
+   récapitulatif de ce qui a été pris. Le liseré change de couleur avec le sens — on sait
+   d'un coup d'œil, sans relire, si on est en train de sortir ou de rentrer du stock. */
+.boxsel-tete{border:1px solid var(--brd);border-radius:14px;padding:12px 13px;margin:0 0 10px;background:var(--bg1)}
+.boxsel-tete.moins{border-left:3px solid var(--org,#e8a33d)}
+.boxsel-tete.plus{border-left:3px solid var(--acc)}
+.boxsel-tete .bst-h{display:flex;align-items:flex-start;gap:10px}
+.boxsel-tete .bst-t{font-size:14.5px;font-weight:800;color:var(--t1);line-height:1.3}
+.boxsel-tete .bst-d{font-size:12.5px;color:var(--t3);line-height:1.55;margin-top:4px}
+.boxsel-tete .bst-n{font-size:12.5px;color:var(--t2);line-height:1.5;margin-top:3px}
+.boxsel-tete .bst-b{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+/* La liste nommée de ce qu'on emporte : c'est elle qui manquait — on cochait sans jamais
+   voir l'ensemble. Elle s'enroule et ne déborde jamais. */
+.boxsel-tete .bst-l{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.boxsel-tete .bst-l span{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:100px;
+  background:var(--bg2);color:var(--t2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Sous le chiffre : ce qu'on prend, et ce qu'il restera. */
+.bst-eff{font-size:11.5px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums}
+/* Les deux commandes de l'en-tête. Carrées et à 44 px : elles se pressent au doigt, avec
+   des gants, sur un chantier — le plancher tactile n'est pas négociable ici. */
+.boxsel-tete .bst-ic{flex-shrink:0;width:44px;height:44px;min-height:44px;padding:0;
+  justify-content:center;border-radius:12px;font-size:16px;font-weight:700}
+@media (max-width:780px){
   /* LE HAMBURGER RESTE. Il avait été caché quand la barre existait, « Plus » ouvrant le même
      tiroir : le coin haut gauche devenait vide et le menu n'était plus atteignable que tout en
      bas de l'écran. C'est très exactement ce qui a fait rejeter la barre. Les deux coexistent
@@ -4503,7 +4528,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '581';
+const APP_VERSION = '582';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -6287,7 +6312,7 @@ function go(view){
   _ecranRendu=null;   // on quitte le détail pour une rubrique : plus rien à redessiner
   /* Quitter l'écran d'une box abandonne la sélection en cours — sinon le drapeau resterait
      sur <body> et la bulle d'assistance disparaîtrait pour le reste de la session. */
-  try{ boxSelOn=false; boxSelQ={}; document.body.classList.remove('boxsel'); }catch(e){}
+  try{ boxSelOn=false; boxSelSens=0; boxSelQ={}; document.body.classList.remove('boxsel'); }catch(e){}
   try{ usageNote(view); }catch(e){}
   // garde d'accès : une vue qu'on n'a pas le droit de voir (menu, rôle, forfait)
   // n'est pas atteignable non plus en tapant l'adresse à la main
@@ -15961,10 +15986,13 @@ function renderBoxProdList(){
           ${(s.ctn||0)?`<div style="font-size:11.5px;color:var(--blue);margin-top:3px">${s.ctn} carton${s.ctn>1?'s':''} en réserve</div>`:''}
           ${li?`<div style="display:flex;align-items:center;gap:7px;margin-top:5px;font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);white-space:nowrap"><span>🔒 ${esc(dem)} en attente</span><button class="btn ghost sm" style="padding:1px 8px;font-size:10.5px;min-height:0;line-height:1.6" onclick="event.stopPropagation();boxLotLigneAnnuler('${b.id}','${pid}')">retirer</button></div>`:''}
         </div>
-        ${boxSelOn?`<div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
+        ${boxSelOn?`<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;white-space:nowrap" onclick="event.stopPropagation()">
+          <div style="display:flex;align-items:center;gap:9px">
           ${boxSelQ[pid]!=null?`<button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxSelPas('${pid}',-1)" aria-label="Moins un">−</button>
           <b style="font-size:20px;font-weight:800;font-family:ui-monospace,'SF Mono',monospace;color:var(--acc);min-width:28px;text-align:center">${boxSelQ[pid]}</b>
           <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px;color:var(--acc)" onclick="boxSelPas('${pid}',1)" aria-label="Plus un">＋</button>`:`<span style="font-size:13px;color:var(--t3);white-space:nowrap">${s.u||0} en stock</span>`}
+          </div>
+          ${boxSelQ[pid]!=null?`<span class="bst-eff">${esc(boxSelEffet(b,pid))}</span>`:''}
         </div>`:`<div style="display:flex;align-items:center;gap:9px;white-space:nowrap" onclick="event.stopPropagation()">
           <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxAdj('${pid}','u',-1)" aria-label="Retirer une unité">−</button>
           <b style="font-size:22px;font-weight:800;font-family:ui-monospace,'SF Mono',monospace;color:${e.c};min-width:30px;text-align:center">${s.u||0}</b>
@@ -15983,12 +16011,41 @@ function boxSelEnTete(b,entries){
   try{ document.body.classList.toggle('boxsel', !!boxSelOn); }catch(e){}
   if((entries||[]).length<2) return '';
   if(!boxSelOn) return `<div style="display:flex;justify-content:flex-end;margin:0 0 8px">
-    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelBasculer()">☑︎ Sélectionner plusieurs</button></div>`;
+    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelBasculer()">\u2611\ufe0e Sélectionner plusieurs</button></div>`;
+
+  /* PREMIER TEMPS : l'intention. Tant qu'elle n'est pas dite, la liste ne se coche pas —
+     et c'est volontaire : cocher d'abord, décider ensuite, c'est ce qui empêchait d'écrire
+     sous chaque produit ce qu'il resterait. */
+  if(!boxSelSens) return `<div class="boxsel-tete">
+    <div class="bst-t">Que voulez-vous faire&nbsp;?</div>
+    <div class="bst-d">Choisissez d'abord, puis touchez les produits concernés — vous verrez ce qu'il restera dans la box au fur et à mesure.</div>
+    <div class="bst-b">
+      <button class="btn ghost" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelSensChoisir(-1)">− Déduire du stock</button>
+      <button class="btn ghost" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelSensChoisir(1)">+ Ajouter au stock</button>
+    </div>
+    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;margin-top:8px;font-weight:700" onclick="boxSelBasculer()">Annuler</button></div>`;
+
+  /* SECOND TEMPS : la liste en cours. L'en-tête dit ce qu'on fait, combien on a pris, et
+     nomme les produits — c'est le récapitulatif qui manquait : on ne voyait nulle part
+     l'ensemble de ce qu'on était en train de sortir. */
   const vus=boxSelVisibles(b), tout=vus.length&&vus.every(pid=>boxSelQ[pid]!=null);
-  return `<div style="display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap">
-    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelTout()">${tout?'Tout décocher':'Tout cocher'}</button>
-    <span style="flex:1"></span>
-    <button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelBasculer()">Annuler</button></div>`;
+  const n=boxSelCombien(), u=boxSelUnites(), deduit=boxSelSens<0;
+  const noms=Object.keys(boxSelQ).map(k=>{ const p=produit(k); return (p&&p.nom?p.nom:'?')+' ×'+boxSelQ[k]; });
+  /* Les commandes vivent EN HAUT du bloc, jamais en bas : la barre de validation est
+     collante, et sur une liste courte elle recouvrait « Tout cocher » et « Annuler » —
+     mesuré, les deux étaient injoignables au doigt. Ce qui est en tête ne peut pas l'être. */
+  return `<div class="boxsel-tete${deduit?' moins':' plus'}">
+    <div class="bst-h">
+      <div style="flex:1;min-width:0">
+        <div class="bst-t">${deduit?'Produits que vous déduisez':'Produits que vous ajoutez'}</div>
+        <div class="bst-n">${n?`<b>${n} produit${n>1?'s':''}</b> · ${u} unité${u>1?'s':''}`:'Touchez les produits concernés ci-dessous.'}</div>
+      </div>
+      <button class="btn ghost sm bst-ic" onclick="boxSelSensChoisir(0)" title="Changer déduire / ajouter" aria-label="Changer déduire ou ajouter">↺</button>
+      <button class="btn ghost sm bst-ic" onclick="boxSelBasculer()" title="Annuler la sélection" aria-label="Annuler la sélection">✕</button>
+    </div>
+    ${n?`<div class="bst-l">${noms.map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:''}
+    ${vus.length>1?`<div class="bst-b"><button class="btn ghost sm" style="min-height:44px;border-radius:12px;padding:0 14px;font-weight:700" onclick="boxSelTout()">${tout?'Tout décocher':'Tout cocher'}</button></div>`:''}
+    </div>`;
 }
 /* La barre d'action, collée en bas de la liste. Elle ne paraît qu'une fois quelque chose de
    coché : une barre vide qui attend est un espace perdu sur un téléphone.
@@ -15997,16 +16054,13 @@ function boxSelEnTete(b,entries){
 function boxSelPied(){
   if(!boxSelOn) return '';
   const n=boxSelCombien();
-  if(!n) return `<div class="boxsel-pied" style="position:sticky;bottom:0;padding:10px 2px;background:linear-gradient(to top,var(--bg) 60%,transparent);text-align:center;color:var(--t3);font-size:13px">Touche les produits à modifier.</div>`;
-  const tot=Object.keys(boxSelQ).reduce((t,k)=>t+(boxSelQ[k]||0),0);
-  const parDR=boxValidRequis();
+  if(!boxSelSens) return '';
+  if(!n) return '';
+  const tot=boxSelUnites(), parDR=boxValidRequis(), deduit=boxSelSens<0;
   return `<div class="boxsel-pied" style="position:sticky;bottom:0;z-index:5;padding:10px 2px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 68%,transparent)">
     <div style="background:var(--bg1);border:1px solid var(--brd);border-radius:16px;padding:11px 12px;box-shadow:0 10px 26px rgba(0,0,0,.16)">
-      <div style="font-size:12.5px;color:var(--t2);margin-bottom:9px"><b style="color:var(--t1)">${n} produit${n>1?'s':''}</b> · ${tot} unité${tot>1?'s':''} au total${parDR?' — partira au DR pour validation':''}</div>
-      <div style="display:flex;gap:8px">
-        <button class="btn ghost" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelAppliquer(-1)">− Retirer</button>
-        <button class="btn" style="flex:1;justify-content:center;min-height:48px;border-radius:13px;font-weight:800" onclick="boxSelAppliquer(1)">＋ Ajouter</button>
-      </div>
+      <div style="font-size:12.5px;color:var(--t2);margin-bottom:9px">${deduit?'Vous déduisez':'Vous ajoutez'} <b style="color:var(--t1)">${tot} unité${tot>1?'s':''}</b> sur ${n} produit${n>1?'s':''}${parDR?' — <b>ça partira au DR</b>, le stock ne bougera qu\'après son accord':''}</div>
+      <button class="btn" style="width:100%;justify-content:center;min-height:50px;border-radius:13px;font-weight:800" onclick="boxSelAppliquer()">${parDR?'Valider et envoyer au DR':'Valider'}</button>
     </div></div>`;
 }
 /* ══════════ PLUSIEURS PRODUITS D'UN COUP ══════════════════════════════════════════════════
@@ -16029,16 +16083,46 @@ function boxDispoU(b,pid){
   if(li) n+=(li.du||0);   // du est négatif pour une sortie
   return Math.max(0,n);
 }
-let boxSelOn=false, boxSelQ={};
-function boxSelBasculer(){ boxSelOn=!boxSelOn; boxSelQ={}; renderBoxProdList(); }
-function boxSelCocher(pid){ if(boxSelQ[pid]==null) boxSelQ[pid]=1; else delete boxSelQ[pid]; renderBoxProdList(); }
-function boxSelPas(pid,d){ var q=(boxSelQ[pid]||0)+d; if(q<1) q=1; if(q>999) q=999; boxSelQ[pid]=q; renderBoxProdList(); }
+/* Le SENS se choisit AVANT la liste, et non plus après. Deux raisons, et la seconde est la
+   vraie : « produits que vous voulez déduire » se comprend d'un coup, là où deux boutons à la
+   fin obligent à se rappeler ce qu'on était en train de faire ; et surtout, sans connaître le
+   sens on ne peut pas écrire sous chaque produit ce qu'il RESTERA — qui est précisément ce
+   qui manquait. Demande de Justin depuis chez ELAN, 8 septembre 2026 : « on n'a pas la valeur
+   de ce qu'on a ou ce qu'on n'a pas ». */
+let boxSelOn=false, boxSelSens=0, boxSelQ={};
+function boxSelBasculer(){ boxSelOn=!boxSelOn; boxSelSens=0; boxSelQ={}; renderBoxProdList(); }
+function boxSelSensChoisir(s){ boxSelSens=s; boxSelQ={}; renderBoxProdList(); }
+function boxSelCocher(pid){ if(!boxSelSens) return; if(boxSelQ[pid]==null) boxSelQ[pid]=1; else delete boxSelQ[pid]; renderBoxProdList(); }
+function boxSelPas(pid,d){
+  const b=db.boxes.find(x=>x.id===boxView);
+  var q=(boxSelQ[pid]||0)+d; if(q<1) q=1;
+  /* On ne laisse même pas COMPOSER une sortie impossible : le plafond est ce qui reste
+     vraiment, déduction faite de ce qui attend déjà l'accord du DR. Refuser à la fin ce
+     qu'on a laissé taper, c'est faire recommencer. */
+  if(boxSelSens<0&&b){ const max=boxDispoU(b,pid); if(q>max) q=Math.max(1,max); }
+  if(q>999) q=999;
+  boxSelQ[pid]=q; renderBoxProdList();
+}
 function boxSelCombien(){ return Object.keys(boxSelQ).length; }
+function boxSelUnites(){ return Object.keys(boxSelQ).reduce((t,k)=>t+(boxSelQ[k]||0),0); }
+/* Ce qui s'écrit SOUS le chiffre de chaque produit choisi : ce qu'on prend, et ce qu'il
+   restera après. Calculé sur le disponible réel — stock moins ce qui est déjà en attente —
+   sinon le nombre annoncé serait faux dès la deuxième sélection de la journée. */
+function boxSelEffet(b,pid){
+  if(!boxSelOn||!boxSelSens||boxSelQ[pid]==null) return '';
+  const q=boxSelQ[pid]||0, dispo=boxDispoU(b,pid);
+  const reste=boxSelSens<0 ? Math.max(0,dispo-q) : dispo+q;
+  return (boxSelSens<0?'−':'+')+q+' · restera '+reste;
+}
 function boxSelTout(){
   const b=db.boxes.find(x=>x.id===boxView); if(!b) return;
   const vus=boxSelVisibles(b);
   if(vus.every(pid=>boxSelQ[pid]!=null)) boxSelQ={};
-  else vus.forEach(pid=>{ if(boxSelQ[pid]==null) boxSelQ[pid]=1; });
+  /* Un produit à 0 ne se coche pas quand on déduit : le proposer, c'est promettre une sortie
+     qui sera refusée ligne par ligne à la fin. */
+  else vus.forEach(pid=>{ if(boxSelQ[pid]!=null) return;
+    if(boxSelSens<0&&boxDispoU(b,pid)<1) return;
+    boxSelQ[pid]=1; });
   renderBoxProdList();
 }
 /* Les produits RÉELLEMENT à l'écran — la recherche filtre la liste, « tout cocher » ne doit
@@ -16049,6 +16133,7 @@ function boxSelVisibles(b){
     return !q || norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+(p.fournisseurs||[]).join(' ')).includes(q); });
 }
 function boxSelAppliquer(sens){
+  sens=sens||boxSelSens; if(!sens) return;
   const b=db.boxes.find(x=>x.id===boxView); if(!b) return;
   const pids=Object.keys(boxSelQ).filter(k=>(boxSelQ[k]||0)>0);
   if(!pids.length){ toast('Choisis au moins un produit'); return; }
@@ -16070,7 +16155,7 @@ function boxSelAppliquer(sens){
   } finally { _boxLotSilence=false; }
   const parDR=boxValidRequis();
   if(!faits){ toast('Rien à '+(sens<0?'retirer':'ajouter')+' — ces produits sont déjà à 0'); return; }
-  boxSelOn=false; boxSelQ={}; renderBoxProdList();
+  boxSelOn=false; boxSelSens=0; boxSelQ={}; renderBoxProdList();
   if(parDR){
     const moi=currentUser&&currentUser.id;
     const lot=(db.boxMvtAttente||[]).find(x=>x.statut==='enAttente'&&x.type==='ajustementLot'&&x.boxId===b.id&&x.parId===moi);
