@@ -6647,7 +6647,29 @@ function visibleBoxMvts(list){ if(!currentUser) return []; if(currentUser.role==
   if(can('voirTout')) return list||[];
   return (list||[]).filter(m=>m.parId===me); }
 function visibleMouvements(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(m=>(m.boxId&&ids.has(m.boxId))||(m.technicien&&m.technicien===me)); }
-function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const tid=myTechId(); return (list||[]).filter(v=>!!tid&&(v.techId===tid||v.conducteurTechnicienId===tid)); }
+/* ══════════ LES VÉHICULES SE DÉSIGNENT, COMME LES BOX ═══════════════════════════════════
+   Justin, 9 septembre 2026 : « pour les box il sélectionne le box, pour les véhicules il
+   sélectionne le véhicule qui lui est assigné. En gros, pour toutes les catégories où ça
+   marche comme les box, bien désigner ce qu'il doit voir. »
+   Jusqu'ici un véhicule ne se voyait QUE par la fiche technicien (titulaire ou conducteur) —
+   automatique, donc impossible à corriger : on ne pouvait ni ouvrir le camion d'un collègue à
+   quelqu'un qui le conduit en dépannage, ni fermer un véhicule à une personne qui y reste
+   rattachée sur le papier. On reprend exactement le modèle des box (v590) : deux listes
+   d'EXCEPTIONS rangées sur le véhicule, et on n'écrit que ce qui s'écarte du défaut. */
+function vehiculeAuto(v,u){ const tid=u&&u.techId; return !!(tid&&(v.techId===tid||v.conducteurTechnicienId===tid)); }
+const vehExclu=(v,userId)=>!!(userId&&((v&&v.userIdsExclus)||[]).includes(userId));
+function userVehiculeVoit(userId,vehId,on){
+  const v=(db.vehicules||[]).find(x=>x.id===vehId); if(!v||!userId) return;
+  v.userIds=(v.userIds||[]).filter(x=>x!==userId);
+  v.userIdsExclus=(v.userIdsExclus||[]).filter(x=>x!==userId);
+  const u=(db.users||[]).find(x=>x.id===userId)||{};
+  const auto=vehiculeAuto(v,u);
+  if(on){ if(!auto) v.userIds.push(userId); }
+  else  { if(auto) v.userIdsExclus.push(userId); }
+}
+function userVehiculeVoitIl(v,u){ return !vehExclu(v,u&&u.id)&&(vehiculeAuto(v,u)||((v.userIds||[]).includes(u&&u.id))); }
+function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return [];
+  return (list||[]).filter(v=>userVehiculeVoitIl(v,currentUser)); }
 function visibleJournal(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const me=currentUser.id; return (list||[]).filter(j=>j.userId===me||(j.cibleUserId&&j.cibleUserId===me)); }
 /* ── Les rubriques qui n'avaient AUCUN filtre ──────────────────────────────────────────
    Un technicien ne voit déjà que ses interventions — mais il voyait TOUS les clients de
@@ -20952,10 +20974,20 @@ function usrDroitsHtml(u,admin){
           :b.visibleTous?'visible par toute l\'équipe':viaTech?'via sa fiche technicien':resp?'responsable de la box':'';
         return ligne('🧱 '+esc(b.nom||b.numero||'Box'),pourquoi,swH('box_'+b.id,boxOuverte(b))); }).join('')||'<div class="usr-x">Aucune box pour l\'instant.</div>'}
     </div></details></div>`;
+  /* Même forme que les box : on dit d'où vient l'ouverture, et on dit quand elle a été
+     retirée. Masqué avec « Tout voir », qui rend la question sans objet. */
+  const vehs=(db.vehicules||[]).filter(v=>v&&v.actif!==false);
+  const nVeh=vehs.filter(v=>userVehiculeVoitIl(v,u)).length;
+  const vehHtml=vehs.length?`<div class="usr-box" style="display:${toutVoir?'none':'block'}"><details class="usr-cat"><summary><b>🚐 Véhicules qu'il voit</b><span class="usr-cn">${nVeh}/${vehs.length}</span><span class="usr-cc" aria-hidden="true">▾</span></summary><div class="usr-cb">
+      <div class="usr-x" style="margin:8px 0 2px">Sans « Tout voir », il ne voit que les véhicules cochés ici — en plus de celui dont sa fiche technicien est titulaire ou conductrice.</div>
+      ${vehs.map(v=>{ const auto=vehiculeAuto(v,u); const exclu=vehExclu(v,u.id);
+        const pourquoi=exclu?'<span style="color:var(--org,#e8a33d)">retiré à cette personne</span>':auto?'via sa fiche technicien':'';
+        return ligne('🚐 '+esc(vPlaque(v)+(v.modele?' · '+v.modele:'')),pourquoi,swH('veh_'+v.id,userVehiculeVoitIl(v,u))); }).join('')}
+    </div></details></div>`:'';
   const perso=!!(u.acces&&(Object.keys(u.acces.caps||{}).length||Object.keys(u.acces.modules||{}).length));
   return `<div class="usr-d" id="usr-d-${u.id}">
     <div class="usr-res">Voit <b>${vus}</b> menus sur ${tousMods.length} · ${toutVoir?'<b>toutes</b> les box':'<b>'+nBox+'</b> box'}${userCap(u,'validerDR')?' · <b>valide</b> les mouvements et demandes':''}${perso?'':' · <span class="usr-x">suit son rôle, rien de réglé à part</span>'}</div>
-    ${cats}${autresHtml}${boxHtml}
+    ${cats}${autresHtml}${boxHtml}${vehHtml}
     ${admin?`<div class="usr-pf">
       ${profilsDroits().length?`<select class="usr-pf-s" onchange="profilAppliquer('${u.id}',this.value);this.value=''">
         <option value="">🎛 Appliquer un profil…</option>
@@ -21137,7 +21169,8 @@ function usrDroitsValider(uid){
   USER_CAPS.forEach(([k])=>{ const v=val('cap_'+k); if(v!==null) u.acces.caps[k]=v; });
   PERM_GRPS.forEach(([g])=>{ ['ajouter','modifier','supprimer'].forEach(d=>{ const v=val('cat_'+g+'_'+d); if(v!==null) u.acces.caps['cat_'+g+'_'+d]=v; }); });
   NAV.flatMap(x=>x.items).forEach(m=>{ const v=val('mod_'+m.k); if(v!==null) u.acces.modules[m.k]=v; });
-  if(!u.acces.caps.voirTout){ (db.boxes||[]).forEach(b=>{ const v=val('box_'+b.id); if(v!==null) userBoxVoit(u.id,b.id,v); }); }
+  if(!u.acces.caps.voirTout){ (db.boxes||[]).forEach(b=>{ const v=val('box_'+b.id); if(v!==null) userBoxVoit(u.id,b.id,v); });
+    (db.vehicules||[]).forEach(vh=>{ const v=val('veh_'+vh.id); if(v!==null) userVehiculeVoit(u.id,vh.id,v); }); }
   logEvent('Droits modifiés','@'+(u.login||'')+' — depuis la liste des utilisateurs','auth');
   save(); toast('✓ Droits de '+fullName(u)+' enregistrés — actifs immédiatement',3500);
   views.utilisateurs();
@@ -21210,16 +21243,30 @@ function nuBoxHtml(){
     <div style="font-size:11px;color:var(--t3);margin-top:4px">Il n'ouvrira <b>que</b> les box cochées. Décocher une box <b>ouverte à toute l'équipe</b> la lui ferme à lui seul, sans rien changer pour les autres. Modifiable ensuite depuis sa ligne.</div></div>
     <div id="nu-box-tout" style="display:${nuBoxTout?'block':'none'}"><div class="fgroup" style="padding:12px 14px;font-size:12.5px;color:var(--t2);line-height:1.55">📦 Ce profil donne <b>« Tout voir »</b> : ce compte ouvrira <b>toutes</b> les box, y compris celles créées plus tard. Il n'y a rien à cocher.</div></div>`;
 }
-/* Le profil choisi décide si la question des box se pose : « Tout voir » la rend sans objet. */
+let nuVehs=new Set();
+function nuVehHtml(){
+  const vs=(db.vehicules||[]).filter(v=>v&&v.actif!==false);
+  if(!vs.length) return '';
+  return `<div class="field" id="nu-veh-bloc" style="display:${nuBoxTout?'none':'block'}"><label>🚐 Véhicules qu'il voit <span style="font-weight:400;color:var(--t3)">— coche celui qui lui est assigné</span></label>
+    <div style="max-height:200px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">
+      ${vs.map(v=>`<label style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer">
+        <input type="checkbox" ${nuVehs.has(v.id)?'checked':''} onchange="this.checked?nuVehs.add('${v.id}'):nuVehs.delete('${v.id}')" style="width:18px;height:18px;accent-color:var(--acc)">
+        <span style="flex:1;min-width:0">🚐 ${esc(vPlaque(v))}${v.modele?' <span style="color:var(--t3);font-size:11.5px">· '+esc(v.modele)+'</span>':''}</span></label>`).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--t3);margin-top:4px">Il ne verra <b>que</b> ces véhicules. Modifiable ensuite depuis sa ligne.</div></div>`;
+}
+/* Le profil choisi décide si la question des box et des véhicules se pose : « Tout voir » la
+   rend sans objet pour les deux. */
 function nuProfilChange(pid){
   const pr=pid?profilDroits(pid):null;
   nuBoxTout=!!(pr&&pr.caps&&pr.caps.voirTout);
-  const b=document.getElementById('nu-box-bloc'), t=document.getElementById('nu-box-tout');
+  const b=document.getElementById('nu-box-bloc'), t=document.getElementById('nu-box-tout'), vb=document.getElementById('nu-veh-bloc');
   if(b) b.style.display=nuBoxTout?'none':'block';
   if(t) t.style.display=nuBoxTout?'block':'none';
+  if(vb) vb.style.display=nuBoxTout?'none':'block';
 }
 function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUserNew=!id; window._formUserRole0=u.role||'technicien';
-  if(!id){ nuBoxes=new Set(); nuBoxTout=false; }
+  if(!id){ nuBoxes=new Set(); nuVehs=new Set(); nuBoxTout=false; }
   // Rattachements vus depuis le DR : avec 65 techniciens, ouvrir 65 fiches n'a pas de sens.
   // Même donnée que le champ « Directeur régional responsable », lue dans l'autre sens.
   drRattaches = new Set((db.users||[]).filter(x=>x&&id&&x.drId===id).map(x=>x.id));
@@ -21241,6 +21288,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
         <select name="drId">${[`<option value="">— aucun (tous les DR sont prévenus) —</option>`].concat(valideursDR().filter(x=>x.id!==u.id).map(x=>`<option value="${x.id}" ${u.drId===x.id?'selected':''}>${esc(fullName(x))}</option>`)).join('')}</select>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Ses demandes et ses mouvements de box partent à ce DR, et lui seul les voit dans « Validations DR ». Sans DR choisi, tous les valideurs sont prévenus, comme avant.</div></div>
       ${!id?nuBoxHtml():''}
+      ${!id?nuVehHtml():''}
       ${id&&capOf('validerDR')?`<div class="field"><label>Personnes rattachées à ce valideur</label>
         <div style="max-height:210px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">${(db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==id).map(x=>`
           <label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer">
@@ -21424,8 +21472,11 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
        On passe TOUTES les box, cochées ou non — décocher une box ouverte à toute l'équipe doit
        poser une exception, c'est précisément ce que fait userBoxVoit avec `false`. */
     let _nBox=0;
+    let _nVeh=0;
     if(!acces.caps.voirTout){ (db.boxes||[]).filter(b=>b&&b.actif!==false).forEach(b=>{
-      const on=nuBoxes.has(b.id); userBoxVoit(nu.id,b.id,on); if(on) _nBox++; }); }
+      const on=nuBoxes.has(b.id); userBoxVoit(nu.id,b.id,on); if(on) _nBox++; });
+      (db.vehicules||[]).filter(v=>v&&v.actif!==false).forEach(v=>{
+        const on=nuVehs.has(v.id); userVehiculeVoit(nu.id,v.id,on); if(on) _nVeh++; }); }
     logEvent('Utilisateur créé',`@${loginNorm}`+(_profilPose?' — profil « '+_profilPose+' »':'')+(acces.caps.voirTout?' — toutes les box':_nBox?' — '+_nBox+' box':''),'auth');
     save(); closeModal(); views.utilisateurs();
     setTimeout(()=>userIdentifiantsModal(nu,pwd),120);
@@ -27030,6 +27081,14 @@ if('serviceWorker' in navigator){
      de rechargement pendant une saisie. */
   try{ if(navigator.serviceWorker) navigator.serviceWorker.addEventListener('message',ev=>{
     const d=(ev&&ev.data)||{};
+    /* Le service worker prévient AVANT de recharger de force (v614) : on profite de ces
+       1,8 secondes pour pousser ce qui attend — la synchro est retardée de 800 ms, et un
+       rechargement au mauvais moment perdrait le dernier geste. Les versions d'avant ce
+       correctif ignorent simplement ce message : elles seront rechargées quand même, et
+       leur `save()` a déjà écrit le stockage local. */
+    if(d.op==='maj-avant-rechargement'){ try{ if(typeof syncPush==='function') syncPush(true); }catch(e){}
+      try{ toast('Mise à jour en cours — l\'application se recharge…',2500); }catch(e){} return; }
+    if(d.op==='maj-recharge'){ try{ location.reload(); }catch(e){} return; }
     if(d.op!=='maj') return;
     try{ if(typeof majArmer==='function') majArmer(); else toast('Nouvelle version prête — rouvrez l\'application'); }catch(e){}
   }); }catch(e){}
