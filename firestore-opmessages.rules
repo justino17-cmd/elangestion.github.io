@@ -1,0 +1,159 @@
+rules_version = '2';
+
+// ══════════════════════════════════════════════════════════════════════════
+//  TEAM OP — RÈGLES DU PROJET OP MESSAGES (projet Firebase à part, décision de
+//  Justin du 10 septembre 2026 : « OP MESSAGES dans un autre projet, pour éviter
+//  les problèmes »). Comptes de la messagerie, entreprises, réunions, discussions,
+//  appels — et rien d'autre. Ni OP GESTION, ni l'espace client : ils restent dans
+//  « elan-gestion ».
+//  Où coller : console Firebase → LE PROJET OP MESSAGES → Firestore → Règles → Publier.
+//  Authentification : la messagerie se connecte par compte e-mail ; activer les
+//  fournisseurs voulus dans Authentication avant la bascule de messages.html.
+// ══════════════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── LES OUTILS ──────────────────────────────────────────────────────
+    function connecte()      { return request.auth != null; }
+    function moi()           { return request.auth.uid; }
+    function cestMoi(uid)    { return connecte() && moi() == uid; }
+
+    function membre(cid) {
+      return connecte()
+        && exists(/databases/$(database)/documents/op_companies/$(cid)/members/$(moi()));
+    }
+    function maFiche(cid) {
+      return get(/databases/$(database)/documents/op_companies/$(cid)/members/$(moi())).data;
+    }
+    function patron(cid) {
+      return membre(cid) && (
+        get(/databases/$(database)/documents/op_companies/$(cid)).data.ownerUid == moi()
+        || maFiche(cid).role == 'entreprise'
+      );
+    }
+    function responsable(cid) {
+      return patron(cid) || (membre(cid) && maFiche(cid).role in ['responsable','entreprise']);
+    }
+    function roleInchange(cid) {
+      return !('role' in request.resource.data)
+        || request.resource.data.role == resource.data.role
+        || patron(cid);
+    }
+
+    // ══ LES COMPTES ═══════════════════════════════════════════════════════
+    match /op_users/{uid} {
+      allow read:   if connecte();
+      allow write:  if cestMoi(uid);
+
+      match /devices/{deviceId} {
+        allow read, write: if cestMoi(uid);
+      }
+      match /contacts/{contactId} {
+        allow read, write: if cestMoi(uid);
+      }
+      match /invites/{inviteId} {
+        allow read, delete: if cestMoi(uid);
+        allow create:       if connecte();
+        allow update:       if cestMoi(uid);
+      }
+    }
+
+    // ══ LES ENTREPRISES ═══════════════════════════════════════════════════
+    match /op_companies/{cid} {
+      allow read:   if connecte();
+      allow create: if connecte() && request.resource.data.ownerUid == moi();
+      allow update: if patron(cid);
+      allow delete: if patron(cid);
+
+      match /members/{uid} {
+        allow read:   if membre(cid);
+        allow create: if cestMoi(uid) || patron(cid);
+        allow update: if (cestMoi(uid) && roleInchange(cid)) || patron(cid);
+        allow delete: if cestMoi(uid) || patron(cid);
+      }
+
+      // ── LES RÉUNIONS : le verrou ──
+      match /rooms/{roomId} {
+        function invite() {
+          return resource.data.get('ouverte', false) == true
+            || resource.data.createdBy == moi()
+            || moi() in resource.data.get('members', [])
+            || patron(cid);
+        }
+        allow read:   if membre(cid) && invite();
+        allow create: if responsable(cid) && request.resource.data.createdBy == moi();
+        allow update: if membre(cid) && invite();
+        allow delete: if resource.data.createdBy == moi() || patron(cid);
+
+        match /reponses/{uid} {
+          allow read:  if membre(cid);
+          allow write: if cestMoi(uid);
+        }
+      }
+
+      // ── LES DISCUSSIONS ──
+      match /channels/{chId} {
+        function dansLeSalon() {
+          return resource.data.get('type', '') == 'general'
+            || moi() in resource.data.get('members', [])
+            || patron(cid);
+        }
+        allow read:   if membre(cid) && dansLeSalon();
+        allow create: if membre(cid) && moi() in request.resource.data.get('members', [moi()]);
+        allow update: if membre(cid) && dansLeSalon();
+        allow delete: if patron(cid) || resource.data.get('createdBy', '') == moi();
+
+        match /messages/{msgId} {
+          allow read:   if membre(cid);
+          allow create: if membre(cid) && request.resource.data.get('from', moi()) == moi();
+          allow update: if membre(cid);
+          allow delete: if membre(cid) && (resource.data.get('from', '') == moi() || patron(cid));
+
+          match /votes/{uid} {
+            allow read:  if membre(cid);
+            allow write: if cestMoi(uid);
+          }
+        }
+        match /reads/{uid} {
+          allow read:  if membre(cid);
+          allow write: if cestMoi(uid);
+        }
+      }
+
+      // ── LES APPELS ET LA VISIO ──
+      match /calls/{callId} {
+        allow read:   if membre(cid);
+        allow create: if membre(cid);
+        allow update: if membre(cid);
+        allow delete: if membre(cid);
+      }
+    }
+
+    // ══ LES ESPACES PERSONNELS ════════════════════════════════════════════
+    match /op_channels/{chId} {
+      function dedans() { return moi() in resource.data.get('members', []); }
+      allow read:   if connecte() && dedans();
+      allow create: if connecte() && moi() in request.resource.data.get('members', [moi()]);
+      allow update: if connecte() && dedans();
+      allow delete: if connecte() && dedans();
+
+      match /messages/{msgId} {
+        allow read:   if connecte();
+        allow create: if connecte() && request.resource.data.get('from', moi()) == moi();
+        allow update: if connecte();
+        allow delete: if connecte() && resource.data.get('from', '') == moi();
+        match /votes/{uid} { allow read: if connecte(); allow write: if cestMoi(uid); }
+      }
+      match /reads/{uid} { allow read: if connecte(); allow write: if cestMoi(uid); }
+    }
+    match /op_calls/{callId} {
+      allow read, write: if connecte();
+    }
+
+    // ══ TOUT LE RESTE EST FERMÉ ═══════════════════════════════════════════
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

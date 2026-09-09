@@ -1656,15 +1656,15 @@ app.post('/api/monitor/entreprise/dossier', monAdmin, (req, res) => {
      un compte oublié, ou quelqu'un qui n'arrive pas à entrer. */
   const annu = (comptesReg[t] && comptesReg[t].c) || {};
   const parLogin = {};
-  for (const l of Object.keys(annu)) parLogin[l] = { login: l, dansAnnuaire: true, derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 };
+  for (const l of Object.keys(annu)) parLogin[l] = { login: l, dansAnnuaire: true, nom: (annu[l] && annu[l].n) || '', attente: ordreAttente(t, l), derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 };
   const devs = {};
   for (const x of (cnxData[t] || [])) {
     const l = String(x.login || '').toLowerCase().trim(); if (!l) continue;
-    const o = parLogin[l] || (parLogin[l] = { login: l, dansAnnuaire: false, derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 });
+    const o = parLogin[l] || (parLogin[l] = { login: l, dansAnnuaire: false, nom: '', attente: ordreAttente(t, l), derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 });
     if (x.ev === 'echec') { o.echecs++; continue; }
     if (x.ev === 'bloque' || x.ev === 'refus') { o.bloques = (o.bloques || 0) + 1; continue; }   // la porte a joué : ce n'est ni une connexion ni un échec de mot de passe
     o.connexions++;
-    if ((x.ts || 0) > o.derniere) { o.derniere = x.ts || 0; o.role = x.role || o.role; o.version = x.version || o.version; }
+    if ((x.ts || 0) > o.derniere) { o.derniere = x.ts || 0; o.role = x.role || o.role; o.version = x.version || o.version; if (x.nom) o.nom = x.nom; }
     if (x.dev) { (devs[l] = devs[l] || new Set()).add(x.dev); }
   }
   for (const l of Object.keys(parLogin)) parLogin[l].appareils = devs[l] ? devs[l].size : 0;
@@ -1706,7 +1706,7 @@ app.post('/api/connexions', (req, res) => {
   if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
   if (Object.keys(cnxData).length >= 3000 && !cnxData[t]) return res.json({ ok: true });
   const ev = { ts: Date.now(), ev: ['connexion', 'echec', 'session', 'deconnexion', 'bloque', 'refus'].includes(b.ev) ? b.ev : 'connexion',
-    login: monStr(b.login, 40), role: monStr(b.role, 16), version: monStr(b.version, 12), app: monStr(b.app, 12) || 'gestion',
+    login: monStr(b.login, 40), nom: monStr(b.nom, 60), role: monStr(b.role, 16), version: monStr(b.version, 12), app: monStr(b.app, 12) || 'gestion',
     via: monStr(b.via, 16), appareil: monStr(b.appareil, 20), os: monStr(b.os, 20), nav: monStr(b.nav, 20), pwa: !!b.pwa,
     dev: monStr(b.dev, 24), motif: monStr(b.motif, 80) };
   const l = cnxData[t] = cnxData[t] || [];
@@ -1732,6 +1732,76 @@ app.post('/api/monitor/connexions/effacer-tentatives', monPatronStrict, (req, re
   if (n) cnxSave();
   monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'tentatives effacées : ' + n);   // ni identifiant ni espace : rien de personnel au journal
   res.json({ ok: true, effacees: n, ignores: gardes });
+});
+/* ══ LES ORDRES DE LA TOUR — supprimer un compte depuis la Tour (Justin, 10 septembre 2026) ══
+   La base d'une entreprise est chiffrée : ce serveur ne peut pas y retirer un compte. La Tour
+   ORDONNE — après un code reçu par mail, « pour éviter l'erreur » — et le premier appareil de
+   l'entreprise qui s'ouvre EXÉCUTE, puis confirme. Entre les deux, la porte est déjà fermée :
+   l'identifiant sort de l'annuaire et n'y rentre plus tant que l'ordre est en attente. */
+const ORDRES_PATH = path.join(DATA_DIR, 'ordres.json');
+let ordresData = {};
+try { ordresData = JSON.parse(fs.readFileSync(ORDRES_PATH, 'utf8')) || {}; } catch (e) {}
+/* Un ordre que personne n'a exécuté en 30 jours : l'entreprise n'ouvre plus l'application, ou le
+   compte n'existe plus nulle part — dans les deux cas il n'a plus rien à faire ici. */
+for (const t of Object.keys(ordresData)) { ordresData[t] = (ordresData[t] || []).filter(o => o && o.login && (o.fait || (o.ts || 0) > Date.now() - 30 * 86400000)); if (!ordresData[t].length) delete ordresData[t]; }
+function ordresSave() { try { const tmp = ORDRES_PATH + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(ordresData)); fs.renameSync(tmp, ORDRES_PATH); return true; } catch (e) { console.error('ordres.json non écrit :', e.message); return false; } }
+function ordreAttente(t, login) { return (ordresData[t] || []).some(o => o.login === login && !o.fait); }
+/* La clé d'équipe, comme pour l'annuaire : kh = sha256 de la clé. null = espace inconnu, false = mauvaise clé. */
+function espaceCleOk(t, kh) {
+  const e = espaceParT(t); if (!e || !e.code) return null;
+  let cle = ''; try { cle = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) {}
+  if (!cle || !/^[0-9a-f]{64}$/.test(String(kh || '')) || crypto.createHash('sha256').update(cle).digest('hex') !== kh) return false;
+  return true;
+}
+app.post('/api/monitor/compte/supprimer', monPatronStrict, async (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80), login = monStr(b.login, 40).toLowerCase().trim();
+  if (!t || !login) return res.status(400).json({ error: 't et login requis' });
+  const e = espaceParT(t); if (!e) return res.status(404).json({ error: 'espace inconnu' });
+  const annu = (comptesReg[t] && comptesReg[t].c) || {};
+  const connu = Object.prototype.hasOwnProperty.call(annu, login) || (cnxData[t] || []).some(x => String(x.login || '').toLowerCase().trim() === login && x.ev !== 'echec');
+  if (!connu) return res.status(404).json({ error: 'compte inconnu de cet espace' });
+  const cle = 'c:' + t + ':' + login;
+  const codeRecu = monStr(b.code, 10).trim();
+  if (!codeRecu) {   // 1er temps : le code part par mail
+    if (!mailer) return res.status(503).json({ error: 'e-mail non configuré — impossible d\'envoyer le code' });
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    retraitCodes.set(cle, { code, exp: Date.now() + 10 * 60000, tries: 0 });
+    const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
+    try {
+      await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
+        confidentiel: true, trace: 'code de suppression de compte · espace ' + t.slice(0, 12),   // ni l'identifiant ni le code au journal
+        subject: '🗑 Code de confirmation — suppression du compte « ' + login + ' » chez ' + espNomPropre(e),
+        text: 'Tu es sur le point de SUPPRIMER le compte « ' + login + ' » de l\'entreprise ' + espNomPropre(e) + '.\n\nCode de confirmation : ' + code + '\n\nValable 10 minutes. Après validation : l\'identifiant est retiré de l\'annuaire tout de suite (la personne ne peut plus entrer), et le compte est supprimé de l\'application au premier appareil de l\'entreprise qui s\'ouvre.\n\nSi ce n\'est pas toi, ignore ce message : rien ne se passe sans le code.' });
+    } catch (err) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(err.message).slice(0, 120) }); }
+    return res.json({ ok: true, codeEnvoye: true, dest: masqueMail(dest) });
+  }
+  const c = retraitCodes.get(cle);   // 2e temps : le code revient
+  if (!c || Date.now() > c.exp) { retraitCodes.delete(cle); return res.status(400).json({ error: 'code expiré — relance la suppression' }); }
+  if (c.code !== codeRecu) { c.tries++; if (c.tries >= 5) retraitCodes.delete(cle); return res.status(400).json({ error: 'code incorrect' }); }
+  retraitCodes.delete(cle);
+  const l = ordresData[t] = ordresData[t] || [];
+  if (!l.some(o => o.login === login && !o.fait)) l.push({ login, ts: Date.now(), par: (req.tourUser && req.tourUser.nom) || '', fait: 0 });
+  ordresSave();
+  if (comptesReg[t] && comptesReg[t].c && Object.prototype.hasOwnProperty.call(comptesReg[t].c, login)) { delete comptesReg[t].c[login]; comptesReg[t].maj = Date.now(); comptesEcrire(); }
+  monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'suppression de compte ordonnée');
+  res.json({ ok: true, attente: true });
+});
+/* L'application demande ses ordres : au démarrage, au retour au premier plan, tous les quarts d'heure. */
+app.post('/api/espaces/ordres', (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  res.json({ ok: true, suppressions: (ordresData[t] || []).filter(o => !o.fait).map(o => o.login) });
+});
+app.post('/api/espaces/ordre-fait', (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  const faits = new Set((Array.isArray(b.logins) ? b.logins : []).map(x => monStr(x, 40).toLowerCase().trim()).filter(Boolean));
+  let n = 0; for (const o of (ordresData[t] || [])) { if (!o.fait && faits.has(o.login)) { o.fait = Date.now(); n++; } }
+  if (n) { ordresSave(); console.log('ordre de suppression exécuté :', n, 'compte(s) · espace', t); }
+  res.json({ ok: true, n });
 });
 /* Résumé lisible d'un espace : dernière connexion, utilisateurs et appareils actifs, échecs, versions */
 function cnxResume(t) {
@@ -2504,8 +2574,10 @@ app.post('/api/espaces/comptes', (req, res) => {
     const ver = parseInt(String(b.ver || '').replace(/[^0-9]/g, ''), 10) || 0;
     if (ver < versionsCfg.min) return res.status(426).json({ error: 'version trop ancienne — mets l\'application à jour', min: versionsCfg.min });
   }
-  /* Rien d'autre que le strict nécessaire n'est retenu : pas de prénom, pas de nom, pas
-     d'adresse. Un annuaire de connexion n'a pas à devenir un fichier du personnel. */
+  /* Le strict nécessaire, plus le NOM depuis le 10 septembre 2026 — décision de Justin : dans la
+     Tour, sous l'identifiant, on doit lire qui c'est (deux « florent », impossible de savoir
+     lequel supprimer). Ni adresse, ni téléphone : ça reste un annuaire de connexion, pas un
+     fichier du personnel. */
   /* Sans prototype : rien de ce qu'on écrit ici ne doit pouvoir devenir « __proto__ » ou
      « constructor » du côté lecture. Les trois noms sont refusés en plus, explicitement — un
      compte ne s'appelle pas ainsi, et les garder ne servirait qu'à piéger la route voisine. */
@@ -2517,7 +2589,8 @@ app.post('/api/espaces/comptes', (req, res) => {
     const sel = monStr(c.s, 32).toLowerCase(), emp = monStr(c.e, 64).toLowerCase();
     if (!login || INTERDITS.includes(login)) continue;
     if (!/^[0-9a-f]{32}$/.test(sel) || !/^[0-9a-f]{64}$/.test(emp)) continue;
-    table[login] = { s: sel, e: emp };
+    if (ordreAttente(t, login)) continue;   // suppression ordonnée depuis la Tour : la porte reste fermée jusqu'à l'exécution
+    table[login] = { s: sel, e: emp, n: monStr(c.n, 60).trim() };
   }
   /* Un annuaire vide ne remplace JAMAIS un annuaire garni : un bogue de l'application, une
      synchro pas encore descendue, et toute l'entreprise se retrouvait dehors sans rien avoir

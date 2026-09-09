@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '619';
+const APP_VERSION = '620';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5943,6 +5943,35 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
 const COLLS_GARDEES=['interventions','clients','boxes','produits','mouvements','bons','devis','factures','vehicules','pointages','contrats','demandes','telecollectes','techniciens','fournisseurs','chantiers','registres'];
 let _retraitVoulu=0;
 function syncRetraitVoulu(){ _retraitVoulu=Date.now(); }
+/* ══ LES ORDRES DE LA TOUR — supprimer un compte depuis la Tour de contrôle (Justin, 10 septembre 2026) ══
+   La base est chiffrée : le serveur ne peut pas y retirer un compte. La Tour ORDONNE (après un code
+   reçu par mail), et le premier appareil de l'entreprise qui passe ici EXÉCUTE — pierre tombale,
+   nettoyage, enregistrement — puis confirme au serveur. Entre les deux, l'annuaire est déjà purgé :
+   la personne ne peut plus entrer. On ne confirme QUE ce qu'on a réellement supprimé : un appareil
+   qui ne connaît pas le compte laisse l'ordre en attente pour un autre. */
+async function ordresVerifier(){
+  if(_versionBloquee||_horsLigne||BETA_ESSAI||!currentUser) return;
+  const t=localStorage.getItem('elan_sync_team'), k=localStorage.getItem('elan_sync_secret'); if(!t||!k) return;
+  try{
+    const kh=await sha256(k);
+    const r=await fetch(PUSH_API+'/api/espaces/ordres',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:t,kh:kh})});
+    const j=await r.json().catch(()=>null); if(!j||!j.ok) return;
+    const logins=(j.suppressions||[]).map(x=>String(x||'').toLowerCase().trim()).filter(Boolean); if(!logins.length) return;
+    const faits=[]; let moi=false;
+    logins.forEach(l=>{ const u=(db.users||[]).find(x=>x&&String(x.login||'').toLowerCase().trim()===l); if(!u) return;
+      db.users=db.users.filter(x=>x.id!==u.id);
+      db.usersSupprimes=usersTombesFusion(db,{usersSupprimes:[{id:u.id,ts:Date.now()}]});
+      try{ utilisateurNettoyer(u); }catch(e){}
+      try{ logEvent('Utilisateur supprimé depuis la Tour de contrôle','@'+(u.login||''),'auth'); }catch(e){}
+      faits.push(l); if(currentUser&&u.id===currentUser.id) moi=true; });
+    if(!faits.length) return;
+    save();
+    try{ await fetch(PUSH_API+'/api/espaces/ordre-fait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:t,kh:kh,logins:faits})}); }catch(e){}
+    try{ toast(faits.length+' compte(s) supprimé(s) à la demande de TEAM OP',3600); }catch(e){}
+    if(moi){ setTimeout(()=>{ try{ logout(); }catch(e){ try{ location.reload(); }catch(_e){} } },1200); }
+    else { try{ if(current==='utilisateurs') views.utilisateurs(); }catch(e){} }
+  }catch(e){}
+}
 /* L'identifiant existe-t-il déjà dans le document de l'équipe ? true / false, ou null quand le
    serveur n'a pas répondu (hors ligne, clé différente) — et null se traite comme un refus. */
 async function loginExisteAilleurs(login,saufId){
@@ -21612,6 +21641,10 @@ function userToggleRole(role){
 }
 /* rétrocompat */ function userToggleTech(role){ userToggleRole(role); }
 async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target));
+  /* Prénom ET nom obligatoires — Justin, 10 septembre 2026 : « comme ça, dans Utilisateurs, avec le
+     nom et le prénom, ils savent qui c'est ; et nous pareil dans la Tour ». Deux « florent » sans
+     nom, on ne sait plus lequel garder ; deux « Florent Martin », si. */
+  if(!String(d.prenom||'').trim()||!String(d.nom||'').trim()){ toast('Remplis tous les champs : le prénom et le nom sont obligatoires',3600); return; }
   if(id && currentUser.role!=='admin'){ toast('Modification des comptes réservée à l\'administrateur'); return; }
   if(!id && currentUser.role!=='admin' && !can('creerUtilisateurs')){ toast('Créer des comptes demande le droit « Créer des utilisateurs » (Permissions)'); return; }
   if(!id && !planPlaceLibre()){ proposerAbonnement(); return; }
@@ -26030,7 +26063,10 @@ function annuaireEmpreinte(u){ const v=String((u&&(u.pwdHash||u.pinHash))||''); 
 function annuaireComptes(){
   return (db.users||[]).filter(u=>u&&u.actif!==false&&!u.essai&&String(u.login||'').trim()&&annuaireEmpreinte(u)).slice(0,200);
 }
-function annuaireSignature(l){ return l.map(u=>String(u.login).toLowerCase().trim()+':'+annuaireEmpreinte(u)).sort().join('|'); }
+/* Le nom part avec l'annuaire depuis le 10 septembre 2026 — décision de Justin : dans la Tour, sous
+   l'identifiant, on lit qui c'est. C'est la seule donnée de plus ; ni adresse, ni téléphone. */
+function annuaireNom(u){ return String(((u&&u.prenom)||'')+' '+((u&&u.nom)||'')).trim().slice(0,60); }
+function annuaireSignature(l){ return l.map(u=>String(u.login).toLowerCase().trim()+':'+annuaireEmpreinte(u)+':'+annuaireNom(u)).sort().join('|'); }
 async function annuaireDeposer(){
   if(_annuaireEnCours||BETA_ESSAI) return;          // la bêta n'ouvre que la bêta : rien à déposer
   const t=localStorage.getItem('elan_sync_team'), k=localStorage.getItem('elan_sync_secret');
@@ -26051,12 +26087,12 @@ async function annuaireDeposer(){
       const trace=await sha256(emp+'|annuaire');
       const c=cache[login];
       if(c&&c.f===trace&&/^[0-9a-f]{32}$/.test(c.s||'')&&/^[0-9a-f]{64}$/.test(c.e||'')){
-        neuf[login]=c; envoi.push({login:login,s:c.s,e:c.e}); continue;
+        neuf[login]=c; envoi.push({login:login,s:c.s,e:c.e,n:annuaireNom(u)}); continue;
       }
       const selB=crypto.getRandomValues(new Uint8Array(16));
       const selHex=[...selB].map(x=>x.toString(16).padStart(2,'0')).join('');
       const ver=await annuairePbkdf2(emp,selB,ANNUAIRE_TOURS);
-      neuf[login]={f:trace,s:selHex,e:ver}; envoi.push({login:login,s:selHex,e:ver});
+      neuf[login]={f:trace,s:selHex,e:ver}; envoi.push({login:login,s:selHex,e:ver,n:annuaireNom(u)});
     }
     if(!envoi.length) return;
     const kh=await sha256(k);
@@ -26429,7 +26465,8 @@ function enterApp(u){ currentUser=u;
   setTimeout(maybeProfilePhoto,900); setTimeout(avatarAccentSync,1600);
   setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') pushSubscribe(true); else setTimeout(pushPropose,1800); }catch(e){} },2400);
   setTimeout(()=>{ try{ forfaitServeurSync(); }catch(e){} },2600);
-  setTimeout(()=>{ try{ versionVerifier(true); }catch(e){} },1900);     // version minimale et mode en ligne, décidés par la Tour
+  setTimeout(()=>{ try{ versionVerifier(true); }catch(e){} },1900);     // version minimale, décidée par la Tour
+  setTimeout(()=>{ try{ ordresVerifier(); }catch(e){} },3200);          // suppressions ordonnées depuis la Tour
   try{ if(!navigator.onLine) horsLigneDebut('démarrage'); }catch(e){}
   setTimeout(()=>{ try{ lienLisibleCharger(); }catch(e){} },3000);     // le lien de connexion de l'annuaire, pour la fiche d'accès et Paramètres
   setTimeout(()=>{ try{ bandeauFormule(); }catch(e){} },1500); }
@@ -26660,7 +26697,7 @@ function cnxAppareilInfo(){ const ua=navigator.userAgent||'';
 function cnxSignaler(ev,extra){ try{
   const t=syncTeam(); if(!t) return;
   const u=(extra&&extra.user)||currentUser||{};
-  const b=Object.assign({t,ev,app:'gestion',version:APP_VERSION,dev:syncDeviceId(),login:u.login||(extra&&extra.login)||'',role:u.role||'',via:(extra&&extra.via)||_cnxVia,motif:(extra&&extra.motif)||''},cnxAppareilInfo());
+  const b=Object.assign({t,ev,app:'gestion',version:APP_VERSION,dev:syncDeviceId(),login:u.login||(extra&&extra.login)||'',nom:String(((u.prenom||'')+' '+(u.nom||'')).trim()).slice(0,60),role:u.role||'',via:(extra&&extra.via)||_cnxVia,motif:(extra&&extra.motif)||''},cnxAppareilInfo());
   fetch(PUSH_API+'/api/connexions',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).catch(()=>{});
 }catch(e){} }
 /* ── Compte supprimé ou désactivé par l'entreprise (reçu par la synchro ou un autre onglet) :
@@ -27508,6 +27545,7 @@ if('serviceWorker' in navigator){
     let _dernierControle=0;
     const controler=()=>{ if(Date.now()-_dernierControle<300000) return; _dernierControle=Date.now();
       try{ versionVerifier(true); }catch(e){}
+      try{ ordresVerifier(); }catch(e){}
       navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); };
     setInterval(controler, 900000);
     try{ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') controler(); }); }catch(e){}
