@@ -2953,6 +2953,15 @@ html[data-refonte] .plm-j.cal{
   background:var(--card)!important;color:var(--t1)!important;border-color:transparent!important;box-shadow:var(--rf-pastille)}
 html[data-refonte] .pf-b:hover,html[data-refonte] .pf-ib:hover{border-color:transparent!important;color:var(--t1)!important}
 html[data-refonte] .pf-nav u,html[data-refonte] .pf-nav .auj{min-width:30px;min-height:30px;border-radius:8px}
+/* Bandeau « les sorties vont à … » — même famille visuelle que la pastille « Donné à » du
+   journal des mouvements (violet), pour qu'on relie les deux d'un coup d'œil. */
+.bdn{display:flex;align-items:center;gap:10px;padding:10px 13px;margin:0 0 10px;border-radius:12px;
+  background:color-mix(in srgb,var(--purple) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--purple) 32%,transparent)}
+.bdn-i{font-size:15px;line-height:1}
+.bdn-t{flex:1;min-width:0;font-size:12.5px;line-height:1.45;color:var(--t1)}
+.bdn-m{color:var(--t3)}
+.bdn .btn{flex-shrink:0}
 /* La rangée « filtres actifs » ne se distingue plus du reste par une bordure : elle s'écarte. */
 html[data-refonte] .pf-act{border-top:1px solid var(--rf-filet)!important;margin-top:9px;padding-top:9px}
 /* Le bandeau « ‹ Semaine du 31 août au 6 sept. › » répète MOT POUR MOT ce que la barre d'outils
@@ -4754,7 +4763,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '604-beta';
+const APP_VERSION = '605-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -6779,7 +6788,7 @@ const DASH_CARDS={
   fournisseurs:{label:'Fournisseurs',ic:'🏭',color:'#EF9F27',view:'fournisseurs',val:()=>db.fournisseurs.length},
   techniciens:{label:'Techniciens',ic:'👥',color:'#378ADD',view:'techniciens',val:()=>db.techniciens.length},
   stock:{label:'Stock total',ic:'📊',color:'#FB923C',view:'stock',val:()=>stockLines().reduce((s,l)=>s+l.total,0)},
-  commandesEnCours:{label:'Commandes en cours',ic:'🚚',color:'#22B14C',view:'commandes',val:()=>visibleBons(db.bons).filter(b=>b.statut==='envoyee'||b.statut==='enLivraison'||b.statut==='arrivageNote').length},
+  commandesEnCours:{label:'Commandes en cours',ic:'🚚',color:'#22B14C',view:'commandes',val:()=>visibleBons(db.bons).filter(b=>['envoyee','enLivraison','arrivageNote','partielle'].includes(b.statut)).length},
   mouvements:{label:'Mouvements stock',ic:'🔄',color:'#22B14C',view:'mouvements',val:()=>visibleMouvements(db.mouvements).length},
   messagerie:{label:'Messagerie',ic:'✉️',color:'#22B14C',view:'messagerie',val:()=>db.messages.length},
 };
@@ -16027,7 +16036,12 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
 let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
 /* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
-function openBox(id){ boxView=id; boxProdSearch=''; ecranDetail(renderBoxDetail); rendreDirige('avant',renderBoxDetail); }
+function openBox(id){ boxView=id; boxProdSearch='';
+  /* Le destinataire vaut pour UNE visite : rouvrir la box, c'est un nouveau geste, souvent
+     pour quelqu'un d'autre. Le garder d'une visite à l'autre attribuerait en silence des
+     produits au technicien d'hier. */
+  boxDonneOublier();
+  ecranDetail(renderBoxDetail); rendreDirige('avant',renderBoxDetail); }
 function renderBoxDetail(){
   const b=db.boxes.find(x=>x.id===boxView); if(!b){ go('boxes'); return; }
   b.stock=b.stock||{};
@@ -16073,7 +16087,7 @@ function renderBoxDetail(){
       </div>`; })()}
     </div>
     ${(()=>{ const cs=(db.bons||[]).filter(x=>x.boxId===b.id&&!['livree','annulee'].includes(x.statut)); if(!cs.length) return '';
-      return `<div style="max-width:620px;margin:0 0 12px">`+cs.map(x=>{ const sent=['envoyee','enLivraison','arrivageNote'].includes(x.statut);
+      return `<div style="max-width:620px;margin:0 0 12px">`+cs.map(x=>{ const sent=['envoyee','enLivraison','arrivageNote','partielle'].includes(x.statut);
         const prods=(x.lignes||[]);
         return `<div class="card" style="margin:0 0 8px;padding:12px 14px;cursor:pointer;border-left:3px solid ${sent?'#60A5FA':'var(--org)'}" onclick="ficheBon('${x.id}',true)">
           <div style="display:flex;align-items:center;gap:11px">
@@ -16193,15 +16207,16 @@ function printBox(id){ const b=db.boxes.find(x=>x.id===id); if(!b)return; const 
 let _arrPhoto=null, _arrLignes=[];
 function openArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) return; _arrPhoto=null; _arrLignes=[{produitId:'',qte:1}]; _arrBon='';
   const fours=[...new Set([...Object.keys(FOUR_COLORS),...db.fournisseurs.map(f=>f.nom)])].filter(Boolean);
-  const bonsDispo=visibleBons(db.bons||[]).filter(x=>['envoyee','enLivraison'].includes(x.statut)&&(!x.boxId||x.boxId===b.id));   // ses bons, et seulement ceux de cette box (ou sans box)
+  /* « partielle » y figure : un bon dont il manque une partie attend précisément sa suite. */
+  const bonsDispo=visibleBons(db.bons||[]).filter(x=>['envoyee','enLivraison','partielle'].includes(x.statut)&&(!x.boxId||x.boxId===b.id));   // ses bons, et seulement ceux de cette box (ou sans box)
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal();renderBoxDetail()">Annuler</button><h3>Arrivage</h3><button type="button" class="btn sm" onclick="saveArrivage('${boxId}')">Enregistrer</button></div>
     <div class="form-sec">${esc(b.nom||b.numero||'Box')}</div>
     ${bonsDispo.length?`<div class="field"><label>C'est la livraison d'un bon de commande ?</label>
       <select id="arr-bon" onchange="arrBonPrefill(this.value)" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:11px 10px;color:var(--t1)">
         <option value="">— Non, arrivage libre —</option>
-        ${bonsDispo.map(x=>`<option value="${x.id}">${esc(bonNum(x))} · ${esc(fournName(x.fournisseurId)||x.fournisseur||'Fournisseur')} · ${bonQteTotTxt(x)}</option>`).join('')}
+        ${bonsDispo.map(x=>`<option value="${x.id}">${esc(bonNum(x))} · ${esc(fournName(x.fournisseurId)||x.fournisseur||'Fournisseur')} · ${x.statut==='partielle'?'reste dû : '+esc(bonResteTxt(x)):bonQteTotTxt(x)}</option>`).join('')}
       </select>
-      <div style="font-size:11px;color:var(--t3);margin-top:4px">Choisir un bon préremplit le fournisseur et les produits — corrige juste les quantités reçues. Le bon passera en « Arrivée », puis « Livrée » une fois le stock en box.</div></div>`:''}
+      <div style="font-size:11px;color:var(--t3);margin-top:4px">Choisir un bon préremplit le fournisseur et <b>ce qui reste à recevoir</b> — corrige juste les quantités réellement arrivées. <b>Reçu moins que prévu ? Mets le vrai nombre, ou 0.</b> Le bon reste ouvert en « Partiellement livrée » et la prochaine livraison s'y rattachera ; il ne passe en « Livrée » que quand tout est arrivé.</div></div>`:''}
     <div class="field"><label>Fournisseur *</label><input id="arr-four" list="arr-fours" placeholder="Ex : MABI" autocomplete="off"><datalist id="arr-fours">${fours.map(f=>`<option value="${esc(f)}">`).join('')}</datalist></div>
     <div class="form-sec" style="margin-top:14px">Produits reçus *</div>
     <div id="arr-lignes"></div>
@@ -16212,29 +16227,51 @@ function openArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) ret
     <div id="arr-photo-zone"><button type="button" class="btn ghost" style="width:100%;justify-content:center;padding:13px" onclick="document.getElementById('arr-file').click()">Prendre / choisir une photo</button></div>
     <div style="font-size:11.5px;color:var(--t3);margin-top:12px">${boxValidRequis()?'À l\'enregistrement, l\'arrivage part au <b>DR pour validation</b> — le stock ne bougera qu\'après son accord.':'À l\'enregistrement, les quantités sont ajoutées directement au stock de la box et l\'équipe reçoit une notification « Arrivage box ».'}</div>`);
   arrRender(); }
+/* ⛔ LE MINIMUM EST ZÉRO, PLUS UN. Un produit commandé qui n'est pas arrivé se note « 0 ».
+   Avant, min="1" et Math.max(1,…) ramenaient la saisie à 1 SANS RIEN DIRE : le champ affichait
+   le 0 qu'on venait de taper, la donnée valait 1, et la box était créditée d'une unité que
+   personne n'avait jamais livrée. Une correction silencieuse dans le mauvais sens. */
 function arrRender(){ const el=$('arr-lignes'); if(!el) return;
-  el.innerHTML=_arrLignes.map((l,k)=>`<div style="display:flex;gap:7px;align-items:center;margin-bottom:8px">
-    <select onchange="_arrLignes[${k}].produitId=this.value" style="flex:1;min-width:0;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:11px 10px;color:var(--t1)"><option value="">— Produit —</option>${db.produits.map(p=>`<option value="${p.id}" ${l.produitId===p.id?'selected':''}>${esc(p.nom)}${p.ref?' ('+esc(p.ref)+')':''}</option>`).join('')}</select>
-    <input type="number" min="1" value="${l.qte}" onchange="_arrLignes[${k}].qte=Math.max(1,parseInt(this.value)||1)" style="width:72px;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:11px 8px;color:var(--t1);text-align:center">
+  const bonL=_arrBon?((db.bons||[]).find(x=>x.id===_arrBon)||null):null;
+  const attendu=bonL?bonResteDu(bonL):null;
+  el.innerHTML=_arrLignes.map((l,k)=>{
+    const du=(attendu&&l.produitId)?(attendu[l.produitId]||0):null;
+    const manque=(du!==null&&du>0)?du-(+l.qte||0):0;
+    return `<div style="margin-bottom:8px">
+    <div style="display:flex;gap:7px;align-items:center">
+    <select onchange="_arrLignes[${k}].produitId=this.value;arrRender()" style="flex:1;min-width:0;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:11px 10px;color:var(--t1)"><option value="">— Produit —</option>${db.produits.map(p=>`<option value="${p.id}" ${l.produitId===p.id?'selected':''}>${esc(p.nom)}${p.ref?' ('+esc(p.ref)+')':''}</option>`).join('')}</select>
+    <input type="number" min="0" value="${l.qte}" onchange="_arrLignes[${k}].qte=Math.max(0,parseInt(this.value)||0);arrRender()" style="width:72px;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;padding:11px 8px;color:var(--t1);text-align:center">
     ${_arrLignes.length>1?`<button type="button" class="btn ghost sm" style="padding:6px 10px" onclick="_arrLignes.splice(${k},1);arrRender()">✕</button>`:''}
-  </div>`).join(''); }
+    </div>
+    ${du!==null?`<div style="font-size:11px;margin:4px 2px 0;color:${manque>0?'var(--org)':'var(--t3)'}">${du?('attendu sur ce bon : '+du+' u'+(manque>0?` — il en manquera <b>${manque}</b>`:manque<0?' — '+Math.abs(manque)+' de plus que prévu':' — le compte y est')):'déjà entièrement reçu sur ce bon'}</div>`:''}
+  </div>`; }).join(''); }
 function arrLigneAdd(){ _arrLignes.push({produitId:'',qte:1}); arrRender(); }
 let _arrBon='';
 function arrBonPrefill(bonId){ _arrBon=bonId||'';
-  if(!bonId){ return; }
+  if(!bonId){ arrRender(); return; }
   const bon=(db.bons||[]).find(x=>x.id===bonId); if(!bon) return;
   const f=$('arr-four'); if(f) f.value=fournName(bon.fournisseurId)||bon.fournisseur||'';
-  const lg=(bon.lignes||[]).filter(l=>l.produitId).map(l=>({produitId:l.produitId,qte:Math.max(1,bonLU(l)||parseInt(l.quantite)||1)}));
-  if(lg.length){ _arrLignes=lg; arrRender(); } }
+  /* On prérremplit avec CE QUI RESTE DÛ, pas avec le bon entier : sur une deuxième livraison,
+     repartir des quantités commandées ferait ressaisir ce qui est déjà en box — et, à la
+     moindre distraction, créditerait deux fois. */
+  const reste=bonResteDu(bon);
+  const lg=Object.keys(reste).length
+    ? Object.keys(reste).map(pid=>({produitId:pid,qte:reste[pid]}))
+    : (bon.lignes||[]).filter(l=>l.produitId).map(l=>({produitId:l.produitId,qte:Math.max(0,bonLU(l)||parseInt(l.quantite)||0)}));
+  if(lg.length){ _arrLignes=lg; }
+  arrRender(); }
 async function arrPhoto(e){ const f=e.target.files&&e.target.files[0]; if(!f) return; const d=await compressImage(f,1280,0.7);
   if(d){ _arrPhoto=d; const z=$('arr-photo-zone'); if(z) z.innerHTML=`<div style="display:flex;gap:10px;align-items:center"><img src="${d}" style="width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--brd)"><button type="button" class="btn ghost sm" onclick="_arrPhoto=null;document.getElementById('arr-photo-zone').innerHTML='<button type=\'button\' class=\'btn ghost\' style=\'width:100%;justify-content:center;padding:13px\' onclick=\'document.getElementById(\\'arr-file\\').click()\'>Prendre / choisir une photo</button>'">Retirer</button></div>`; }
   e.target.value=''; }
 function saveArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) return;
   const four=($('arr-four')?$('arr-four').value.trim():''); if(!four){ toast('Indique le fournisseur'); return; }
-  const lignes=_arrLignes.filter(l=>l.produitId&&l.qte>0); if(!lignes.length){ toast('Ajoute au moins un produit reçu'); return; }
+  const lignes=_arrLignes.filter(l=>l.produitId&&l.qte>0);
+  if(!lignes.length){ toast(_arrLignes.some(l=>l.produitId)
+    ? 'Tout est à zéro : rien n’est arrivé, il n’y a donc rien à réceptionner. Le bon reste ouvert.'
+    : 'Ajoute au moins un produit reçu',4200); return; }
   const bonLie=(db.bons||[]).find(x=>x.id===_arrBon)||null;
   if(boxValidRequis()){
-    if(bonLie&&bonAttenteDR(bonLie)){ toast('Une réception de ce bon attend déjà la validation du DR'); return; }
+    if(bonLie&&bonAttenteDR(bonLie)){ toast('Une réception de ce bon attend déjà la validation du DR — attends son accord avant d’en saisir une autre',4600); return; }
     boxMvtEnvoyer({type:'arrivage',boxId:b.id,fournisseur:four,lignes:lignes.map(l=>({produitId:l.produitId,qte:l.qte})),photo:_arrPhoto||'',bcId:bonLie?bonLie.id:'',statutAvant:bonLie?bonLie.statut:''});
     if(bonLie){ bonLie.statut='arrivageNote'; bonLie.recuPar=fullName(currentUser); bonLie.recuLe=todayISO(); bonLie.dateReception=todayISO(); save(); }
     closeModal(); renderBoxDetail(); toast('📨 Arrivage envoyé au DR pour validation — le stock bougera après son accord'); return; }
@@ -16247,12 +16284,21 @@ function saveArrivage(boxId){ const b=db.boxes.find(x=>x.id===boxId); if(!b) ret
      donc, en pratique, personne ne comparait. */
   b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:four,lignes:lignes.map(l=>({produitId:l.produitId,qte:l.qte})),photo:_arrPhoto||'',par:fullName(currentUser),bcId:bonLie?bonLie.id:'',bcNum:bonLie?bonNum(bonLie):''});
   if(b.arrivages.length>40) b.arrivages.length=40;
-  if(bonLie){ bonLie.statut='livree'; bonLie.recuPar=fullName(currentUser); bonLie.recuLe=todayISO(); bonLie.livreLe=todayISO();
-    logEvent('Commande livrée',bonNum(bonLie)+' — arrivage en box '+(b.nom||b.numero||''),'commande'); }
+  /* Le bon ne se referme QUE si tout est arrivé — bonToutRecu compte le cumul de toutes ses
+     livraisons, celle-ci comprise (elle vient d'être poussée dans b.arrivages). */
+  if(bonLie){ const complet=bonToutRecu(bonLie);
+    bonLie.statut=complet?'livree':'partielle';
+    bonLie.recuPar=fullName(currentUser); bonLie.recuLe=todayISO(); if(complet) bonLie.livreLe=todayISO();
+    logEvent(complet?'Commande livrée':'Livraison partielle',
+      bonNum(bonLie)+' — arrivage en box '+(b.nom||b.numero||'')+(complet?'':' · reste dû : '+bonResteTxt(bonLie)),'commande'); }
+  const resteAp=bonLie?bonResteTxt(bonLie):'';
   const tot=lignes.reduce((t,l)=>t+l.qte,0);
   logEvent('Arrivage box',`${four} — ${tot} produit(s) → ${b.nom||b.numero||''}`,'stock');
   try{ pushNotify('📦 Arrivage — '+(b.nom||b.numero||'box'),four+' · +'+tot+' produit(s) · par '+fullName(currentUser),'/app.html#v=boxes'); }catch(e){}
-  save(); closeModal(); renderBoxDetail(); toast('Arrivage enregistré — stock mis à jour (+'+tot+')'); }
+  save(); closeModal(); renderBoxDetail();
+  toast(resteAp
+    ? 'Arrivage enregistré (+'+tot+') — le bon reste ouvert, il manque encore : '+resteAp
+    : 'Arrivage enregistré — stock mis à jour (+'+tot+')', resteAp?5600:3000); }
 function delArrivage(boxId,aid){ const b=db.boxes.find(x=>x.id===boxId); if(!b) return; if(!confirm('Supprimer cet arrivage ? (le stock déjà ajouté ne sera pas retiré)')) return;
   b.arrivages=(b.arrivages||[]).filter(a=>a.id!==aid); save(); renderBoxDetail(); toast('Arrivage supprimé'); }
 /* ══════════ TOUT L'HISTORIQUE DES COMMANDES D'UNE BOX, EN UN ENDROIT ═══════════════════
@@ -16801,11 +16847,20 @@ function boxLotBandeau(boxId){
     <button class="btn ghost sm" style="flex-shrink:0" onclick="event.stopPropagation();boxLotAnnuler('${boxId}')">Annuler</button>
   </div>`;
 }
+/* Une attribution qu'on ne voit pas est une attribution qu'on ne corrige pas : tant qu'un
+   destinataire vaut pour cette box, il est écrit en haut, avec de quoi en changer. */
+function boxDonneBandeau(boxId){
+  const nom=boxDonneNom(boxId); if(!nom) return '';
+  const moi=nom===fullName(currentUser);
+  return `<div class="bdn"><span class="bdn-i">👤</span>
+    <div class="bdn-t">Les sorties de cette box vont à <b>${esc(nom)}</b>${moi?' <span class="bdn-m">(vous)</span>':''}</div>
+    <button type="button" class="btn ghost sm" onclick="boxDonneChanger('${boxId}')">Changer</button></div>`;
+}
 function renderBoxProdList(){
   const el=$('boxprod-list'); if(!el) return; const b=db.boxes.find(x=>x.id===boxView); if(!b) return; b.stock=b.stock||{};
   /* Le haut se remplit AVANT tout retour anticipé : une box vide, ou une recherche sans
      résultat, ne doit pas faire disparaître une liste en cours ni un envoi qui attend le DR. */
-  const haut=$('boxprod-haut'); if(haut) haut.innerHTML=boxBrouillonPanneau(b.id)+boxLotBandeau(b.id);
+  const haut=$('boxprod-haut'); if(haut) haut.innerHTML=boxDonneBandeau(b.id)+boxBrouillonPanneau(b.id)+boxLotBandeau(b.id);
   const q=norm(boxProdSearch);
   let entries=Object.keys(b.stock).map(pid=>({pid,p:produit(pid),s:b.stock[pid]||{ctn:0,u:0}})).filter(e=>e.p&&e.p.id);
   if(q) entries=entries.filter(e=>norm((e.p.nom||'')+' '+(e.p.ref||'')+' '+(e.p.categorie||'')+' '+(e.p.fournisseurs||[]).join(' ')).includes(q));
@@ -16976,12 +17031,16 @@ function boxMvtRefuser(m,motif){
       logEvent('Réception refusée par le DR',bonNum(bonR)+(motif?' — '+motif:''),'commande',m.parId); } }
   try{ if(m.parId) pushNotify('🚫 Refusé par le DR '+fullName(currentUser),boxMvtLibelle(m)+(motif?' — motif : '+motif:''),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations(); }
-function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('Validation réservée au DR / administrateur (droit « Valider les mouvements et demandes »)'); return; }
+let _resteApresValid='';
+function boxMvtValider(id,statut){ _resteApresValid='';
+  if(!currentUser||!can('validerDR')){ toast('Validation réservée au DR / administrateur (droit « Valider les mouvements et demandes »)'); return; }
   const m=(db.boxMvtAttente||[]).find(x=>x.id===id&&x.statut==='enAttente'); if(!m) return;
   if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return; boxMvtRefuser(m,motif); toast('Mouvement refusé'); return; }
   const b=db.boxes.find(x=>x.id===m.boxId);
   if(!b){ boxMvtRefuser(m,'box introuvable'); toast('Box introuvable — mouvement refusé'); return; }
-  if(m.type==='arrivage'&&m.bcId){ const bv=(db.bons||[]).find(x=>x.id===m.bcId); if(bv&&bv.statut==='livree'){ boxMvtRefuser(m,'bon déjà réceptionné'); toast('Ce bon a déjà été réceptionné — mouvement refusé (pas de double crédit)'); return; } }
+  /* Le garde-fou ne vise QUE les bons entièrement reçus. Un bon « partielle » attend sa suite :
+     le refuser ici, c'était annuler la seconde livraison d'une commande arrivée en deux fois. */
+  if(m.type==='arrivage'&&m.bcId){ const bv=(db.bons||[]).find(x=>x.id===m.bcId); if(bv&&bv.statut==='livree'&&bonToutRecu(bv)){ boxMvtRefuser(m,'bon déjà entièrement réceptionné'); toast('Ce bon a déjà été reçu en entier — mouvement refusé (pas de double crédit)',4600); return; } }
   b.stock=b.stock||{};
   if(m.type==='arrivage'){
     (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
@@ -16990,9 +17049,13 @@ function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('V
     b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).map(l=>({produitId:l.produitId,qte:l.qte})),photo:m.photo||'',par:m.par||'',bcId:m.bcId||'',bcNum:bonArr?bonNum(bonArr):''});
     if(b.arrivages.length>40) b.arrivages.length=40;
     if(m.bcId){ const bonV=(db.bons||[]).find(x=>x.id===m.bcId);
-      if(bonV){ bonV.statut='livree'; bonV.valideDrNom=fullName(currentUser); bonV.livreLe=todayISO(); bonV.dateReception=bonV.dateReception||todayISO();
+      if(bonV){ const complet=bonToutRecu(bonV);
+        bonV.statut=complet?'livree':'partielle';
+        bonV.valideDrNom=fullName(currentUser); if(complet) bonV.livreLe=todayISO(); bonV.dateReception=bonV.dateReception||todayISO();
         if(bonV.arrivage&&bonV.arrivage.enAttenteDR){ delete bonV.arrivage.enAttenteDR; bonV.arrivage.valideDrNom=fullName(currentUser); }
-        logEvent('Commande livrée',bonNum(bonV)+' — réception validée par le DR','commande',m.parId); } }
+        _resteApresValid=complet?'':bonResteTxt(bonV);
+        logEvent(complet?'Commande livrée':'Livraison partielle validée',
+          bonNum(bonV)+' — réception validée par le DR'+(complet?'':' · reste dû : '+bonResteTxt(bonV)),'commande',m.parId); } }
   } else if(m.type==='ajustementLot'){
     /* Toutes les lignes s'appliquent ensemble, ou aucune. C'est tout l'intérêt du lot :
        le DR juge un geste complet, pas trois fragments qu'il faudrait recoudre. */
@@ -17026,7 +17089,51 @@ function boxMvtValider(id,statut){ if(!currentUser||!can('validerDR')){ toast('V
   delegationTracer(m,'Mouvement de stock validé — '+boxMvtLibelle(m));
   logEvent('Mouvement box validé',boxMvtLibelle(m),'stock',m.parId);
   try{ if(m.parId) pushNotify('✅ Validé par le DR '+fullName(currentUser),boxMvtLibelle(m),'/app.html#v=boxes',[m.parId]); }catch(e){}
-  save(); if(current==='validations') views.validations(); toast('Validé — stock mis à jour'); }
+  save(); if(current==='validations') views.validations();
+  toast(_resteApresValid
+    ? 'Validé — stock mis à jour. Le bon reste ouvert, il manque encore : '+_resteApresValid
+    : 'Validé — stock mis à jour', _resteApresValid?5600:3000); }
+/* ══════════ « POUR QUI ? » AUSSI QUAND IL N'Y A PAS DE VALIDATION DR ════════════════════
+   Signalé par ELAN le 9 septembre 2026 : « quand on donne du matériel, on écrit les noms,
+   mais les noms ne s'affichent pas dans les mouvements ».
+   La question n'était posée que sur le chemin de la validation DR (boxBrouillonValider). Or
+   l'administrateur et les DR ne passent pas par là — leur geste s'applique au tap — et ce sont
+   précisément eux qui distribuent le matériel. Leurs sorties partaient donc avec « Donné à »
+   vide : la colonne existait, une ligne sur deux était muette, et la consommation était mise
+   au compte de celui qui ouvre la box plutôt qu'à celui qui repart avec les produits.
+   La même question se pose donc ici — UNE FOIS PAR BOX, pas à chaque tap : dix produits sortis
+   pour la même personne, c'est une question, pas dix. Elle se repose en changeant de box, en
+   ressortant de la fiche, ou par le bandeau qui l'affiche en permanence. */
+let _boxDonne=null, _boxDonneSuite=null, _boxDonneBox='';
+function boxDonneNom(boxId){ return (_boxDonne&&_boxDonne.boxId===boxId)?(_boxDonne.nom||''):''; }
+function boxDonneOublier(){ _boxDonne=null; }
+function boxDonneChanger(boxId){ _boxDonne=null; boxDonneModal(boxId,function(){ renderBoxProdList(); }); }
+function boxDonneModal(boxId,suite){
+  const b=(db.boxes||[]).find(x=>x.id===boxId)||{};
+  _boxDonneSuite=suite||null; _boxDonneBox=boxId;
+  /* La liste des personnes de l'entreprise est proposée, sans être imposée : on remet aussi du
+     matériel à un intérimaire ou à un sous-traitant, qui n'a pas de compte. */
+  const gens=(db.users||[]).filter(u=>u&&u.actif!==false).map(u=>`<option value="${esc(fullName(u))}">`).join('');
+  openModal(`<div class="modal-head"><h3>👤 Ces produits sont pour qui ?</h3><button class="modal-close" onclick="boxDonneAnnuler()">✕</button></div>
+    <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:14px">Sortie de <b>${esc(b.nom||b.numero||'la box')}</b>. Le nom sera écrit sur le mouvement et sur le bon de remise — on saura qui a reçu quoi.<br><span style="color:var(--t3)">La question ne se pose qu'une fois : les sorties suivantes de cette box iront à la même personne, jusqu'à ce que vous en changiez.</span></p>
+    <div class="fgroup" style="margin-bottom:12px">
+      <label class="frow" style="cursor:pointer"><input type="radio" name="bd-qui" value="moi" checked onchange="document.getElementById('bd-autre-bloc').style.display='none'" style="width:20px;height:20px;accent-color:var(--acc)"><span style="margin-left:10px">Pour moi — <b>${esc(fullName(currentUser))}</b></span></label>
+      <label class="frow" style="cursor:pointer;border-bottom:none"><input type="radio" name="bd-qui" value="autre" onchange="document.getElementById('bd-autre-bloc').style.display='block';setTimeout(()=>{const i=document.getElementById('bd-nom');if(i)i.focus();},60)" style="width:20px;height:20px;accent-color:var(--acc)"><span style="margin-left:10px">Pour quelqu'un d'autre</span></label>
+    </div>
+    <div class="field" id="bd-autre-bloc" style="display:none"><label>Nom, prénom</label><input id="bd-nom" list="bd-gens" placeholder="ex : Benali Karim" autocapitalize="words" autocomplete="off"><datalist id="bd-gens">${gens}</datalist></div>
+    <button class="btn" style="width:100%;justify-content:center;padding:13px" onclick="boxDonneSave()">Continuer</button>`,'carte');
+}
+/* Annuler, c'est renoncer à la sortie — pas la passer en douce sans nom. */
+function boxDonneAnnuler(){ _boxDonneSuite=null; closeModal(); toast('Sortie annulée — aucun mouvement enregistré'); }
+function boxDonneSave(){
+  const autre=(document.querySelector('input[name=bd-qui]:checked')||{}).value==='autre';
+  const nom=autre?(($('bd-nom')||{}).value||'').trim():fullName(currentUser);
+  if(autre&&!nom){ toast('Écris le nom et le prénom'); return; }
+  _boxDonne={boxId:_boxDonneBox,nom:nom,ts:Date.now()};
+  const suite=_boxDonneSuite; _boxDonneSuite=null;
+  closeModal();
+  if(suite) suite();
+}
 /* ── BON DE REMISE ── quand un utilisateur soumis à la validation DR SORT des
    produits d'une box, on lui demande pour qui ils sont ; au « Valider » du DR,
    tout se range dans un bon de remise (historique des mouvements), imprimable en PDF. */
@@ -17201,8 +17308,17 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
        que les lignes négatives (voir boxMvtValider), il ne restait qu'à poser la question. */
     const sortQqc=lot.lignes.some(l=>((+l.du||0)+(+l.dc||0))<0);
     return; }
+  /* ⛔ SANS VALIDATION DR, LE NOM SE DEMANDE ICI — sinon il ne se demande nulle part.
+     Différé de 80 ms : boxQteGo() appelle closeModal() juste après boxSaisir(), ce qui
+     refermerait la fenêtre à l'instant où elle s'ouvre. On la pose donc après ce closeModal. */
+  if(delta<0 && !db.bonsRemiseOff && !boxDonneNom(b.id)){
+    setTimeout(function(){ boxDonneModal(b.id,function(){ boxAdj(pid,field,delta); }); },80);
+    return; }
   b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
-  traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box');
+  const pour=delta<0?boxDonneNom(b.id):'';
+  traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box',fullName(currentUser),'',pour);
+  /* Le bon de remise se tient de la même façon des deux côtés : même acte, même trace. */
+  if(pour) remiseAjoute({boxId:b.id,par:fullName(currentUser),parId:currentUser&&currentUser.id,pourQui:pour,produitId:pid},Math.abs(delta));
   if(field==='u') notifyDrBoxLow(b,pid,prevU);
   notifyDrBoxMove(b,pid,delta<0?'sortie':'entree',Math.abs(delta),field);
   save(); if(!_boxLotSilence) renderBoxProdList(); }
@@ -17824,7 +17940,7 @@ function demandeNotifDR(d){ try{ if(!d||!currentUser) return; const dest=valideu
     (d.boxNom||boxLabel(d.boxId)||'')+' · '+(d.num||'')+' · demandée par '+fullName(currentUser)+' — en attente du DR',dest); }catch(e){} }
 
 /* ═══════════════ BONS DE COMMANDE ═══════════════ */
-const STATBC={brouillon:{l:'En préparation',c:'st-org'},prete:{l:'Prêt à envoyer',c:'st-blue'},envoyee:{l:'Envoyée',c:'st-blue'},enLivraison:{l:'En livraison',c:'st-org'},arrivageNote:{l:'Arrivage noté',c:'st-purple'},livree:{l:'Livrée',c:'st-green'},annulee:{l:'Annulée',c:'st-red'}};
+const STATBC={brouillon:{l:'En préparation',c:'st-org'},prete:{l:'Prêt à envoyer',c:'st-blue'},envoyee:{l:'Envoyée',c:'st-blue'},enLivraison:{l:'En livraison',c:'st-org'},arrivageNote:{l:'Arrivage noté',c:'st-purple'},partielle:{l:'Partiellement livrée',c:'st-org'},livree:{l:'Livrée',c:'st-green'},annulee:{l:'Annulée',c:'st-red'}};
 const bonNum=b=>b.numero||b.num||'—';
 /* Quantités d'une ligne de bon — TOUT se compte en UNITÉS de stock. Un carton n'est qu'un conditionnement :
    avec « unités/carton » connu, 5 ctn × 12 = 60 u ; sans, un carton = 1 unité (un « carton de 10 kg » ou un
@@ -17898,6 +18014,7 @@ function bonEcartLignes(bon,mvt){
 /* Le tableau, compact : il vit sous une ligne de validation, pas sur un écran à lui. */
 function bonEcartHtml(bon,mvt){
   const ls=bonEcartLignes(bon,mvt); if(!ls.length) return '';
+  const reste=resteTxt(bonResteApres(bon,mvt));
   const ecarts=ls.filter(l=>l.ecart!==0).length;
   const tot=ls.reduce((t,l)=>({c:t.c+l.cmd,r:t.r+l.recu}),{c:0,r:0});
   /* ⛔ LA PHOTO SE RANGE AVEC LE BON, PAS À CÔTÉ — demande de Justin, 8 septembre 2026 :
@@ -17918,9 +18035,54 @@ function bonEcartHtml(bon,mvt){
       ${ls.map(l=>`<div class="ec-r${l.ecart?' ec-dif':''}"><span>${esc(l.nom)}</span><b>${l.cmd}</b><b>${l.recu}</b><b>${l.ecart>0?'+':''}${l.ecart||'—'}</b></div>`).join('')}
     </div>
     ${ecarts?'<div class="ec-p">Un écart n\'empêche pas de valider : le stock sera crédité de ce qui est <b>reçu</b>, pas de ce qui était commandé. Refuse si le colis ne correspond pas du tout.</div>':''}
+    ${reste?`<div class="ec-p">Après cette livraison, il restera dû : <b>${esc(reste)}</b>. Le bon <b>reste ouvert</b> — la prochaine livraison pourra s'y rattacher, et le fournisseur peut être relancé.</div>`:''}
   </div>`;
 }
 function bonAttenteDR(b){ return !!b && (db.boxMvtAttente||[]).some(m=>m.bcId===b.id&&m.statut==='enAttente'); }
+/* ══════════ LIVRAISON PARTIELLE ═══════════════════════════════════════════════════════════
+   Signalé par ELAN le 9 septembre 2026 : « même s'ils reçoivent moins, ils doivent quand même
+   valider et réceptionner ce qu'ils ont » — le reliquat se règle ensuite avec le fournisseur.
+   Jusqu'ici la PREMIÈRE réception refermait le bon (statut « livrée »), quelle que soit la
+   quantité arrivée. Trois conséquences, toutes silencieuses :
+   · le bon quittait la liste « c'est la livraison d'un bon ? » de l'arrivage suivant — le
+     reste n'avait donc plus où s'accrocher, et rentrait en arrivage libre, sans lien ;
+   · s'il y parvenait quand même, boxMvtValider REFUSAIT le mouvement (« bon déjà
+     réceptionné ») : le geste n'était pas seulement bloqué, il était annulé ;
+   · et plus personne ne pouvait lire ce que le fournisseur devait encore.
+   On compte donc ce qui est arrivé EN CUMUL, sur toutes les livraisons rattachées au bon. */
+function bonRecuCumul(bonId){
+  const out={};
+  if(!bonId) return out;
+  (db.boxes||[]).forEach(b=>{ (b.arrivages||[]).forEach(a=>{ if(a.bcId!==bonId) return;
+    (a.lignes||[]).forEach(l=>{ if(l.produitId) out[l.produitId]=(out[l.produitId]||0)+(+l.qte||0); }); }); });
+  return out;
+}
+/* Le commandé, ramené aux unités de stock : bonLU convertit les cartons — sinon « 5 cartons »
+   et « 60 unités » passeraient pour un manque de 55. */
+function bonCmdCumul(bon){
+  const out={};
+  ((bon&&bon.lignes)||[]).forEach(l=>{ if(l.produitId) out[l.produitId]=(out[l.produitId]||0)+bonLU(l); });
+  return out;
+}
+/* Ce que le fournisseur doit encore. Produit par produit : un surplus de gel ne compense pas
+   un manque de pièges. */
+function bonResteDu(bon){
+  const cmd=bonCmdCumul(bon), recu=bonRecuCumul(bon&&bon.id), out={};
+  Object.keys(cmd).forEach(pid=>{ const r=cmd[pid]-(recu[pid]||0); if(r>0) out[pid]=r; });
+  return out;
+}
+/* Le reste APRÈS une livraison qui n'est pas encore enregistrée — celle que le DR a sous les
+   yeux au moment de valider. */
+function bonResteApres(bon,mvt){
+  const cmd=bonCmdCumul(bon), recu=bonRecuCumul(bon&&bon.id), out={};
+  ((mvt&&mvt.lignes)||[]).forEach(l=>{ if(l.produitId) recu[l.produitId]=(recu[l.produitId]||0)+(+l.qte||0); });
+  Object.keys(cmd).forEach(pid=>{ const r=cmd[pid]-(recu[pid]||0); if(r>0) out[pid]=r; });
+  return out;
+}
+function resteTxt(map){ const ks=Object.keys(map||{}); if(!ks.length) return '';
+  return ks.map(pid=>(produit(pid).nom||'Produit')+' ×'+map[pid]).join(' · '); }
+function bonResteTxt(bon){ return resteTxt(bonResteDu(bon)); }
+function bonToutRecu(bon){ return !Object.keys(bonResteDu(bon)).length; }
 function renderBonsList(){
   const el=$('bons-list'); if(!el) return;
   if(bonsFilter==='reponses'){ renderBonsReponses(el); return; }
@@ -18394,7 +18556,8 @@ function ficheBon(id,simple,retourBox){ const b=db.bons.find(x=>x.id===id); if(!
     <div style="text-align:right;margin-top:12px;font-size:14px;color:var(--t2)">${(b.lignes||[]).length} article(s) · <b style="color:var(--acc);font-size:16px">${bonQteTotTxt(b)}</b></div>
     ${b.notes?`<div class="detail-desc">${esc(b.notes)}</div>`:''}
     ${b.arrivage?`<div class="form-sec">Réception du ${fmtShort(b.arrivage.date)}${b.arrivage.par?' · '+esc(b.arrivage.par):''}</div><div class="detail-desc" style="margin-top:6px">${b.arrivage.conforme?'Livraison conforme.':'Écart de livraison.'}${b.arrivage.notes?'<br>'+esc(b.arrivage.notes):''}</div>${(b.arrivage.lignes||[]).some(l=>l.qteRecue!==l.qteCommandee)?`<div class="tbl-wrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Désignation</th><th>Commandé</th><th>Reçu</th></tr></thead><tbody>${b.arrivage.lignes.map(l=>`<tr><td>${esc(l.designation)}</td><td>${l.qteCommandee}</td><td style="color:${l.qteRecue===l.qteCommandee?'var(--acc)':'var(--red)'}">${l.qteRecue}</td></tr>`).join('')}</tbody></table></div>`:''}`:''}
-    ${(b.statut==='envoyee'||b.statut==='enLivraison')?`<div class="detail-desc" style="margin-top:12px">📦 <b>Pour la réceptionner :</b> ouvre la box <b>${esc(boxLabel(b.boxId)||'concernée')}</b> et touche <b>Arrivage</b>. Cette commande y sera proposée, avec ses quantités préremplies — et c'est là qu'on prend la photo du bon de livraison.</div>`:''}
+    ${(b.statut==='envoyee'||b.statut==='enLivraison')?`<div class="detail-desc" style="margin-top:12px">📦 <b>Pour la réceptionner :</b> ouvre la box <b>${esc(boxLabel(b.boxId)||'concernée')}</b> et touche <b>Arrivage</b>. Cette commande y sera proposée, avec ses quantités préremplies — et c'est là qu'on prend la photo du bon de livraison. <b>Reçu moins que prévu ?</b> Mets le vrai nombre : le bon restera ouvert pour le reste.</div>`:''}
+    ${b.statut==='partielle'?`<div class="detail-desc" style="margin-top:12px">📦 <b>Livraison partielle.</b> Il reste dû : <b>${esc(bonResteTxt(b))}</b>. Relance le fournisseur, et quand le complément arrive, ouvre la box <b>${esc(boxLabel(b.boxId)||'concernée')}</b> → <b>Arrivage</b> : cette commande y sera proposée, préremplie avec ce qui manque.</div>`:''}
     ${(()=>{ /* La comparaison reste consultable APRÈS la validation : le mouvement garde son
          statut au lieu d'être effacé, donc le bon peut toujours dire ce qui est arrivé. */
       const mv=(db.boxMvtAttente||[]).filter(m=>m.bcId===b.id).sort((x,y)=>(y.ts||0)-(x.ts||0))[0];
@@ -19433,8 +19596,10 @@ function cmdEnCoursSuppr(bonId){
   save(); toast('Commande supprimée'); views.commandes();
 }
 views.commandes=function(){
-  setHeader('Commandes en cours','Bons envoyés / en livraison');
-  const list=visibleBons(db.bons).filter(b=>['envoyee','enLivraison','arrivageNote'].includes(b.statut));   // ses box seulement (sauf « voir tout »)
+  setHeader('Commandes en cours','Bons envoyés, en livraison ou partiellement reçus');
+  /* « partielle » EN FAIT PARTIE : une commande arrivée à moitié est toujours en cours — le
+     fournisseur doit encore quelque chose. La sortir d'ici la rendrait invisible. */
+  const list=visibleBons(db.bons).filter(b=>['envoyee','enLivraison','arrivageNote','partielle'].includes(b.statut));   // ses box seulement (sauf « voir tout »)
   /* Dire où va la suite : une commande reçue quitte cet écran, et sans un mot personne ne sait
      où la retrouver — on croit l'avoir perdue. */
   const pied=`<div style="font-size:12.5px;color:var(--t3);margin:14px 2px 0;line-height:1.6">📄 Une commande <b>reçue</b> quitte cette liste : on la retrouve sur la <b>fiche de sa box</b> (« Commandes passées »), avec son PDF, et dans <b>Bons de commande</b>. Rien n'est effacé.</div>`;
@@ -19445,7 +19610,10 @@ views.commandes=function(){
     const jours=b.dateEnvoi?Math.max(0,Math.floor((Date.now()-new Date(b.dateEnvoi+'T00:00:00').getTime())/86400000)):null;
     const enRoute=(b.statut==='envoyee'||b.statut==='enLivraison')
       ? ` · <b style="color:var(--blue)">en cours de livraison</b>${jours!==null?` depuis ${jours} jour${jours>1?'s':''}`:''}` : '';
-    const suivi=enRoute+(b.recuPar?` · reçu le ${fmtShort(b.recuLe)} par ${esc(b.recuPar)}`:'')+(b.valideDrNom?` · validé par ${esc(b.valideDrNom)}`:'');
+    /* Une commande partielle dit CE QU'IL MANQUE, pas seulement qu'elle est incomplète :
+       c'est la seule information qui permet de relancer le fournisseur. */
+    const manque=b.statut==='partielle'?` · <b style="color:var(--org)">reste dû : ${esc(bonResteTxt(b))}</b>`:'';
+    const suivi=enRoute+manque+(b.recuPar?` · reçu le ${fmtShort(b.recuLe)} par ${esc(b.recuPar)}`:'')+(b.valideDrNom?` · validé par ${esc(b.valideDrNom)}`:'');
     return `<div class="pl-row" onclick="ficheBon('${b.id}')"><div class="pl-info"><div class="pl-title">${esc(fournName(b.fournisseurId)||b.fournisseur||'Fournisseur')} · ${(b.lignes||[]).length} article(s)</div><div class="pl-meta">${esc(bonNum(b))} · ${bonQteTotTxt(b)}${suivi}</div></div>${b.statut==='arrivageNote'?'<span class="st st-purple">📦 Arrivée — attente DR</span>':badge(STATBC,b.statut)}${currentUser&&currentUser.role==='admin'?`<button type="button" class="dos-x" onclick="event.stopPropagation();cmdEnCoursSuppr('${b.id}')" title="Supprimer définitivement" aria-label="Supprimer cette commande">🗑</button>`:''}</div>`;}).join('') : emptyState('📥','Aucune commande en cours.','',''))+pied;
 };
 
