@@ -4769,7 +4769,10 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '615';
+const APP_VERSION = '616';
+/* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
+   (généré par beta-build.js) doit compter comme 616. */
+const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5519,6 +5522,11 @@ const FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"
 const FB_TEAM='elan-gestion';
 let _syncEssais=0;
 let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
+/* Version minimale exigée par TeamOP (Tour de contrôle), et mode en ligne :
+   `enLigne` = rien sans réseau (décision de Justin, 9 septembre 2026 : « le mode hors ligne
+   crée trop de problèmes, on le supprime ») ; `libre` = comme avant, rallumable depuis la Tour
+   en cas d'urgence, sans republier. */
+let _versionMin=0,_versionBloquee=false,_modeEnLigne='enLigne',_horsLigne=false,_horsLigneDepuis=0,_horsLignePush=false;
 function syncDeviceId(){ let d=localStorage.getItem('elan_dev'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('elan_dev',d);} return d; }
 /* Sécurité — chiffrement de bout en bout des données synchronisées (AES-256-GCM).
    Le cloud ne stocke QUE du texte chiffré : sans la clé d'équipe, les données sont illisibles,
@@ -5558,7 +5566,9 @@ async function syncEncrypt(plain){ const saltB64=SYNC_SALT;
   return {enc:_b64e(ct),iv:_b64e(iv),salt:saltB64}; }
 async function syncDecrypt(o){ try{ const key=await syncKey(o.salt); const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:_b64d(o.iv)},key,_b64d(o.enc)); return new TextDecoder().decode(pt); }catch(e){ return null; } }
 async function syncReadRemote(d){ if(!d) return null; if(d.enc) return await syncDecrypt(d); if(d.db) return d.db; /* rétrocompat (ancien format clair) */ return null; }
-function dbWeight(d){ if(!d) return 0; let n=0; ['interventions','clients','produits','boxes','factures','devis','telecollectes','users','messages','demandes','vehicules','techniciens'].forEach(k=>{ n+=(d[k]&&d[k].length)||0; }); return n; }
+/* Toutes les collections comptent — la liste de 12 d'avant ignorait les mouvements de stock, les
+   bons, les pointages, les contrats : une base amputée de tout ça passait pour « aussi lourde ». */
+function dbWeight(d){ if(!d) return 0; let n=0; ['users'].concat(COLLECTIONS_DONNEES).forEach(k=>{ n+=(d[k]&&d[k].length)||0; }); return n; }
 function syncGetCfg(){ try{ const c=JSON.parse(localStorage.getItem('elan_sync_cfg')||'null'); if(c&&c.projectId) return c; }catch(e){} return FB_CONFIG; }
 /* ⛔ L'espace de repli n'accueille plus personne de nouveau — 8 septembre 2026.
    AVANT : un appareil sans rattachement tombait sur FB_TEAM, chiffré avec la clé écrite en
@@ -5640,7 +5650,7 @@ function majAnnoncer(d){
     const n=x=>parseInt(x,10)||0;
     if(lui&&n(moi)<=n(lui)) return;
     _majAnnonce=true;
-    _fbDoc.set({ver:moi},{merge:true}).catch(()=>{});
+    _fbDoc.set({ver:moi,verNum:APP_VERSION_NUM},{merge:true}).catch(()=>{});
   }catch(e){}
 }
 function majVersionVue(v){
@@ -5660,6 +5670,9 @@ function majVersionVue(v){
 async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn||_syncDemarre) return; _syncDemarre=true;
   try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); await syncAuth(); const fs=firebase.firestore();
     _fbDoc=fs.collection('elan_teams').doc(syncTeam()); _syncOn=true; _syncGotInitial=false; try{updateSyncBtn();}catch(e){}
+    /* Le minimum exigé vit aussi dans Firestore (teamop_config/version) : c'est ce que la règle
+       de sécurité lit. On le lit aussi d'ici, pour se bloquer avant même de tenter une écriture. */
+    try{ fs.collection('teamop_config').doc('version').get().then(sn=>{ try{ if(sn&&sn.exists){ const x=sn.data()||{}; versionMinAppliquer(x.min); } }catch(e){} }).catch(()=>{}); }catch(e){}
     _fbUnsub=_fbDoc.onSnapshot(async snap=>{
       // Hors ligne (ou réseau trop lent), le SDK livre un instantané « depuis le cache », VIDE : il ne doit jamais
       // servir à amorcer l'espace ni à pousser quoi que ce soit — on attend un vrai instantané du serveur.
@@ -5696,13 +5709,17 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
            qu'une création. */
         let _repousser=false;
         try{ const tomb=usersTombesFusion(db,remote);
-          const distants=(remote.users||[]).length;
+          /* ⛔ UNE SIGNATURE, PAS UNE LONGUEUR. Un renommage de doublon ou l'échange d'une
+             fiche contre une autre ne change pas le nombre de comptes : la v615 ne repoussait
+             donc rien, et notre vue corrigée restait prisonnière de cet appareil. */
+          const sigDe=l=>(l||[]).map(u=>String((u&&u.id)||'')+':'+String((u&&u.login)||'').toLowerCase()).sort().join('|');
+          const sigAvant=sigDe(remote.users), tombAvant=usersTombes(remote).length;
           /* priorité au DISTANT : le document reçu est plus récent que nous, par construction
              (on a vérifié d.ts > _syncTs juste au-dessus). */
           remote.users=usersFusionner(db.users,remote.users,tomb,false);
           if(tomb.length) remote.usersSupprimes=tomb;
-          _repousser = (remote.users.length!==distants)
-                    || (tomb.length!==usersTombes(remote).length)
+          _repousser = (sigDe(remote.users)!==sigAvant)
+                    || (tomb.length!==tombAvant)
                     || (usersTombes(db).length>0 && usersTombes(db).length!==tomb.length);
         }catch(e){
           /* ⛔ SI LA FUSION ÉCHOUE, ON N'APPLIQUE PAS. Laisser passer `db=remote` après un
@@ -5805,20 +5822,41 @@ function usersSansDoublonLogin(list){
   const par={}, sans=[];
   (list||[]).forEach(u=>{ const k=String((u&&u.login)||'').trim().toLowerCase();
     if(!k){ sans.push(u); return; } (par[k]=par[k]||[]).push(u); });
+  /* ⛔ LE VERDICT DOIT ÊTRE LE MÊME SUR TOUS LES APPAREILS — corrigé le 9 septembre 2026.
+     La v615 ajoutait +1000 au compte avec lequel CET appareil est connecté. Chaque appareil
+     désignait donc un vainqueur différent : X gardait A et poussait, Y recevait, refusionnait,
+     tranchait en faveur de B et repoussait — et le nuage basculait de l'un à l'autre à chaque
+     enregistrement, sans jamais converger. Comme `annuaireDeposer` lit `db.users`, l'empreinte
+     déposée dans l'annuaire basculait avec lui : le même identifiant acceptait tantôt l'ancien
+     mot de passe, tantôt le nouveau. C'est le symptôme même qu'on prétendait éteindre.
+     Le score ne lit donc plus QUE des données partagées, et l'`id` tranche les égalités : même
+     liste en entrée, même liste en sortie, sur n'importe quel appareil. */
   const score=u=>{
     let n=0;
-    if(currentUser&&u.id===currentUser.id) n+=1000;      // jamais soi-même
     if(u.pwdHash&&!u.mustChangePwd) n+=100;              // quelqu'un s'en sert vraiment
     if(String(u.email||'').trim()) n+=10;
     if(u.actif!==false) n+=1;
     return n;
   };
+  const pris=new Set(Object.keys(par));
   const out=[];
   Object.keys(par).forEach(k=>{ const g=par[k];
     if(g.length===1){ out.push(g[0]); return; }
-    const garde=g.slice().sort((a,b)=>score(b)-score(a))[0];
-    out.push(garde);
-    try{ logEvent('Doublon d\'identifiant fusionné','@'+k+' — '+(g.length-1)+' ligne(s) en trop retirée(s)','auth'); }catch(e){}
+    const tri=g.slice().sort((a,b)=>(score(b)-score(a))||String(a.id||'').localeCompare(String(b.id||'')));
+    out.push(tri[0]);
+    /* ⛔ ON NE SUPPRIME PAS LE PERDANT, ON LE RENOMME.
+       Poser une pierre tombale serait pire que le mal : l'appareil X enterrerait B pendant que
+       Y enterrerait A, l'union des deux les filtrerait TOUS LES DEUX, et l'identifiant
+       disparaîtrait partout, définitivement — exactement la panne qu'on répare.
+       Renommer ne perd rien : l'annuaire ne porte plus qu'une empreinte par identifiant (ce que
+       demandait ELAN), les deux fiches restent visibles, et c'est l'entreprise qui tranche. */
+    tri.slice(1).forEach(u=>{
+      const base=String(u.login||''); let n=2, nom=base+'-'+n;
+      while(pris.has(nom.toLowerCase())){ n++; nom=base+'-'+n; }
+      pris.add(nom.toLowerCase());
+      u.loginConflit=u.loginConflit||base; u.login=nom; out.push(u);
+    });
+    try{ logEvent('Doublon d\'identifiant','@'+k+' — '+(g.length-1)+' fiche(s) renommée(s), rien n\'a été supprimé','auth'); }catch(e){}
   });
   return out.concat(sans);
 }
@@ -5827,6 +5865,13 @@ function usersTombesFusion(a,b){
   return Object.keys(m).map(k=>m[k]).sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,300);
 }
 function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) return; clearTimeout(_syncTimer);
+  /* Trois portes fermées, dans l'ordre où elles coûtent le moins :
+     — version bloquée : le nuage refuserait de toute façon, et un refus par écriture use le quota ;
+     — hors ligne (mode en ligne obligatoire) : le SDK METTRAIT L'ÉCRITURE EN FILE et l'enverrait
+       au retour du réseau avec une base d'entre-temps — le mécanisme exact de la panne d'ELAN ;
+     — écran de connexion : rien à pousser. */
+  if(_versionBloquee) return;
+  if(_horsLigne){ _horsLignePush=true; return; }
   const go=async()=>{ try{
     /* ON RELIT AVANT D'ÉCRIRE. Entre notre dernière réception et cet instant, un autre
        appareil a pu créer des comptes ; écrire notre base telle quelle les effacerait. Une
@@ -5849,13 +5894,81 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
           /* priorité au LOCAL : ce qu'on s'apprête à écrire est ce qu'on vient de modifier. */
           db.users=usersFusionner(db.users,remote.users,tomb,true);
           if(tomb.length) db.usersSupprimes=tomb;
+          /* ⛔ ON NE POUSSE JAMAIS UNE BASE AMPUTÉE. Si le nuage connaît des lignes que nous n'avons
+             pas — beaucoup, dans une même collection — c'est que CET appareil est en retard, pas
+             que l'équipe a supprimé. Écrire, ce serait rejouer la panne d'ELAN sur les
+             interventions, le stock, les bons. On reprend la base de l'équipe (comptes fusionnés,
+             les nôtres gardés), on met la nôtre de côté, et on n'écrit rien.
+             Les vrais retraits en masse (série supprimée, remise à zéro, import…) s'annoncent
+             par syncRetraitVoulu() juste avant leur save(). */
+          let manque=null; try{ manque=(Date.now()-_retraitVoulu<30000)?null:syncManque(db,remote); }catch(e){ manque=null; }
+          if(manque){
+            try{ await miseDeCote(db,'retrait refusé — '+manque.coll+' : '+manque.n+' sur '+manque.sur+' manquants'); }catch(e){}
+            try{ cnxSignaler('refus',{motif:manque.coll+' : '+manque.n+'/'+manque.sur+' manquants'}); }catch(e){}
+            try{
+              const gardes=db.users; _syncApplying=true; db=remote;
+              db.users=usersFusionner(gardes,remote.users,tomb,true); if(tomb.length) db.usersSupprimes=tomb;
+              localStorage.setItem(STORE_KEY,JSON.stringify(db)); _syncTs=d.ts||Date.now();
+              try{ logEvent('Synchro refusée','cet appareil était en retard ('+manque.n+' '+manque.coll+' manquants) — la base de l\'équipe a été reprise','sync'); }catch(e){}
+            }catch(e){}
+            _syncApplying=false;
+            try{ refreshEcran(); }catch(e){}
+            try{ alert('Cet appareil était en retard sur l\'équipe.\n\nPour ne rien écraser, sa base a été remplacée par celle de l\'équipe. Ce que tu avais saisi entre-temps est gardé de côté : Paramètres → Synchroniser → « Mis de côté ».'); }catch(e){}
+            setTimeout(()=>{ try{ syncPush(true); }catch(e){} },1500);   // nos comptes fusionnés repartent, sur une base saine
+            return;
+          }
           if(db.users.length!==av){ if(db.users.length>av){ try{ toast((db.users.length-av)+' compte(s) créé(s) ailleurs — récupérés',4200); }catch(e){} }
             try{ localStorage.setItem(STORE_KEY,JSON.stringify(db)); }catch(e){} }
         }
       }
     }catch(e){}
-    const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db)); _fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||'')}).catch(er=>console.error('push',er)); }catch(er){ console.error('encrypt',er); } };
+    _retraitVoulu=0;
+    const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db));
+    /* `verNum` est ce que la règle Firestore compare au minimum exigé. Un refus « permission-denied »
+       ici ne veut plus dire « pas authentifié » : il veut dire « cette version n'est plus acceptée ». */
+    _fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||''),verNum:APP_VERSION_NUM})
+      .catch(er=>{ console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){} }); }catch(er){ console.error('encrypt',er); } };
+
   if(now) go(); else _syncTimer=setTimeout(go,800); }
+/* ══ LE GARDE-FOU DU RÉTRÉCISSEMENT ══
+   Pour chaque collection qui compte, on regarde combien de lignes du nuage manquent chez nous.
+   Plus de 3 ET plus d'un cinquième : ce n'est pas une suppression, c'est un retard. On ne juge
+   pas une collection de moins de 5 lignes — trop petite pour distinguer les deux. */
+const COLLS_GARDEES=['interventions','clients','boxes','produits','mouvements','bons','devis','factures','vehicules','pointages','contrats','demandes','telecollectes','techniciens','fournisseurs','chantiers','registres'];
+let _retraitVoulu=0;
+function syncRetraitVoulu(){ _retraitVoulu=Date.now(); }
+function syncManque(local,remote){
+  let pire=null;
+  COLLS_GARDEES.forEach(k=>{ const r=remote&&remote[k]; if(!Array.isArray(r)||r.length<5) return;
+    const ici=new Set(((local&&local[k])||[]).map(x=>x&&x.id).filter(Boolean));
+    let n=0; r.forEach(x=>{ if(x&&x.id&&!ici.has(x.id)) n++; });
+    if(n>3 && n>r.length*0.2 && (!pire||n>pire.n)) pire={coll:k,n:n,sur:r.length}; });
+  return pire;
+}
+/* Ce qu'on refuse d'écrire n'est pas jeté : la base est rangée dans IndexedDB (localStorage
+   n'a pas la place pour 3 Mo), trois exemplaires au plus, exportables depuis Paramètres. */
+function miseDeCote(base,motif){ return new Promise(res=>{ try{
+  const o=indexedDB.open('elan_cote',1);
+  o.onupgradeneeded=e=>{ const d=e.target.result; if(!d.objectStoreNames.contains('bases')) d.createObjectStore('bases',{keyPath:'ts'}); };
+  o.onerror=()=>res(false);
+  o.onsuccess=e=>{ const d=e.target.result; try{ const tx=d.transaction('bases','readwrite'), st=tx.objectStore('bases');
+    st.put({ts:Date.now(),motif:String(motif||''),version:String(APP_VERSION||''),json:JSON.stringify(base)});
+    const q=st.getAllKeys(); q.onsuccess=()=>{ const ks=(q.result||[]).slice().sort((a,b)=>a-b); while(ks.length>3){ try{ st.delete(ks.shift()); }catch(_e){ break; } } };
+    tx.oncomplete=()=>res(true); tx.onerror=()=>res(false); }catch(err){ res(false); } };
+}catch(err){ res(false); } }); }
+function miseDeCoteListe(){ return new Promise(res=>{ try{
+  const o=indexedDB.open('elan_cote',1);
+  o.onupgradeneeded=e=>{ const d=e.target.result; if(!d.objectStoreNames.contains('bases')) d.createObjectStore('bases',{keyPath:'ts'}); };
+  o.onerror=()=>res([]);
+  o.onsuccess=e=>{ const d=e.target.result; try{ const q=d.transaction('bases','readonly').objectStore('bases').getAll(); q.onsuccess=()=>res((q.result||[]).sort((a,b)=>b.ts-a.ts)); q.onerror=()=>res([]); }catch(err){ res([]); } };
+}catch(err){ res([]); } }); }
+function miseDeCoteModal(){ miseDeCoteListe().then(l=>{
+  const li=l.length?l.map(x=>'<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--brd)"><div><b>'+new Date(x.ts).toLocaleString('fr-FR')+'</b> · v'+String(x.version||'').replace(/[^0-9a-z.-]/gi,'')+'<div style="font-size:12.5px;color:var(--t3)">'+String(x.motif||'').replace(/[<>&]/g,'')+'</div></div><button class="btn ghost sm" onclick="miseDeCoteExporter('+x.ts+')">Exporter</button></div>').join('')
+    :'<p style="color:var(--t3)">Rien n\'a été mis de côté sur cet appareil.</p>';
+  openModal('<h3 style="margin:0 0 10px">📦 Bases mises de côté</h3><p style="font-size:13.5px;color:var(--t3);line-height:1.5">Quand cet appareil était en retard sur l\'équipe, sa base a été remplacée par celle de l\'équipe plutôt que de l\'écraser. Ce qu\'il contenait est ici, exportable en .json — rien n\'est perdu.</p>'+li);
+}); }
+function miseDeCoteExporter(ts){ miseDeCoteListe().then(l=>{ const x=l.find(y=>y.ts===ts); if(!x) return;
+  const blob=new Blob([x.json],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='mis-de-cote-'+new Date(ts).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.json'; a.click(); URL.revokeObjectURL(a.href); }); }
 function syncSave(){ const cfgT=(($('sync-cfg')||{}).value||'').trim(); const team=(($('sync-team')||{}).value||'').trim().toLowerCase();
   let cfg=null; try{ cfg=JSON.parse(cfgT); }catch(e){ toast('Configuration Firebase invalide (copie le JSON complet { … })'); return; }
   if(!cfg||!cfg.projectId||!cfg.apiKey){ toast('Config Firebase incomplète (apiKey, projectId…)'); return; }
@@ -10684,7 +10797,7 @@ function delSerieDo(id,avecSuivants){ const i=db.interventions.find(x=>x.id===id
   if(avecSuivants) goners=goners.concat(serieSuivants(i));   // jamais les passages terminés / annulés
   const ids=goners.map(x=>x.id);
   goners.forEach(x=>intArchive(x,motif));
-  db.interventions=db.interventions.filter(x=>!ids.includes(x.id));
+  syncRetraitVoulu(); db.interventions=db.interventions.filter(x=>!ids.includes(x.id));
   db.planJournal=db.planJournal||[];
   db.planJournal.push({ts:Date.now(),par:nom,titre:i.titre||'Intervention',de:planSnap(i),vers:null,oblig:'Série : '+ids.length+' passage(s) supprimé(s) par '+nom+(motif?' — motif : '+motif:'')});
   if(db.planJournal.length>400) db.planJournal=db.planJournal.slice(-400);
@@ -16057,7 +16170,7 @@ function mvtDemoDeuxMois(){
   consoJours=90; (views[current]||views.saisieConso)();
 }
 function mvtDemoRetirer(){
-  db.mouvements=db.mouvements.filter(m=>!m._demo);
+  syncRetraitVoulu(); db.mouvements=db.mouvements.filter(m=>!m._demo);
   db.bonsRemise=(db.bonsRemise||[]).filter(r=>!r._demo);
   db.boxMvtAttente=(db.boxMvtAttente||[]).filter(m=>!m._demo);
   db.demandes=(db.demandes||[]).filter(d=>!d._demo);
@@ -19500,7 +19613,7 @@ function regrouperFournisseur(fid){
   const notes=('Regroupement de '+nb+' demande(s) : '+bs.map(b=>bonNum(b)).join(', ')).slice(0,300);
   db.bons.push({id:uid(),numero:num,date:todayISO(),fournisseurId:fid,statut:'brouillon',faitPar:fullName(currentUser),notes,lignes});
   // Suppression des brouillons d'origine
-  const ids=new Set(bs.map(b=>b.id)); db.bons=db.bons.filter(b=>!ids.has(b.id));
+  const ids=new Set(bs.map(b=>b.id)); syncRetraitVoulu(); db.bons=db.bons.filter(b=>!ids.has(b.id));
   logEvent('Commandes regroupées',`${nb} brouillon(s) → ${num} (${fournName(fid)||''})`,'commande');
   save(); closeModal(); toast(`${nb} bons regroupés en ${num}`); views.bons();
 }
@@ -21812,7 +21925,7 @@ function betaVider(){
      test qui décrit mal son propre effet fait juger un écran pour un autre. */
   if(!confirm('Vider les données de la bêta ?\n\nPartent : les 27 collections de données, les archives d\'interventions et de techniciens, la file des validations, les plans et le journal de planning.\n\nRestent : ton accès, l\'identité de l\'entreprise et le forfait.')) return;
   try{
-    COLLECTIONS_DONNEES.forEach(c=>db[c]=[]);
+    syncRetraitVoulu(); COLLECTIONS_DONNEES.forEach(c=>db[c]=[]);
     /* Ces collections-ci ne sont pas dans COLLECTIONS_DONNEES — load() n'a pas besoin de les
        vider, une base neuve les a déjà vides — mais un vidage de bêta, si : laissées pleines,
        le chip « Supprimées » reste peuplé et les validations en attente pointent vers des
@@ -22149,7 +22262,7 @@ views.parametres=function(){
     </div>
     <div class="card"><div class="card-head"><h3>Sauvegarde & synchronisation</h3></div>
     <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:16px">Exportez vos données pour les sauvegarder ou les transférer sur un autre appareil. Tout est stocké localement (fonctionne hors connexion).</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="exportData()">Exporter (.json)</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="exportData()">Exporter (.json)</button><button class="btn ghost" onclick="miseDeCoteModal()">📦 Mis de côté</button>
     <button class="btn ghost" onclick="document.getElementById('imp').click()">Importer</button>
     <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)"></div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--brd)"><p style="color:var(--t2);font-size:14px;margin-bottom:10px">Version installée : <b>v${APP_VERSION}</b>. Si l'app semble figée sur une ancienne version :</p>
@@ -22466,7 +22579,7 @@ function razAppliquer(){
   if(c.mouv){ db.mouvements=[]; db.produitsDonnes=[]; faits.push('mouvements'); }
   if(c.attente){ (db.boxes||[]).forEach(b=>{ b.arrivages=[]; }); db.demandes=[]; db.boxMvtAttente=[]; db.brouillons=[]; faits.push('arrivages et validations en attente'); }
   if(c.bons){ db.bons=[]; faits.push('bons de commande'); }
-  if(c.inter){ db.interventions=[]; db.interventionsArchive=[]; db.registres=[]; (db.boxes||[]).forEach(b=>{ b.passages=[]; }); faits.push('interventions et rapports'); }
+  syncRetraitVoulu(); if(c.inter){ db.interventions=[]; db.interventionsArchive=[]; db.registres=[]; (db.boxes||[]).forEach(b=>{ b.passages=[]; }); faits.push('interventions et rapports'); }
   if(c.clients){ db.clients=[]; db.plansSite={}; faits.push('clients'); }
   if(c.vente){ db.devis=[]; db.factures=[]; db.contrats=[]; db.telecollectes=[]; db.enveloppes=[]; faits.push('devis, factures et contrats'); }
   if(c.journal){ db.journal=[]; faits.push('journal'); }
@@ -22520,7 +22633,7 @@ function resetProdWipe(){
   save(); if(typeof syncPush==='function') syncPush(true);
   toast('Application remise à zéro — prête pour la production'); go('dashboard'); }
 function exportData(){ const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='elan-gestion-'+todayISO()+'.json'; a.click(); URL.revokeObjectURL(a.href); toast('Exporté'); }
-function importData(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{ try{ db=migrate(JSON.parse(r.result)); save(); renderNav(); toast('Importé'); go('dashboard'); }catch(err){ toast('Fichier invalide'); } }; r.readAsText(f); }
+function importData(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{ try{ db=migrate(JSON.parse(r.result)); syncRetraitVoulu(); save(); renderNav(); toast('Importé'); go('dashboard'); }catch(err){ toast('Fichier invalide'); } }; r.readAsText(f); }
 function resetData(){ if(!confirm('Réinitialiser TOUTES les données ?'))return; localStorage.removeItem(STORE_KEY); localStorage.removeItem('elan_session'); location.reload(); }
 
 /* ═══════════════ GÉNÉRIQUES ═══════════════ */
@@ -26287,6 +26400,8 @@ function enterApp(u){ currentUser=u;
   setTimeout(maybeProfilePhoto,900); setTimeout(avatarAccentSync,1600);
   setTimeout(()=>{ try{ if(pushSupported()&&Notification.permission==='granted') pushSubscribe(true); else setTimeout(pushPropose,1800); }catch(e){} },2400);
   setTimeout(()=>{ try{ forfaitServeurSync(); }catch(e){} },2600);
+  setTimeout(()=>{ try{ versionVerifier(true); }catch(e){} },1900);     // version minimale et mode en ligne, décidés par la Tour
+  try{ if(!navigator.onLine) horsLigneDebut('démarrage'); }catch(e){}
   setTimeout(()=>{ try{ lienLisibleCharger(); }catch(e){} },3000);     // le lien de connexion de l'annuaire, pour la fiche d'accès et Paramètres
   setTimeout(()=>{ try{ bandeauFormule(); }catch(e){} },1500); }
 /* TEST/DÉMO — ajoute une fois une télécollecte d'exemple si aucune n'existe, pour voir le rendu en Comptabilité. À retirer plus tard. */
@@ -27059,15 +27174,109 @@ function showUpdateBanner(){ if($('update-banner')) return; const d=document.cre
   document.body.appendChild(d); }
 /* « Mettre à jour » : on demande d'abord au service worker de ranger la version fraîche
    (réseau lent compris), puis on recharge — sinon l'ancienne copie revenait et le bandeau avec. */
-function majAppliquer(){ const b=$('update-banner'); if(b) b.innerHTML='⏳ Mise à jour en cours…';
-  let fait=false; const go=()=>{ if(fait) return; fait=true; location.reload(); };
+/* ══ L'ÉCRAN « MISE À JOUR EN COURS » — demande de Justin, 9 septembre 2026 ══
+   Un bandeau se ferme d'un doigt et s'oublie ; un écran plein avec une barre qui avance dit ce
+   qui se passe et empêche de toucher à quoi que ce soit pendant les quelques secondes du
+   téléchargement. Le service worker lit la nouvelle version en flux et remonte les octets. */
+function majEcran(titre,sous){ let e=$('maj-ecran');
+  if(!e){ e=document.createElement('div'); e.id='maj-ecran';
+    e.style.cssText='position:fixed;inset:0;z-index:99998;background:var(--bg,#0D1624);color:var(--t1,#eef2fa);display:flex;align-items:center;justify-content:center;padding:28px;text-align:center';
+    document.body.appendChild(e); }
+  e.innerHTML='<div style="max-width:420px;width:100%"><div style="font-size:44px">⬆️</div>'+
+    '<h2 id="maj-titre" style="margin:12px 0 6px;font-size:22px;letter-spacing:-.01em">'+titre+'</h2>'+
+    '<p id="maj-sous" style="color:var(--t3,#93a9d4);font-size:14.5px;line-height:1.55;margin:0 0 18px">'+(sous||'')+'</p>'+
+    '<div style="height:10px;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden"><div id="maj-barre" style="height:100%;width:4%;background:var(--acc,#34d399);border-radius:99px;transition:width .25s ease"></div></div>'+
+    '<div id="maj-etat" style="margin-top:10px;font-size:13px;color:var(--t3,#93a9d4)">Préparation…</div>'+
+    '<div id="maj-actions" style="margin-top:18px"></div></div>';
+  return e; }
+function majProgres(recu,total){ const b=$('maj-barre'), s=$('maj-etat'); if(!b) return;
+  /* `total` est la taille compressée sur le fil, `recu` est décompressé : on plafonne à 99 % et
+     c'est le redémarrage qui pose le 100. Sans total (serveur muet), on avance à l'estime. */
+  let pct=(total>0)?Math.min(99,Math.round(recu/total*100)):Math.min(95,4+Math.round(recu/30000));
+  b.style.width=Math.max(4,pct)+'%';
+  if(s) s.textContent='Téléchargement de la nouvelle version… '+(recu>=1048576?(recu/1048576).toFixed(1)+' Mo':Math.round(recu/1024)+' Ko'); }
+function majAppliquer(){ try{ const b=$('update-banner'); if(b) b.remove(); }catch(e){}
+  majEcran('Mise à jour en cours','La nouvelle version s\'installe. Quelques secondes — ne ferme pas l\'application.');
+  let fait=false;
+  const go=()=>{ if(fait) return; fait=true; try{ const s=$('maj-etat'); if(s) s.textContent='Redémarrage…'; const bar=$('maj-barre'); if(bar) bar.style.width='100%'; }catch(e){} setTimeout(()=>{ try{ location.reload(); }catch(e){} },350); };
+  const echec=()=>{ try{ const s=$('maj-etat'); if(s) s.textContent='Le téléchargement n\'a pas abouti — vérifie la connexion.'; const a=$('maj-actions'); if(a) a.innerHTML='<button class="btn" onclick="majAppliquer()">Réessayer</button>'; }catch(e){} };
   try{ const sw=navigator.serviceWorker&&navigator.serviceWorker.controller;
     if(sw){ const ch=new MessageChannel(); let t=setTimeout(go,6000);   // pas de réponse du service worker → on recharge quand même
-      ch.port1.onmessage=ev=>{ const op=(ev.data||{}).op;
-        if(op==='maj-recu'){ clearTimeout(t); t=setTimeout(go,60000); if(b) b.innerHTML='⏳ Téléchargement de la nouvelle version…'; }   // il a bien reçu : on lui laisse le temps (réseau lent)
+      ch.port1.onmessage=ev=>{ const d=ev.data||{}, op=d.op;
+        if(op==='maj-recu'){ clearTimeout(t); t=setTimeout(go,90000); majProgres(0,0); }            // il a bien reçu : on lui laisse le temps (réseau lent)
+        else if(op==='maj-progres'){ clearTimeout(t); t=setTimeout(go,90000); majProgres(d.recu||0,d.total||0); }
+        else if(op==='maj-echec'){ clearTimeout(t); if(_versionBloquee) echec(); else go(); }   // bloqué : recharger servirait la même vieille copie, en boucle
         else go(); };
       sw.postMessage({op:'maj-forcer',url:location.pathname},[ch.port2]); return; } }catch(e){}
   go(); }
+/* ══ LA VERSION MINIMALE — le nuage ferme la porte, l'application la voit venir ══
+   Réglée depuis la Tour de contrôle, portée par le serveur (/api/version) ET par Firestore
+   (teamop_config/version, ce que la règle de sécurité lit). Sous le minimum, on ne pousse plus
+   rien et on se met à jour tout de suite — en laissant finir ce qui est en cours, 45 s au plus. */
+function versionMinAppliquer(min){ min=parseInt(min,10)||0; if(min>_versionMin) _versionMin=min;
+  if(_versionMin&&APP_VERSION_NUM&&APP_VERSION_NUM<_versionMin) majObligatoire(_versionMin); }
+function versionRefuseeParNuage(){ majObligatoire(_versionMin||(APP_VERSION_NUM+1)); }
+function majObligatoire(min){
+  if(_versionBloquee) return; _versionBloquee=true;
+  try{ cnxSignaler('bloque',{motif:'v'+APP_VERSION+' sous le minimum v'+min}); }catch(e){}
+  try{ clearTimeout(_majAutoTimer); }catch(e){}
+  try{ if(navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); }catch(e){}
+  const lancer=()=>{ majEcran('Mise à jour obligatoire','Cette version ('+String(APP_VERSION).replace(/[^0-9a-z.-]/gi,'')+') n\'est plus acceptée par le serveur : elle pourrait abîmer les données de l\'équipe. La nouvelle version s\'installe maintenant.'); setTimeout(majAppliquer,900); };
+  const occ=(typeof majOccupe==='function')?majOccupe():'';
+  if(!occ){ lancer(); return; }
+  /* Quelqu'un est en train de saisir : un bandeau qui compte, pas un écran qui recouvre — sinon
+     « termine ce que tu fais » est impossible. */
+  let reste=45;
+  const tick=()=>{ if(!majOccupe()||reste<=0){ lancer(); return; }
+    try{ let b=$('update-banner'); if(!b){ b=document.createElement('div'); b.id='update-banner'; b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));z-index:130;background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:12px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5)'; document.body.appendChild(b); }
+      b.textContent='Mise à jour obligatoire dans '+reste+' s — termine ce que tu fais'; }catch(e){}
+    reste--; setTimeout(tick,1000); };
+  tick();
+}
+let _versionDernierControle=0;
+async function versionVerifier(force){ try{
+  if(!force&&Date.now()-_versionDernierControle<120000) return; _versionDernierControle=Date.now();
+  const c=new AbortController(); const t=setTimeout(()=>c.abort(),8000);
+  const r=await fetch(PUSH_API+'/api/version',{cache:'no-store',signal:c.signal}); clearTimeout(t);
+  const j=await r.json().catch(()=>null);
+  if(j&&j.ok){ if(j.enLigne) _modeEnLigne=(j.enLigne==='libre')?'libre':'enLigne'; versionMinAppliquer(j.min); }
+}catch(e){} }
+/* ══ NE TRAVAILLER QU'EN LIGNE ══
+   Un appareil hors ligne ne modifie rien : c'est ce qui coupe la racine des écrasements. Coupure
+   brève (moins d'une minute) sans écriture tentée : on reprend là où on en était — l'écoute
+   Firestore rattrape seule ce qu'elle a raté. Coupure longue, ou une écriture a été refusée
+   entre-temps : on recharge, pour repartir de la base de l'équipe et jeter toute écriture que le
+   SDK aurait mise en file. Sans espace d'équipe (usage purement local), rien de tout ça. */
+function horsLigneDebut(motif){
+  if(_modeEnLigne!=='enLigne') return;
+  if(typeof syncEnabled==='function'&&!syncEnabled()) return;
+  if(_horsLigne) return; _horsLigne=true; _horsLigneDepuis=Date.now(); _horsLignePush=false;
+  let e=$('hl-ecran');
+  if(!e){ e=document.createElement('div'); e.id='hl-ecran';
+    e.style.cssText='position:fixed;inset:0;z-index:99997;background:var(--bg,#0D1624);color:var(--t1,#eef2fa);display:flex;align-items:center;justify-content:center;padding:28px;text-align:center';
+    document.body.appendChild(e); }
+  e.innerHTML='<div style="max-width:420px;width:100%"><div style="font-size:44px">📡</div>'+
+    '<h2 style="margin:12px 0 6px;font-size:22px;letter-spacing:-.01em">Connexion requise</h2>'+
+    '<p style="color:var(--t3,#93a9d4);font-size:14.5px;line-height:1.55;margin:0 0 14px">OP GESTION ne fonctionne qu\'en ligne, pour que le travail de toute l\'équipe reste à jour. Dès que le réseau revient, l\'application reprend toute seule.</p>'+
+    '<div id="hl-etat" style="font-size:13px;color:var(--t3,#93a9d4)">En attente du réseau…</div>'+
+    '<div style="margin-top:18px"><button class="btn" onclick="horsLigneReprise(true)">Réessayer</button></div></div>';
+}
+function horsLigneFin(){ _horsLigne=false; try{ const e=$('hl-ecran'); if(e) e.remove(); }catch(e){} try{ toast('Connexion rétablie',1800); }catch(e){} }
+let _hlEssai=null;
+async function horsLigneReprise(manuel){
+  if(!_horsLigne) return; clearTimeout(_hlEssai);
+  const s=$('hl-etat'); if(s) s.textContent='Connexion détectée — vérification…';
+  let ok=false; try{ const c=new AbortController(); const t=setTimeout(()=>c.abort(),8000); const r=await fetch(PUSH_API+'/health',{cache:'no-store',signal:c.signal}); clearTimeout(t); ok=!!(r&&r.ok); }catch(e){}
+  if(!ok){ if(s) s.textContent='Toujours pas de réseau — nouvel essai dans quelques secondes.'; _hlEssai=setTimeout(()=>horsLigneReprise(false),6000); return; }
+  const duree=Date.now()-_horsLigneDepuis;
+  if(duree<60000&&!_horsLignePush){ horsLigneFin(); return; }
+  if(s) s.textContent='Connexion rétablie — l\'application se recharge pour repartir à jour.';
+  setTimeout(()=>{ try{ location.reload(); }catch(e){} },900);
+}
+try{
+  window.addEventListener('offline',()=>{ try{ horsLigneDebut('réseau coupé'); }catch(e){} });
+  window.addEventListener('online',()=>{ try{ horsLigneReprise(false); }catch(e){} });
+}catch(e){}
 /* ══════════ LA MISE À JOUR SE DEMANDE, MAIS ELLE INSISTE ═══════════════════════════════
    Retour en arrière assumé, décidé par Justin le 8 septembre 2026 après l'avoir essayé :
    « remets le bouton mise à jour, c'est plus sûr — et s'ils ne la font pas, ça leur met un
@@ -27244,6 +27453,7 @@ if('serviceWorker' in navigator){
        deux contrôles, pour ne pas interroger le réseau à chaque coup d'œil. */
     let _dernierControle=0;
     const controler=()=>{ if(Date.now()-_dernierControle<300000) return; _dernierControle=Date.now();
+      try{ versionVerifier(true); }catch(e){}
       navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); };
     setInterval(controler, 900000);
     try{ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') controler(); }); }catch(e){}

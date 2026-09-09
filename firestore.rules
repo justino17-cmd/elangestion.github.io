@@ -207,8 +207,36 @@ service cloud.firestore {
     }
 
     // ══ OP GESTION — les données d'équipe ═════════════════════════════════
+    // ── LA PORTE DE VERSION — 9 septembre 2026 ──
+    // Ce qui a détruit les comptes d'ELAN : un appareil resté en vieille version, qui réécrit
+    // TOUTE la base de l'entreprise avec sa copie périmée, toutes les deux minutes, tant qu'une
+    // session est ouverte. On ne peut pas mettre à jour un appareil qu'on ne tient pas ; on
+    // peut lui refuser la porte. Chaque écriture de l'application porte son numéro de version
+    // (`verNum`, un entier). En dessous du minimum fixé depuis la Tour de contrôle
+    // (teamop_config/version → min), le serveur de Google refuse l'écriture — l'appareil
+    // continue de LIRE, il ne peut plus rien abîmer, et l'application se met à jour d'elle-même.
+    // Une version d'avant ce verrou n'a pas de `verNum` : elle passe tant qu'aucun minimum
+    // n'est exigé (min = 0 ou document absent), plus jamais ensuite.
+    function versionMin() {
+      return exists(/databases/$(database)/documents/teamop_config/version)
+        ? get(/databases/$(database)/documents/teamop_config/version).data.get('min', 0)
+        : 0;
+    }
+    function versionOk() {
+      return versionMin() == 0
+        || (request.resource.data.get('verNum', 0) is int
+            && request.resource.data.get('verNum', 0) >= versionMin());
+    }
     match /elan_teams/{teamId} {
-      allow read, write: if connecte();
+      allow read:   if connecte();
+      allow write:  if connecte() && versionOk();
+    }
+    // Le minimum exigé : tout le monde le lit (l'application s'y compare avant même d'écrire),
+    // personne ne l'écrit depuis l'application — il est posé par le serveur TeamOP, avec sa clé
+    // d'administration, sur ordre de la Tour de contrôle.
+    match /teamop_config/{doc} {
+      allow read:  if connecte();
+      allow write: if false;
     }
 
     // ── Le canal d'essai (beta.html / dev.html) ──
@@ -219,7 +247,8 @@ service cloud.firestore {
     // L'isolement est voulu : la bêta a ses propres données et ne touche jamais
     // à celles des entreprises.
     match /elanB_teams/{teamId} {
-      allow read, write: if connecte();
+      allow read:   if connecte();
+      allow write:  if connecte() && versionOk();   // même porte : la bêta porte aussi son numéro
     }
 
     // ══ TOUT LE RESTE EST FERMÉ ═══════════════════════════════════════════

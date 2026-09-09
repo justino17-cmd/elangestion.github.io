@@ -2177,7 +2177,7 @@ function cnxF(v){ CNX.f=v; renderNav('fondu'); }
 /* Meme geste, meme libelle, meme place que dans les Entreprises et la Surveillance. */
 function cnxFermer(){ CNX.sel=null; CNX.det=null; CNX.detErr=''; renderNav('retour'); window.scrollTo(0,0); }
 var CNX_VIA={lien:'par le lien',entreprise:'nom d\'entreprise',session:'session gardée',identifiants:'identifiants',code:'code espace'};
-var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion']};
+var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion'],bloque:['🔒','Version bloquée — mise à jour forcée'],refus:['🛡️','Synchro refusée — appareil en retard, base de l’équipe reprise']};
 function cnxDepuis(ts){ if(!ts) return 'jamais'; var m=Math.round((Date.now()-ts)/60000);
   if(m<1) return 'à l\'instant'; if(m<60) return 'il y a '+m+' min'; var h=Math.round(m/60); if(h<24) return 'il y a '+h+' h'; var j=Math.round(h/24); if(j<30) return 'il y a '+j+' j'; return fmtJour(ts); }
 function cnxAppareil(e){ return [e.appareil,e.os,e.nav].filter(Boolean).join(' · ')+(e.pwa?' · app installée':''); }
@@ -3308,6 +3308,52 @@ var SVL_GROUPES=[
    'actifs' et non '', sinon il afficherait l'historique corrigés inclus, l'inverse de sa
    promesse. */
 function incReset(){ INC.f={type:'',grav:'',statut:'actifs',app:'',ent:''}; renderNav('fondu'); }
+/* ══ VERSIONS — la porte que la Tour tient (9 septembre 2026) ══
+   Ce qui a détruit les comptes d'ELAN : sept appareils sur onze en vieille version, dont chacun
+   réécrivait toute la base toutes les deux minutes. On ne met pas à jour un appareil qu'on ne
+   tient pas ; on lui ferme la porte du nuage. D'ici, le patron fixe la version minimale — en
+   dessous, un appareil lit encore mais n'écrit plus, et se met à jour tout seul — et le mode
+   en ligne. Aucune republication : c'est un réglage, pas une version. */
+var VER={loaded:false,encours:false,d:null,err:'',ts:0};
+function chargerVersion(){ if(VER.encours) return; VER.encours=true;
+  apiGet('/api/monitor/version').then(function(d){ VER.d=d||{}; VER.err=''; VER.loaded=true; VER.encours=false; VER.ts=Date.now(); if(TAB==='surveillance') render(); })
+  .catch(function(e){ VER.err=msgErreur(e); VER.loaded=true; VER.encours=false; VER.ts=Date.now(); if(TAB==='surveillance') render(); }); }
+function versionRegler(b,msg){ apiPost('/api/monitor/version-min',b).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    toast(msg||'Réglage enregistré');
+    if(x.d&&x.d.firestore&&!x.d.firestore.fait) setTimeout(function(){ toast('⚠️ Firestore pas mis à jour : '+(x.d.firestore.motif||'')); },1800);
+    VER.d=null; VER.loaded=false; chargerVersion(); }).catch(function(){ toast('Serveur injoignable'); }); }
+function versionExigerLigne(){ if(!confirm('Exiger la version en ligne pour TOUT LE MONDE ?\n\nTout appareil en dessous ne pourra plus rien enregistrer tant qu’il n’est pas à jour. Il se met à jour tout seul : dans les secondes qui suivent s’il est ouvert, à sa prochaine ouverture sinon.')) return; versionRegler({min:'ligne'},'Dernière version exigée pour tout le monde'); }
+function versionLever(){ if(!confirm('Lever l’exigence de version ?\n\nLes vieux appareils pourront de nouveau écrire dans le nuage — et donc écraser.')) return; versionRegler({min:0},'Exigence levée'); }
+function versionMode(m){ if(m==='libre'&&!confirm('Autoriser le hors ligne ?\n\nC’est l’ancien fonctionnement, celui qui a effacé les comptes d’ELAN. À n’utiliser qu’en urgence, et à refermer ensuite.')) return;
+  versionRegler({min:(VER.d&&VER.d.min)||0,enLigne:m},m==='libre'?'Hors ligne autorisé — pense à refermer':'Mode en ligne obligatoire'); }
+function blocVersions(){
+  if(!VER.d&&!VER.err){ chargerVersion(); return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--muted);font-size:13px;margin-top:8px">Chargement…</div>'; }
+  if(VER.err&&!VER.d) return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--redText);font-size:13px;margin-top:8px">'+esc(VER.err)+' <a onclick="VER.err=\'\';chargerVersion()">réessayer</a></div>';
+  if(Date.now()-(VER.ts||0)>120000) chargerVersion();   // on montre ce qu'on a, et on rafraîchit derrière
+  var d=VER.d||{}, ligne=d.versionEnLigne||0, min=d.min||0, sous=d.sous||[], nSous=0;
+  sous.forEach(function(x){ nSous+=(x.n||0); });
+  var patron=(MYROLE==='patron'), libre=(d.enLigne==='libre');
+  var p=function(l,v,c){ return '<div class="kpi"><div class="n"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+l+'</div></div>'; };
+  return '<div class="sec" style="margin-top:18px">VERSIONS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— la porte du nuage</span></div>'+
+    '<div class="grille-kpi" style="margin-top:10px">'+
+      p('version en ligne', ligne?'v'+ligne:'?')+
+      p('minimum exigé', min?'v'+min:'aucun', min?'':'var(--amber)')+
+      p('appareils bloqués · 7 j', nSous, nSous?'var(--amber)':'')+
+      p('mode', libre?'hors ligne autorisé':'en ligne obligatoire', libre?'var(--amber)':'')+
+    '</div>'+
+    '<div style="font-size:12.5px;color:var(--text2);line-height:1.6;margin-top:10px">Un appareil sous le minimum lit encore, mais <b>n’écrit plus</b> — le nuage refuse — et il se met à jour tout seul. '+
+      (min?'':'<b>Aucun minimum n’est exigé : les vieilles versions écrivent encore.</b> ')+
+      (d.cleAdmin?'':'<span style="color:var(--redText)">⚠️ La clé d’administration Firebase manque sur le serveur : le réglage n’atteint pas Firestore, seule l’application s’y conforme.</span>')+
+    '</div>'+
+    (patron?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+
+      '<button class="btn-plein" onclick="versionExigerLigne()"'+(ligne?'':' disabled')+'>Exiger la dernière version'+(ligne?' (v'+ligne+')':'')+' pour tout le monde</button>'+
+      (min?'<button class="btn-fant" onclick="versionLever()">Lever l’exigence</button>':'')+
+      (libre?'<button class="btn-fant" onclick="versionMode(\'enLigne\')">Repasser en ligne obligatoire</button>':'<button class="btn-fant" onclick="versionMode(\'libre\')">Autoriser le hors ligne (urgence)</button>')+
+    '</div>':'')+
+    (sous.length?'<div style="margin-top:12px">'+sous.map(function(x){ return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line);font-size:13px"><span style="flex:1"><b>'+esc(x.nom||x.t)+'</b></span><span class="past p-ambre">'+x.n+' appareil'+(x.n>1?'s':'')+' bloqué'+(x.n>1?'s':'')+'</span></div>'; }).join('')+'</div>':'')+
+    (d.maj?'<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Dernier réglage '+esc(fmtJour(d.maj))+(d.par?' par '+esc(d.par):'')+'</div>':'');
+}
 function vueSurveillance(){
   if(!INC.loaded) return enTete('Surveillance',SURV_DESC)+acSquel();
   if(INC.err) return enTete('Surveillance',SURV_DESC)+acErr('La surveillance ne répond pas',INC.err,'chargerIncidents()');
@@ -3462,7 +3508,7 @@ function vueSurveillance(){
 
   var ouverts=incOuverts().length;
   /* Un compte se lit APRÈS la commande qui le produit, pas au-dessus. */
-  return enTete('Surveillance',SURV_DESC)+kpis+filtres+
+  return enTete('Surveillance',SURV_DESC)+blocVersions()+kpis+filtres+
     '<div class="svl-compte">'+nomsG.length+' entreprise'+(nomsG.length>1?'s':'')+' · '+l.length+' problème'+(l.length>1?'s':'')+' affiché'+(l.length>1?'s':'')+' · '+ouverts+' ouvert'+(ouverts>1?'s':'')+'</div>'+
     (groupesRendus?'<div class="reg">'+groupesRendus+'</div>':listeVide)+saines+legende;
 }
@@ -4727,8 +4773,14 @@ function blocUtilisateurs(){
   var d=(DOS&&DOS.d)||null;
   if(!DOS||!DOS.loaded) return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS</div><div style="margin-top:9px;color:var(--muted);font-size:13px">Chargement…</div></div>';
   if(!d||!d.utilisateurs||!d.utilisateurs.length) return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS</div><div style="margin-top:9px;color:var(--muted);font-size:13px">Aucun compte connu pour cet espace.</div></div>';
-  return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+d.utilisateurs.length+'</span></div>'+
-    '<div style="margin-top:9px">'+d.utilisateurs.map(function(u){
+  /* Deux natures, séparées : les COMPTES (dans l'annuaire, ou déjà connectés) et les IDENTIFIANTS
+     TAPÉS QUI N'EXISTENT PAS — vus seulement dans le journal des échecs. Les seconds étaient
+     affichés comme des utilisateurs, et Justin y a cherché des « comptes fantômes » à supprimer
+     (9 septembre 2026). Il n'y a rien à supprimer : le compte n'a jamais été créé, ou il a été
+     perdu avant d'être déposé. Le dire ici évite de le chercher partout ailleurs. */
+  var vrais=d.utilisateurs.filter(function(u){ return u.derniere||u.dansAnnuaire; });
+  var tapes=d.utilisateurs.filter(function(u){ return !u.derniere&&!u.dansAnnuaire; });
+  var ligne=function(u){
       var souci=u.echecs>0, jamais=!u.derniere;
       return '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--line)">'+
         '<span class="mono" style="flex:1;min-width:130px;font-size:13px;font-weight:600">'+esc(u.login)+
@@ -4737,9 +4789,15 @@ function blocUtilisateurs(){
           (u.appareils?' · '+u.appareils+' appareil'+(u.appareils>1?'s':''):'')+
           (u.version?' · v'+esc(u.version):'')+'</span>'+
         (souci?'<span class="past p-ambre" title="échecs de connexion">🔑 '+u.echecs+'</span>':'')+
+        (u.bloques?'<span class="past p-ambre" title="écritures refusées : version bloquée ou appareil en retard">🔒 '+u.bloques+'</span>':'')+
         (jamais&&u.dansAnnuaire?'<span class="past p-gris">inutilisé</span>':'')+
-      '</div>';
-    }).join('')+'</div></div>';
+      '</div>'; };
+  return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+vrais.length+'</span></div>'+
+    '<div style="margin-top:9px">'+vrais.map(ligne).join('')+'</div>'+
+    (tapes.length?'<div class="sec" style="margin-top:16px;color:var(--amber)">'+tapes.length+' IDENTIFIANT'+(tapes.length>1?'S':'')+' TAPÉ'+(tapes.length>1?'S':'')+' QUI N’EXISTE'+(tapes.length>1?'NT':'')+' PAS</div>'+
+      '<div style="font-size:12px;color:var(--text2);line-height:1.55;margin-top:6px">Quelqu’un a tapé ces identifiants et ça a échoué. Ce ne sont pas des comptes : il n’y a rien à supprimer — le compte n’a jamais été créé, ou il a été perdu avant d’être déposé dans l’annuaire. Si la personne doit travailler, l’entreprise crée son compte.</div>'+
+      '<div style="margin-top:6px">'+tapes.map(function(u){ return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)"><span class="mono" style="flex:1;font-size:13px;color:var(--muted)">'+esc(u.login)+'</span><span class="past p-ambre" title="tentatives de connexion">'+u.echecs+' tentative'+(u.echecs>1?'s':'')+'</span></div>'; }).join('')+'</div>':'')+
+  '</div>';
 }
 
 /* SON espace — pas ceux de tout le monde. Même carte qu'avant, filtrée sur l'entreprise. */
