@@ -1713,6 +1713,26 @@ app.post('/api/connexions', (req, res) => {
   l.unshift(ev); if (l.length > 500) l.length = 500;
   cnxSave(); res.json({ ok: true });
 });
+/* Effacer les tentatives sur des identifiants qui n'existent pas — ELAN, 9 septembre 2026.
+   Cinq identifiants tapés pendant la panne (zampa, admin, antho13…) restaient affichés dans le
+   dossier de l'entreprise comme des utilisateurs : ils n'étaient que des échecs de connexion
+   dans ce journal. Le patron les efface d'ici. Seuls les identifiants ABSENTS de l'annuaire sont
+   touchés : les échecs d'un vrai compte sont une information (mot de passe oublié), on les garde. */
+app.post('/api/monitor/connexions/effacer-tentatives', monPatronStrict, (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80); if (!t) return res.status(400).json({ error: 't requis' });
+  const voulus = Array.isArray(b.logins) ? b.logins.map(x => monStr(x, 40).toLowerCase().trim()).filter(Boolean).slice(0, 100) : [];
+  if (!voulus.length) return res.status(400).json({ error: 'logins requis' });
+  const annu = (comptesReg[t] && comptesReg[t].c) || {};
+  const cibles = new Set(voulus.filter(l => !Object.prototype.hasOwnProperty.call(annu, l)));
+  const gardes = voulus.filter(l => !cibles.has(l));
+  const avant = (cnxData[t] || []).length;
+  cnxData[t] = (cnxData[t] || []).filter(x => !(x.ev === 'echec' && cibles.has(String(x.login || '').toLowerCase().trim())));
+  const n = avant - cnxData[t].length;
+  if (n) cnxSave();
+  monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'tentatives effacées : ' + n);   // ni identifiant ni espace : rien de personnel au journal
+  res.json({ ok: true, effacees: n, ignores: gardes });
+});
 /* Résumé lisible d'un espace : dernière connexion, utilisateurs et appareils actifs, échecs, versions */
 function cnxResume(t) {
   const l = cnxData[t] || []; const now = Date.now(), j7 = now - 7 * 86400000, j30 = now - 30 * 86400000, h24 = now - 86400000;
@@ -2846,13 +2866,14 @@ function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFe
    porte. `min` est le numéro de version en dessous duquel le nuage refuse d'écrire — la règle
    Firestore le lit dans teamop_config/version, que ce serveur écrit avec sa clé d'administration.
    L'application le lit aussi ici (/api/version) pour se bloquer avant même de tenter.
-   `enLigne` : « enLigne » = rien sans réseau (décision de Justin), « libre » = l'ancien hors
-   ligne, rallumable d'un clic en cas d'urgence. */
+   `enLigne` ne vaut plus que « enLigne » : l'application ne travaille qu'en ligne, sans option
+   (Justin, 9 septembre 2026 : « on oublie le hors ligne complètement »). Le champ reste rendu
+   pour les v616 qui le lisent encore. */
 const VERSIONS_PATH = path.join(DATA_DIR, 'versions.json');
 let versionsCfg = { min: 0, enLigne: 'enLigne', maj: 0, par: '' };
 try { Object.assign(versionsCfg, JSON.parse(fs.readFileSync(VERSIONS_PATH, 'utf8')) || {}); } catch (e) {}
 versionsCfg.min = Math.max(0, parseInt(versionsCfg.min, 10) || 0);
-if (versionsCfg.enLigne !== 'libre') versionsCfg.enLigne = 'enLigne';
+versionsCfg.enLigne = 'enLigne';   // plus d'autre valeur possible
 function versionsSave() { try { const tmp = VERSIONS_PATH + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(versionsCfg)); fs.renameSync(tmp, VERSIONS_PATH); return true; } catch (e) { console.error('versions.json non écrit :', e.message); return false; } }
 /* Le document que la règle de sécurité lit. Écrit par la clé admin (qui passe outre les règles) ;
    sans clé, le réglage vit quand même côté serveur — l'application s'y conforme d'elle-même,
@@ -2912,7 +2933,7 @@ app.post('/api/monitor/version-min', monPatronStrict, async (req, res) => {
   let min = parseInt(b.min, 10);
   if (b.min === 'ligne') min = await versionEnLigne();   // « Exiger la dernière version » : celle qui est servie, pas un chiffre tapé
   if (!isFinite(min) || min < 0 || min > 99999) return res.status(400).json({ error: 'min : un entier entre 0 et 99999, ou « ligne »' });
-  const enLigne = (b.enLigne === 'libre') ? 'libre' : (b.enLigne === 'enLigne' ? 'enLigne' : versionsCfg.enLigne);
+  const enLigne = 'enLigne';   // le hors ligne n'est plus une option : le paramètre est ignoré
   versionsCfg.min = min; versionsCfg.enLigne = enLigne; versionsCfg.maj = Date.now(); versionsCfg.par = (req.tourUser && req.tourUser.nom) || '';
   if (!versionsSave()) return res.status(500).json({ error: 'réglage non enregistré' });
   const fsr = await versionsPousserFirestore();

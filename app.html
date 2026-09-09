@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '616';
+const APP_VERSION = '617';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5522,11 +5522,11 @@ const FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"
 const FB_TEAM='elan-gestion';
 let _syncEssais=0;
 let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
-/* Version minimale exigée par TeamOP (Tour de contrôle), et mode en ligne :
-   `enLigne` = rien sans réseau (décision de Justin, 9 septembre 2026 : « le mode hors ligne
-   crée trop de problèmes, on le supprime ») ; `libre` = comme avant, rallumable depuis la Tour
-   en cas d'urgence, sans republier. */
-let _versionMin=0,_versionBloquee=false,_modeEnLigne='enLigne',_horsLigne=false,_horsLigneDepuis=0,_horsLignePush=false;
+/* Version minimale exigée par TeamOP (Tour de contrôle). Et une décision sans option : l'application
+   ne travaille QU'EN LIGNE (Justin, 9 septembre 2026 : « le mode hors ligne crée trop de problèmes,
+   on l'oublie complètement »). La v616 gardait un interrupteur d'urgence dans la Tour ; il est retiré
+   en v617 — un interrupteur qu'on peut rallumer est un interrupteur qu'on rallumera. */
+let _versionMin=0,_versionBloquee=false,_horsLigne=false,_horsLigneDepuis=0,_horsLignePush=false;
 function syncDeviceId(){ let d=localStorage.getItem('elan_dev'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('elan_dev',d);} return d; }
 /* Sécurité — chiffrement de bout en bout des données synchronisées (AES-256-GCM).
    Le cloud ne stocke QUE du texte chiffré : sans la clé d'équipe, les données sont illisibles,
@@ -27239,17 +27239,16 @@ async function versionVerifier(force){ try{
   const c=new AbortController(); const t=setTimeout(()=>c.abort(),8000);
   const r=await fetch(PUSH_API+'/api/version',{cache:'no-store',signal:c.signal}); clearTimeout(t);
   const j=await r.json().catch(()=>null);
-  if(j&&j.ok){ if(j.enLigne) _modeEnLigne=(j.enLigne==='libre')?'libre':'enLigne'; versionMinAppliquer(j.min); }
+  if(j&&j.ok) versionMinAppliquer(j.min);
 }catch(e){} }
 /* ══ NE TRAVAILLER QU'EN LIGNE ══
    Un appareil hors ligne ne modifie rien : c'est ce qui coupe la racine des écrasements. Coupure
    brève (moins d'une minute) sans écriture tentée : on reprend là où on en était — l'écoute
    Firestore rattrape seule ce qu'elle a raté. Coupure longue, ou une écriture a été refusée
    entre-temps : on recharge, pour repartir de la base de l'équipe et jeter toute écriture que le
-   SDK aurait mise en file. Sans espace d'équipe (usage purement local), rien de tout ça. */
+   SDK aurait mise en file. Partout, sans exception — l'écran de connexion compris : sans réseau,
+   il n'y a ni espace à reconnaître ni annuaire à interroger. */
 function horsLigneDebut(motif){
-  if(_modeEnLigne!=='enLigne') return;
-  if(typeof syncEnabled==='function'&&!syncEnabled()) return;
   if(_horsLigne) return; _horsLigne=true; _horsLigneDepuis=Date.now(); _horsLignePush=false;
   let e=$('hl-ecran');
   if(!e){ e=document.createElement('div'); e.id='hl-ecran';

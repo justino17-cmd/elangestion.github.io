@@ -3325,31 +3325,27 @@ function versionRegler(b,msg){ apiPost('/api/monitor/version-min',b).then(functi
     VER.d=null; VER.loaded=false; chargerVersion(); }).catch(function(){ toast('Serveur injoignable'); }); }
 function versionExigerLigne(){ if(!confirm('Exiger la version en ligne pour TOUT LE MONDE ?\n\nTout appareil en dessous ne pourra plus rien enregistrer tant qu’il n’est pas à jour. Il se met à jour tout seul : dans les secondes qui suivent s’il est ouvert, à sa prochaine ouverture sinon.')) return; versionRegler({min:'ligne'},'Dernière version exigée pour tout le monde'); }
 function versionLever(){ if(!confirm('Lever l’exigence de version ?\n\nLes vieux appareils pourront de nouveau écrire dans le nuage — et donc écraser.')) return; versionRegler({min:0},'Exigence levée'); }
-function versionMode(m){ if(m==='libre'&&!confirm('Autoriser le hors ligne ?\n\nC’est l’ancien fonctionnement, celui qui a effacé les comptes d’ELAN. À n’utiliser qu’en urgence, et à refermer ensuite.')) return;
-  versionRegler({min:(VER.d&&VER.d.min)||0,enLigne:m},m==='libre'?'Hors ligne autorisé — pense à refermer':'Mode en ligne obligatoire'); }
 function blocVersions(){
   if(!VER.d&&!VER.err){ chargerVersion(); return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--muted);font-size:13px;margin-top:8px">Chargement…</div>'; }
   if(VER.err&&!VER.d) return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--redText);font-size:13px;margin-top:8px">'+esc(VER.err)+' <a onclick="VER.err=\'\';chargerVersion()">réessayer</a></div>';
   if(Date.now()-(VER.ts||0)>120000) chargerVersion();   // on montre ce qu'on a, et on rafraîchit derrière
   var d=VER.d||{}, ligne=d.versionEnLigne||0, min=d.min||0, sous=d.sous||[], nSous=0;
   sous.forEach(function(x){ nSous+=(x.n||0); });
-  var patron=(MYROLE==='patron'), libre=(d.enLigne==='libre');
+  var patron=(MYROLE==='patron');
   var p=function(l,v,c){ return '<div class="kpi"><div class="n"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+l+'</div></div>'; };
   return '<div class="sec" style="margin-top:18px">VERSIONS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— la porte du nuage</span></div>'+
     '<div class="grille-kpi" style="margin-top:10px">'+
       p('version en ligne', ligne?'v'+ligne:'?')+
       p('minimum exigé', min?'v'+min:'aucun', min?'':'var(--amber)')+
       p('appareils bloqués · 7 j', nSous, nSous?'var(--amber)':'')+
-      p('mode', libre?'hors ligne autorisé':'en ligne obligatoire', libre?'var(--amber)':'')+
     '</div>'+
-    '<div style="font-size:12.5px;color:var(--text2);line-height:1.6;margin-top:10px">Un appareil sous le minimum lit encore, mais <b>n’écrit plus</b> — le nuage refuse — et il se met à jour tout seul. '+
+    '<div style="font-size:12.5px;color:var(--text2);line-height:1.6;margin-top:10px">Un appareil sous le minimum lit encore, mais <b>n’écrit plus</b> — le nuage refuse — et il se met à jour tout seul. L’application ne travaille qu’en ligne, sans option : sans réseau, elle affiche « Connexion requise » et n’enregistre rien. '+
       (min?'':'<b>Aucun minimum n’est exigé : les vieilles versions écrivent encore.</b> ')+
       (d.cleAdmin?'':'<span style="color:var(--redText)">⚠️ La clé d’administration Firebase manque sur le serveur : le réglage n’atteint pas Firestore, seule l’application s’y conforme.</span>')+
     '</div>'+
     (patron?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+
       '<button class="btn-plein" onclick="versionExigerLigne()"'+(ligne?'':' disabled')+'>Exiger la dernière version'+(ligne?' (v'+ligne+')':'')+' pour tout le monde</button>'+
       (min?'<button class="btn-fant" onclick="versionLever()">Lever l’exigence</button>':'')+
-      (libre?'<button class="btn-fant" onclick="versionMode(\'enLigne\')">Repasser en ligne obligatoire</button>':'<button class="btn-fant" onclick="versionMode(\'libre\')">Autoriser le hors ligne (urgence)</button>')+
     '</div>':'')+
     (sous.length?'<div style="margin-top:12px">'+sous.map(function(x){ return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line);font-size:13px"><span style="flex:1"><b>'+esc(x.nom||x.t)+'</b></span><span class="past p-ambre">'+x.n+' appareil'+(x.n>1?'s':'')+' bloqué'+(x.n>1?'s':'')+'</span></div>'; }).join('')+'</div>':'')+
     (d.maj?'<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Dernier réglage '+esc(fmtJour(d.maj))+(d.par?' par '+esc(d.par):'')+'</div>':'');
@@ -4769,6 +4765,17 @@ function joursRestants(fin){
 /* QUI TRAVAILLE CHEZ EUX. Deux sources croisées côté serveur : l'annuaire dit qui PEUT se
    connecter, les connexions disent qui le fait vraiment. Un identifiant qui n'a jamais servi
    est une information — compte oublié, ou personne qui n'arrive pas à entrer. */
+/* Le bouton demandé par Justin devant la liste d'ELAN (« supprime bien tout ici ») : ces
+   identifiants n'existent nulle part, on efface les tentatives qui les font apparaître. */
+function tentativesEffacer(){
+  var d=(DOS&&DOS.d)||{}; var tapes=(d.utilisateurs||[]).filter(function(u){ return !u.derniere&&!u.dansAnnuaire; }).map(function(u){ return u.login; });
+  if(!tapes.length||!d.t) return;
+  if(!confirm('Effacer du journal les '+tapes.length+' identifiant(s) tapé(s) qui n’existent pas ?\n\n'+tapes.join(', ')+'\n\nCe ne sont pas des comptes : rien ne change chez l’entreprise. Seules ces tentatives disparaissent d’ici.')) return;
+  apiPost('/api/monitor/connexions/effacer-tentatives',{t:d.t,logins:tapes}).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    toast((x.d.effacees||0)+' tentative(s) effacée(s)'); chargerDossier(DOS.nom);
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
 function blocUtilisateurs(){
   var d=(DOS&&DOS.d)||null;
   if(!DOS||!DOS.loaded) return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS</div><div style="margin-top:9px;color:var(--muted);font-size:13px">Chargement…</div></div>';
@@ -4796,7 +4803,9 @@ function blocUtilisateurs(){
     '<div style="margin-top:9px">'+vrais.map(ligne).join('')+'</div>'+
     (tapes.length?'<div class="sec" style="margin-top:16px;color:var(--amber)">'+tapes.length+' IDENTIFIANT'+(tapes.length>1?'S':'')+' TAPÉ'+(tapes.length>1?'S':'')+' QUI N’EXISTE'+(tapes.length>1?'NT':'')+' PAS</div>'+
       '<div style="font-size:12px;color:var(--text2);line-height:1.55;margin-top:6px">Quelqu’un a tapé ces identifiants et ça a échoué. Ce ne sont pas des comptes : il n’y a rien à supprimer — le compte n’a jamais été créé, ou il a été perdu avant d’être déposé dans l’annuaire. Si la personne doit travailler, l’entreprise crée son compte.</div>'+
-      '<div style="margin-top:6px">'+tapes.map(function(u){ return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)"><span class="mono" style="flex:1;font-size:13px;color:var(--muted)">'+esc(u.login)+'</span><span class="past p-ambre" title="tentatives de connexion">'+u.echecs+' tentative'+(u.echecs>1?'s':'')+'</span></div>'; }).join('')+'</div>':'')+
+      '<div style="margin-top:6px">'+tapes.map(function(u){ return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)"><span class="mono" style="flex:1;font-size:13px;color:var(--muted)">'+esc(u.login)+'</span><span class="past p-ambre" title="tentatives de connexion">'+u.echecs+' tentative'+(u.echecs>1?'s':'')+'</span></div>'; }).join('')+'</div>'+
+      (MYROLE==='patron'?'<div style="margin-top:10px"><button class="btn-fant" onclick="tentativesEffacer()">Effacer ces tentatives du journal</button></div>':'')
+    :'')+
   '</div>';
 }
 
