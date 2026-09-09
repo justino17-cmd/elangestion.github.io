@@ -1662,6 +1662,7 @@ app.post('/api/monitor/entreprise/dossier', monAdmin, (req, res) => {
     const l = String(x.login || '').toLowerCase().trim(); if (!l) continue;
     const o = parLogin[l] || (parLogin[l] = { login: l, dansAnnuaire: false, derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 });
     if (x.ev === 'echec') { o.echecs++; continue; }
+    if (x.ev === 'bloque' || x.ev === 'refus') { o.bloques = (o.bloques || 0) + 1; continue; }   // la porte a joué : ce n'est ni une connexion ni un échec de mot de passe
     o.connexions++;
     if ((x.ts || 0) > o.derniere) { o.derniere = x.ts || 0; o.role = x.role || o.role; o.version = x.version || o.version; }
     if (x.dev) { (devs[l] = devs[l] || new Set()).add(x.dev); }
@@ -1704,7 +1705,7 @@ app.post('/api/connexions', (req, res) => {
      vider — mais on n'écrit RIEN. */
   if (entFermes.espaces.includes(t)) return res.json({ ok: true, ferme: true });
   if (Object.keys(cnxData).length >= 3000 && !cnxData[t]) return res.json({ ok: true });
-  const ev = { ts: Date.now(), ev: ['connexion', 'echec', 'session', 'deconnexion'].includes(b.ev) ? b.ev : 'connexion',
+  const ev = { ts: Date.now(), ev: ['connexion', 'echec', 'session', 'deconnexion', 'bloque', 'refus'].includes(b.ev) ? b.ev : 'connexion',
     login: monStr(b.login, 40), role: monStr(b.role, 16), version: monStr(b.version, 12), app: monStr(b.app, 12) || 'gestion',
     via: monStr(b.via, 16), appareil: monStr(b.appareil, 20), os: monStr(b.os, 20), nav: monStr(b.nav, 20), pwa: !!b.pwa,
     dev: monStr(b.dev, 24), motif: monStr(b.motif, 80) };
@@ -2113,9 +2114,10 @@ app.post('/api/espaces/etat', (req, res) => {
      sans formule attribuée. Le chemin « ferme » sort plus haut sans le rendre, et c'est juste :
      l'application y vide son stockage et se recharge avant même de regarder ce champ. */
   const opMessages = !!(e && e.opMessages);
-  if (!e || !e.formule) return res.json({ ok: true, opMessages });
-  espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif, opMessages }))
-    .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible', opMessages }));
+  const versionMin = versionsCfg.min, enLigne = versionsCfg.enLigne;
+  if (!e || !e.formule) return res.json({ ok: true, opMessages, versionMin, enLigne });
+  espacePaye(e).then(p => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: p.paye, motif: p.motif, opMessages, versionMin, enLigne }))
+    .catch(() => res.json({ ok: true, formule: e.formule, quantite: e.quantite || 1, paye: false, motif: 'vérification impossible', opMessages, versionMin, enLigne }));
 });
 /* ── Création AUTOMATIQUE d'un espace à la demande d'application ──
    Dès qu'un client fait une demande sur teamop.fr, son espace est créé, inscrit à
@@ -2474,6 +2476,14 @@ app.post('/api/espaces/comptes', (req, res) => {
   if (entFermes.espaces.includes(t)) return res.status(403).json({ error: 'espace fermé' });
   const recu = Array.isArray(b.comptes) ? b.comptes.slice(0, 300) : null;
   if (!recu) return res.status(400).json({ error: 'comptes requis' });
+  /* Même porte que le nuage : une version sous le minimum ne dépose plus l'annuaire — c'est
+     par ce chemin qu'un appareil périmé remplaçait 11 comptes par 3 (comptes.json est remplacé
+     en entier). Une version d'avant ce verrou n'envoie pas `ver` : elle passe tant qu'aucun
+     minimum n'est exigé, plus jamais ensuite. */
+  if (versionsCfg.min) {
+    const ver = parseInt(String(b.ver || '').replace(/[^0-9]/g, ''), 10) || 0;
+    if (ver < versionsCfg.min) return res.status(426).json({ error: 'version trop ancienne — mets l\'application à jour', min: versionsCfg.min });
+  }
   /* Rien d'autre que le strict nécessaire n'est retenu : pas de prénom, pas de nom, pas
      d'adresse. Un annuaire de connexion n'a pas à devenir un fichier du personnel. */
   /* Sans prototype : rien de ce qu'on écrit ici ne doit pouvoir devenir « __proto__ » ou
@@ -2830,6 +2840,86 @@ if (!Array.isArray(entFermes.emails)) entFermes.emails = [];
 if (!Array.isArray(entFermes.espaces)) entFermes.espaces = [];
 if (!Array.isArray(entFermes.suspendus)) entFermes.suspendus = [];
 function fermesSave() { try { fs.writeFileSync(FERMES_PATH, JSON.stringify(entFermes)); return true; } catch (e) { console.error('entreprises-fermees.json non écrit :', e.message); return false; } }
+/* ══ LA VERSION MINIMALE ET LE MODE EN LIGNE — réglés depuis la Tour, 9 septembre 2026 ══
+   Ce qui a détruit les comptes d'ELAN : un appareil en vieille version qui réécrit toute la base
+   toutes les deux minutes. On ne met pas à jour un appareil qu'on ne tient pas ; on lui ferme la
+   porte. `min` est le numéro de version en dessous duquel le nuage refuse d'écrire — la règle
+   Firestore le lit dans teamop_config/version, que ce serveur écrit avec sa clé d'administration.
+   L'application le lit aussi ici (/api/version) pour se bloquer avant même de tenter.
+   `enLigne` : « enLigne » = rien sans réseau (décision de Justin), « libre » = l'ancien hors
+   ligne, rallumable d'un clic en cas d'urgence. */
+const VERSIONS_PATH = path.join(DATA_DIR, 'versions.json');
+let versionsCfg = { min: 0, enLigne: 'enLigne', maj: 0, par: '' };
+try { Object.assign(versionsCfg, JSON.parse(fs.readFileSync(VERSIONS_PATH, 'utf8')) || {}); } catch (e) {}
+versionsCfg.min = Math.max(0, parseInt(versionsCfg.min, 10) || 0);
+if (versionsCfg.enLigne !== 'libre') versionsCfg.enLigne = 'enLigne';
+function versionsSave() { try { const tmp = VERSIONS_PATH + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(versionsCfg)); fs.renameSync(tmp, VERSIONS_PATH); return true; } catch (e) { console.error('versions.json non écrit :', e.message); return false; } }
+/* Le document que la règle de sécurité lit. Écrit par la clé admin (qui passe outre les règles) ;
+   sans clé, le réglage vit quand même côté serveur — l'application s'y conforme d'elle-même,
+   seule la porte du nuage reste ouverte aux versions d'avant. */
+async function versionsPousserFirestore() {
+  const tok = await fbAdminJeton();
+  if (!tok) return { fait: false, motif: 'clé admin absente sur le serveur' };
+  try {
+    const r = await fbAdminFetch(fsBase() + '/teamop_config/version?updateMask.fieldPaths=min&updateMask.fieldPaths=maj',
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { min: { integerValue: String(versionsCfg.min) }, maj: { integerValue: String(versionsCfg.maj || 0) } } }) }, tok);
+    if (!r.ok) { const t = await r.text().catch(() => ''); console.error('teamop_config/version : Firestore répond', r.status, t.slice(0, 120)); return { fait: false, motif: 'Firestore répond ' + r.status }; }
+    return { fait: true };
+  } catch (e) { console.error('teamop_config/version :', e.message); return { fait: false, motif: e.message }; }
+}
+/* La version réellement en ligne : on va la lire sur teamop.fr, une fois par quart d'heure.
+   C'est ce que la Tour compare au minimum, et ce que « Exiger la dernière version » exige. */
+const versionLigne = { v: 0, ts: 0, encours: null };
+function versionEnLigne() {
+  if (versionLigne.v && Date.now() - versionLigne.ts < 900000) return Promise.resolve(versionLigne.v);
+  if (versionLigne.encours) return versionLigne.encours;
+  versionLigne.encours = (async () => {
+    try {
+      const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 15000);
+      const r = await fetch('https://teamop.fr/app.html', { signal: ctrl.signal, headers: { 'Cache-Control': 'no-cache' } });
+      clearTimeout(tm);
+      const t = r.ok ? await r.text() : '';
+      const m = /const APP_VERSION = '([0-9]+)'/.exec(t);
+      if (m) { versionLigne.v = parseInt(m[1], 10) || 0; versionLigne.ts = Date.now(); }
+    } catch (e) { console.error('version en ligne illisible :', e.message); }
+    versionLigne.encours = null;
+    return versionLigne.v;
+  })();
+  return versionLigne.encours;
+}
+/* Public et sans espace : un numéro et un mode, rien d'autre. L'application l'appelle au
+   démarrage, à chaque retour au premier plan, et tous les quarts d'heure. */
+app.get('/api/version', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, min: versionsCfg.min, enLigne: versionsCfg.enLigne });
+});
+app.get('/api/monitor/version', monAdmin, async (req, res) => {
+  const enLigne = await versionEnLigne();
+  /* Qui est encore en dessous : par espace, les appareils DISTINCTS vus sur 7 jours avec une
+     version inférieure au minimum — c'est la liste de ceux que la porte bloque. */
+  const j7 = Date.now() - 7 * 86400000; const sous = [];
+  for (const t of Object.keys(cnxData)) {
+    const devs = new Map();
+    for (const x of (cnxData[t] || [])) { if ((x.ts || 0) < j7 || !x.dev) continue; const v = parseInt(String(x.version || '').replace(/[^0-9]/g, ''), 10) || 0; if (!devs.has(x.dev) || (x.ts || 0) > devs.get(x.dev).ts) devs.set(x.dev, { v, ts: x.ts || 0 }); }
+    let n = 0; for (const d of devs.values()) if (versionsCfg.min && d.v < versionsCfg.min) n++;
+    if (n) { const e = espaceParT(t); sous.push({ t, nom: e ? espNomPropre(e) : '', n }); }
+  }
+  res.json({ ok: true, min: versionsCfg.min, enLigne: versionsCfg.enLigne, maj: versionsCfg.maj || 0, par: versionsCfg.par || '', versionEnLigne: enLigne, sous, cleAdmin: !!fbAdminCle });
+});
+app.post('/api/monitor/version-min', monPatronStrict, async (req, res) => {
+  const b = req.body || {};
+  let min = parseInt(b.min, 10);
+  if (b.min === 'ligne') min = await versionEnLigne();   // « Exiger la dernière version » : celle qui est servie, pas un chiffre tapé
+  if (!isFinite(min) || min < 0 || min > 99999) return res.status(400).json({ error: 'min : un entier entre 0 et 99999, ou « ligne »' });
+  const enLigne = (b.enLigne === 'libre') ? 'libre' : (b.enLigne === 'enLigne' ? 'enLigne' : versionsCfg.enLigne);
+  versionsCfg.min = min; versionsCfg.enLigne = enLigne; versionsCfg.maj = Date.now(); versionsCfg.par = (req.tourUser && req.tourUser.nom) || '';
+  if (!versionsSave()) return res.status(500).json({ error: 'réglage non enregistré' });
+  const fsr = await versionsPousserFirestore();
+  monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'version minimale v' + min + ' · ' + enLigne + (fsr.fait ? '' : ' · Firestore KO'));
+  console.log('version minimale exigée :', min, '· mode', enLigne, '· Firestore', fsr.fait ? 'à jour' : ('NON (' + fsr.motif + ')'));
+  res.json({ ok: true, min, enLigne, firestore: fsr });
+});
 const retraitCodes = new Map();   // email -> { code, exp, tries }
 // retirer une entreprise de la liste (patron uniquement — pour les entrées de test ; tracé)
 /* ── Clé d'administration Firebase (facultative) : /opt/teamop/firebase-admin.json ──

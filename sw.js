@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v814';
+const CACHE = 'elan-gestion-v815';
 const ASSETS = [
   './',
   'index.html',
@@ -35,10 +35,30 @@ const ASSETS = [
   'sons/appel.mp3'
 ];
 
-/* Précache ressource par ressource : une coupure sur un fichier ne vide pas tout le cache. */
+/* ══ LA COPIE EST-ELLE FRAÎCHE POUR CETTE VERSION DU SERVICE WORKER ? ══
+   Le 9 septembre 2026, un appareil d'ELAN tournait en v557 — 58 versions de retard — alors
+   qu'il se connectait tous les jours. Le mécanisme : à l'activation, ce qui manque dans le
+   nouveau cache est REPRIS DE L'ANCIEN (pour ne jamais laisser un appareil sans copie hors
+   ligne) ; puis, à chaque ouverture, le réseau n'a que 2 secondes pour gagner la course. Sur
+   une 4G moyenne il les perd, on sert la copie — celle reprise de l'ancien cache, donc
+   l'ancienne version — et le bandeau « Mise à jour » attend un clic qui ne vient jamais.
+   On note donc, page par page, si la copie en cache a été TÉLÉCHARGÉE sous cette version du
+   service worker. Une copie héritée n'est jamais notée fraîche ; une copie pas fraîche ne
+   gagne plus la course : le réseau a 15 secondes, et la copie ne sert qu'en dernier recours. */
+const MARQUE = '/__frais__/';
+function marqueUrl(cle) { const u = new URL(cle); return u.origin + MARQUE + u.pathname.replace(/^\//, ''); }
+function marquerFrais(cle) { return caches.open(CACHE).then(c => c.put(marqueUrl(cle), new Response('1'))).catch(() => {}); }
+function estFrais(cle) { return caches.match(marqueUrl(cle)).then(r => !!r).catch(() => false); }
+const estPage = a => /\.html$|\/$/.test(a);
+
+/* Précache ressource par ressource : une coupure sur un fichier ne vide pas tout le cache.
+   Une page bien téléchargée ici est notée fraîche ; une page qui a échoué ne l'est pas, et
+   sera reprise de l'ancien cache à l'activation — sans la marque. */
 self.addEventListener('install', e => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => Promise.all(ASSETS.map(a => c.add(a).catch(() => {})))));
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(ASSETS.map(a =>
+    c.add(a).then(() => { if (estPage(a)) return marquerFrais(new URL(a, self.location.href).href.split('?')[0]); }).catch(() => {})
+  ))));
 });
 
 /* À l'activation : ce qui manque dans le nouveau cache est repris de l'ancien (jamais d'appareil
@@ -53,6 +73,7 @@ self.addEventListener('activate', e => {
         if (neuf) {
           const vieux = await caches.open(k);
           for (const r of await vieux.keys()) {
+            if (r.url.indexOf(MARQUE) >= 0) continue;   // une copie héritée n'est jamais « fraîche »
             if (await neuf.match(r)) continue;
             const rep = await vieux.match(r);
             if (rep) await neuf.put(r, rep);
@@ -104,10 +125,32 @@ self.addEventListener('message', e => {
   const dire = (m) => { try { if (port) port.postMessage(m); } catch (_) {} };
   dire({ op: 'maj-recu' });
   const url = new URL(d.url || 'app.html', self.location.href).href.split('?')[0];
+  /* Le téléchargement se lit en flux pour que la page puisse dessiner une vraie barre de
+     progression (demande de Justin, 9 septembre 2026). `content-length` est la taille
+     COMPRESSÉE sur le fil, les octets lus sont décompressés : le rapport peut dépasser 1,
+     la page le plafonne. Les en-têtes de version sont recopiés pour que `memeVersion`
+     continue de comparer par etag. */
   const travail = fetch(url, { cache: 'reload' })
-    .then(res => { if (!res || !res.ok) throw new Error('réseau'); return caches.open(CACHE).then(c => c.put(url, res.clone())); })
-    .then(() => { majFraiche = url; forcerFraisJusqua = 0; }, () => { majFraiche = ''; forcerFraisJusqua = Date.now() + 30000; })
-    .then(() => { if (majEnCours === travail) majEnCours = null; dire({ op: 'maj-ok' }); });
+    .then(async res => {
+      if (!res || !res.ok) throw new Error('réseau');
+      const type = res.headers.get('content-type') || 'text/html;charset=utf-8';
+      const entetes = { 'Content-Type': type };
+      ['etag', 'last-modified'].forEach(h => { const v = res.headers.get(h); if (v) entetes[h] = v; });
+      if (!res.body || !res.body.getReader) { await caches.open(CACHE).then(c => c.put(url, res)); return; }
+      const total = +(res.headers.get('content-length') || 0);
+      const lecteur = res.body.getReader(); const morceaux = []; let recu = 0;
+      for (;;) {
+        const { done, value } = await lecteur.read();
+        if (done) break;
+        morceaux.push(value); recu += value.byteLength;
+        dire({ op: 'maj-progres', recu: recu, total: total });
+      }
+      await caches.open(CACHE).then(c => c.put(url, new Response(new Blob(morceaux, { type: type }), { status: 200, headers: entetes })));
+    })
+    .then(() => marquerFrais(url))
+    .then(() => { majFraiche = url; forcerFraisJusqua = 0; dire({ op: 'maj-ok' }); },
+          () => { majFraiche = ''; forcerFraisJusqua = Date.now() + 30000; dire({ op: 'maj-echec' }); })
+    .then(() => { if (majEnCours === travail) majEnCours = null; });
   majEnCours = travail;
   if (e.waitUntil) e.waitUntil(travail);
 });
@@ -150,7 +193,7 @@ self.addEventListener('fetch', e => {
       const frais = fetch(req).then(res => {
         if (res && res.ok) {
           const copie = res.clone();
-          enCache = caches.open(CACHE).then(c => c.put(cle, copie)).then(() => true, () => false);
+          enCache = caches.open(CACHE).then(c => c.put(cle, copie)).then(() => marquerFrais(cle)).then(() => true, () => false);
         }
         return res;
       }).catch(() => null);
@@ -161,8 +204,11 @@ self.addEventListener('fetch', e => {
         return url.pathname.endsWith('/app.html') ? ((await caches.match('app.html')) || pageHorsLigne()) : pageHorsLigne();
       }
 
-      /* course : le réseau a 2 secondes pour gagner (15 en secours après « Mettre à jour ») */
-      const patience = new Promise(r => setTimeout(() => r(null), forcer ? 15000 : 2000));
+      /* course : le réseau a 2 secondes pour gagner quand la copie gardée est fraîche pour
+         CETTE version du service worker — sinon 15 : une copie héritée d'un ancien cache ne
+         doit gagner qu'en dernier recours (voir MARQUE). 15 aussi en secours après « Mettre à jour ». */
+      const copieFraiche = await estFrais(cle);
+      const patience = new Promise(r => setTimeout(() => r(null), (forcer || !copieFraiche) ? 15000 : 2000));
       const r = await Promise.race([frais, patience]);
       if (r && r.ok) return r;                       // ← la version fraîche
       /* le réseau traîne : on sert la copie, et on préviendra si ça change —
