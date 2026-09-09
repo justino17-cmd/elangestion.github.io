@@ -4763,7 +4763,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '605-beta';
+const APP_VERSION = '606-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -15211,16 +15211,28 @@ function restoreCatalogue(){
   toast(n.produits||n.fournisseurs?`${n.produits} produit(s) et ${n.fournisseurs} fournisseur(s) ajouté(s)`:'Le catalogue est déjà complet');
 }
 /* ── Navigateur des catalogues fournisseurs : chercher dans les 2 700+ produits et les ajouter à mon catalogue ── */
-let fcFour='', fcQ='';
-function openFourCat(){ fcFour=''; fcQ='';
+/* ⛔ POURQUOI CE CATALOGUE PARAISSAIT INCOMPLET — signalé par ELAN le 9 septembre 2026 :
+   « il manque la poudre 5 kg, les pièges, les punaises… et chez MABI il manque les bâches ».
+   Vérification faite contre les sites des fournisseurs le même jour : IL NE MANQUAIT RIEN.
+   Les 527 fiches d'ORCAD sont toutes ici, les 5 bâches de MABI aussi, aux mêmes noms.
+   Ce qui manquait, c'était le moyen de les VOIR et de les POSER :
+   · la liste s'arrêtait à 80 lignes, sans aucun moyen d'afficher la suite — filtrer sur MABI
+     (603 références) n'en montrait que 80, et l'écran disait « affine la recherche » ;
+   · le bouton « Tout ajouter » disparaissait au-delà de 300 résultats — donc précisément
+     quand on veut poser la gamme ENTIÈRE d'un fournisseur, le seul cas où il servirait.
+   Une gamme qu'on ne peut ni parcourir ni ajouter d'un bloc est une gamme absente, du point
+   de vue de qui s'en sert. On pagine, et on confirme au lieu de refuser. */
+let fcFour='', fcQ='', fcMax=80;
+function fcPlus(){ fcMax+=120; renderFourCat(); }
+function openFourCat(){ fcFour=''; fcQ=''; fcMax=80;
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Fermer</button><h3>🏭 Catalogues fournisseurs</h3><span style="width:58px"></span></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px" id="fc-chips"></div>
-    <input class="search-inp" id="fc-q" style="margin:0 0 10px" placeholder="Rechercher parmi ${CATFOUR.length} produits…" oninput="fcQ=this.value;renderFourCat()">
+    <input class="search-inp" id="fc-q" style="margin:0 0 10px" placeholder="Rechercher parmi ${CATFOUR.length} produits…" oninput="fcQ=this.value;fcMax=80;renderFourCat()">
     <div id="fc-list"></div>`);
   renderFourCatChips(); renderFourCat();
 }
 function renderFourCatChips(){ const el=$('fc-chips'); if(!el)return; const fours=['','ARMOSA','ENSYSTEX','SODIF','MABI','ORCAD'];
-  el.innerHTML=fours.map(f=>`<button type="button" class="btn ${fcFour===f?'':'ghost '}sm" onclick="fcFour='${f}';renderFourCatChips();renderFourCat()">${f||'Tous'}</button>`).join(' '); }
+  el.innerHTML=fours.map(f=>`<button type="button" class="btn ${fcFour===f?'':'ghost '}sm" onclick="fcFour='${f}';fcMax=80;renderFourCatChips();renderFourCat()">${f||'Tous'}</button>`).join(' '); }
 function fcMatches(){ const q=norm(fcQ); const out=[];
   for(let i=0;i<CATFOUR.length;i++){ const x=CATFOUR[i];
     if(fcFour && x[2]!==fcFour) continue;
@@ -15229,11 +15241,20 @@ function fcMatches(){ const q=norm(fcQ); const out=[];
   return out; }
 function renderFourCat(){ const el=$('fc-list'); if(!el)return; const idx=fcMatches();
   const have=new Set(db.produits.map(p=>norm(p.nom||'')));
-  const shown=idx.slice(0,80);
-  el.innerHTML=`<div style="font-size:12px;color:var(--t3);margin:0 2px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>${idx.length} produit(s)${idx.length>80?' — 80 affichés, affine la recherche':''}</span>${idx.length&&idx.length<=300?`<button type="button" class="btn ghost sm" onclick="fcAddAll()">＋ Tout ajouter (${idx.length})</button>`:''}</div>`+
-    (shown.map(i=>{ const x=CATFOUR[i]; const has=have.has(norm(x[0]));
+  const shown=idx.slice(0,fcMax);
+  const reste=idx.length-shown.length;
+  const neufs=idx.filter(i=>!have.has(norm(CATFOUR[i][0]))).length;
+  /* Le compte dit les DEUX nombres : combien la recherche trouve, et combien manquent
+     vraiment à ce catalogue-ci. Sans le second, on ne sait pas si « Tout ajouter » va poser
+     600 fiches ou trois. */
+  const tete=`<div style="font-size:12px;color:var(--t3);margin:0 2px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">`+
+    `<span>${idx.length} produit(s)${reste?` — ${shown.length} affichés`:''}${idx.length&&!neufs?' · <b style="color:var(--acc)">déjà tous chez toi</b>':neufs&&neufs<idx.length?` · ${neufs} pas encore chez toi`:''}</span>`+
+    `${neufs?`<button type="button" class="btn ghost sm" onclick="fcAddAll()">＋ Tout ajouter (${neufs})</button>`:''}</div>`;
+  const pied=reste?`<button type="button" class="btn ghost" style="width:100%;justify-content:center;margin-top:10px;padding:12px" onclick="fcPlus()">Afficher ${Math.min(reste,120)} de plus — il en reste ${reste}</button>`:'';
+  el.innerHTML=tete+
+    ((shown.map(i=>{ const x=CATFOUR[i]; const has=have.has(norm(x[0]));
       return `<div class="pl-row"><div class="pl-info"><div class="pl-title">${esc(x[0])}${x[4]?' <span class="tag">Particulier</span>':''}</div><div class="pl-meta">${esc(x[2])}${x[1]?' · '+esc(x[1]):''}${x[3]?' · '+eur(x[3]):''}</div></div>${has?'<span style="color:var(--acc);font-weight:800;font-size:16px">✓</span>':`<button type="button" class="btn sm" onclick="fcAdd(${i},this)">＋</button>`}</div>`; }).join('')
-     || '<div style="color:var(--t3);padding:14px;text-align:center">Aucun produit trouvé.</div>');
+     || '<div style="color:var(--t3);padding:14px;text-align:center">Aucun produit trouvé.</div>')+pied);
 }
 function fcAdd(i,btn){ const x=CATFOUR[i]; if(!x) return;
   if(db.produits.some(p=>norm(p.nom||'')===norm(x[0]))){ toast('Déjà dans ton catalogue'); renderFourCat(); return; }
@@ -15243,12 +15264,20 @@ function fcAdd(i,btn){ const x=CATFOUR[i]; if(!x) return;
   toast('Ajouté : '+x[0]);
 }
 function fcAddAll(){ const idx=fcMatches(); if(!idx.length) return;
-  if(idx.length>300){ toast('Trop de produits d\'un coup — affine la recherche'); return; }
-  const have=new Set(db.produits.map(p=>norm(p.nom||''))); let n=0;
-  idx.forEach(i=>{ const x=CATFOUR[i]; const k=norm(x[0]); if(have.has(k)) return;
-    db.produits.push({id:uid(),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:x[3]||0,qteCarton:0,qte:0,seuil:0}); have.add(k); n++; });
-  if(n){ logEvent('Import catalogue fournisseur',n+' produit(s) ajoutés','crud'); save(); }
-  toast(n?n+' produit(s) ajoutés à ton catalogue':'Tout est déjà dans ton catalogue'); renderFourCat();
+  const have=new Set(db.produits.map(p=>norm(p.nom||'')));
+  const neufs=idx.filter(i=>!have.has(norm(CATFOUR[i][0])));
+  if(!neufs.length){ toast('Tout est déjà dans ton catalogue'); return; }
+  /* Le refus au-delà de 300 est remplacé par une question : poser la gamme entière d'un
+     fournisseur est un geste légitime, pas une erreur de manipulation. Mais c'est un gros
+     geste — il se confirme, et il se dit combien de fiches vont arriver. */
+  if(neufs.length>60){
+    const quoi=fcFour?('la gamme '+fcFour):(fcQ?('les résultats de « '+fcQ+' »'):'le catalogue');
+    if(!confirm('Ajouter '+neufs.length+' produits de '+quoi+' à ton catalogue ?\n\nIls s\'ajouteront à tes '+db.produits.length+' références actuelles. Tu pourras en supprimer ensuite, une par une ou en lot.')) return; }
+  let n=0;
+  neufs.forEach(i=>{ const x=CATFOUR[i];
+    db.produits.push({id:uid(),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:x[3]||0,qteCarton:0,qte:0,seuil:0}); n++; });
+  logEvent('Import catalogue fournisseur',n+' produit(s) ajoutés'+(fcFour?' — '+fcFour:'')+(fcQ?' — recherche « '+fcQ+' »':''),'crud'); save();
+  toast(n+' produit(s) ajoutés à ton catalogue',4200); renderFourCat();
 }
 let prdOnglet='tous';   // tous | perso | catalogue
 views.produits=function(){
