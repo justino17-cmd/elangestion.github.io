@@ -1675,7 +1675,8 @@ app.post('/api/monitor/entreprise/dossier', monAdmin, (req, res) => {
     espace: { nom: e.nom || slug, formule: e.formule || '', opMessages: !!e.opMessages, suspendu: entFermes.espaces.includes(t) },
     usage: { total: u.total || 0, dernier: u.dernier || 0, version: u.version || '', vues },
     connexions: { resume: cnxResume(t), evenements: evts, echecs },
-    utilisateurs, erreurs, promo
+    utilisateurs, erreurs, promo,
+    sauvegarde: { n: sauvListe(t).length, derniere: (sauvListe(t)[0] || 0) }
   });
 });
 
@@ -1786,6 +1787,66 @@ app.post('/api/monitor/compte/supprimer', monPatronStrict, async (req, res) => {
   if (comptesReg[t] && comptesReg[t].c && Object.prototype.hasOwnProperty.call(comptesReg[t].c, login)) { delete comptesReg[t].c[login]; comptesReg[t].maj = Date.now(); comptesEcrire(); }
   monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'suppression de compte ordonnée');
   res.json({ ok: true, attente: true });
+});
+/* ══ LES COPIES DE SAUVEGARDE — le filet demandé par Justin le 9 septembre 2026 ══
+   « Il faudrait une sauvegarde sur le cloud de chaque chose qu'ils font, pour chaque entreprise. »
+   Le nuage ne garde qu'un document, le dernier. Ici on garde des COPIES DATÉES du bloc CHIFFRÉ
+   que l'application pousse — on ne peut pas le lire, on n'a pas la clé, et ça doit rester ainsi.
+   Une par appareil toutes les 30 minutes au plus (c'est l'application qui se retient), et le
+   serveur ne garde que ce qui compte : une par heure sur 24 h, une par jour sur 30 jours.
+   La restauration se fait DANS l'application, qui seule sait déchiffrer : elle télécharge une
+   copie, la lit, et remet ce qui manque — une collection à la fois — sans toucher au reste. */
+const SAUV_DIR = path.join(DATA_DIR, 'sauvegardes');
+try { fs.mkdirSync(SAUV_DIR, { recursive: true }); } catch (e) {}
+const sauvDossier = t => path.join(SAUV_DIR, String(t).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80));
+function sauvListe(t) {
+  try { return fs.readdirSync(sauvDossier(t)).filter(f => /^\d{13}\.json$/.test(f)).map(f => parseInt(f, 10)).sort((a, b) => b - a); } catch (e) { return []; }
+}
+/* Rotation : on garde la plus récente de chaque heure sur 24 h, puis la plus récente de chaque
+   jour sur 30 jours. Le reste part. */
+function sauvElaguer(t) {
+  const l = sauvListe(t); if (!l.length) return;
+  const now = Date.now(), garder = new Set(), vuH = new Set(), vuJ = new Set();
+  for (const ts of l) {   // du plus récent au plus ancien : le premier vu par créneau est gardé
+    const age = now - ts;
+    if (age < 86400000) { const h = Math.floor(ts / 3600000); if (!vuH.has(h)) { vuH.add(h); garder.add(ts); } }
+    else if (age < 30 * 86400000) { const j = Math.floor(ts / 86400000); if (!vuJ.has(j)) { vuJ.add(j); garder.add(ts); } }
+  }
+  for (const ts of l) if (!garder.has(ts)) { try { fs.unlinkSync(path.join(sauvDossier(t), ts + '.json')); } catch (e) {} }
+}
+let sauvQuota = new Map();
+app.post('/api/espaces/sauvegarde', (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  if (sauvQuota.size > 5000) sauvQuota = new Map();
+  if (!quotaOk(sauvQuota, 't:' + t, 60, 3600000)) return res.status(429).json({ error: 'trop de copies — réessaie plus tard' });
+  const enc = String(b.enc || ''), iv = String(b.iv || ''), salt = String(b.salt || '');
+  if (!enc || !iv || !salt || enc.length > 3000000) return res.status(400).json({ error: 'bloc chiffré requis (3 Mo au plus)' });
+  const ts = Date.now();
+  try {
+    fs.mkdirSync(sauvDossier(t), { recursive: true });
+    const tmp = path.join(sauvDossier(t), ts + '.json.tmp');
+    fs.writeFileSync(tmp, JSON.stringify({ ts, enc, iv, salt, ver: monStr(b.ver, 12), by: monStr(b.dev, 24) }));
+    fs.renameSync(tmp, path.join(sauvDossier(t), ts + '.json'));
+    sauvElaguer(t);
+  } catch (e) { console.error('sauvegarde non écrite :', e.message); return res.status(500).json({ error: 'copie non enregistrée' }); }
+  res.json({ ok: true, ts, n: sauvListe(t).length });
+});
+app.post('/api/espaces/sauvegardes', (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  const l = sauvListe(t).map(ts => { let ver = '', taille = 0; try { const st = fs.statSync(path.join(sauvDossier(t), ts + '.json')); taille = st.size; } catch (e) {} return { ts, taille }; });
+  res.json({ ok: true, copies: l });
+});
+app.post('/api/espaces/sauvegarde/lire', (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase(); const ts = parseInt(b.ts, 10);
+  if (!t || !isFinite(ts)) return res.status(400).json({ error: 't et ts requis' });
+  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  if (!sauvListe(t).includes(ts)) return res.status(404).json({ error: 'copie introuvable' });
+  try { const j = JSON.parse(fs.readFileSync(path.join(sauvDossier(t), ts + '.json'), 'utf8')); res.json({ ok: true, copie: j }); }
+  catch (e) { res.status(500).json({ error: 'copie illisible' }); }
 });
 /* L'application demande ses ordres : au démarrage, au retour au premier plan, tous les quarts d'heure. */
 app.post('/api/espaces/ordres', (req, res) => {

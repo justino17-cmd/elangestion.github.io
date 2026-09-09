@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '620';
+const APP_VERSION = '621';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -4799,7 +4799,7 @@ const PACK_METIER_AUTO = false;
 /* Fiches fournisseurs du métier de la 3D — entreprises publiques, coordonnées officielles
    relevées sur leurs sites (modifiables dans Fournisseurs). Le nom de la constante dit « ELAN »
    pour des raisons historiques : ce ne sont PAS les fournisseurs privés d'ELAN. */
-const FOURNISSEURS_ELAN=[
+const FOURNISSEURS_3D=[
   {nom:'ARMOSA',contact:'',telephone:'01 39 89 85 86',email:'info-3d@armosa.eu',adresse:'209-217 avenue de la République, Parc de la Croisée B1/B2',codePostal:'93800',ville:'Épinay-sur-Seine',notes:'Site : armosa3dfrance.fr · Commande en ligne via l\'espace client pro · Lun-ven 8h-12h30 / 13h30-17h'},
   {nom:'ENSYSTEX',contact:'',telephone:'05 56 47 84 27',email:'info-france@ensystex.com',adresse:'66 avenue de Magudas',codePostal:'33185',ville:'Le Haillan',notes:'Site : ensystex-solution-pro.com · Commande en ligne avec compte pro (formulaire de commande rapide)'},
   {nom:'SODIF',contact:'',telephone:'04 75 27 49 00',email:'contact@sodif-france.com',adresse:'Zone Artisanale Collagnon',codePostal:'26770',ville:'Saint-Pantaléon-les-Vignes',notes:'Site : sodif-france.com · Boutique en ligne · Commande avant midi = expédition le jour même (Calberson/Chronopost)'},
@@ -4822,7 +4822,7 @@ function seedFournisseurs(){
     db.fournisseurs=db.fournisseurs||[];
     const have=new Set(db.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
     let n=0;
-    FOURNISSEURS_ELAN.forEach(f=>{ if(have.has(f.nom.toUpperCase())) return; db.fournisseurs.push({id:uid(),...f}); have.add(f.nom.toUpperCase()); n++; });
+    FOURNISSEURS_3D.forEach(f=>{ if(have.has(f.nom.toUpperCase())) return; db.fournisseurs.push({id:uid(),...f}); have.add(f.nom.toUpperCase()); n++; });
     db.foursSeededV=FOURS_VER; db.foursSeeded=Date.now();
     save();
     if(n && currentUser && typeof current!=='undefined' && current==='fournisseurs'){ try{ views.fournisseurs(); }catch(e){} }
@@ -4884,7 +4884,7 @@ function seedPrix(){
 function restoreFournisseurEmails(){
   try{
     if(!db || db.foursEmailsV3) return;
-    (FOURNISSEURS_ELAN||[]).forEach(fe=>{ const f=(db.fournisseurs||[]).find(x=>(x.nom||'').trim().toUpperCase()===fe.nom.toUpperCase()); if(f) f.email=fe.email; });
+    (FOURNISSEURS_3D||[]).forEach(fe=>{ const f=(db.fournisseurs||[]).find(x=>(x.nom||'').trim().toUpperCase()===fe.nom.toUpperCase()); if(f) f.email=fe.email; });
     db.foursEmailsV3=Date.now(); save();
   }catch(e){}
 }
@@ -5453,7 +5453,70 @@ const APPAREIL_DEJA_VU = (function(){ try{
 }catch(e){ return true; } })();
 
 /* ── Données ── */
+/* ══ LA VRAIE CURE — FUSION PAR ENREGISTREMENT (v621, 10 septembre 2026) ══
+   Jusqu'ici, la synchro remplaçait la base ENTIÈRE : le dernier appareil à écrire gagnait, et
+   tout ce que les autres avaient fait entre-temps disparaissait — c'est ce qui a emporté les
+   comptes d'ELAN, puis silencieusement du stock et des interventions. Seuls les comptes étaient
+   fusionnés (usersFusionner). Désormais chaque enregistrement porte sa date de modification
+   (`_m`), chaque suppression laisse une pierre tombale (`db._tombes[collection][id]`), et deux
+   bases se réunissent enregistrement par enregistrement : le plus récent gagne, l'absent d'un
+   côté est repris de l'autre sauf s'il a été supprimé APRÈS sa dernière modification.
+   Le tampon `_m` n'est pas posé à chaque mutation (des centaines d'endroits) : il est posé à
+   `save()`, en comparant chaque enregistrement à son EMPREINTE au dernier enregistrement ou à
+   la dernière réception (`_ombre`). Ce qui a changé prend la date ; ce qui a disparu prend une
+   pierre tombale. Les comptes gardent leur mécanique propre (usersFusionner + usersSupprimes),
+   éprouvée sur la panne. Les réglages qui ne sont pas des listes (planNotes, roleNoms…) suivent
+   le côté prioritaire, comme avant : ils changent rarement, et jamais à deux.
+   Limite connue, à ne pas cacher : le même enregistrement modifié au même instant sur deux
+   appareils (deux sorties de stock sur la même box dans la même seconde), c'est encore le plus
+   récent qui gagne — mais les LIGNES de mouvement, elles, survivent toutes les deux. */
+const COLLS_HORS_FUSION=new Set(['users','usersSupprimes']);
+function collsFusion(d){ return Object.keys(d||{}).filter(k=>Array.isArray(d[k])&&!COLLS_HORS_FUSION.has(k)); }
+function recEmpreinte(r){ let h=2166136261; const t=JSON.stringify(r,(k,v)=>k==='_m'?undefined:v)||''; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
+let _ombre={};
+function ombreRelever(){ const o={}; collsFusion(db).forEach(c=>{ const m=new Map(); (db[c]||[]).forEach(r=>{ if(r&&r.id!=null) m.set(String(r.id),recEmpreinte(r)); }); o[c]=m; }); _ombre=o; }
+const TOMBE_JOURS=90, TOMBE_MAX=3000;
+function estampiller(){
+  if(typeof syncEnabled==='function'&&!syncEnabled()) return;   // sans espace d'équipe, rien à réconcilier
+  const now=Date.now(); if(!db._tombes||typeof db._tombes!=='object') db._tombes={};
+  collsFusion(db).forEach(c=>{ const om=_ombre[c]||new Map(); const vus=new Set();
+    (db[c]||[]).forEach(r=>{ if(!r||r.id==null) return; const id=String(r.id); vus.add(id); if(om.get(id)!==recEmpreinte(r)) r._m=now; });
+    om.forEach((h,id)=>{ if(!vus.has(id)){ (db._tombes[c]=db._tombes[c]||{})[id]=now; } });
+  });
+  tombesElaguer(db._tombes,now);
+  ombreRelever();
+}
+function tombesElaguer(t,now){ if(!t) return; const lim=now-TOMBE_JOURS*86400000;
+  Object.keys(t).forEach(c=>{ const o=t[c]||{}; let ids=Object.keys(o).filter(id=>(o[id]||0)>=lim);
+    if(ids.length>TOMBE_MAX) ids=ids.sort((a,b)=>o[b]-o[a]).slice(0,TOMBE_MAX);
+    const n={}; ids.forEach(id=>{ n[id]=o[id]; }); if(ids.length) t[c]=n; else delete t[c]; }); }
+function tombesUnion(a,b){ const out={}; const cs=new Set([].concat(Object.keys(a||{}),Object.keys(b||{})));
+  cs.forEach(c=>{ const x=(a&&a[c])||{}, y=(b&&b[c])||{}; const o={}; new Set([].concat(Object.keys(x),Object.keys(y))).forEach(id=>{ o[id]=Math.max(x[id]||0,y[id]||0); }); out[c]=o; }); return out; }
+function fusionnerBases(local,remote,prioriteLocale){
+  const prio=prioriteLocale?local:remote, autre=prioriteLocale?remote:local;
+  const out=Object.assign({},prio);
+  const tombes=tombesUnion(local&&local._tombes,remote&&remote._tombes);
+  new Set([].concat(collsFusion(local),collsFusion(remote))).forEach(c=>{
+    const P=Array.isArray(prio&&prio[c])?prio[c]:[], A=Array.isArray(autre&&autre[c])?autre[c]:[];
+    const tb=tombes[c]||{}; const m=new Map(), ordre=[], sansId=[], vusSans=new Set();
+    const prendre=r=>{
+      if(!r) return;
+      if(r.id==null){ const k=JSON.stringify(r); if(!vusSans.has(k)){ vusSans.add(k); sansId.push(r); } return; }   // sans id (journal de planning) : union par contenu
+      const id=String(r.id); const t=tb[id]||0; if(t&&t>=(r._m||0)) return;   // supprimé après sa dernière modification
+      const ex=m.get(id); if(!ex){ m.set(id,r); ordre.push(id); return; }
+      if((r._m||0)>(ex._m||0)) m.set(id,r);   // le plus récent gagne ; à égalité, le côté prioritaire, déjà en place
+    };
+    P.forEach(prendre); A.forEach(prendre);
+    out[c]=ordre.map(id=>m.get(id)).concat(sansId);
+  });
+  if(Array.isArray(out.journal)) out.journal=out.journal.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,500);
+  out._tombes=tombes;
+  return out;
+}
+/* Ce qui dit si une fusion a changé quelque chose : ids et dates par collection, et les tombes. */
+function baseSignature(d){ return collsFusion(d).sort().map(c=>c+':'+(d[c]||[]).map(r=>(r&&r.id!=null)?(String(r.id)+'@'+(r._m||0)):'').sort().join(',')).join('|')+'#'+JSON.stringify(d._tombes||{}); }
 let db = load();
+try{ ombreRelever(); }catch(e){}   // l'ombre part de ce qui est chargé : rien n'est « modifié » tant qu'on n'a rien touché
 let currentUser = null;
 
 function load(){
@@ -5480,7 +5543,7 @@ function load(){
   if(!localStorage.getItem('elan_fours_v1')){
     d.fournisseurs = d.fournisseurs || [];
     const haveF = new Set(d.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
-    if(PACK_METIER_AUTO) FOURNISSEURS_ELAN.forEach(f=>{ if(haveF.has(f.nom.toUpperCase())) return; d.fournisseurs.push({id:uid(),...f}); haveF.add(f.nom.toUpperCase()); });
+    if(PACK_METIER_AUTO) FOURNISSEURS_3D.forEach(f=>{ if(haveF.has(f.nom.toUpperCase())) return; d.fournisseurs.push({id:uid(),...f}); haveF.add(f.nom.toUpperCase()); });
     localStorage.setItem('elan_fours_v1','1');
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){}
   }
@@ -5512,7 +5575,7 @@ function migrate(d){
   (d.boxes||[]).forEach(b=>{ if(b.visibleTous===undefined){ b.visibleTous = !((b.techIds||[]).length); } });
   return d;
 }
-function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catch(e){ try{ toast('Stockage plein — réduis le nombre/poids des photos'); }catch(_){} } refreshBadges(); updateBell(); if(typeof syncPush==='function') syncPush(); if(typeof annuaireVeille==='function') annuaireVeille(); }
+function save(){ try{ estampiller(); }catch(e){} try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catch(e){ try{ toast('Stockage plein — réduis le nombre/poids des photos'); }catch(_){} } refreshBadges(); updateBell(); if(typeof syncPush==='function') syncPush(); if(typeof annuaireVeille==='function') annuaireVeille(); }
 
 /* ════════ SYNCHRONISATION TEMPS RÉEL (équipe) — Firebase Firestore, gratuit ════════
    Dormant tant qu'aucune config n'est saisie (Paramètres). Document d'équipe unique
@@ -5526,7 +5589,7 @@ let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncT
    ne travaille QU'EN LIGNE (Justin, 9 septembre 2026 : « le mode hors ligne crée trop de problèmes,
    on l'oublie complètement »). La v616 gardait un interrupteur d'urgence dans la Tour ; il est retiré
    en v617 — un interrupteur qu'on peut rallumer est un interrupteur qu'on rallumera. */
-let _versionMin=0,_versionBloquee=false,_horsLigne=false,_horsLigneDepuis=0,_horsLignePush=false;
+let _versionMin=0,_versionBloquee=false,_horsLigne=false,_horsLigneDepuis=0,_horsLignePush=false,_presencePush=0;
 function syncDeviceId(){ let d=localStorage.getItem('elan_dev'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('elan_dev',d);} return d; }
 /* Sécurité — chiffrement de bout en bout des données synchronisées (AES-256-GCM).
    Le cloud ne stocke QUE du texte chiffré : sans la clé d'équipe, les données sont illisibles,
@@ -5691,13 +5754,16 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
         // rien n'est poussé depuis l'écran de connexion : l'amorçage d'un espace vide attend qu'un compte soit connecté (save() s'en charge)
         if(!d||(!d.enc&&!d.db)){ try{ localStorage.removeItem('elan_frais'); }catch(e){} if(currentUser) syncPush(true); return; }   // équipe vide → on amorce avec nos données
         if(d.enc&&plain===null){ try{toast('Clé d\'équipe différente — données non lues');}catch(e){} return; }   // chiffré avec une autre clé → ne rien écraser
-        try{ if(!frais&&plain&&dbWeight(db) > dbWeight(JSON.parse(plain))+5){ if(currentUser) syncPush(true); return; } }catch(e){}   // notre base est nettement plus complète → on garde la nôtre
+        /* Plus de « notre base est plus lourde, on garde la nôtre » : la fusion ci-dessous réunit les
+           deux, et repousse si la nôtre avait quelque chose que l'équipe n'avait pas. */
         if(frais) _syncTs=0;   // on adopte les données de l'équipe quoi qu'il en soit
       }
       if(!plain) return;
       // (sauf à l'arrivée dans l'espace : on adopte les données même si c'est cet appareil qui les avait écrites la dernière fois)
       if(!(premier&&frais)){ if(d.writer===syncDeviceId()) return; if((d.ts||0)<=(_syncTs||0)) return; }
-      try{ const remote=JSON.parse(plain);
+      try{ let remote=JSON.parse(plain);
+        const _sigAvantFusion=baseSignature(remote);
+        remote=fusionnerBases(db,remote,false);   // priorité au DISTANT pour les égalités et les réglages : il est plus récent, par construction
         let diffMsg=''; try{ diffMsg=planSyncDiff(db,remote,d.by||''); }catch(e){}
         /* Le document reçu remplace tout — sauf les COMPTES, qu'on réunit avec les nôtres.
            Sans ça, l'appareil qui vient de créer trois comptes les perdrait à la première
@@ -5720,13 +5786,15 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
           if(tomb.length) remote.usersSupprimes=tomb;
           _repousser = (sigDe(remote.users)!==sigAvant)
                     || (tomb.length!==tombAvant)
-                    || (usersTombes(db).length>0 && usersTombes(db).length!==tomb.length);
+                    || (usersTombes(db).length>0 && usersTombes(db).length!==tomb.length)
+                    || (baseSignature(remote)!==_sigAvantFusion);   // nous avions quelque chose que l'équipe n'avait pas
         }catch(e){
           /* ⛔ SI LA FUSION ÉCHOUE, ON N'APPLIQUE PAS. Laisser passer `db=remote` après un
              échec, c'est retomber exactement dans la panne d'origine — en silence. */
           _syncApplying=false; return;
         }
         _syncApplying=true; db=remote; localStorage.setItem(STORE_KEY,JSON.stringify(db)); _syncTs=d.ts||Date.now();
+        try{ ombreRelever(); }catch(e){}   // ce qu'on vient de recevoir n'est pas « modifié ici » : sans ça, le prochain save() le re-tamponnerait et il gagnerait à tort
         if(_repousser) setTimeout(()=>{ try{ syncPush(true); }catch(e){} },1200);
         try{ localStorage.removeItem('elan_frais'); }catch(e){}
         if(currentUser&&!compteVerifier()){ _syncApplying=false; return; }   // supprimé / désactivé par l'entreprise → déconnecté
@@ -5763,7 +5831,11 @@ function planSyncDiff(oldDb,newDb,by){ try{
   return '🔄 '+(by||'Un collègue')+' : '+chg.slice(0,2).join(' · ')+(chg.length>2?(' · +'+(chg.length-2)+' autres'):''); }catch(e){ return ''; } }
 /* Présence : chaque utilisateur signale qu'il est en ligne (point vert au planning) */
 setInterval(()=>{ try{ if(!currentUser||!_syncOn||_syncApplying) return; const u=(db.users||[]).find(x=>x.id===currentUser.id); if(!u) return;
-  if(!u.lastSeen||Date.now()-u.lastSeen>120000){ u.lastSeen=Date.now(); save(); } }catch(e){} },60000);
+  /* Toutes les deux minutes, ce battement poussait TOUTE la base dans le nuage — une lecture et une
+     écriture Firestore par appareil, sans qu'une donnée ait bougé. Il écrit en local, et ne pousse
+     qu'une fois toutes les quatre minutes (l'indicateur « en ligne » regarde cinq). */
+  if(!u.lastSeen||Date.now()-u.lastSeen>120000){ u.lastSeen=Date.now(); try{ localStorage.setItem(STORE_KEY,JSON.stringify(db)); }catch(_e){}
+    if(!_presencePush||Date.now()-_presencePush>240000){ _presencePush=Date.now(); if(typeof syncPush==='function') syncPush(); } } }catch(e){} },60000);
 /* ══════════ LES COMPTES NE SE PERDENT PLUS ══════════════════════════════════════════════
    Panne du 9 septembre 2026, signalée par ELAN : « ils ont créé des utilisateurs, ils ne les
    voient plus dans leur liste, et les personnes à qui ils ont envoyé les codes ne peuvent pas
@@ -5889,6 +5961,7 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       if(d){
         const plain=await syncReadRemote(d);
         if(plain){ const remote=JSON.parse(plain);
+          db=fusionnerBases(db,remote,true);   // priorité au LOCAL : ce qu'on s'apprête à écrire est ce qu'on vient de modifier
           const tomb=usersTombesFusion(db,remote);
           const av=(db.users||[]).length;
           /* priorité au LOCAL : ce qu'on s'apprête à écrire est ce qu'on vient de modifier. */
@@ -5923,6 +5996,7 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       }
     }catch(e){}
     _retraitVoulu=0;
+    try{ ombreRelever(); }catch(e){}   // l'ombre = ce qu'on pousse
     const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db));
     /* `verNum` est ce que la règle Firestore compare au minimum exigé. Un refus « permission-denied »
        ici ne veut plus dire « pas authentifié » : il veut dire « cette version n'est plus acceptée ». */
@@ -5932,7 +6006,7 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
     let _acquitte=false;
     const _ecriture=_fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||''),verNum:APP_VERSION_NUM});
     setTimeout(()=>{ if(!_acquitte){ _horsLignePush=true; try{ horsLigneDebut('écriture sans réponse'); }catch(_e){} } },15000);
-    _ecriture.then(()=>{ _acquitte=true; })
+    _ecriture.then(()=>{ _acquitte=true; try{ sauvegardeDeposer(e); }catch(_e){} })
       .catch(er=>{ _acquitte=true; console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){} }); }catch(er){ console.error('encrypt',er); } };
 
   if(now) go(); else _syncTimer=setTimeout(go,800); }
@@ -5943,6 +6017,54 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
 const COLLS_GARDEES=['interventions','clients','boxes','produits','mouvements','bons','devis','factures','vehicules','pointages','contrats','demandes','telecollectes','techniciens','fournisseurs','chantiers','registres'];
 let _retraitVoulu=0;
 function syncRetraitVoulu(){ _retraitVoulu=Date.now(); }
+/* ══ LES COPIES DE SAUVEGARDE — le filet (Justin, 9 septembre 2026) ══
+   Le nuage ne garde qu'un document. Après chaque envoi acquitté, et au plus une fois par demi-heure
+   par appareil, le bloc CHIFFRÉ qu'on vient d'écrire part aussi sur le serveur TEAM OP, qui le
+   date et le garde (une par heure sur 24 h, une par jour sur 30 jours). Le serveur ne peut pas le
+   lire — il n'a pas la clé. La restauration se fait ici, une collection à la fois : on remet ce qui
+   manque, on ne touche pas à ce qui existe, l'équipe garde ce qu'elle a fait depuis. */
+let _sauvDernier=0;
+async function sauvKh(){ const t=localStorage.getItem('elan_sync_team'), k=localStorage.getItem('elan_sync_secret'); if(!t||!k) return null; return {t:t,kh:await sha256(k)}; }
+async function sauvegardeDeposer(e){
+  if(BETA_ESSAI||!e||!e.enc) return;
+  if(Date.now()-_sauvDernier<1800000) return; _sauvDernier=Date.now();
+  const c=await sauvKh(); if(!c) return;
+  try{ await fetch(PUSH_API+'/api/espaces/sauvegarde',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:c.t,kh:c.kh,enc:e.enc,iv:e.iv,salt:e.salt,ver:String(APP_VERSION||''),dev:syncDeviceId()})}); }catch(_e){ _sauvDernier=0; }
+}
+async function sauvegardesModal(){
+  const c=await sauvKh(); if(!c){ toast('Pas d\'espace d\'équipe sur cet appareil'); return; }
+  let l=[]; try{ const r=await fetch(PUSH_API+'/api/espaces/sauvegardes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}); const j=await r.json(); l=(j&&j.copies)||[]; }catch(e){ toast('Serveur injoignable'); return; }
+  const li=l.length?l.map(x=>'<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--brd)"><div><b>'+new Date(x.ts).toLocaleString('fr-FR')+'</b><div style="font-size:12.5px;color:var(--t3)">'+Math.round((x.taille||0)/1024)+' Ko, chiffrée</div></div><button class="btn ghost sm" onclick="sauvegardeOuvrir('+x.ts+')">Ouvrir</button></div>').join('')
+    :'<p style="color:var(--t3)">Aucune copie encore : elles se font toutes seules, au plus une par demi-heure et par appareil.</p>';
+  openModal('<h3 style="margin:0 0 10px">🗂 Copies de sauvegarde</h3><p style="font-size:13.5px;color:var(--t3);line-height:1.5">Le serveur TEAM OP garde des copies datées de la base, chiffrées — il ne peut pas les lire, seul cet appareil le peut. Ouvre une copie pour remettre ce qui manque, une collection à la fois, sans toucher au reste.</p>'+li);
+}
+async function sauvegardeOuvrir(ts){
+  const c=await sauvKh(); if(!c) return;
+  let cp=null; try{ const r=await fetch(PUSH_API+'/api/espaces/sauvegarde/lire',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:c.t,kh:c.kh,ts:ts})}); const j=await r.json(); cp=j&&j.copie; }catch(e){}
+  if(!cp){ toast('Copie illisible'); return; }
+  let plain=null; try{ plain=await syncReadRemote({enc:cp.enc,iv:cp.iv,salt:cp.salt}); }catch(e){}
+  if(!plain){ toast('Cette copie a été chiffrée avec une autre clé'); return; }
+  const base=JSON.parse(plain); window._sauvBase=base;
+  const cles=collsFusion(base).concat(Array.isArray(base.users)?['users']:[]);
+  const lignes=cles.map(k=>{ const ici=new Set((db[k]||[]).map(r=>r&&r.id).filter(x=>x!=null).map(String)); const manque=(base[k]||[]).filter(r=>r&&r.id!=null&&!ici.has(String(r.id))).length; return {k:k,n:(base[k]||[]).length,manque:manque}; }).filter(x=>x.n).sort((a,b)=>b.manque-a.manque);
+  const li=lignes.map(x=>'<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--brd)"><div><b>'+x.k+'</b> <span style="color:var(--t3);font-size:12.5px">· '+x.n+' dans la copie'+(x.manque?' · <b style="color:var(--org)">'+x.manque+' absent(s) ici</b>':' · rien ne manque')+'</span></div>'+(x.manque?'<button class="btn ghost sm" onclick="sauvegardeRemettre(\''+x.k+'\')">Remettre les '+x.manque+'</button>':'')+'</div>').join('');
+  openModal('<h3 style="margin:0 0 10px">Copie du '+new Date(ts).toLocaleString('fr-FR')+'</h3><p style="font-size:13.5px;color:var(--t3);line-height:1.5">« Remettre » ajoute ce que cette copie contient et que la base actuelle n\'a plus. Ce qui existe déjà n\'est pas touché ; ce que l\'équipe a fait depuis reste.</p>'+li);
+}
+function sauvegardeRemettre(k){
+  const base=window._sauvBase; if(!base||!Array.isArray(base[k])) return;
+  if(!/^[A-Za-z_]+$/.test(k)) return;
+  const ici=new Set((db[k]||[]).map(r=>r&&r.id).filter(x=>x!=null).map(String));
+  const logins=new Set((k==='users'?(db.users||[]):[]).map(u=>String((u&&u.login)||'').toLowerCase()).filter(Boolean));
+  let n=0; db[k]=db[k]||[];
+  base[k].forEach(r=>{ if(!r||r.id==null||ici.has(String(r.id))) return;
+    if(k==='users'&&logins.has(String(r.login||'').toLowerCase())) return;   // même identifiant déjà là : pas de doublon
+    const cp=JSON.parse(JSON.stringify(r)); delete cp._m; db[k].push(cp); n++; });
+  /* une restauration voulue lève la pierre tombale : sinon la fusion suivante re-supprimerait */
+  if(k==='users'){ const ids=new Set(base.users.map(u=>u&&u.id)); db.usersSupprimes=(db.usersSupprimes||[]).filter(x=>!ids.has((x&&x.id)||x)); }
+  else if(db._tombes&&db._tombes[k]){ base[k].forEach(r=>{ if(r&&r.id!=null) delete db._tombes[k][String(r.id)]; }); }
+  save(); try{ logEvent('Restauration depuis une copie',k+' : '+n+' remis','sync'); }catch(e){}
+  toast(n+' enregistrement(s) remis dans « '+k+' »',3200); closeModal();
+}
 /* ══ LES ORDRES DE LA TOUR — supprimer un compte depuis la Tour de contrôle (Justin, 10 septembre 2026) ══
    La base est chiffrée : le serveur ne peut pas y retirer un compte. La Tour ORDONNE (après un code
    reçu par mail), et le premier appareil de l'entreprise qui passe ici EXÉCUTE — pierre tombale,
@@ -5988,7 +6110,8 @@ function syncManque(local,remote){
   let pire=null;
   COLLS_GARDEES.forEach(k=>{ const r=remote&&remote[k]; if(!Array.isArray(r)||r.length<5) return;
     const ici=new Set(((local&&local[k])||[]).map(x=>x&&x.id).filter(Boolean));
-    let n=0; r.forEach(x=>{ if(x&&x.id&&!ici.has(x.id)) n++; });
+    const tb=(local&&local._tombes&&local._tombes[k])||{};   // supprimé exprès ici : ce n'est pas un retard
+    let n=0; r.forEach(x=>{ if(x&&x.id&&!ici.has(x.id)&&!tb[String(x.id)]) n++; });
     if(n>3 && n>r.length*0.2 && (!pire||n>pire.n)) pire={coll:k,n:n,sur:r.length}; });
   return pire;
 }
@@ -15605,7 +15728,7 @@ function cataloguePoser(cible){
     vus.add(nom.toLowerCase()); np++; });
   const vusF=new Set(cible.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
   let nf=0;
-  FOURNISSEURS_ELAN.forEach(f=>{ if(vusF.has(f.nom.toUpperCase()))return; cible.fournisseurs.push({id:uid(),...f}); vusF.add(f.nom.toUpperCase()); nf++; });
+  FOURNISSEURS_3D.forEach(f=>{ if(vusF.has(f.nom.toUpperCase()))return; cible.fournisseurs.push({id:uid(),...f}); vusF.add(f.nom.toUpperCase()); nf++; });
   return { produits:np, fournisseurs:nf };
 }
 /* Le bouton « ↻ Catalogue OP » ne se montre QUE là où le catalogue est déjà en place.
@@ -22324,7 +22447,7 @@ views.parametres=function(){
     </div>
     <div class="card"><div class="card-head"><h3>Sauvegarde & synchronisation</h3></div>
     <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:16px">Exportez vos données pour les sauvegarder ou les transférer sur un autre appareil. Tout est stocké localement (fonctionne hors connexion).</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="exportData()">Exporter (.json)</button><button class="btn ghost" onclick="miseDeCoteModal()">📦 Mis de côté</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="exportData()">Exporter (.json)</button><button class="btn ghost" onclick="miseDeCoteModal()">📦 Mis de côté</button><button class="btn ghost" onclick="sauvegardesModal()">🗂 Copies de sauvegarde</button>
     <button class="btn ghost" onclick="document.getElementById('imp').click()">Importer</button>
     <input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(event)"></div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--brd)"><p style="color:var(--t2);font-size:14px;margin-bottom:10px">Version installée : <b>v${APP_VERSION}</b>. Si l'app semble figée sur une ancienne version :</p>
