@@ -5475,7 +5475,7 @@ function collsFusion(d){ return Object.keys(d||{}).filter(k=>Array.isArray(d[k])
 function recEmpreinte(r){ let h=2166136261; const t=JSON.stringify(r,(k,v)=>k==='_m'?undefined:v)||''; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
 let _ombre={};
 function ombreRelever(){ const o={}; collsFusion(db).forEach(c=>{ const m=new Map(); (db[c]||[]).forEach(r=>{ if(r&&r.id!=null) m.set(String(r.id),recEmpreinte(r)); }); o[c]=m; }); _ombre=o; }
-const TOMBE_JOURS=90, TOMBE_MAX=3000;
+const TOMBE_JOURS=90, TOMBE_MAX=3000, TOMBE_TOTAL=6000;
 function estampiller(){
   if(typeof syncEnabled==='function'&&!syncEnabled()) return;   // sans espace d'équipe, rien à réconcilier
   const now=Date.now(); if(!db._tombes||typeof db._tombes!=='object') db._tombes={};
@@ -5489,7 +5489,11 @@ function estampiller(){
 function tombesElaguer(t,now){ if(!t) return; const lim=now-TOMBE_JOURS*86400000;
   Object.keys(t).forEach(c=>{ const o=t[c]||{}; let ids=Object.keys(o).filter(id=>(o[id]||0)>=lim);
     if(ids.length>TOMBE_MAX) ids=ids.sort((a,b)=>o[b]-o[a]).slice(0,TOMBE_MAX);
-    const n={}; ids.forEach(id=>{ n[id]=o[id]; }); if(ids.length) t[c]=n; else delete t[c]; }); }
+    const n={}; ids.forEach(id=>{ n[id]=o[id]; }); if(ids.length) t[c]=n; else delete t[c]; });
+  /* et un budget global : trente collections à 3 000 tombes feraient 1,5 Mo à elles seules */
+  let total=0; Object.keys(t).forEach(c=>{ total+=Object.keys(t[c]).length; });
+  if(total>TOMBE_TOTAL){ const tous=[]; Object.keys(t).forEach(c=>{ Object.keys(t[c]).forEach(id=>{ tous.push([t[c][id],c,id]); }); });
+    tous.sort((a,b)=>a[0]-b[0]); tous.slice(0,total-TOMBE_TOTAL).forEach(x=>{ delete t[x[1]][x[2]]; if(!Object.keys(t[x[1]]).length) delete t[x[1]]; }); } }
 function tombesUnion(a,b){ const out={}; const cs=new Set([].concat(Object.keys(a||{}),Object.keys(b||{})));
   cs.forEach(c=>{ const x=(a&&a[c])||{}, y=(b&&b[c])||{}; const o={}; new Set([].concat(Object.keys(x),Object.keys(y))).forEach(id=>{ o[id]=Math.max(x[id]||0,y[id]||0); }); out[c]=o; }); return out; }
 function fusionnerBases(local,remote,prioriteLocale){
@@ -5510,6 +5514,7 @@ function fusionnerBases(local,remote,prioriteLocale){
     out[c]=ordre.map(id=>m.get(id)).concat(sansId);
   });
   if(Array.isArray(out.journal)) out.journal=out.journal.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,500);
+  if(Array.isArray(out.planJournal)) out.planJournal=out.planJournal.slice().sort((x,y)=>(x.ts||0)-(y.ts||0)).slice(-400);   // même plafond qu'en local, sinon il grossit à chaque fusion
   out._tombes=tombes;
   return out;
 }
@@ -22818,7 +22823,13 @@ function resetProdWipe(){
   save(); if(typeof syncPush==='function') syncPush(true);
   toast('Application remise à zéro — prête pour la production'); go('dashboard'); }
 function exportData(){ const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='elan-gestion-'+todayISO()+'.json'; a.click(); URL.revokeObjectURL(a.href); toast('Exporté'); }
-function importData(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{ try{ db=migrate(JSON.parse(r.result)); syncRetraitVoulu(); save(); renderNav(); toast('Importé'); go('dashboard'); }catch(err){ toast('Fichier invalide'); } }; r.readAsText(f); }
+function importData(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{ try{ db=migrate(JSON.parse(r.result));
+      /* ⛔ RELEVER L'OMBRE AVANT save() — trouvé en relecture le 10 septembre 2026. Sans ça, estampiller()
+         compare le fichier importé à l'ombre d'AVANT, et enterre tout ce que le fichier n'a pas : des
+         tombes datées de maintenant, qui voyageraient chez toute l'équipe et effaceraient ce qu'elle a
+         créé depuis la sauvegarde. Avec l'ombre relevée, un import REMET ce qu'il contient et ne retire
+         rien : c'est le sens qu'il doit avoir sur un espace synchronisé. */
+      try{ ombreRelever(); }catch(e){} save(); renderNav(); toast('Importé'); go('dashboard'); }catch(err){ toast('Fichier invalide'); } }; r.readAsText(f); }
 function resetData(){ if(!confirm('Réinitialiser TOUTES les données ?'))return; localStorage.removeItem(STORE_KEY); localStorage.removeItem('elanB_session'); location.reload(); }
 
 /* ═══════════════ GÉNÉRIQUES ═══════════════ */

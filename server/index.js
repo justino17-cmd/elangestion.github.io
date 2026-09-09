@@ -1656,11 +1656,11 @@ app.post('/api/monitor/entreprise/dossier', monAdmin, (req, res) => {
      un compte oublié, ou quelqu'un qui n'arrive pas à entrer. */
   const annu = (comptesReg[t] && comptesReg[t].c) || {};
   const parLogin = {};
-  for (const l of Object.keys(annu)) parLogin[l] = { login: l, dansAnnuaire: true, nom: (annu[l] && annu[l].n) || '', attente: ordreAttente(t, l), derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 };
+  for (const l of Object.keys(annu)) parLogin[l] = { login: l, dansAnnuaire: true, nom: (annu[l] && annu[l].n) || '', attente: ordreAttente(t, l), supprime: ordreFait(t, l), derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 };
   const devs = {};
   for (const x of (cnxData[t] || [])) {
     const l = String(x.login || '').toLowerCase().trim(); if (!l) continue;
-    const o = parLogin[l] || (parLogin[l] = { login: l, dansAnnuaire: false, nom: '', attente: ordreAttente(t, l), derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 });
+    const o = parLogin[l] || (parLogin[l] = { login: l, dansAnnuaire: false, nom: '', attente: ordreAttente(t, l), supprime: ordreFait(t, l), derniere: 0, role: '', version: '', appareils: 0, echecs: 0, connexions: 0 });
     if (x.ev === 'echec') { o.echecs++; continue; }
     if (x.ev === 'bloque' || x.ev === 'refus') { o.bloques = (o.bloques || 0) + 1; continue; }   // la porte a joué : ce n'est ni une connexion ni un échec de mot de passe
     o.connexions++;
@@ -1676,7 +1676,8 @@ app.post('/api/monitor/entreprise/dossier', monAdmin, (req, res) => {
     usage: { total: u.total || 0, dernier: u.dernier || 0, version: u.version || '', vues },
     connexions: { resume: cnxResume(t), evenements: evts, echecs },
     utilisateurs, erreurs, promo,
-    sauvegarde: { n: sauvListe(t).length, derniere: (sauvListe(t)[0] || 0) }
+    sauvegarde: { n: sauvListe(t).length, derniere: (sauvListe(t)[0] || 0), possible: !!(espaceParT(t) && espaceParT(t).code) },
+    bannis: (ordresData[t] || []).filter(o => o.banni !== false).map(o => ({ login: o.login, ts: o.ts, fait: o.fait || 0, par: o.par || '' }))
   });
 });
 
@@ -1744,9 +1745,17 @@ let ordresData = {};
 try { ordresData = JSON.parse(fs.readFileSync(ORDRES_PATH, 'utf8')) || {}; } catch (e) {}
 /* Un ordre que personne n'a exécuté en 30 jours : l'entreprise n'ouvre plus l'application, ou le
    compte n'existe plus nulle part — dans les deux cas il n'a plus rien à faire ici. */
-for (const t of Object.keys(ordresData)) { ordresData[t] = (ordresData[t] || []).filter(o => o && o.login && (o.fait || (o.ts || 0) > Date.now() - 30 * 86400000)); if (!ordresData[t].length) delete ordresData[t]; }
+/* Relecture du gardien, 10 septembre 2026 : l'acquittement vient d'un appareil qui détient la clé
+   d'équipe — y compris celui de la personne qu'on supprime. Il ne peut donc rien ROUVRIR : un
+   identifiant supprimé depuis la Tour reste banni de l'annuaire tant que le patron ne le
+   réautorise pas, et l'ordre continue d'être servi sept jours après le premier acquittement,
+   pour que chaque appareil l'exécute (supprimer un compte absent ne coûte rien). */
+for (const t of Object.keys(ordresData)) { ordresData[t] = (ordresData[t] || []).filter(o => o && o.login).slice(-500); if (!ordresData[t].length) delete ordresData[t]; }
+function ordreBanni(t, login) { return (ordresData[t] || []).some(o => o.login === login && o.banni !== false); }
+function ordresServis(t) { const lim = Date.now() - 7 * 86400000; return (ordresData[t] || []).filter(o => o.banni !== false && (!o.fait || o.fait > lim)).map(o => o.login); }
 function ordresSave() { try { const tmp = ORDRES_PATH + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(ordresData)); fs.renameSync(tmp, ORDRES_PATH); return true; } catch (e) { console.error('ordres.json non écrit :', e.message); return false; } }
-function ordreAttente(t, login) { return (ordresData[t] || []).some(o => o.login === login && !o.fait); }
+function ordreAttente(t, login) { return (ordresData[t] || []).some(o => o.login === login && !o.fait && o.banni !== false); }
+function ordreFait(t, login) { return (ordresData[t] || []).some(o => o.login === login && o.fait && o.banni !== false); }
 /* La clé d'équipe, comme pour l'annuaire : kh = sha256 de la clé. null = espace inconnu, false = mauvaise clé. */
 function espaceCleOk(t, kh) {
   const e = espaceParT(t); if (!e || !e.code) return null;
@@ -1766,7 +1775,8 @@ app.post('/api/monitor/compte/supprimer', monPatronStrict, async (req, res) => {
   const codeRecu = monStr(b.code, 10).trim();
   if (!codeRecu) {   // 1er temps : le code part par mail
     if (!mailer) return res.status(503).json({ error: 'e-mail non configuré — impossible d\'envoyer le code' });
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    if (retraitCodes.size > 500) for (const [k, v] of retraitCodes) if (Date.now() > v.exp) retraitCodes.delete(k);   // balayage des codes périmés
+    const code = String(crypto.randomInt(100000, 1000000));
     retraitCodes.set(cle, { code, exp: Date.now() + 10 * 60000, tries: 0 });
     const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
     try {
@@ -1782,7 +1792,8 @@ app.post('/api/monitor/compte/supprimer', monPatronStrict, async (req, res) => {
   if (c.code !== codeRecu) { c.tries++; if (c.tries >= 5) retraitCodes.delete(cle); return res.status(400).json({ error: 'code incorrect' }); }
   retraitCodes.delete(cle);
   const l = ordresData[t] = ordresData[t] || [];
-  if (!l.some(o => o.login === login && !o.fait)) l.push({ login, ts: Date.now(), par: (req.tourUser && req.tourUser.nom) || '', fait: 0 });
+  l.forEach(o => { if (o.login === login) o.banni = false; });   // un ancien ordre réautorisé ne compte plus : celui-ci prend le relais
+  l.push({ login, ts: Date.now(), par: (req.tourUser && req.tourUser.nom) || '', fait: 0 });
   ordresSave();
   if (comptesReg[t] && comptesReg[t].c && Object.prototype.hasOwnProperty.call(comptesReg[t].c, login)) { delete comptesReg[t].c[login]; comptesReg[t].maj = Date.now(); comptesEcrire(); }
   monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'suppression de compte ordonnée');
@@ -1815,14 +1826,24 @@ function sauvElaguer(t) {
   for (const ts of l) if (!garder.has(ts)) { try { fs.unlinkSync(path.join(sauvDossier(t), ts + '.json')); } catch (e) {} }
 }
 let sauvQuota = new Map();
+/* Ce que les trois routes refusent, avant tout : l'espace de repli (ses deux clés sont écrites
+   dans app.html — une copie de lui serait lisible par n'importe qui, relecture du gardien du
+   10 septembre 2026), un espace fermé (« le blocage d'abord », comme les 14 autres endroits),
+   une clé fausse. */
+function sauvRefus(t, kh) {
+  if (ESPACES_INTOUCHABLES.includes(t)) return { code: 403, error: 'pas de copie pour l\'espace de repli' };
+  if (entFermes.espaces.includes(t)) return { code: 403, error: 'espace fermé' };
+  const ok = espaceCleOk(t, kh); if (ok === null) return { code: 404, error: 'espace inconnu' }; if (!ok) return { code: 403, error: 'clé d\'équipe incorrecte' };
+  return null;
+}
 app.post('/api/espaces/sauvegarde', (req, res) => {
   const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
   if (!t) return res.status(400).json({ error: 't requis' });
-  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  const refus = sauvRefus(t, kh); if (refus) return res.status(refus.code).json({ error: refus.error });
   if (sauvQuota.size > 5000) sauvQuota = new Map();
   if (!quotaOk(sauvQuota, 't:' + t, 60, 3600000)) return res.status(429).json({ error: 'trop de copies — réessaie plus tard' });
   const enc = String(b.enc || ''), iv = String(b.iv || ''), salt = String(b.salt || '');
-  if (!enc || !iv || !salt || enc.length > 3000000) return res.status(400).json({ error: 'bloc chiffré requis (3 Mo au plus)' });
+  if (!enc || !iv || !salt || enc.length > 3000000 || iv.length > 128 || salt.length > 128) return res.status(400).json({ error: 'bloc chiffré requis (3 Mo au plus)' });
   const ts = Date.now();
   try {
     fs.mkdirSync(sauvDossier(t), { recursive: true });
@@ -1836,14 +1857,16 @@ app.post('/api/espaces/sauvegarde', (req, res) => {
 app.post('/api/espaces/sauvegardes', (req, res) => {
   const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
   if (!t) return res.status(400).json({ error: 't requis' });
-  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
-  const l = sauvListe(t).map(ts => { let ver = '', taille = 0; try { const st = fs.statSync(path.join(sauvDossier(t), ts + '.json')); taille = st.size; } catch (e) {} return { ts, taille }; });
+  const refus = sauvRefus(t, kh); if (refus) return res.status(refus.code).json({ error: refus.error });
+  if (!quotaOk(sauvQuota, 'l:' + t, 120, 3600000)) return res.status(429).json({ error: 'trop de lectures — réessaie plus tard' });
+  const l = sauvListe(t).map(ts => { let taille = 0; try { taille = fs.statSync(path.join(sauvDossier(t), ts + '.json')).size; } catch (e) {} return { ts, taille }; });
   res.json({ ok: true, copies: l });
 });
 app.post('/api/espaces/sauvegarde/lire', (req, res) => {
   const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase(); const ts = parseInt(b.ts, 10);
   if (!t || !isFinite(ts)) return res.status(400).json({ error: 't et ts requis' });
-  const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
+  const refus = sauvRefus(t, kh); if (refus) return res.status(refus.code).json({ error: refus.error });
+  if (!quotaOk(sauvQuota, 'l:' + t, 120, 3600000)) return res.status(429).json({ error: 'trop de lectures — réessaie plus tard' });
   if (!sauvListe(t).includes(ts)) return res.status(404).json({ error: 'copie introuvable' });
   try { const j = JSON.parse(fs.readFileSync(path.join(sauvDossier(t), ts + '.json'), 'utf8')); res.json({ ok: true, copie: j }); }
   catch (e) { res.status(500).json({ error: 'copie illisible' }); }
@@ -1852,8 +1875,9 @@ app.post('/api/espaces/sauvegarde/lire', (req, res) => {
 app.post('/api/espaces/ordres', (req, res) => {
   const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
   if (!t) return res.status(400).json({ error: 't requis' });
+  if (entFermes.espaces.includes(t)) return res.status(403).json({ error: 'espace fermé' });
   const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
-  res.json({ ok: true, suppressions: (ordresData[t] || []).filter(o => !o.fait).map(o => o.login) });
+  res.json({ ok: true, suppressions: ordresServis(t) });
 });
 app.post('/api/espaces/ordre-fait', (req, res) => {
   const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
@@ -1861,8 +1885,18 @@ app.post('/api/espaces/ordre-fait', (req, res) => {
   const ok = espaceCleOk(t, kh); if (ok === null) return res.status(404).json({ error: 'espace inconnu' }); if (!ok) return res.status(403).json({ error: 'clé d\'équipe incorrecte' });
   const faits = new Set((Array.isArray(b.logins) ? b.logins : []).map(x => monStr(x, 40).toLowerCase().trim()).filter(Boolean));
   let n = 0; for (const o of (ordresData[t] || [])) { if (!o.fait && faits.has(o.login)) { o.fait = Date.now(); n++; } }
-  if (n) { ordresSave(); console.log('ordre de suppression exécuté :', n, 'compte(s) · espace', t); }
+  if (n) { ordresSave(); console.log('ordre de suppression exécuté :', n, 'compte(s) · espace', t.slice(0, 12)); }
   res.json({ ok: true, n });
+});
+/* Le patron peut rendre un identifiant à l'entreprise (un nouveau salarié qui porte le même) :
+   c'est la seule façon de lever le ban — jamais un appareil. */
+app.post('/api/monitor/compte/reautoriser', monPatronStrict, (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), login = monStr(b.login, 40).toLowerCase().trim();
+  if (!t || !login) return res.status(400).json({ error: 't et login requis' });
+  let n = 0; for (const o of (ordresData[t] || [])) { if (o.login === login && o.banni !== false) { o.banni = false; n++; } }
+  if (!n) return res.status(404).json({ error: 'aucun ban pour cet identifiant' });
+  ordresSave(); monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'identifiant réautorisé');
+  res.json({ ok: true });
 });
 /* Résumé lisible d'un espace : dernière connexion, utilisateurs et appareils actifs, échecs, versions */
 function cnxResume(t) {
@@ -2650,7 +2684,7 @@ app.post('/api/espaces/comptes', (req, res) => {
     const sel = monStr(c.s, 32).toLowerCase(), emp = monStr(c.e, 64).toLowerCase();
     if (!login || INTERDITS.includes(login)) continue;
     if (!/^[0-9a-f]{32}$/.test(sel) || !/^[0-9a-f]{64}$/.test(emp)) continue;
-    if (ordreAttente(t, login)) continue;   // suppression ordonnée depuis la Tour : la porte reste fermée jusqu'à l'exécution
+    if (ordreBanni(t, login)) continue;   // supprimé depuis la Tour : la porte reste fermée tant que le patron ne réautorise pas
     table[login] = { s: sel, e: emp, n: monStr(c.n, 60).trim() };
   }
   /* Un annuaire vide ne remplace JAMAIS un annuaire garni : un bogue de l'application, une
@@ -3344,7 +3378,7 @@ function entInventaire(t) {
     dansAnnuaire: slugs.length > 0,
     dejaFerme: entFermes.espaces.includes(t),
     boites: boites.length, abonnesPush: abos.length,
-    codeAcces: !!accesReg[t], comptesAnnuaire: comptes,
+    codeAcces: !!accesReg[t], comptesAnnuaire: comptes, copiesSauvegarde: sauvListe(t).length,
     devisIA: !!devisAcces[t],
     connexions: cnx.length,
     premiere: cnx.length ? (cnx[cnx.length - 1].ts || 0) : 0,
@@ -3408,6 +3442,7 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
     const detail = [
       inv.dansAnnuaire ? inv.slugs.length + ' entrée(s) d\'annuaire' : 'aucune entrée d\'annuaire',
       inv.comptesAnnuaire + ' compte(s) de connexion',
+      (inv.copiesSauvegarde || 0) + ' copie(s) de sauvegarde chiffrée(s)',
       inv.boites + ' boîte(s) mail reliée(s)',
       inv.abonnesPush + ' appareil(s) abonné(s) aux notifications',
       inv.connexions + ' connexion(s) enregistrée(s)',
@@ -3497,6 +3532,8 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
   if (comptesReg[t]) { delete comptesReg[t]; if (!comptesEcrire()) ecrit = false; }
   fait.comptesAnnuaire = inv.comptesAnnuaire;
   if (usageData[t]) { delete usageData[t]; usageSave(); }
+  try { fs.rmSync(sauvDossier(t), { recursive: true, force: true }); } catch (e) { ecrit = false; console.error('suppression : copies de sauvegarde non effacées :', e.message); }   // « plus rien n'est enregistré nulle part » doit rester vrai
+  if (ordresData[t]) { delete ordresData[t]; ordresSave(); }
   fait.ecransOuverts = inv.ecransOuverts;
   if (cnxData[t]) { delete cnxData[t]; cnxSave(); }
   fait.connexions = inv.connexions;
