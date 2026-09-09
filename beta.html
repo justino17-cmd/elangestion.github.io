@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '611-beta';
+const APP_VERSION = '612-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -20689,7 +20689,9 @@ views.utilisateurs=function(){
   if(!admin && !can('creerUtilisateurs') && !userSeesModule(currentUser,'utilisateurs')){ setHeader('Accès restreint','Réservé aux administrateurs'); $('content').innerHTML=emptyState('🔒','Réservé aux administrateurs (ou au droit « Créer des utilisateurs » / à la rubrique « Utilisateurs » accordée dans Permissions).','',''); return; }
   const places=planPlaces();
   const peutCreer=admin||can('creerUtilisateurs');   // voir la rubrique ne suffit pas pour créer des comptes
-  setHeader('Utilisateurs',`${db.users.length} / ${places} place(s) de l'abonnement`, (peutCreer&&db.users.length<500)?`<button class="btn" onclick="formUser()">＋ Utilisateur</button>`:'');
+  setHeader('Utilisateurs',`${db.users.length} / ${places} place(s) de l'abonnement`,
+    (currentUser&&currentUser.role==='admin'?`<button class="btn ghost" onclick="profilsGerer()">🎛 Profils${profilsDroits().length?' · '+profilsDroits().length:''}</button> `:'')
+    +((peutCreer&&db.users.length<500)?`<button class="btn" onclick="formUser()">＋ Utilisateur</button>`:''));
   const rows=db.users.map(u=>{ const moi=u.id===currentUser.id; const ouv=(usrOuvert===u.id);
     return `<div class="card usr-c${ouv?' on':''}" style="padding:13px 16px;margin-bottom:10px;${u.actif?'':'opacity:.6'}">
       <div style="display:flex;gap:13px;align-items:center;flex-wrap:wrap;cursor:pointer" onclick="usrDeplier('${u.id}')" role="button" tabindex="0" aria-expanded="${ouv?'true':'false'}" aria-label="Voir les droits de ${esc(fullName(u))}">
@@ -20871,15 +20873,74 @@ function profilRenommer(pid){
   const n=(prompt('Nouveau nom du profil :',pr.nom)||'').trim(); if(!n||n===pr.nom) return;
   pr.nom=n; save(); toast('Profil renommé'); profilsGerer();
 }
+/* ══════════ CRÉER UN PROFIL SANS PARTIR DE PERSONNE ═════════════════════════════════════
+   Demande de Justin, 9 septembre 2026 : « dans Utilisateur il y a ＋ Utilisateur, et à côté
+   je veux un bouton : créez votre profil, on clique, on met profil pour un technicien, on
+   coche ce qu'il voit et ce qu'il ne voit pas, tac tac tac. »
+   Jusqu'ici un profil ne se fabriquait QUE depuis la ligne de quelqu'un déjà bien réglé —
+   inutilisable le jour où l'entreprise démarre et où personne ne l'est encore.
+   On réutilise la MÊME grille que la ligne d'un utilisateur (usrDroitsHtml), posée sur un
+   compte fictif : une seule grille à maintenir, et ce qu'on coche ici se lira exactement
+   pareil là-bas. Le bloc des box est masqué — un profil n'en porte pas (voir profilsDroits).
+   ⛔ Le RÔLE choisi ici ne sert qu'à préremplir la grille : il ne part PAS avec le profil.
+   C'est à la création du compte qu'on choisit le rôle, et il ne change jamais ensuite. */
+let _profilEdit=null;
+function profilNouveau(pid){
+  if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
+  const pr=pid?profilDroits(pid):null;
+  _profilEdit={id:pr?pr.id:'', nom:pr?pr.nom:'', role:'technicien',
+               caps:Object.assign({},(pr&&pr.caps)||{}), modules:Object.assign({},(pr&&pr.modules)||{})};
+  profilEditRender();
+}
+function profilEditRole(r){ if(!_profilEdit) return; _profilEdit.role=r;
+  /* Repartir du rôle : on efface ce qui était réglé à part pour que la grille montre les
+     droits de base de ce rôle, et on recoche par-dessus. */
+  _profilEdit.caps={}; _profilEdit.modules={}; profilEditRender(); }
+function profilEditRender(){
+  const e=_profilEdit; if(!e) return;
+  const faux={id:'__profil__', role:e.role, acces:{caps:e.caps, modules:e.modules}, techId:'', login:'', prenom:'', nom:''};
+  openModal('<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="profilsGerer()">Annuler</button><h3>'+(e.id?'Modifier le profil':'Nouveau profil')+'</h3><button type="button" class="btn sm" onclick="profilEditValider()">Enregistrer</button></div>'+
+    '<div class="field"><label>Nom du profil *</label><input id="pf-nom" value="'+esc(e.nom)+'" placeholder="ex : Technicien 3D, Chef d\'équipe Nord, Commercial terrain" autocapitalize="words"></div>'+
+    '<div class="field"><label>Partir des droits de base de <span style="font-weight:400;color:var(--t3)">— seulement pour préremplir</span></label>'+
+      '<select onchange="profilEditRole(this.value)">'+Object.entries(ROLE).filter(function(x){ return x[0]!=='admin'; }).map(function(x){ return '<option value="'+x[0]+'"'+(e.role===x[0]?' selected':'')+'>'+x[1]+'</option>'; }).join('')+'</select>'+
+      '<div style="font-size:11px;color:var(--t3);margin-top:4px">Recharge la grille avec les droits de base de ce rôle. <b>Le rôle ne part pas avec le profil</b> : il se choisit à la création du compte, et ne change jamais ensuite.</div></div>'+
+    '<div class="form-sec" style="margin-top:14px">Ce qu\'il voit et ce qu\'il peut faire</div>'+
+    usrDroitsHtml(faux,true)+
+    '<div class="fgroup" style="padding:12px 14px;font-size:12.5px;color:var(--t2);line-height:1.55;margin-top:10px">📦 <b>Les box ne font pas partie d\'un profil</b> — elles tiennent au secteur de la personne, pas à son métier. On les coche <b>à la création du compte</b>, juste sous le chef d\'équipe et le DR.</div>');
+  /* La grille est celle d'un utilisateur : on retire ce qui n'a pas de sens pour un modèle. */
+  setTimeout(function(){
+    const z=document.getElementById('usr-d-__profil__'); if(!z) return;
+    const bx=z.querySelector('.usr-box'); if(bx) bx.remove();
+    const res=z.querySelector('.usr-res'); if(res) res.remove();
+    const b=z.querySelector('.usr-b'); if(b) b.remove();
+    const pf=z.querySelector('.usr-pf'); if(pf) pf.remove();
+  },0);
+}
+function profilEditValider(){
+  const e=_profilEdit; if(!e) return;
+  const nom=((document.getElementById('pf-nom')||{}).value||'').trim();
+  if(!nom){ toast('Donne un nom à ce profil'); return; }
+  const z=document.getElementById('usr-d-__profil__'); if(!z){ toast('Grille introuvable'); return; }
+  const lu=profilLireZone(z);
+  const dej=profilsDroits().find(function(x){ return x.id!==e.id && norm(x.nom)===norm(nom); });
+  if(dej && !confirm('Un profil « '+dej.nom+' » existe déjà. Le remplacer ?')) return;
+  const cible=e.id?profilDroits(e.id):(dej||null);
+  if(cible){ cible.nom=nom; cible.caps=lu.caps; cible.modules=lu.modules; cible.ts=Date.now(); cible.par=fullName(currentUser); }
+  else profilsDroits().push({id:uid_(),nom:nom,ts:Date.now(),par:fullName(currentUser),caps:lu.caps,modules:lu.modules});
+  logEvent(cible?'Profil de droits mis à jour':'Profil de droits créé',nom,'auth');
+  save(); toast('✓ Profil « '+nom+' » enregistré',4000);
+  _profilEdit=null; profilsGerer();
+}
 function profilsGerer(){
   const admin=currentUser&&currentUser.role==='admin';
   const l=profilsDroits().slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'}));
   openModal('<div class="modal-head"><h3>🎛 Profils de droits</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'+
+    (admin?'<button type="button" class="btn" style="width:100%;justify-content:center;padding:13px;margin-bottom:14px" onclick="profilNouveau()">＋ Nouveau profil</button>':'')+
     '<p style="color:var(--t2);font-size:13px;line-height:1.65;margin-bottom:14px">Un profil est une <b>photo des droits</b> qu\'on pose d\'un geste sur un nouveau compte, au lieu de cocher 79 interrupteurs à chaque fois.<br><span style="color:var(--t3)">Pour en créer un : ouvre la ligne de quelqu\'un qui a déjà les bons droits, puis « Enregistrer comme profil ». Les <b>box</b> n\'en font pas partie — elles dépendent du secteur de la personne, pas de son métier.</span></p>'+
     (l.length?l.map(function(pr){ return '<div class="pl-row" style="align-items:center">'+
         '<div class="pl-info"><div class="pl-title">🎛 '+esc(pr.nom)+'</div>'+
         '<div class="pl-meta">'+profilCompte(pr)+(pr.par?' · par '+esc(pr.par):'')+(pr.ts?' · '+fmtShort(new Date(pr.ts).toISOString().slice(0,10)):'')+'</div></div>'+
-        (admin?'<span style="display:flex;gap:6px"><button type="button" class="btn ghost sm" onclick="profilRenommer(\''+pr.id+'\')">✎</button><button type="button" class="btn danger sm" onclick="profilSupprimer(\''+pr.id+'\')">🗑</button></span>':'')+
+        (admin?'<span style="display:flex;gap:6px"><button type="button" class="btn ghost sm" onclick="profilNouveau(\''+pr.id+'\')" title="Modifier les droits de ce profil">✎</button><button type="button" class="btn danger sm" onclick="profilSupprimer(\''+pr.id+'\')">🗑</button></span>':'')+
       '</div>'; }).join('')
      : '<div class="card" style="text-align:center;color:var(--t3);font-size:13px;padding:20px">Aucun profil pour l\'instant.<br><span style="font-size:12px">Règle les droits de quelqu\'un, puis « Enregistrer comme profil » sur sa ligne.</span></div>'));
 }
