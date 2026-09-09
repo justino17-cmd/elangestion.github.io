@@ -5696,13 +5696,17 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
            qu'une création. */
         let _repousser=false;
         try{ const tomb=usersTombesFusion(db,remote);
-          const distants=(remote.users||[]).length;
+          /* ⛔ UNE SIGNATURE, PAS UNE LONGUEUR. Un renommage de doublon ou l'échange d'une
+             fiche contre une autre ne change pas le nombre de comptes : la v615 ne repoussait
+             donc rien, et notre vue corrigée restait prisonnière de cet appareil. */
+          const sigDe=l=>(l||[]).map(u=>String((u&&u.id)||'')+':'+String((u&&u.login)||'').toLowerCase()).sort().join('|');
+          const sigAvant=sigDe(remote.users), tombAvant=usersTombes(remote).length;
           /* priorité au DISTANT : le document reçu est plus récent que nous, par construction
              (on a vérifié d.ts > _syncTs juste au-dessus). */
           remote.users=usersFusionner(db.users,remote.users,tomb,false);
           if(tomb.length) remote.usersSupprimes=tomb;
-          _repousser = (remote.users.length!==distants)
-                    || (tomb.length!==usersTombes(remote).length)
+          _repousser = (sigDe(remote.users)!==sigAvant)
+                    || (tomb.length!==tombAvant)
                     || (usersTombes(db).length>0 && usersTombes(db).length!==tomb.length);
         }catch(e){
           /* ⛔ SI LA FUSION ÉCHOUE, ON N'APPLIQUE PAS. Laisser passer `db=remote` après un
@@ -5805,20 +5809,41 @@ function usersSansDoublonLogin(list){
   const par={}, sans=[];
   (list||[]).forEach(u=>{ const k=String((u&&u.login)||'').trim().toLowerCase();
     if(!k){ sans.push(u); return; } (par[k]=par[k]||[]).push(u); });
+  /* ⛔ LE VERDICT DOIT ÊTRE LE MÊME SUR TOUS LES APPAREILS — corrigé le 9 septembre 2026.
+     La v615 ajoutait +1000 au compte avec lequel CET appareil est connecté. Chaque appareil
+     désignait donc un vainqueur différent : X gardait A et poussait, Y recevait, refusionnait,
+     tranchait en faveur de B et repoussait — et le nuage basculait de l'un à l'autre à chaque
+     enregistrement, sans jamais converger. Comme `annuaireDeposer` lit `db.users`, l'empreinte
+     déposée dans l'annuaire basculait avec lui : le même identifiant acceptait tantôt l'ancien
+     mot de passe, tantôt le nouveau. C'est le symptôme même qu'on prétendait éteindre.
+     Le score ne lit donc plus QUE des données partagées, et l'`id` tranche les égalités : même
+     liste en entrée, même liste en sortie, sur n'importe quel appareil. */
   const score=u=>{
     let n=0;
-    if(currentUser&&u.id===currentUser.id) n+=1000;      // jamais soi-même
     if(u.pwdHash&&!u.mustChangePwd) n+=100;              // quelqu'un s'en sert vraiment
     if(String(u.email||'').trim()) n+=10;
     if(u.actif!==false) n+=1;
     return n;
   };
+  const pris=new Set(Object.keys(par));
   const out=[];
   Object.keys(par).forEach(k=>{ const g=par[k];
     if(g.length===1){ out.push(g[0]); return; }
-    const garde=g.slice().sort((a,b)=>score(b)-score(a))[0];
-    out.push(garde);
-    try{ logEvent('Doublon d\'identifiant fusionné','@'+k+' — '+(g.length-1)+' ligne(s) en trop retirée(s)','auth'); }catch(e){}
+    const tri=g.slice().sort((a,b)=>(score(b)-score(a))||String(a.id||'').localeCompare(String(b.id||'')));
+    out.push(tri[0]);
+    /* ⛔ ON NE SUPPRIME PAS LE PERDANT, ON LE RENOMME.
+       Poser une pierre tombale serait pire que le mal : l'appareil X enterrerait B pendant que
+       Y enterrerait A, l'union des deux les filtrerait TOUS LES DEUX, et l'identifiant
+       disparaîtrait partout, définitivement — exactement la panne qu'on répare.
+       Renommer ne perd rien : l'annuaire ne porte plus qu'une empreinte par identifiant (ce que
+       demandait ELAN), les deux fiches restent visibles, et c'est l'entreprise qui tranche. */
+    tri.slice(1).forEach(u=>{
+      const base=String(u.login||''); let n=2, nom=base+'-'+n;
+      while(pris.has(nom.toLowerCase())){ n++; nom=base+'-'+n; }
+      pris.add(nom.toLowerCase());
+      u.loginConflit=u.loginConflit||base; u.login=nom; out.push(u);
+    });
+    try{ logEvent('Doublon d\'identifiant','@'+k+' — '+(g.length-1)+' fiche(s) renommée(s), rien n\'a été supprimé','auth'); }catch(e){}
   });
   return out.concat(sans);
 }
