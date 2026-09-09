@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '612-beta';
+const APP_VERSION = '613-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5196,6 +5196,115 @@ function produitsRecommandes(nuisibles){ const noms=new Set();
 const INT_RECUR = { aucune:'Aucune', hebdo:'Hebdomadaire', bimensuelle:'Bimensuelle', mensuelle:'Mensuelle', trimestrielle:'Trimestrielle', semestrielle:'Semestrielle', annuelle:'Annuelle' };
 const PRIO = { basse:{l:'Basse',c:'tag'}, normale:{l:'Normale',c:'tag'}, haute:{l:'Haute',c:'tag hot'} };
 const ROLE = { technicien:'Technicien', commercial:'Commercial', compta:'Gestion compta', chefEquipe:"Chef d'équipe", dr:'Directeur Régional', admin:'Administrateur' };
+/* ══════════ RÔLES LIBRES ═════════════════════════════════════════════════════════════════
+   Justin, 9 septembre 2026 : « le rôle reste un rôle, c'est juste un nom. Ça ne définit
+   aucune catégorie, aucun droit. C'est juste pour eux qu'ils puissent mieux se repérer. Il
+   faut rajouter un bouton créer un nouveau rôle, qui reste enregistré dans la liste, qui
+   puisse modifier la liste déjà créée de base par nous, et aussi supprimer des rôles. »
+
+   ⛔ CE QUE LE RÔLE COMMANDE ENCORE, ET QU'ON NE PEUT PAS RENDRE LIBRE — relevé dans le code
+   avant d'écrire une ligne, pas supposé :
+   · `admin` : 54 endroits en dépendent (tous les droits, les suppressions définitives). Il
+     n'est ni renommable ni supprimable — le rendre libre casserait l'application ;
+   · la FICHE TECHNICIEN, créée pour « technicien » et « chef d'équipe ». C'est la seule
+     conséquence fonctionnelle réelle, et elle compte : sans fiche, pas d'intervention
+     assignée, pas de véhicule, pas de pointage. Un rôle libre déclare donc s'il en crée une ;
+   · qui peut être CHEF de quelqu'un (chef d'équipe, DR, admin). Un rôle libre le déclare aussi.
+   Tout le reste — les droits — vient de `u.acces` et des profils depuis la v585. Le rôle
+   n'ouvre plus rien par lui-même : c'est exactement ce que Justin décrit. */
+const ROLE_TECH_BASE={technicien:1,chefEquipe:1};
+const ROLE_CHEF_BASE={chefEquipe:1,dr:1,admin:1};
+const ROLE_PROTEGE='admin';
+function rolesPerso(){ if(!Array.isArray(db.roles)) db.roles=[]; return db.roles; }
+function roleDef(cle){
+  const p=rolesPerso().find(r=>r&&r.cle===cle); if(p) return p;
+  /* ⛔ ROLE[cle], PAS roleLbl(cle) : roleLbl appelle roleDef, donc s'appeler ici serait une
+     récursion infinie — que le contrôle de syntaxe ne voit pas. On lit la table d'origine. */
+  if(ROLE[cle]) return {cle:cle,nom:(db.roleNoms&&db.roleNoms[cle])||ROLE[cle],
+    tech:!!ROLE_TECH_BASE[cle],chef:!!ROLE_CHEF_BASE[cle],base:true,
+    masque:!!(db.roleMasques&&db.roleMasques[cle])};
+  return null;
+}
+/* Le libellé à afficher — un compte peut porter un rôle supprimé depuis : on ne perd pas
+   son nom pour autant, on le montre tel qu'il est enregistré. */
+function roleLbl(cle){ const d=roleDef(cle); return d?d.nom:(cle||''); }
+function roleEstTech(cle){ const d=roleDef(cle); return d?!!d.tech:false; }
+function roleEstChef(cle){ const d=roleDef(cle); return d?!!d.chef:false; }
+/* La liste proposée à la création : les rôles d'origine non masqués, puis ceux de la maison.
+   `garder` force la présence du rôle actuel d'un compte, même masqué ou supprimé, pour qu'on
+   ne le change pas par accident en corrigeant un numéro de téléphone. */
+function rolesTous(garder){
+  const out=[];
+  Object.keys(ROLE).forEach(k=>{ const d=roleDef(k); if(d&&(!d.masque||k===garder||k===ROLE_PROTEGE)) out.push(d); });
+  rolesPerso().forEach(r=>{ if(r&&r.cle) out.push(r); });
+  if(garder&&!out.some(d=>d.cle===garder)) out.push({cle:garder,nom:roleLbl(garder)||garder,tech:false,chef:false});
+  return out;
+}
+function roleCompte(cle){ return (db.users||[]).filter(u=>u&&u.role===cle).length; }
+function roleCle(nom){ return 'r_'+String(nom||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'').slice(0,18)+'_'+Math.random().toString(36).slice(2,6); }
+function rolesGerer(){
+  if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
+  const l=rolesTous();
+  openModal('<div class="modal-head"><h3>🏷 Rôles</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'+
+    '<p style="color:var(--t2);font-size:13px;line-height:1.65;margin-bottom:14px">Un rôle est <b>un nom</b>, pour s\'y retrouver dans la liste des comptes. <b>Il n\'ouvre aucun droit</b> — ce sont les <b>profils</b> et la ligne de chaque personne qui les posent.<br><span style="color:var(--t3)">Deux réglages seulement : la <b>fiche technicien</b> (interventions, véhicule, pointage) et le droit d\'être <b>chef</b> de quelqu\'un.</span></p>'+
+    '<button type="button" class="btn" style="width:100%;justify-content:center;padding:13px;margin-bottom:14px" onclick="roleEditer()">＋ Nouveau rôle</button>'+
+    l.map(function(d){ const n=roleCompte(d.cle); const prot=d.cle===ROLE_PROTEGE;
+      return '<div class="pl-row" style="align-items:center">'+
+        '<div class="pl-info"><div class="pl-title">🏷 '+esc(d.nom)+(d.base?' <span style="color:var(--t3);font-weight:400;font-size:11.5px">· fourni</span>':'')+'</div>'+
+        '<div class="pl-meta">'+(n?n+' compte'+(n>1?'s':''):'aucun compte')+(d.tech?' · fiche technicien':'')+(d.chef?' · peut être chef':'')+(prot?' · <b>protégé</b>':'')+'</div></div>'+
+        (prot?'':'<span style="display:flex;gap:6px"><button type="button" class="btn ghost sm" onclick="roleEditer(\''+d.cle+'\')">✎</button><button type="button" class="btn danger sm" onclick="roleSupprimer(\''+d.cle+'\')">🗑</button></span>')+
+      '</div>'; }).join(''));
+}
+function roleEditer(cle){
+  const d=cle?roleDef(cle):{cle:'',nom:'',tech:false,chef:false};
+  if(!d) return;
+  const n=cle?roleCompte(cle):0;
+  openModal('<div class="modal-head"><h3>'+(cle?'Modifier le rôle':'Nouveau rôle')+'</h3><button class="modal-close" onclick="rolesGerer()">✕</button></div>'+
+    '<div class="field"><label>Nom du rôle *</label><input id="rl-nom" value="'+esc(d.nom)+'" placeholder="ex : Technicien 3D, Applicateur, Responsable dépôt" autocapitalize="words"></div>'+
+    '<div class="fgroup" style="margin-bottom:12px">'+
+      '<label class="frow" style="cursor:pointer"><span style="flex:1">🧰 <b>Crée une fiche technicien</b><div style="font-size:11.5px;color:var(--t3);line-height:1.5;margin-top:2px">Nécessaire pour lui assigner des interventions, un véhicule et des pointages.</div></span><input type="checkbox" id="rl-tech"'+(d.tech?' checked':'')+' style="width:40px;height:24px;accent-color:var(--acc);flex-shrink:0"></label>'+
+      '<label class="frow" style="cursor:pointer;border-bottom:none"><span style="flex:1">👥 <b>Peut être le chef de quelqu\'un</b><div style="font-size:11.5px;color:var(--t3);line-height:1.5;margin-top:2px">Il apparaîtra dans le menu « Chef d\'équipe » des autres comptes.</div></span><input type="checkbox" id="rl-chef"'+(d.chef?' checked':'')+' style="width:40px;height:24px;accent-color:var(--acc);flex-shrink:0"></label>'+
+    '</div>'+
+    (n?'<div class="fgroup" style="padding:12px 14px;font-size:12.5px;color:var(--t2);line-height:1.55">⚠️ <b>'+n+' compte'+(n>1?'s portent':' porte')+' ce rôle.</b> Le renommer change ce qui s\'affiche partout ; cocher ou décocher « fiche technicien » ne touche pas aux fiches déjà créées.</div>':'')+
+    '<button class="btn" style="width:100%;justify-content:center;padding:13px;margin-top:12px" onclick="roleValider(\''+(cle||'')+'\')">Enregistrer</button>');
+}
+function roleValider(cle){
+  if(!currentUser||currentUser.role!=='admin') return;
+  const nom=((document.getElementById('rl-nom')||{}).value||'').trim();
+  if(!nom){ toast('Donne un nom à ce rôle'); return; }
+  const tech=!!(document.getElementById('rl-tech')||{}).checked;
+  const chef=!!(document.getElementById('rl-chef')||{}).checked;
+  if(cle){
+    const perso=rolesPerso().find(r=>r&&r.cle===cle);
+    if(perso){ perso.nom=nom; perso.tech=tech; perso.chef=chef; }
+    else {
+      /* Un rôle fourni ne se réécrit pas dans la constante : on range le nom choisi à côté,
+         et le code continue de reconnaître sa clé d'origine. */
+      db.roleNoms=Object.assign({},db.roleNoms||{}); db.roleNoms[cle]=nom;
+      const p={cle:cle,nom:nom,tech:tech,chef:chef,base:true};
+      db.roleNoms[cle]=nom;
+      if(tech!==!!ROLE_TECH_BASE[cle]||chef!==!!ROLE_CHEF_BASE[cle]) rolesPerso().push(p);
+    }
+  } else rolesPerso().push({cle:roleCle(nom),nom:nom,tech:tech,chef:chef});
+  logEvent(cle?'Rôle modifié':'Rôle créé',nom,'auth'); save(); toast('✓ Rôle « '+nom+' » enregistré'); rolesGerer();
+}
+function roleSupprimer(cle){
+  if(!currentUser||currentUser.role!=='admin') return;
+  if(cle===ROLE_PROTEGE){ toast('Le rôle administrateur ne peut pas être supprimé'); return; }
+  const d=roleDef(cle); if(!d) return;
+  const n=roleCompte(cle);
+  if(n){ toast(n+' compte'+(n>1?'s portent':' porte')+' ce rôle — change-les d\'abord, sinon leur rôle n\'aurait plus de nom',5200); return; }
+  if(d.base){
+    /* Un rôle fourni ne disparaît pas de la constante : on le MASQUE. Le supprimer pour de
+       bon rendrait illisible tout compte l'ayant porté par le passé. */
+    if(!confirm('Retirer « '+d.nom+' » de la liste ?\n\nC\'est un rôle fourni : il sera simplement masqué et pourra être remis.')) return;
+    db.roleMasques=Object.assign({},db.roleMasques||{}); db.roleMasques[cle]=true;
+  } else {
+    if(!confirm('Supprimer le rôle « '+d.nom+' » ?')) return;
+    db.roles=rolesPerso().filter(r=>r&&r.cle!==cle);
+  }
+  logEvent('Rôle supprimé',d.nom,'auth'); save(); toast('Rôle retiré de la liste'); rolesGerer();
+}
 /* ── Multilingue (FR par défaut · EN · ES) ── */
 const LANGS={fr:'Français',en:'English',es:'Español'};
 const LANG_FLAG={fr:'🇫🇷',en:'🇬🇧',es:'🇪🇸'};
@@ -5577,6 +5686,16 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
       if(!(premier&&frais)){ if(d.writer===syncDeviceId()) return; if((d.ts||0)<=(_syncTs||0)) return; }
       try{ const remote=JSON.parse(plain);
         let diffMsg=''; try{ diffMsg=planSyncDiff(db,remote,d.by||''); }catch(e){}
+        /* Le document reçu remplace tout — sauf les COMPTES, qu'on réunit avec les nôtres.
+           Sans ça, l'appareil qui vient de créer trois comptes les perdrait à la première
+           synchro venue d'un appareil resté en arrière, et ne les repousserait donc jamais. */
+        try{ const tomb=usersTombesFusion(db,remote);
+          const av=(db.users||[]).length;
+          remote.users=usersFusionner(db.users,remote.users,tomb);
+          if(tomb.length) remote.usersSupprimes=tomb;
+          if(remote.users.length>((JSON.parse(plain).users)||[]).length){ setTimeout(()=>{ try{ syncPush(true); }catch(e){} },1200); }
+          void av;
+        }catch(e){}
         _syncApplying=true; db=remote; localStorage.setItem(STORE_KEY,JSON.stringify(db)); _syncTs=d.ts||Date.now();
         try{ localStorage.removeItem('elanB_frais'); }catch(e){}
         if(currentUser&&!compteVerifier()){ _syncApplying=false; return; }   // supprimé / désactivé par l'entreprise → déconnecté
@@ -5614,8 +5733,67 @@ function planSyncDiff(oldDb,newDb,by){ try{
 /* Présence : chaque utilisateur signale qu'il est en ligne (point vert au planning) */
 setInterval(()=>{ try{ if(!currentUser||!_syncOn||_syncApplying) return; const u=(db.users||[]).find(x=>x.id===currentUser.id); if(!u) return;
   if(!u.lastSeen||Date.now()-u.lastSeen>120000){ u.lastSeen=Date.now(); save(); } }catch(e){} },60000);
+/* ══════════ LES COMPTES NE SE PERDENT PLUS ══════════════════════════════════════════════
+   Panne du 9 septembre 2026, signalée par ELAN : « ils ont créé des utilisateurs, ils ne les
+   voient plus dans leur liste, et les personnes à qui ils ont envoyé les codes ne peuvent pas
+   se connecter. »
+
+   CAUSE, établie dans le code et non supposée : la synchro écrit la base ENTIÈRE
+   (`JSON.stringify(db)`) et l'applique en bloc (`db=remote`). C'est du dernier-qui-parle sur
+   tout le document, sans la moindre fusion. Les six appareils d'ELAN tournaient sur QUATRE
+   versions (v604 à v612) : il suffit qu'un appareil resté en arrière — onglet endormi, hors
+   ligne, version ancienne — enregistre n'importe quoi pour que SA copie, qui ne contient pas
+   les comptes créés ailleurs entre-temps, remplace celle de tout le monde.
+   Et comme l'annuaire de connexion est déposé depuis `db.users` (annuaireDeposer), un compte
+   effacé de la base disparaît AUSSI de l'annuaire : le mot de passe provisoire envoyé par
+   e-mail ne correspond plus à rien. D'où les deux symptômes d'un seul et même défaut.
+
+   CORRECTIF : les comptes sont fusionnés dans les deux sens, à l'envoi comme à la réception.
+   Un compte n'existe que s'il a été créé, et ne disparaît que si quelqu'un l'a SUPPRIMÉ —
+   jamais parce qu'un appareil ne le connaissait pas. D'où les pierres tombales
+   (`db.usersSupprimes`) : sans elles, une fusion ferait revenir les comptes qu'on vient
+   d'effacer exprès.
+
+   ⛔ CE CORRECTIF NE PROTÈGE QUE LES COMPTES. Le même mécanisme peut encore faire perdre des
+   box, des produits, des interventions. La fusion générale est un autre chantier, à mener
+   seul et à tester longuement — on commence par ce qui enferme des gens dehors. */
+function usersTombes(base){ const t=(base&&base.usersSupprimes)||[]; return Array.isArray(t)?t:[]; }
+function usersFusionner(localUsers,remoteUsers,tombes){
+  const s=new Set((tombes||[]).map(x=>(x&&x.id)||x).filter(Boolean));
+  const out=[], vus=new Set();
+  /* Le distant passe en premier : sur un compte connu des deux côtés, c'est SA version qu'on
+     garde (il est plus récent par construction — on ne fusionne que vers un document neuf). */
+  (remoteUsers||[]).forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
+  (localUsers||[]).forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
+  return out;
+}
+function usersTombesFusion(a,b){
+  const m={}; [].concat(usersTombes(a),usersTombes(b)).forEach(x=>{ const id=(x&&x.id)||x; if(id) m[id]=(x&&x.ts)?x:{id:id,ts:(x&&x.ts)||0}; });
+  return Object.keys(m).map(k=>m[k]).sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,300);
+}
 function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) return; clearTimeout(_syncTimer);
-  const go=async()=>{ try{ const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db)); _fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||'')}).catch(er=>console.error('push',er)); }catch(er){ console.error('encrypt',er); } };
+  const go=async()=>{ try{
+    /* ON RELIT AVANT D'ÉCRIRE. Entre notre dernière réception et cet instant, un autre
+       appareil a pu créer des comptes ; écrire notre base telle quelle les effacerait. Une
+       lecture de plus par envoi (déjà retardé de 800 ms) contre des gens enfermés dehors :
+       le calcul est vite fait. Si la lecture échoue, on écrit quand même — mieux vaut
+       enregistrer que perdre le travail en cours. */
+    try{
+      const snap=await _fbDoc.get();
+      const d=snap&&snap.data();
+      if(d&&(d.ts||0)>(_syncTs||0)){
+        const plain=await syncReadRemote(d);
+        if(plain){ const remote=JSON.parse(plain);
+          const tomb=usersTombesFusion(db,remote);
+          const av=(db.users||[]).length;
+          db.users=usersFusionner(db.users,remote.users,tomb);
+          if(tomb.length) db.usersSupprimes=tomb;
+          if(db.users.length>av){ try{ toast((db.users.length-av)+' compte(s) créé(s) ailleurs — récupérés',4200); }catch(e){}
+            try{ localStorage.setItem(STORE_KEY,JSON.stringify(db)); }catch(e){} }
+        }
+      }
+    }catch(e){}
+    const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db)); _fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||'')}).catch(er=>console.error('push',er)); }catch(er){ console.error('encrypt',er); } };
   if(now) go(); else _syncTimer=setTimeout(go,800); }
 function syncSave(){ const cfgT=(($('sync-cfg')||{}).value||'').trim(); const team=(($('sync-team')||{}).value||'').trim().toLowerCase();
   let cfg=null; try{ cfg=JSON.parse(cfgT); }catch(e){ toast('Configuration Firebase invalide (copie le JSON complet { … })'); return; }
@@ -6260,7 +6438,7 @@ function valideursDR(){ return (db.users||[]).filter(x=>x&&x.actif!==false&&user
 /* Qui peut être le chef de quelqu'un : un chef d'équipe, un DR ou un administrateur —
    jamais soi-même, sinon on se rattache à sa propre équipe et le périmètre n'a plus de sens. */
 function chefsPossibles(sauf){ return (db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==sauf
-  &&['chefEquipe','dr','admin'].includes(x.role)); }
+  &&roleEstChef(x.role)); }
 /* À QUI une validation est adressée. Jusqu'ici : à tous les DR de l'entreprise, donc chacun
    recevait les mouvements de box dont il ne s'occupe pas. Désormais au DR assigné à la personne
    qui agit (champ drId de sa fiche), plus au responsable de la box concernée s'il y en a un.
@@ -16216,7 +16394,7 @@ function renderBoxDetail(){
     <div class="card" style="margin-top:4px;padding:4px 4px">
       <div class="bdt-row"><span class="bdt-ic">🔢</span><span class="bdt-lbl">Numéro</span><span class="bdt-val mono">${esc(b.numero||'—')}</span></div>
       ${(()=>{ const r=b.respUserId?(db.users||[]).find(u=>u.id===b.respUserId):null;
-        return r?`<div class="bdt-row"><span class="bdt-ic">👤</span><span class="bdt-lbl">Responsable</span><span class="bdt-val">${esc(fullName(r))} <span style="color:var(--t3);font-weight:400">· ${esc(ROLE[r.role]||'')}</span></span></div>`:''; })()}
+        return r?`<div class="bdt-row"><span class="bdt-ic">👤</span><span class="bdt-lbl">Responsable</span><span class="bdt-val">${esc(fullName(r))} <span style="color:var(--t3);font-weight:400">· ${esc(roleLbl(r.role)||'')}</span></span></div>`:''; })()}
       ${cli?`<div class="bdt-row"><span class="bdt-ic">🏢</span><span class="bdt-lbl">Client</span><span class="bdt-val" style="cursor:pointer;color:var(--acc)" onclick="ficheClient('${cli.id}')">${esc(cli.nom||'')}</span></div>`:''}
       ${(b.codesAcces||[]).length? b.codesAcces.map(c=>`<div class="bdt-row"><span class="bdt-ic">${codeIco(c.type)}</span><span class="bdt-lbl">${esc(c.type)}</span><span class="bdt-val mono">${esc(c.valeur)}</span></div>`).join('') : `<div class="bdt-row"><span class="bdt-ic">🔒</span><span class="bdt-lbl">Codes d'accès</span><span class="bdt-val" style="color:var(--t3)">—</span></div>`}
       <div class="bdt-row"><span class="bdt-ic">🏢</span><span class="bdt-lbl">Étage</span><span class="bdt-val">${esc(b.etage)||'—'}</span></div>
@@ -17283,7 +17461,7 @@ function remiseAjoute(m,qte){
     if(!br){ const uPar=db.users.find(u2=>u2.id===m.parId)||{};
       const bxR=db.boxes.find(b2=>b2.id===m.boxId)||{};
       br={id:uid(),num:nextNum('bonsRemise','BR','num'),date:jour,ts:Date.now(),boxId:m.boxId,boxNomTxt:(bxR.nom||bxR.numero||''),
-        par:m.par||'',parRole:(typeof ROLE!=='undefined'&&ROLE[uPar.role])||'',pourQui:m.pourQui||'',valideDr:fullName(currentUser),lignes:[]};
+        par:m.par||'',parRole:(typeof ROLE!=='undefined'&&roleLbl(uPar.role))||'',pourQui:m.pourQui||'',valideDr:fullName(currentUser),lignes:[]};
       db.bonsRemise.push(br); }
     const l=br.lignes.find(x=>x.produitId===m.produitId);
     if(l) l.qte+=qte; else br.lignes.push({produitId:m.produitId,qte:qte});
@@ -17500,7 +17678,7 @@ function formBox(id){ const b=id?db.boxes.find(x=>x.id===id):{};
         <div class="frow"><span class="frow-lbl">Catégorie</span><input name="categorie" value="${esc(b.categorie||'')}" placeholder="ex : TP14 — Rodenticide"></div>
         <div class="frow"><span class="frow-lbl">Groupe</span><input name="groupe" value="${esc(b.groupe&&b.groupe!=='Sans groupe'?b.groupe:'')}" list="box-groupes" placeholder="ex : Agence Strasbourg"><datalist id="box-groupes">${[...new Set(db.boxes.map(x=>x.groupe).filter(g=>g&&g!=='Sans groupe'))].map(g=>`<option value="${esc(g)}">`).join('')}</datalist></div>
         <div class="frow"><span class="frow-lbl">Secteur</span><input name="secteur" value="${esc(b.secteur||'')}" placeholder="ex : 67 Nord"></div>
-        <div class="frow" style="display:block"><span class="frow-lbl" style="display:block;margin-bottom:6px">Responsable</span><select name="respUserId" style="width:100%"><option value="">— Aucun —</option>${(db.users||[]).filter(u=>u.actif!==false&&u.role!=='admin').map(u=>`<option value="${u.id}" ${b.respUserId===u.id?'selected':''}>${esc(fullName(u))} — ${esc(ROLE[u.role]||u.role||'')}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">N'importe quel compte (technicien, chef d'équipe, DR…) : le responsable voit toujours cette box et reçoit ses alertes.</div></div>
+        <div class="frow" style="display:block"><span class="frow-lbl" style="display:block;margin-bottom:6px">Responsable</span><select name="respUserId" style="width:100%"><option value="">— Aucun —</option>${(db.users||[]).filter(u=>u.actif!==false&&u.role!=='admin').map(u=>`<option value="${u.id}" ${b.respUserId===u.id?'selected':''}>${esc(fullName(u))} — ${esc(roleLbl(u.role)||u.role||'')}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">N'importe quel compte (technicien, chef d'équipe, DR…) : le responsable voit toujours cette box et reçoit ses alertes.</div></div>
       </div>
       <div class="form-sec">Accès</div>
       <div class="fgroup">
@@ -17594,7 +17772,7 @@ function renderBoxUsers(){ const el=$('box-users'); if(!el) return;
   el.innerHTML=us.map(u=>{ const on=boxUserSel.has(u.id); const tout=userCap(u,'voirTout');
     return `<div class="frow" style="cursor:pointer" onclick="toggleBoxUser('${u.id}')">
       <span style="font-size:20px;color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span>
-      <div><div style="font-size:15px;color:var(--t1)">${esc(fullName(u))}</div><div style="font-size:11px;color:var(--t3)">${esc(ROLE[u.role]||u.role||'')}${tout?' · voit déjà toutes les box (« Tout voir »)':''}</div></div>
+      <div><div style="font-size:15px;color:var(--t1)">${esc(fullName(u))}</div><div style="font-size:11px;color:var(--t3)">${esc(roleLbl(u.role)||u.role||'')}${tout?' · voit déjà toutes les box (« Tout voir »)':''}</div></div>
     </div>`; }).join(''); }
 function toggleBoxUser(id){ if(boxUserSel.has(id)) boxUserSel.delete(id); else boxUserSel.add(id); const c=$('box-user-count'); if(c)c.textContent=boxUserSel.size; renderBoxUsers(); }
 function toggleBoxVisibleTous(){ boxVisibleTous=!boxVisibleTous; const ic=$('box-vt-ic'); if(ic){ ic.textContent=boxVisibleTous?'☑':'☐'; ic.style.color=boxVisibleTous?'var(--acc)':'var(--t3)'; } renderBoxTechs(); }
@@ -17960,7 +18138,7 @@ function congesModal(){
     <div class="field"><label>Dernier jour d'absence</label><input id="cg-au" type="date" value="${esc(d.au||'')}"></div>
     <div class="field"><label>Qui valide à ma place</label><select id="cg-vers" style="width:100%">
       <option value="">Choisir…</option>
-      ${autres.map(x=>`<option value="${x.id}" ${d.versId===x.id?'selected':''}>${esc(fullName(x))} · ${esc(ROLE[x.role]||x.role||'')}</option>`).join('')}
+      ${autres.map(x=>`<option value="${x.id}" ${d.versId===x.id?'selected':''}>${esc(fullName(x))} · ${esc(roleLbl(x.role)||x.role||'')}</option>`).join('')}
     </select></div>
     <p style="color:var(--t3);font-size:12px;line-height:1.55;margin-top:6px">Prévenez-le : il ne reçoit pas d'invitation à accepter, la main lui est donnée directement.</p>`);
 }
@@ -20289,7 +20467,7 @@ function consoAnalyseHTML(){
   const quiConso=m=>m.donneA||m.technicien||'Non précisé';   // un véhicule n'est pas une personne
   const SANS_NOM='Non précisé';
   const roleConso=m=>m.roleConso||roleDeNom(quiConso(m))||'';
-  const roleLbl=r=>ROLE[r]||'Rôle non renseigné';
+  const roleLbl=r=>roleLbl(r)||'Rôle non renseigné';
   const datesLibres=!!(consoDu||consoAu);
   const depuis=consoDu?new Date(consoDu+'T00:00:00').getTime():(consoAu?0:Date.now()-consoJours*86400000);
   const jusqua=consoAu?new Date(consoAu+'T23:59:59').getTime():Date.now();
@@ -20697,7 +20875,7 @@ views.utilisateurs=function(){
       <div style="display:flex;gap:13px;align-items:center;flex-wrap:wrap;cursor:pointer" onclick="usrDeplier('${u.id}')" role="button" tabindex="0" aria-expanded="${ouv?'true':'false'}" aria-label="Voir les droits de ${esc(fullName(u))}">
         <span class="avatar" style="width:44px;height:44px;font-size:15px;flex-shrink:0">${initials(fullName(u))}</span>
         <div style="flex:1;min-width:180px">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:14.5px;color:var(--t1)">${esc(fullName(u))}</b>${moi?'<span style="color:var(--t3);font-size:11.5px">(vous)</span>':''}<span style="font-size:10px;font-weight:700;color:var(--t3);border:1px solid var(--brd2);border-radius:100px;padding:1px 8px;white-space:nowrap">${roleIcon(u.role)} ${ROLE[u.role]||'—'}</span></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:14.5px;color:var(--t1)">${esc(fullName(u))}</b>${moi?'<span style="color:var(--t3);font-size:11.5px">(vous)</span>':''}<span style="font-size:10px;font-weight:700;color:var(--t3);border:1px solid var(--brd2);border-radius:100px;padding:1px 8px;white-space:nowrap">${roleIcon(u.role)} ${roleLbl(u.role)||'—'}</span></div>
           <div style="font-size:12.5px;color:var(--t3);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap">
             <span class="mono">@${esc(u.login)}</span>${u.email?`<span>✉️ ${esc(u.email)}</span>`:(admin?'<span style="color:var(--org)" title="Sans e-mail, « Mot de passe oublié » ne marchera pas pour ce compte">✉️ e-mail à ajouter (Modifier)</span>':'')}
           </div>
@@ -20888,22 +21066,23 @@ let _profilEdit=null;
 function profilNouveau(pid){
   if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
   const pr=pid?profilDroits(pid):null;
-  _profilEdit={id:pr?pr.id:'', nom:pr?pr.nom:'', role:'technicien',
+  /* Un profil neuf part TOUT DÉCOCHÉ : le compte fictif porte un rôle qui n'ouvre rien
+     (`__profil__`), donc la grille montre exactement ce que le profil contient, ni plus. */
+  _profilEdit={id:pr?pr.id:'', nom:pr?pr.nom:'',
                caps:Object.assign({},(pr&&pr.caps)||{}), modules:Object.assign({},(pr&&pr.modules)||{})};
   profilEditRender();
 }
-function profilEditRole(r){ if(!_profilEdit) return; _profilEdit.role=r;
-  /* Repartir du rôle : on efface ce qui était réglé à part pour que la grille montre les
-     droits de base de ce rôle, et on recoche par-dessus. */
-  _profilEdit.caps={}; _profilEdit.modules={}; profilEditRender(); }
+
 function profilEditRender(){
   const e=_profilEdit; if(!e) return;
-  const faux={id:'__profil__', role:e.role, acces:{caps:e.caps, modules:e.modules}, techId:'', login:'', prenom:'', nom:''};
+  const faux={id:'__profil__', role:'__profil__', acces:{caps:e.caps, modules:e.modules}, techId:'', login:'', prenom:'', nom:''};
   openModal('<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="profilsGerer()">Annuler</button><h3>'+(e.id?'Modifier le profil':'Nouveau profil')+'</h3><button type="button" class="btn sm" onclick="profilEditValider()">Enregistrer</button></div>'+
     '<div class="field"><label>Nom du profil *</label><input id="pf-nom" value="'+esc(e.nom)+'" placeholder="ex : Technicien 3D, Chef d\'équipe Nord, Commercial terrain" autocapitalize="words"></div>'+
-    '<div class="field"><label>Partir des droits de base de <span style="font-weight:400;color:var(--t3)">— seulement pour préremplir</span></label>'+
-      '<select onchange="profilEditRole(this.value)">'+Object.entries(ROLE).filter(function(x){ return x[0]!=='admin'; }).map(function(x){ return '<option value="'+x[0]+'"'+(e.role===x[0]?' selected':'')+'>'+x[1]+'</option>'; }).join('')+'</select>'+
-      '<div style="font-size:11px;color:var(--t3);margin-top:4px">Recharge la grille avec les droits de base de ce rôle. <b>Le rôle ne part pas avec le profil</b> : il se choisit à la création du compte, et ne change jamais ensuite.</div></div>'+
+    /* ⛔ AUCUN RÔLE DANS UN PROFIL — Justin, 9 septembre 2026 : « dans profil je ne veux pas
+       qu'il y ait ça. Le nom du profil désignera les permissions autorisées. »
+       Le menu « partir des droits de base de » avait beau ne servir qu'à préremplir, il
+       remettait le rôle au milieu de l'écran des droits — les deux notions qu'on vient
+       justement de séparer. Un profil part donc de rien : on nomme, on coche. */
     '<div class="form-sec" style="margin-top:14px">Ce qu\'il voit et ce qu\'il peut faire</div>'+
     usrDroitsHtml(faux,true)+
     '<div class="fgroup" style="padding:12px 14px;font-size:12.5px;color:var(--t2);line-height:1.55;margin-top:10px">📦 <b>Les box ne font pas partie d\'un profil</b> — elles tiennent au secteur de la personne, pas à son métier. On les coche <b>à la création du compte</b>, juste sous le chef d\'équipe et le DR.</div>');
@@ -21045,7 +21224,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
   // Même donnée que le champ « Directeur régional responsable », lue dans l'autre sens.
   drRattaches = new Set((db.users||[]).filter(x=>x&&id&&x.drId===id).map(x=>x.id));
   const lt = u.techId ? (db.techniciens||[]).find(x=>x.id===u.techId) : null;
-  const isTech = ['technicien','chefEquipe'].includes(u.role||'technicien');
+  const isTech = roleEstTech(u.role||'technicien');
   const roleVal = u.role || 'technicien';
   const capOf = k => { if(id && u.acces && u.acces.caps && Object.prototype.hasOwnProperty.call(u.acces.caps,k)) return !!u.acces.caps[k]; return userCap({role:roleVal}, k); };
   /* Tout ce qui concerne « qui suit cette personne » réuni au même endroit, avant les droits :
@@ -21066,7 +21245,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
         <div style="max-height:210px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">${(db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==id).map(x=>`
           <label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer">
             <input type="checkbox" ${drRattaches.has(x.id)?'checked':''} onchange="this.checked?drRattaches.add('${x.id}'):drRattaches.delete('${x.id}')" style="width:18px;height:18px;accent-color:var(--acc)">
-            <span>${esc(fullName(x))} <span style="color:var(--t3);font-size:11.5px">· ${esc(ROLE[x.role]||x.role||'')}</span></span></label>`).join('')||'<div style="color:var(--t3);font-size:12px;padding:6px">Aucun autre compte.</div>'}</div>
+            <span>${esc(fullName(x))} <span style="color:var(--t3);font-size:11.5px">· ${esc(roleLbl(x.role)||x.role||'')}</span></span></label>`).join('')||'<div style="color:var(--t3);font-size:12px;padding:6px">Aucun autre compte.</div>'}</div>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Coche les personnes dont cette personne valide les mouvements. C'est l'autre bout du champ ci-dessus : cocher quelqu'un ici revient à choisir ce valideur dans sa fiche.</div></div>`:''}`;
   const accSection = `<div id="user-admin-note" style="display:${roleVal==='admin'?'block':'none'}"><div class="fgroup" style="padding:14px;text-align:center;color:var(--t2);font-size:13px">Un administrateur a <b>automatiquement tous les accès</b> — rien à régler.</div></div>
       <div id="user-access" style="display:${roleVal==='admin'?'none':'block'}">${rattachSection}
@@ -21077,7 +21256,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
         <div class="field"><label>Nom *</label><input name="nom" required value="${esc(u.nom)}" ${id?'':'oninput="nuLoginAuto()"'}></div></div>
       <div class="field"><label>Identifiant *</label><input name="login" id="nu-login" required value="${esc(u.login)}" placeholder="ex : marc" autocapitalize="off" ${id?'':'oninput="this.dataset.libre=\'1\'"'}>${id?'':'<div style="font-size:11px;color:var(--t3);margin-top:4px">Se remplit tout seul à partir du prénom — tu peux le modifier, maintenant ou plus tard.</div>'}</div>
       <div class="field"><label>E-mail <span style="font-weight:400;color:var(--t3)">— sert à « Mot de passe oublié »</span></label><input name="email" type="email" value="${esc(u.email||'')}" placeholder="prenom@entreprise.fr" autocapitalize="off"></div>
-      <div class="field"><label>Rôle</label><select name="role" onchange="userToggleRole(this.value)">${Object.entries(ROLE).filter(([k])=>currentUser.role==='admin'||!['admin','dr'].includes(k)).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">Le rôle décide de <b>ce que l'app fait toute seule</b> : fiche technicien créée ou non, qui peut valider, qui est administrateur. Il ne donne aucun droit à lui seul — c'est le profil ci-dessous, ou la liste des utilisateurs, qui les pose.</div></div>
+      <div class="field"><label>Rôle <span style="font-weight:400;color:var(--t3)">— juste un nom, pour s'y retrouver</span>${currentUser.role==='admin'?` <a onclick="rolesGerer()" style="color:var(--acc);cursor:pointer;text-decoration:underline;font-weight:400;font-size:12px">gérer les rôles</a>`:''}</label><select name="role" onchange="userToggleRole(this.value)">${rolesTous(u.role).filter(d=>currentUser.role==='admin'||!['admin','dr'].includes(d.cle)).map(d=>`<option value="${esc(d.cle)}" ${u.role===d.cle?'selected':''}>${esc(d.nom)}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px"><b>Le rôle n'ouvre aucun droit</b> : ce sont le profil ci-dessous et la ligne de la personne qui les posent. Il sert à s'y retrouver dans la liste — et il décide d'une seule chose : si une <b>fiche technicien</b> est créée (nécessaire pour les interventions, le véhicule et les pointages).</div></div>
       ${(!id&&currentUser.role==='admin')?`<div class="field"><label>Profil de droits <span style="font-weight:400;color:var(--t3)">— tout se met d'un coup</span></label>
         <select name="profil" id="nu-profil" onchange="nuProfilChange(this.value)">${[`<option value="">— aucun : le compte partira sans droits, à régler dans la liste —</option>`].concat(profilsDroits().slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'})).map(pr=>`<option value="${pr.id}">${esc(pr.nom)} — ${profilCompte(pr)}</option>`)).join('')}</select>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">${profilsDroits().length
@@ -21186,7 +21365,7 @@ function copieIdentifiants(btn){
   else toast('Copie impossible — note-les à la main');
 }
 function userToggleRole(role){
-  const el=document.getElementById('user-tech'); if(el) el.style.display=['technicien','chefEquipe'].includes(role)?'block':'none';
+  const el=document.getElementById('user-tech'); if(el) el.style.display=roleEstTech(role)?'block':'none';
   const isAdmin = role==='admin';
   const acc=document.getElementById('user-access'); if(acc) acc.style.display=isAdmin?'none':'block';
   const note=document.getElementById('user-admin-note'); if(note) note.style.display=isAdmin?'block':'none';
@@ -21199,9 +21378,9 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   const loginNorm=(d.login||'').trim().toLowerCase();
   if(db.users.some(x=>x.login&&x.login.toLowerCase()===loginNorm&&x.id!==id)){ toast('Identifiant déjà utilisé'); return; }
   // Rôle technicien/chef → crée ou met à jour la fiche technicien liée automatiquement
-  const isTech=['technicien','chefEquipe'].includes(d.role);
+  const isTech=roleEstTech(d.role);
   let techId=d.techId||'';
-  if(isTech){ const metier = d.role==='chefEquipe' ? "Chef d'équipe" : 'Technicien'; const nomComplet=((d.prenom||'')+' '+(d.nom||'')).trim();
+  if(isTech){ const metier = roleLbl(d.role) || 'Technicien'; const nomComplet=((d.prenom||'')+' '+(d.nom||'')).trim();
     let t = techId ? db.techniciens.find(x=>x.id===techId) : null;
     if(!t && !id){ t=db.techniciens.find(x=>nomNorm(x.nom)===nomNorm(nomComplet) && !db.users.some(u=>u.techId===x.id))||null; if(t) techId=t.id; }   // même nom déjà en fiche technicien (sans compte) : on relie au lieu de doubler
     if(t){ Object.assign(t,{nom:nomComplet,tel:d.tel||'',departements:d.departements||'',couleur:d.couleur||'',metier}); }
@@ -21226,7 +21405,7 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   const appliquerRattaches=(cible)=>{ if(!cible) return; (db.users||[]).forEach(x=>{ if(!x||x.id===cible) return;
     if(drRattaches.has(x.id)) x.drId=cible; else if(x.drId===cible) x.drId=''; }); };
   if(id){ const ix=db.users.findIndex(x=>x.id===id); db.users[ix]={...db.users[ix],prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),chefId:(d.chefId||''),role:d.role,techId,actif:d.actif==='true',acces,boxValidDR:(d.boxValidDR!==undefined)};
-    if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=ROLE[currentUser.role]||'Technicien'; renderNav(); } toast('Mis à jour'); }
+    if(currentUser.id===id){ currentUser=db.users[ix]; const fn=fullName(currentUser); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); const fn2=$('foot-name'); if(fn2) fn2.textContent=fn; const fr=$('foot-role'); if(fr) fr.textContent=roleLbl(currentUser.role)||'Technicien'; renderNav(); } toast('Mis à jour'); }
   else{ if(db.users.length>=500){toast('Limite de 500 comptes atteinte');return;}
     if((d.pwd||'').length>0 && (d.pwd||'').length<8){ toast('Mot de passe provisoire : 8 caractères minimum (ou laisse-le vide)'); return; }
     // un non-administrateur (droit « Créer des utilisateurs ») ne peut créer que des rôles terrain
@@ -21304,6 +21483,10 @@ async function delUserConfirme(){
     const j=await r.json().catch(()=>({}));
     if(!r.ok||!j.ok){ show(j.error==='expiré'?'Code expiré — relance la suppression.':'Code incorrect.'); return; }
     db.users=db.users.filter(x=>x.id!==delUserCible);
+    /* PIERRE TOMBALE — sans elle, la fusion des comptes (syncPush / réception) ferait revenir
+       ce compte au premier appareil qui l'a encore en mémoire. Une suppression doit voyager
+       aussi sûrement qu'une création. */
+    db.usersSupprimes=usersTombesFusion(db,{usersSupprimes:[{id:delUserCible,ts:Date.now()}]});
     utilisateurNettoyer(u);   // retiré partout : fiche technicien archivée, box, groupes, planning à venir
     logEvent('Utilisateur supprimé (confirmé par code e-mail)','@'+(u.login||''),'auth');
     save(); delUserCible=''; closeModal(); toast('Compte supprimé'); views.utilisateurs();
@@ -21316,7 +21499,7 @@ function formAccess(id){ const u=db.users.find(x=>x.id===id); if(!u)return; if(c
   const mods=NAV.flatMap(s=>s.items).filter(it=>it.k!=='dashboard');
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal();views.utilisateurs()">Fermer</button><h3>Accès — ${esc(fullName(u))}</h3><button type="button" class="btn sm" onclick="closeModal();views.utilisateurs()">OK</button></div>
     <div style="padding:2px">
-      <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:10px">Rôle : <b>${esc(ROLE[u.role]||'')}</b>. Coche exactement ce que cette personne peut <b>faire</b> et <b>voir</b> — ça remplace les réglages du rôle. <button class="btn ghost sm" style="margin-left:4px" onclick="accessReset('${u.id}')">↩︎ Suivre le rôle</button></p>
+      <p style="color:var(--t2);font-size:13px;line-height:1.6;margin-bottom:10px">Rôle : <b>${esc(roleLbl(u.role)||'')}</b>. Coche exactement ce que cette personne peut <b>faire</b> et <b>voir</b> — ça remplace les réglages du rôle. <button class="btn ghost sm" style="margin-left:4px" onclick="accessReset('${u.id}')">↩︎ Suivre le rôle</button></p>
       <div class="form-sec">Droits d'action</div>
       <div class="fgroup">${caps.map(([k,l])=>`<div class="perm-row"><div class="pn">${l}</div><label class="switch"><input type="checkbox" ${userCap(u,k)?'checked':''} onchange="accessSetCap('${u.id}','${k}',this.checked)"><span class="track"></span><span class="knob"></span></label></div>`).join('')}</div>
       <div class="form-sec">Modules visibles</div>
@@ -21348,7 +21531,7 @@ views.permissions=function(){
   permMode='role';
   const perso=false;
   const sujet=perso?db.users.find(u=>u.id===permSelUser):{role:permRole};
-  const nomSujet=perso?fullName(sujet||{}):('tous les « '+(ROLE[permRole]||permRole)+' »');
+  const nomSujet=perso?fullName(sujet||{}):('tous les « '+(roleLbl(permRole)||permRole)+' »');
   const provCap=k=>{ if(perso){ const ov=sujet&&sujet.acces&&sujet.acces.caps; if(ov&&Object.prototype.hasOwnProperty.call(ov,k)) return 'perso'; }
     const rp=db.permissions&&db.permissions[sujet.role]&&db.permissions[sujet.role].caps; if(rp&&Object.prototype.hasOwnProperty.call(rp,k)) return 'role'; return ''; };
   const provMod=k=>{ if(perso){ const ov=sujet&&sujet.acces&&sujet.acces.modules; if(ov&&Object.prototype.hasOwnProperty.call(ov,k)) return 'perso'; }
@@ -21398,12 +21581,12 @@ views.permissions=function(){
 };
 function permSetMod(k,val){
   if(permMode==='perso'){ const u=db.users.find(x=>x.id===permSelUser); if(!u) return; u.acces=u.acces||{caps:{},modules:{}}; u.acces.modules=u.acces.modules||{}; u.acces.modules[k]=val; logEvent('Permission modifiée','@'+(u.login||'')+' · menu '+k+' : '+(val?'visible':'masqué'),'auth'); }
-  else { (db.permissions[permRole]=db.permissions[permRole]||{})[k]=val; logEvent('Permission modifiée',(ROLE[permRole]||permRole)+' · menu '+k+' : '+(val?'visible':'masqué'),'auth'); }
+  else { (db.permissions[permRole]=db.permissions[permRole]||{})[k]=val; logEvent('Permission modifiée',(roleLbl(permRole)||permRole)+' · menu '+k+' : '+(val?'visible':'masqué'),'auth'); }
   save(); views.permissions();
 }
 function permSetCap(k,val){
   if(permMode==='perso'){ const u=db.users.find(x=>x.id===permSelUser); if(!u) return; u.acces=u.acces||{caps:{},modules:{}}; u.acces.caps=u.acces.caps||{}; u.acces.caps[k]=val; logEvent('Permission modifiée','@'+(u.login||'')+' · '+k+' : '+(val?'autorisé':'refusé'),'auth'); }
-  else { const p=(db.permissions[permRole]=db.permissions[permRole]||{}); (p.caps=p.caps||{})[k]=val; logEvent('Permission modifiée',(ROLE[permRole]||permRole)+' · '+k+' : '+(val?'autorisé':'refusé'),'auth'); }
+  else { const p=(db.permissions[permRole]=db.permissions[permRole]||{}); (p.caps=p.caps||{})[k]=val; logEvent('Permission modifiée',(roleLbl(permRole)||permRole)+' · '+k+' : '+(val?'autorisé':'refusé'),'auth'); }
   save(); views.permissions();
 }
 function permSetBox(boxId,val){
@@ -21776,7 +21959,7 @@ views.parametres=function(){
     <div class="card"><div class="card-head"><h3>🔐 Mon compte</h3></div>
       <div class="detail-grid" style="margin-bottom:12px">
         <div><div class="dt-lbl">Identifiant</div><div class="dt-val mono">${esc(currentUser.login||'')}</div></div>
-        <div><div class="dt-lbl">Rôle</div><div class="dt-val">${esc(ROLE[currentUser.role]||'')}${entrepriseNom()?' · '+esc(entrepriseNom()):''}</div></div>
+        <div><div class="dt-lbl">Rôle</div><div class="dt-val">${esc(roleLbl(currentUser.role)||'')}${entrepriseNom()?' · '+esc(entrepriseNom()):''}</div></div>
         <div style="grid-column:1/-1"><div class="dt-lbl">E-mail de récupération</div><div class="dt-val">${currentUser.email?esc(currentUser.email):'<span style="color:var(--org,#e8a33d)">⚠️ aucun — « Mot de passe oublié ? » ne pourra pas t\'aider</span>'}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -24175,7 +24358,7 @@ function formTelecollecte(id){
   // Valeur "personne" : on garde la personne du relevé, sinon l'utilisateur connecté (fonctionne pour TOUS les rôles)
   const curVal = r.declarantId?('u:'+r.declarantId):(r.techId?('t:'+r.techId):('u:'+currentUser.id));
   const curName = r.declarantNom || (r.techId?techName(r.techId):'') || fullName(currentUser);
-  const peopleOpts = (db.users||[]).filter(u=>u.actif!==false).map(u=>`<option value="u:${u.id}" ${('u:'+u.id)===curVal?'selected':''}>${esc(fullName(u))} · ${esc(ROLE[u.role]||'')}</option>`).join('')
+  const peopleOpts = (db.users||[]).filter(u=>u.actif!==false).map(u=>`<option value="u:${u.id}" ${('u:'+u.id)===curVal?'selected':''}>${esc(fullName(u))} · ${esc(roleLbl(u.role)||'')}</option>`).join('')
     + (db.techniciens||[]).filter(t=>!(db.users||[]).some(u=>u.techId===t.id)).map(t=>`<option value="t:${t.id}" ${('t:'+t.id)===curVal?'selected':''}>${esc(t.nom)} · Technicien</option>`).join('');
   const lbl='display:block;font-weight:700;font-size:15px;color:var(--t1);margin-bottom:2px';
   const req='color:#EF4444;font-weight:700';
@@ -25153,7 +25336,7 @@ function formGroupe(id){ db.groupes=db.groupes||[]; const g=id?db.groupes.find(x
         <input type="file" accept="image/*" id="grp-photo-file" style="display:none" onchange="groupeAddPhoto(event)"></div>
       <div class="field"><label>Nom du groupe *</label><input name="nom" required value="${esc(g.nom||'')}" placeholder="Ex : Équipe Sud, Tournée 17…"></div>
       <div class="field"><label>Membres — chefs &amp; techniciens (${users.length})</label>
-        <div class="fgroup" style="max-height:46vh;overflow-y:auto">${users.length?users.map(u=>`<div class="frow"><span class="frow-lbl">${esc(fullName(u))} <span style="color:var(--t3);font-size:12px">· ${esc(ROLE[u.role]||u.role||'')}</span></span><div class="frow-val"><input type="checkbox" name="m_${u.id}" ${checked(u)?'checked':''} style="width:40px;height:24px;accent-color:var(--acc)"></div></div>`).join(''):'<div class="frow" style="color:var(--t3)">Aucun utilisateur — crée des comptes dans Utilisateurs</div>'}</div></div>
+        <div class="fgroup" style="max-height:46vh;overflow-y:auto">${users.length?users.map(u=>`<div class="frow"><span class="frow-lbl">${esc(fullName(u))} <span style="color:var(--t3);font-size:12px">· ${esc(roleLbl(u.role)||u.role||'')}</span></span><div class="frow-val"><input type="checkbox" name="m_${u.id}" ${checked(u)?'checked':''} style="width:40px;height:24px;accent-color:var(--acc)"></div></div>`).join(''):'<div class="frow" style="color:var(--t3)">Aucun utilisateur — crée des comptes dans Utilisateurs</div>'}</div></div>
       <div class="modal-foot">${id?`<button type="button" class="btn danger" onclick="delGroupe('${id}')">Supprimer</button>`:''}<button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
   renderGroupePhoto(); }
 function saveGroupe(e,id){ e.preventDefault(); db.groupes=db.groupes||[]; const f=Object.fromEntries(new FormData(e.target));
@@ -25963,15 +26146,15 @@ function enterApp(u){ currentUser=u;
   const av=$('app-ver'); if(av) av.textContent=APP_VERSION;
   const fn=fullName(u); const bi=$('brand-ini'); if(bi) bi.textContent=initials(fn); userAvatarApply();
   const bh=$('brand-hi'); if(bh) bh.textContent='Bonjour '+(u.prenom||fn.split(' ')[0]||'')+',';
-  const br=$('brand-role'); if(br) br.textContent=ROLE[u.role]||'Technicien';
+  const br=$('brand-role'); if(br) br.textContent=roleLbl(u.role)||'Technicien';
   const fa=$('foot-ava'); if(fa&&!u.photo) fa.textContent=initials(fn);
   const fn2=$('foot-name'); if(fn2) fn2.textContent=fn;
-  const fr=$('foot-role'); if(fr) fr.textContent=(ROLE[u.role]||'Technicien')+(db.entreprise&&db.entreprise.nom?' · '+db.entreprise.nom:'');
+  const fr=$('foot-role'); if(fr) fr.textContent=(roleLbl(u.role)||'Technicien')+(db.entreprise&&db.entreprise.nom?' · '+db.entreprise.nom:'');
   suiteRefresh();
   try{ notifSeenCharger(); }catch(e){}   // notifications « vues » propres à ce compte
   const ta=$('topbar-ava'); if(ta) ta.textContent=initials(fn);
   asstMsgs=[]; asstOpen=false; renderAsst();
-  startI18n(); renderNav(); logEvent('Connexion',`${fn} (@${u.login}) — ${ROLE[u.role]||''}`,'auth'); save();
+  startI18n(); renderNav(); logEvent('Connexion',`${fn} (@${u.login}) — ${roleLbl(u.role)||''}`,'auth'); save();
   try{ cnxSignaler(_cnxVia==='session'?'session':'connexion',{user:u}); _cnxVia='identifiants'; }catch(e){}
   // vue demandée par l'adresse (#v=…) : seulement si ce compte y a droit — sinon tableau de bord, sans message (l'adresse peut venir d'un autre compte sur le même appareil)
   (function(){ const m=location.hash.match(/v=([A-Za-z0-9_-]+)/); let v=m&&views[m[1]]?m[1]:'dashboard'; try{ if(v!=='dashboard'){ let it=null; NAV.forEach(s=>s.items.forEach(x=>{ if(x.k===(v==='carteBox'?'boxes':v)) it=x; })); if(it&&!canSee(it)) v='dashboard'; } }catch(e){} go(v); })();
@@ -26553,7 +26736,7 @@ CONSIGNES :
 - Adapte au rôle de la personne et ne promets jamais une fonction qui n'existe pas.
 - Si la question sort du périmètre de l'app, recentre gentiment.`;
 const stripHtml = h => (h||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-function asstContext(){ const role=ROLE[currentUser.role]||currentUser.role;
+function asstContext(){ const role=roleLbl(currentUser.role)||currentUser.role;
   const bas=db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).length;
   const da=can('validerDR')?db.demandes.filter(d=>d.statut==='enAttente').length:null;
   return `CONTEXTE TEMPS RÉEL — Personne connectée : ${fullName(currentUser)}, rôle « ${role} ». Application v${APP_VERSION}. Alertes : ${bas} produit(s) sous le seuil${da!=null?`, ${da} demande(s) en attente de validation`:''}.`; }
