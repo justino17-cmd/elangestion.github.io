@@ -4781,6 +4781,14 @@ function compteSupprimer(login){
       toast('Suppression ordonnée — l’identifiant ne peut plus entrer ; le compte part au prochain appareil ouvert'); chargerDossier(DOS.nom); });
   }).catch(function(){ toast('Serveur injoignable'); });
 }
+function compteReautoriser(login){
+  var d=(DOS&&DOS.d)||{}; if(!d.t) return;
+  if(!confirm('Réautoriser l’identifiant « '+login+' » ?\n\nIl pourra de nouveau être déposé dans l’annuaire par l’entreprise (un nouveau salarié du même nom, par exemple).')) return;
+  apiPost('/api/monitor/compte/reautoriser',{t:d.t,login:login}).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    toast('Identifiant réautorisé'); chargerDossier(DOS.nom);
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
 /* Le bouton demandé par Justin devant la liste d'ELAN (« supprime bien tout ici ») : ces
    identifiants n'existent nulle part, on efface les tentatives qui les font apparaître. */
 function tentativesEffacer(){
@@ -4818,9 +4826,18 @@ function blocUtilisateurs(){
         (u.bloques?'<span class="past p-ambre" title="écritures refusées : version bloquée ou appareil en retard">🔒 '+u.bloques+'</span>':'')+
         (jamais&&u.dansAnnuaire?'<span class="past p-gris">inutilisé</span>':'')+
         (u.attente?'<span class="past p-ambre" title="ordonnée depuis la Tour ; exécutée au premier appareil de l’entreprise qui s’ouvre">⏳ suppression en attente</span>':'')+
-        (MYROLE==='patron'&&!u.attente?'<button class="btn-fant danger" style="padding:4px 10px;font-size:12px" onclick="compteSupprimer(\''+jsq(u.login)+'\')">Supprimer</button>':'')+
+        (u.supprime?'<span class="past p-gris" title="exécutée par un appareil de l’entreprise ; l’identifiant reste banni de l’annuaire tant que tu ne le réautorises pas">🚫 supprimé · banni</span>':'')+
+        (MYROLE==='patron'&&!u.attente&&!u.supprime?'<button class="btn-fant danger" style="padding:4px 10px;font-size:12px" onclick="compteSupprimer(\''+jsq(u.login)+'\')">Supprimer</button>':'')+
       '</div>'; };
-  return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+vrais.length+'</span></div>'+
+  var sv=d.sauvegarde||{}, bannis=d.bannis||[];
+  return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px">'+
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">🗂 Copies de sauvegarde chiffrées sur notre serveur : '+
+      (sv.possible===false?'<span style="color:var(--amber)">impossible — espace hors annuaire, aucune clé d’équipe connue du serveur</span>':((sv.n||0)+(sv.derniere?' · dernière '+cnxDepuis(sv.derniere):' · aucune encore (elles arrivent avec la v621, au plus une par demi-heure et par appareil)')))+'</div>'+
+    /* Les identifiants supprimés depuis la Tour restent bannis de l'annuaire — un appareil ne peut
+       pas lever ça, seul le patron le peut, ici. Sans ce bloc, un ban invisible serait un ban
+       qu'on ne comprend plus le jour où l'entreprise embauche quelqu'un du même nom. */
+    (bannis.length?'<div style="font-size:12px;color:var(--muted);margin-bottom:10px">🚫 Identifiants bannis de l’annuaire (supprimés depuis la Tour) : '+bannis.map(function(b){ return '<span class="mono">'+esc(b.login)+'</span>'+(b.fait?'':' <span style="color:var(--amber)">(pas encore exécuté)</span>')+(MYROLE==='patron'?' <a onclick="compteReautoriser(\''+jsq(b.login)+'\')" style="cursor:pointer">réautoriser</a>':''); }).join(' · ')+'</div>':'')+
+    '<div class="sec">LEURS UTILISATEURS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+vrais.length+'</span></div>'+
     '<div style="margin-top:9px">'+vrais.map(ligne).join('')+'</div>'+
     (tapes.length?'<div class="sec" style="margin-top:16px;color:var(--amber)">'+tapes.length+' IDENTIFIANT'+(tapes.length>1?'S':'')+' TAPÉ'+(tapes.length>1?'S':'')+' QUI N’EXISTE'+(tapes.length>1?'NT':'')+' PAS</div>'+
       '<div style="font-size:12px;color:var(--text2);line-height:1.55;margin-top:6px">Quelqu’un a tapé ces identifiants et ça a échoué. Ce ne sont pas des comptes : il n’y a rien à supprimer — le compte n’a jamais été créé, ou il a été perdu avant d’être déposé dans l’annuaire. Si la personne doit travailler, l’entreprise crée son compte.</div>'+

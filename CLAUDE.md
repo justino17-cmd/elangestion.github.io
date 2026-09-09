@@ -284,7 +284,7 @@ manifeste de l'app). La pastille verte « OP » de la Tour n'est qu'un repère d
   partielle. Surveiller l'ancien, c'est attendre pour toujours.
 - **`pkill -f <motif>` se tue lui-même** quand le motif figure dans sa propre ligne de
   commande — le reste de la ligne n'est jamais exécuté (code 144). Passer par le PID.
-- **`FOURNISSEURS_ELAN` (`app.html:4496`) N'EST PAS la faute de `REPORT_TEMPLATES`** — cette
+- **`FOURNISSEURS_ELAN` (renommée `FOURNISSEURS_3D` le 10 septembre 2026, v621 — le nom mentait) N'EST PAS la faute de `REPORT_TEMPLATES`** — cette
   fiche l'a affirmé du 8 septembre 2026 au matin, à tort, et la phrase a suffi à lancer une
   suppression. Vérifié champ par champ avant de toucher : les cinq entrées (ARMOSA, ENSYSTEX,
   SODIF, MABI, ORCAD) sont les fournisseurs **du métier de la 3D**, entreprises publiques,
