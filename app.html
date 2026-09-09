@@ -2953,6 +2953,12 @@ html[data-refonte] .plm-j.cal{
   background:var(--card)!important;color:var(--t1)!important;border-color:transparent!important;box-shadow:var(--rf-pastille)}
 html[data-refonte] .pf-b:hover,html[data-refonte] .pf-ib:hover{border-color:transparent!important;color:var(--t1)!important}
 html[data-refonte] .pf-nav u,html[data-refonte] .pf-nav .auj{min-width:30px;min-height:30px;border-radius:8px}
+/* Barre des profils de droits — au-dessus du « Valider », parce qu'on pose AVANT de relire. */
+.usr-pf{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0 0;padding-top:12px;
+  border-top:1px dashed color-mix(in srgb,var(--brd) 80%,transparent)}
+.usr-pf-s{flex:1;min-width:190px;background:var(--card2);border:1px solid var(--brd2);border-radius:10px;
+  padding:9px 10px;color:var(--t1);font-size:13px;font-family:inherit}
+.usr-pf .btn{flex-shrink:0}
 /* Bandeau « les sorties vont à … » — même famille visuelle que la pastille « Donné à » du
    journal des mouvements (violet), pour qu'on relie les deux d'un coup d'œil. */
 .bdn{display:flex;align-items:center;gap:10px;padding:10px 13px;margin:0 0 10px;border-radius:12px;
@@ -4763,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '609';
+const APP_VERSION = '610';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -15349,16 +15355,62 @@ function plValider(){ if(!_plLignes.length){ toast('Colle d\'abord ta liste de p
   toast(n?n+' produit(s) ajoutés et rangés par catégorie':'Rien à ajouter (déjà existants)'); prdOnglet='perso'; views.produits();
 }
 function prdBoxCount(p){ return db.boxes.filter(b=>b.stock&&b.stock[p.id]).length; }
+/* ⛔ « J'AI TOUJOURS PAS LES BÂCHES » — Justin, 9 septembre 2026, deux fois.
+   Elles ÉTAIENT là : cinq bâches MABI, dans le catalogue fournisseur, trouvables en tapant
+   « bache ». Mais dans le MAUVAIS écran. « Produits » cherche dans SA liste ; le catalogue
+   des 2 809 références vit derrière le bouton 🏭 Fournisseurs, et rien ne dit qu'il existe
+   au moment où l'on cherche. On cherche, on ne trouve pas, on conclut que ça n'existe pas —
+   et on a raison de le conclure : rien à l'écran ne dit le contraire.
+   La recherche qui échoue est donc devenue le pont : elle va voir dans le catalogue et
+   propose de poser ce qu'elle y trouve, sans changer d'écran. */
+function prdCatalogueTrouve(q){
+  if(!q||q.length<2||typeof CATFOUR==='undefined') return [];
+  const ici=new Set((db.produits||[]).map(p=>norm(p.nom||'')));
+  const out=[];
+  for(let i=0;i<CATFOUR.length;i++){ const x=CATFOUR[i];
+    if(!norm(x[0]+' '+(x[1]||'')+' '+x[2]).includes(q)) continue;
+    if(ici.has(norm(x[0]))) continue;          // déjà chez lui : ce n'est pas un manque
+    out.push(i); }
+  return out;
+}
+function prdCataloguePont(q,dejaVus){
+  const idx=prdCatalogueTrouve(q); if(!idx.length) return '';
+  const n=idx.length, ex=idx.slice(0,3).map(i=>CATFOUR[i][0]);
+  const fours=[...new Set(idx.map(i=>CATFOUR[i][2]))];
+  return `<div class="card" style="margin:0 0 12px;border-color:color-mix(in srgb,var(--acc) 40%,transparent);background:color-mix(in srgb,var(--acc) 6%,transparent)">
+    <div style="display:flex;gap:11px;align-items:flex-start;flex-wrap:wrap">
+      <span style="font-size:19px;line-height:1.2">🏭</span>
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:800;font-size:13.5px;color:var(--t1)">${n} produit${n>1?'s':''} ${dejaVus?'de plus ':''}dans les catalogues fournisseurs</div>
+        <div style="font-size:12.5px;color:var(--t2);line-height:1.55;margin-top:3px">${esc(ex.join(' · '))}${n>3?' … ':''}<br><span style="color:var(--t3)">Chez ${esc(fours.join(', '))} — pas encore dans ta liste.</span></div>
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <button type="button" class="btn ghost sm" onclick="openFourCat();setTimeout(()=>{fcQ=${JSON.stringify(prdSearch)};fcMax=80;const i=document.getElementById('fc-q');if(i)i.value=fcQ;renderFourCat();},80)">Voir</button>
+        <button type="button" class="btn sm" onclick="prdPontAjouter()">＋ Ajouter ${n>1?'les '+n:''}</button>
+      </div>
+    </div></div>`;
+}
+/* Le pont pose exactement ce qu'il annonce : les résultats de LA recherche affichée, ni plus
+   ni moins. Il réutilise le même écrivain que le catalogue (aucun prix, même forme de fiche). */
+function prdPontAjouter(){
+  const idx=prdCatalogueTrouve(norm(prdSearch)); if(!idx.length){ toast('Rien à ajouter'); return; }
+  if(idx.length>60 && !confirm('Ajouter '+idx.length+' produits à ton catalogue ?\n\nCe sont les résultats de « '+prdSearch+' » dans les catalogues fournisseurs.')) return;
+  let n=0;
+  idx.forEach(i=>{ const x=CATFOUR[i];
+    db.produits.push({id:uid(),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0}); n++; });
+  logEvent('Produits ajoutés depuis le catalogue',n+' — recherche « '+prdSearch+' »','crud');
+  save(); toast(n+' produit(s) ajoutés — ils sont dans ta liste',4200); views.produits();
+}
 function renderProduitsList(){
   const el=$('prd-list'); if(!el) return;
   const q=norm(prdSearch);
   let list=db.produits.filter(p=> prdOnglet==='tous' || (prdOnglet==='perso'?!!p.perso:!p.perso));
   list=list.filter(p=> !q || norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+(p.fournisseurs||[]).join(' ')).includes(q));
-  if(!list.length){ el.innerHTML=`<div class="card">${emptyState('📦',prdOnglet==='perso'?'Aucun produit à toi pour l\'instant — ajoute-les un par un (＋ Produit) ou colle ta liste entière (＋ Liste).':'Aucun produit trouvé.','Ajouter','formProduit()')}</div>`; return; }
+  if(!list.length){ el.innerHTML=prdCataloguePont(q,false)+`<div class="card">${emptyState('📦',prdOnglet==='perso'?'Aucun produit à toi pour l\'instant — ajoute-les un par un (＋ Produit) ou colle ta liste entière (＋ Liste).':'Aucun produit trouvé.','Ajouter','formProduit()')}</div>`; return; }
   // Regroupé par catégorie, dans l'ordre officiel ELAN puis les autres
   const groups={}; list.forEach(p=>{ const c=p.categorie||'Sans catégorie'; (groups[c]=groups[c]||[]).push(p); });
   const orderedCats=[...CAT_LIST.filter(c=>groups[c]),...Object.keys(groups).filter(c=>!CAT_LIST.includes(c)).sort()];
-  el.innerHTML=`<div style="font-size:12px;color:var(--t3);margin:2px 2px 10px">${list.length} produit(s) · ${orderedCats.length} catégorie(s)</div>`+orderedCats.map(cat=>{
+  el.innerHTML=(q?prdCataloguePont(q,true):'')+`<div style="font-size:12px;color:var(--t3);margin:2px 2px 10px">${list.length} produit(s) · ${orderedCats.length} catégorie(s)</div>`+orderedCats.map(cat=>{
     const col=catColor(cat); const prods=groups[cat].slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
     const open = !!q || prdExpanded[cat];
     const rows=open? prods.map(p=>{ const e=boxEtat(p.qte); const bc=prdBoxCount(p);
@@ -15932,7 +15984,13 @@ views.mouvements=function(){
       ${ouvert?`<div style="padding:2px 12px 4px;background:color-mix(in srgb,var(--brd) 30%,transparent)">${jourCartes(arr)}</div>`:''}</div>`;
   }).join('');
   const demoOn=db.mouvements.some(m=>m._demo);
-  const bandeauDemo=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin')?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Remplit le journal avec des exemples de tout : bon de commande, ajouts, consommations, validations DR, remises, mois passés. Tout est marqué (démo) et se retire d'un clic.</div></div>${demoOn?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>`:`<button type="button" class="btn ghost sm" onclick="mvtDemoPoser()">Petite simulation</button> <button type="button" class="btn sm" onclick="mvtDemoGrande()">Tout le catalogue · 6 mois</button>`}</div>`:'';
+  /* ⛔ POSER est réservé à la bêta — RETIRER ne l'est plus. Le bouton d'effacement était
+     conditionné au même test que les boutons de mise en place : des données de démonstration
+     arrivées dans un espace de production (par une sauvegarde .json reprise de la bêta, par
+     exemple) y seraient restées VISIBLES ET INEFFAÇABLES, sans un mot pour le dire. Un piège
+     qu'on ne peut pas défaire ne doit pas exister. */
+  const demoBeta=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin');
+  const bandeauDemo=(demoBeta||(demoOn&&currentUser&&currentUser.role==='admin'))?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Remplit le journal avec des exemples de tout : bon de commande, ajouts, consommations, validations DR, remises, mois passés. Tout est marqué (démo) et se retire d'un clic.</div></div>${demoOn?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer()">Retirer la simulation</button>`:(demoBeta?`<button type="button" class="btn ghost sm" onclick="mvtDemoPoser()">Petite simulation</button> <button type="button" class="btn sm" onclick="mvtDemoGrande()">Tout le catalogue · 6 mois</button>`:'')}</div>`:'';
   $('content').innerHTML=tuiles+barre+bandeauDemo
     +`<div style="font-size:12.5px;color:var(--t3);margin:0 2px 10px">Ce journal s'écrit tout seul : chaque ajout ou retrait dans une box, chaque clôture d'intervention, chaque arrivage et chaque bon de remise y laisse une trace — rangé par jour puis par box, avec le nom de la personne qui l'a fait et de celle qui a validé.</div>`
     +(list.length?cartes:`<div class="card">${emptyState('🔁',(mvtFType||mvtFBox)?'Aucun mouvement ne correspond à ce filtre.':'Aucun mouvement pour l\'instant. Ils apparaîtront automatiquement dès que le stock bouge.','','')}</div>`);
@@ -17817,8 +17875,11 @@ function saveDemande(e){ e.preventDefault(); const f=Object.fromEntries(new Form
 /* ═══════════════ VALIDATIONS DR ═══════════════ */
 views.validations=function(){
   setHeader('Validations DR','Demandes de commande et mouvements de box');
-  const demoV=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin');
+  /* demoOnV se lit AVANT demoV : une const utilisée avant sa déclaration lève une
+     ReferenceError à l'exécution, que le contrôle de syntaxe ne voit pas. */
   const demoOnV=(db.boxMvtAttente||[]).some(m=>m._demo)||db.mouvements.some(m=>m._demo);
+  const demoVBeta=(APP_VERSION.indexOf('beta')>=0&&currentUser&&currentUser.role==='admin');
+  const demoV=demoVBeta||(demoOnV&&currentUser&&currentUser.role==='admin');
   // le DR / l'admin voit tout ; les autres ne voient que LEURS demandes et LEURS mouvements (avec la décision du DR)
   const att=visibleDemandes(db.demandes).filter(d=>d.statut==='enAttente');
   const autres=visibleDemandes(db.demandes).filter(d=>d.statut!=='enAttente').sort((a,b)=>(b.dateValidation||b.date||'').localeCompare(a.dateValidation||a.date||''));
@@ -17838,7 +17899,7 @@ views.validations=function(){
   const blocMv=`<div class="card"><div class="card-head"><h3>Mouvements de box (${mv.length})</h3></div>
     ${mv.length? mv.map(m=>mvRow(m)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button> <button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`+mvEcart(m)).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
   </div>`;
-  const bandeauV=demoV?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Pose des mouvements et une demande en attente de ton Valider, pour tester le circuit DR en vrai. Tout est marqué (démo).</div></div>${demoOnV?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer();views.validations()">Retirer la simulation</button>`:`<button type="button" class="btn sm" onclick="mvtDemoPoser();views.validations()">Lancer la simulation</button>`}</div>`:'';
+  const bandeauV=demoV?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Pose des mouvements et une demande en attente de ton Valider, pour tester le circuit DR en vrai. Tout est marqué (démo).</div></div>${demoOnV?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer();views.validations()">Retirer la simulation</button>`:(demoVBeta?`<button type="button" class="btn sm" onclick="mvtDemoPoser();views.validations()">Lancer la simulation</button>`:'')}</div>`:'';
   $('content').innerHTML=bandeauV+blocMv+`<div class="card"><div class="card-head"><h3>Demandes de commande (${att.length})</h3></div>
     ${att.length? att.map(d=>row(d)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="validerDemande('${d.id}','refuse')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
   </div>${(autres.length||mvHisto.length)?`<div class="card"><div class="card-head"><h3>Historique</h3></div>
@@ -20715,8 +20776,112 @@ function usrDroitsHtml(u,admin){
   return `<div class="usr-d" id="usr-d-${u.id}">
     <div class="usr-res">Voit <b>${vus}</b> menus sur ${tousMods.length} · ${toutVoir?'<b>toutes</b> les box':'<b>'+nBox+'</b> box'}${userCap(u,'validerDR')?' · <b>valide</b> les mouvements et demandes':''}${perso?'':' · <span class="usr-x">suit son rôle, rien de réglé à part</span>'}</div>
     ${cats}${autresHtml}${boxHtml}
-    ${admin?`<div class="usr-b"><button type="button" class="btn" onclick="usrDroitsValider('${u.id}')">✓ Valider ses droits</button>${perso?`<a class="usr-lk" onclick="usrDroitsRole('${u.id}')">↩ Effacer ce qui est réglé à part — revenir au rôle</a>`:''}</div>`:'<div class="usr-x" style="margin-top:10px">Seul un administrateur peut modifier les droits.</div>'}
+    ${admin?`<div class="usr-pf">
+      ${profilsDroits().length?`<select class="usr-pf-s" onchange="profilAppliquer('${u.id}',this.value);this.value=''">
+        <option value="">🎛 Appliquer un profil…</option>
+        ${profilsDroits().slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'})).map(pr=>`<option value="${pr.id}">${esc(pr.nom)} — ${profilCompte(pr)}</option>`).join('')}
+      </select>`:''}
+      <button type="button" class="btn ghost sm" onclick="profilEnregistrer('${u.id}')" title="Garder ces droits comme modèle réutilisable">💾 Enregistrer comme profil</button>
+      ${profilsDroits().length?`<button type="button" class="btn ghost sm" onclick="profilsGerer()">Gérer</button>`:''}
+    </div>
+    <div class="usr-b"><button type="button" class="btn" onclick="usrDroitsValider('${u.id}')">✓ Valider ses droits</button>${perso?`<a class="usr-lk" onclick="usrDroitsRole('${u.id}')">↩ Effacer ce qui est réglé à part — revenir au rôle</a>`:''}</div>`:'<div class="usr-x" style="margin-top:10px">Seul un administrateur peut modifier les droits.</div>'}
   </div>`;
+}
+/* ══════════ PROFILS DE DROITS ═══════════════════════════════════════════════════════════
+   Demande de Justin, 9 septembre 2026 : « ce profil-là permettra qu'il mette quelqu'un — par
+   exemple je dis chef d'équipe — et tout se met automatiquement. Comme ça ils n'ont pas besoin
+   de tout faire à chaque fois, tout sélectionner. »
+   Le constat qui l'a amené là : depuis que les droits se cochent dans la liste des
+   utilisateurs (v585), créer un compte ne les pose plus — il faut ouvrir sa ligne et régler
+   79 interrupteurs, à la main, pour chaque personne. Au troisième technicien, on renonce.
+
+   Un profil est donc une PHOTO des droits, nommée par le métier réel de l'entreprise
+   (« Technicien 3D », « Chef d'équipe Nord »…), qu'on pose d'un geste.
+
+   ⛔ Trois décisions qui tiennent ensemble :
+   · un profil porte les MENUS et les ACTIONS, jamais les BOX. Une box dépend du secteur de la
+     personne, pas de son métier : la poser par profil rattacherait un nouveau à des box qui ne
+     sont pas les siennes, en silence ;
+   · appliquer un profil COCHE, mais n'enregistre pas. On relit, puis on valide — même règle
+     que partout ailleurs dans cet écran ;
+   · le RÔLE reste ce qu'il est (il commande la fiche technicien, les valideurs DR,
+     l'administrateur). Le profil ne le remplace pas, il l'habille. */
+function profilsDroits(){ if(!Array.isArray(db.profilsDroits)) db.profilsDroits=[]; return db.profilsDroits; }
+function profilDroits(pid){ return profilsDroits().find(x=>x&&x.id===pid)||null; }
+/* Les droits « cat_<groupe>_<action> » ont leur propre interrupteur ; les autres portent le
+   préfixe « cap_ ». Une seule fonction pour ne pas se tromper de nom des deux côtés. */
+const profilNomSw=k=>(String(k).indexOf('cat_')===0?k:('cap_'+k));
+function profilLireZone(zone){
+  const val=n=>{ const c=zone.querySelector('[data-d="'+n+'"]'); return c?!!c.checked:null; };
+  const caps={}, modules={};
+  USER_CAPS.forEach(([k])=>{ const v=val('cap_'+k); if(v!==null) caps[k]=v; });
+  PERM_GRPS.forEach(([g])=>{ ['ajouter','modifier','supprimer'].forEach(d=>{ const v=val('cat_'+g+'_'+d); if(v!==null) caps['cat_'+g+'_'+d]=v; }); });
+  NAV.flatMap(x=>x.items).forEach(m=>{ const v=val('mod_'+m.k); if(v!==null) modules[m.k]=v; });
+  return {caps,modules};
+}
+function profilPoserZone(zone,pr){
+  let n=0;
+  const set=(nom,v)=>{ const c=zone.querySelector('[data-d="'+nom+'"]'); if(c&&!c.disabled){ c.checked=!!v; n++; } };
+  Object.keys(pr.caps||{}).forEach(k=>set(profilNomSw(k),pr.caps[k]));
+  Object.keys(pr.modules||{}).forEach(k=>set('mod_'+k,pr.modules[k]));
+  const vt=zone.querySelector('[data-d="cap_voirTout"]'); if(vt) usrVoirTout(vt);
+  return n;
+}
+function profilCompte(pr){
+  const c=Object.keys(pr.caps||{}).filter(k=>pr.caps[k]).length;
+  const m=Object.keys(pr.modules||{}).filter(k=>pr.modules[k]).length;
+  return m+' menu'+(m>1?'s':'')+' · '+c+' droit'+(c>1?'s':'');
+}
+/* Appliquer depuis la ligne d'un utilisateur : on coche, on ne valide pas. */
+function profilAppliquer(uid,pid){
+  if(!pid) return;
+  const pr=profilDroits(pid); if(!pr){ toast('Profil introuvable'); return; }
+  const zone=document.getElementById('usr-d-'+uid); if(!zone) return;
+  const n=profilPoserZone(zone,pr);
+  toast('Profil « '+pr.nom+' » posé sur '+n+' réglage(s) — relis, puis « Valider ses droits »',5200);
+}
+/* Enregistrer ce qui est coché À L'ÉCRAN comme profil : ce qu'on voit est ce qu'on garde. */
+function profilEnregistrer(uid){
+  if(!currentUser||currentUser.role!=='admin'){ toast('Réservé aux administrateurs'); return; }
+  const zone=document.getElementById('usr-d-'+uid); if(!zone) return;
+  const nom=(prompt('Nom du profil — écris le métier tel que vous l\'appelez :\n(ex : Technicien 3D, Chef d\'équipe Nord, Commercial terrain)')||'').trim();
+  if(!nom) return;
+  const dej=profilsDroits().find(x=>norm(x.nom)===norm(nom));
+  if(dej && !confirm('Un profil « '+dej.nom+' » existe déjà.\n\nLe remplacer par ce qui est coché ici ?')) return;
+  const lu=profilLireZone(zone);
+  if(dej){ dej.caps=lu.caps; dej.modules=lu.modules; dej.ts=Date.now(); dej.par=fullName(currentUser); }
+  else profilsDroits().push({id:uid_(),nom:nom,ts:Date.now(),par:fullName(currentUser),caps:lu.caps,modules:lu.modules});
+  logEvent(dej?'Profil de droits mis à jour':'Profil de droits créé',nom,'auth');
+  save(); toast('✓ Profil « '+nom+' » '+(dej?'mis à jour':'créé')+' — proposé à la création d\'un compte',4600);
+  views.utilisateurs();
+}
+/* uid() est déjà pris par le générateur d'identifiants ; on l'appelle sous un autre nom ici
+   pour ne pas masquer le paramètre `uid` des fonctions ci-dessus. */
+function uid_(){ return uid(); }
+function profilSupprimer(pid){
+  if(!currentUser||currentUser.role!=='admin') return;
+  const pr=profilDroits(pid); if(!pr) return;
+  if(!confirm('Supprimer le profil « '+pr.nom+' » ?\n\nLes comptes déjà créés avec ne changent pas : un profil ne fait que poser des cases, il ne les tient pas.')) return;
+  db.profilsDroits=profilsDroits().filter(x=>x.id!==pid);
+  logEvent('Profil de droits supprimé',pr.nom,'auth'); save(); toast('Profil supprimé'); profilsGerer();
+}
+function profilRenommer(pid){
+  if(!currentUser||currentUser.role!=='admin') return;
+  const pr=profilDroits(pid); if(!pr) return;
+  const n=(prompt('Nouveau nom du profil :',pr.nom)||'').trim(); if(!n||n===pr.nom) return;
+  pr.nom=n; save(); toast('Profil renommé'); profilsGerer();
+}
+function profilsGerer(){
+  const admin=currentUser&&currentUser.role==='admin';
+  const l=profilsDroits().slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'}));
+  openModal('<div class="modal-head"><h3>🎛 Profils de droits</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'+
+    '<p style="color:var(--t2);font-size:13px;line-height:1.65;margin-bottom:14px">Un profil est une <b>photo des droits</b> qu\'on pose d\'un geste sur un nouveau compte, au lieu de cocher 79 interrupteurs à chaque fois.<br><span style="color:var(--t3)">Pour en créer un : ouvre la ligne de quelqu\'un qui a déjà les bons droits, puis « Enregistrer comme profil ». Les <b>box</b> n\'en font pas partie — elles dépendent du secteur de la personne, pas de son métier.</span></p>'+
+    (l.length?l.map(function(pr){ return '<div class="pl-row" style="align-items:center">'+
+        '<div class="pl-info"><div class="pl-title">🎛 '+esc(pr.nom)+'</div>'+
+        '<div class="pl-meta">'+profilCompte(pr)+(pr.par?' · par '+esc(pr.par):'')+(pr.ts?' · '+fmtShort(new Date(pr.ts).toISOString().slice(0,10)):'')+'</div></div>'+
+        (admin?'<span style="display:flex;gap:6px"><button type="button" class="btn ghost sm" onclick="profilRenommer(\''+pr.id+'\')">✎</button><button type="button" class="btn danger sm" onclick="profilSupprimer(\''+pr.id+'\')">🗑</button></span>':'')+
+      '</div>'; }).join('')
+     : '<div class="card" style="text-align:center;color:var(--t3);font-size:13px;padding:20px">Aucun profil pour l\'instant.<br><span style="font-size:12px">Règle les droits de quelqu\'un, puis « Enregistrer comme profil » sur sa ligne.</span></div>'));
 }
 /* « Tout voir » et les box se contredisent : l'un caché, l'autre montré, en direct. */
 function usrVoirTout(cb){ const d=cb.closest('.usr-d'); const bx=d&&d.querySelector('.usr-box'); if(bx) bx.style.display=cb.checked?'none':'block'; }
@@ -20816,7 +20981,12 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
         <div class="field"><label>Nom *</label><input name="nom" required value="${esc(u.nom)}" ${id?'':'oninput="nuLoginAuto()"'}></div></div>
       <div class="field"><label>Identifiant *</label><input name="login" id="nu-login" required value="${esc(u.login)}" placeholder="ex : marc" autocapitalize="off" ${id?'':'oninput="this.dataset.libre=\'1\'"'}>${id?'':'<div style="font-size:11px;color:var(--t3);margin-top:4px">Se remplit tout seul à partir du prénom — tu peux le modifier, maintenant ou plus tard.</div>'}</div>
       <div class="field"><label>E-mail <span style="font-weight:400;color:var(--t3)">— sert à « Mot de passe oublié »</span></label><input name="email" type="email" value="${esc(u.email||'')}" placeholder="prenom@entreprise.fr" autocapitalize="off"></div>
-      <div class="field"><label>Rôle</label><select name="role" onchange="userToggleRole(this.value)">${Object.entries(ROLE).filter(([k])=>currentUser.role==='admin'||!['admin','dr'].includes(k)).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">Le rôle pré-remplit les cases ci-dessous. Ce que tu enregistres ici fait loi <b>pour cette personne</b> : coché = elle y a accès, décoché = elle n'y a pas accès.</div></div>
+      <div class="field"><label>Rôle</label><select name="role" onchange="userToggleRole(this.value)">${Object.entries(ROLE).filter(([k])=>currentUser.role==='admin'||!['admin','dr'].includes(k)).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">Le rôle décide de <b>ce que l'app fait toute seule</b> : fiche technicien créée ou non, qui peut valider, qui est administrateur. Il ne donne aucun droit à lui seul — c'est le profil ci-dessous, ou la liste des utilisateurs, qui les pose.</div></div>
+      ${(!id&&currentUser.role==='admin')?`<div class="field"><label>Profil de droits <span style="font-weight:400;color:var(--t3)">— tout se met d'un coup</span></label>
+        <select name="profil" id="nu-profil">${[`<option value="">— aucun : le compte partira sans droits, à régler dans la liste —</option>`].concat(profilsDroits().slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'})).map(pr=>`<option value="${pr.id}">${esc(pr.nom)} — ${profilCompte(pr)}</option>`)).join('')}</select>
+        <div style="font-size:11px;color:var(--t3);margin-top:4px">${profilsDroits().length
+          ? 'Choisis le métier : menus et actions sont posés automatiquement à la création. <b>Les box ne sont pas dedans</b> — elles dépendent du secteur de la personne, coche-les ensuite sur sa ligne. <a onclick="profilsGerer()" style="color:var(--acc);cursor:pointer;text-decoration:underline">Gérer les profils</a>'
+          : 'Aucun profil pour l\'instant. Pour en créer un : règle les droits de quelqu\'un dans la liste des utilisateurs, puis « 💾 Enregistrer comme profil » sur sa ligne — il sera proposé ici à chaque création.'}</div></div>`:''}
       <input type="hidden" name="techId" value="${esc(u.techId||'')}">
       <div id="user-tech" style="display:${isTech?'block':'none'}">
         <div class="form-sec" style="margin:2px 0 10px">Fiche technicien <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--t3)">— créée automatiquement</span></div>
@@ -20949,6 +21119,13 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
      jusqu'à ce qu'on ouvre ses droits et qu'on valide. */
   const ancien=(id?(db.users.find(x=>x.id===id)||{}).acces:null)||{};
   const acces={ caps: Object.assign({}, ancien.caps||{}), modules: Object.assign({}, ancien.modules||{}) };
+  /* Le profil ne s'applique QU'À LA CRÉATION, et seulement s'il a été choisi. À la
+     modification, il n'apparaît même pas : réappliquer un profil en corrigeant un numéro de
+     téléphone écraserait des droits réglés à la main depuis. Pour reposer un profil sur un
+     compte existant, on passe par sa ligne — on voit ce qu'on change avant de valider. */
+  let _profilPose='';
+  if(!id && d.profil){ const pr=profilDroits(d.profil);
+    if(pr){ Object.assign(acces.caps, pr.caps||{}); Object.assign(acces.modules, pr.modules||{}); _profilPose=pr.nom; } }
   // rattachements pris depuis la fiche du valideur : on pose ou on retire drId sur chaque compte
   const appliquerRattaches=(cible)=>{ if(!cible) return; (db.users||[]).forEach(x=>{ if(!x||x.id===cible) return;
     if(drRattaches.has(x.id)) x.drId=cible; else if(x.drId===cible) x.drId=''; }); };
@@ -20968,7 +21145,7 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     }
     const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),chefId:(d.chefId||''),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
     db.users.push(nu);
-    logEvent('Utilisateur créé',`@${loginNorm}`,'auth');
+    logEvent('Utilisateur créé',`@${loginNorm}`+(_profilPose?' — profil « '+_profilPose+' »':''),'auth');
     save(); closeModal(); views.utilisateurs();
     setTimeout(()=>userIdentifiantsModal(nu,pwd),120);
     return; }
