@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '610-beta';
+const APP_VERSION = '611-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -20945,7 +20945,41 @@ const USER_CAPS=[
 function peutCommander(){ if(!currentUser) return false; if(currentUser.role==='admin') return true;
   return !userCap(currentUser,'bonsLectureSeule'); }
 function refusCommander(){ toast('Consultation seule : tu vois les commandes et leur PDF, mais tu n’en passes pas.',4200); }
+/* ══════════ LES BOX, CHOISIES DÈS LA CRÉATION ═══════════════════════════════════════════
+   Demande de Justin, 9 septembre 2026 : « il choisit chef d'équipe. Est-ce qu'il doit voir un
+   box ? Il clique sur box et la liste des fils, et il doit voir QUE ce box. »
+   C'était le seul trou de la séquence : on créait le compte, puis il fallait rouvrir sa ligne
+   dans la liste pour lui ouvrir ses box. Deux écrans pour un seul geste — et, en pratique, la
+   deuxième moitié oubliée.
+   ⛔ Un profil de droits ne porte JAMAIS les box (voir profilsDroits) : une box tient au
+   secteur de la personne, pas à son métier. C'est donc ici, et seulement ici, qu'on les pose.
+   ⛔ À la MODIFICATION, ce bloc n'apparaît pas : les box d'un compte existant se règlent sur
+   sa ligne, où l'on voit d'où vient chaque ouverture. Deux endroits pour le même réglage,
+   c'est la faute qu'on a corrigée en supprimant l'écran « Permissions ». */
+let nuBoxes=new Set(), nuBoxTout=false;
+function nuBoxHtml(){
+  const bs=(db.boxes||[]).filter(b=>b&&b.actif!==false);
+  if(!bs.length) return `<div class="field"><label>Box qu'il ouvre</label>
+    <div style="font-size:12px;color:var(--t3)">Aucune box créée pour l'instant. Tu pourras les lui ouvrir depuis sa ligne, une fois les box en place.</div></div>`;
+  return `<div class="field" id="nu-box-bloc" style="display:${nuBoxTout?'none':'block'}"><label>📦 Box qu'il ouvre <span style="font-weight:400;color:var(--t3)">— coche celles qu'il doit voir</span></label>
+    <div style="max-height:220px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">
+      ${bs.map(b=>`<label style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer">
+        <input type="checkbox" ${nuBoxes.has(b.id)?'checked':''} onchange="this.checked?nuBoxes.add('${b.id}'):nuBoxes.delete('${b.id}')" style="width:18px;height:18px;accent-color:var(--acc)">
+        <span style="flex:1;min-width:0">🧱 ${esc(b.nom||b.numero||'Box')}${b.visibleTous?' <span style="color:var(--t3);font-size:11.5px">· ouverte à toute l\'équipe</span>':''}</span></label>`).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--t3);margin-top:4px">Il n'ouvrira <b>que</b> les box cochées. Décocher une box <b>ouverte à toute l'équipe</b> la lui ferme à lui seul, sans rien changer pour les autres. Modifiable ensuite depuis sa ligne.</div></div>
+    <div id="nu-box-tout" style="display:${nuBoxTout?'block':'none'}"><div class="fgroup" style="padding:12px 14px;font-size:12.5px;color:var(--t2);line-height:1.55">📦 Ce profil donne <b>« Tout voir »</b> : ce compte ouvrira <b>toutes</b> les box, y compris celles créées plus tard. Il n'y a rien à cocher.</div></div>`;
+}
+/* Le profil choisi décide si la question des box se pose : « Tout voir » la rend sans objet. */
+function nuProfilChange(pid){
+  const pr=pid?profilDroits(pid):null;
+  nuBoxTout=!!(pr&&pr.caps&&pr.caps.voirTout);
+  const b=document.getElementById('nu-box-bloc'), t=document.getElementById('nu-box-tout');
+  if(b) b.style.display=nuBoxTout?'none':'block';
+  if(t) t.style.display=nuBoxTout?'block':'none';
+}
 function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUserNew=!id; window._formUserRole0=u.role||'technicien';
+  if(!id){ nuBoxes=new Set(); nuBoxTout=false; }
   // Rattachements vus depuis le DR : avec 65 techniciens, ouvrir 65 fiches n'a pas de sens.
   // Même donnée que le champ « Directeur régional responsable », lue dans l'autre sens.
   drRattaches = new Set((db.users||[]).filter(x=>x&&id&&x.drId===id).map(x=>x.id));
@@ -20966,6 +21000,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
       <div class="field"><label>Directeur régional responsable</label>
         <select name="drId">${[`<option value="">— aucun (tous les DR sont prévenus) —</option>`].concat(valideursDR().filter(x=>x.id!==u.id).map(x=>`<option value="${x.id}" ${u.drId===x.id?'selected':''}>${esc(fullName(x))}</option>`)).join('')}</select>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Ses demandes et ses mouvements de box partent à ce DR, et lui seul les voit dans « Validations DR ». Sans DR choisi, tous les valideurs sont prévenus, comme avant.</div></div>
+      ${!id?nuBoxHtml():''}
       ${id&&capOf('validerDR')?`<div class="field"><label>Personnes rattachées à ce valideur</label>
         <div style="max-height:210px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">${(db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==id).map(x=>`
           <label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer">
@@ -20983,7 +21018,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
       <div class="field"><label>E-mail <span style="font-weight:400;color:var(--t3)">— sert à « Mot de passe oublié »</span></label><input name="email" type="email" value="${esc(u.email||'')}" placeholder="prenom@entreprise.fr" autocapitalize="off"></div>
       <div class="field"><label>Rôle</label><select name="role" onchange="userToggleRole(this.value)">${Object.entries(ROLE).filter(([k])=>currentUser.role==='admin'||!['admin','dr'].includes(k)).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select><div style="font-size:11px;color:var(--t3);margin-top:4px">Le rôle décide de <b>ce que l'app fait toute seule</b> : fiche technicien créée ou non, qui peut valider, qui est administrateur. Il ne donne aucun droit à lui seul — c'est le profil ci-dessous, ou la liste des utilisateurs, qui les pose.</div></div>
       ${(!id&&currentUser.role==='admin')?`<div class="field"><label>Profil de droits <span style="font-weight:400;color:var(--t3)">— tout se met d'un coup</span></label>
-        <select name="profil" id="nu-profil">${[`<option value="">— aucun : le compte partira sans droits, à régler dans la liste —</option>`].concat(profilsDroits().slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'})).map(pr=>`<option value="${pr.id}">${esc(pr.nom)} — ${profilCompte(pr)}</option>`)).join('')}</select>
+        <select name="profil" id="nu-profil" onchange="nuProfilChange(this.value)">${[`<option value="">— aucun : le compte partira sans droits, à régler dans la liste —</option>`].concat(profilsDroits().slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'})).map(pr=>`<option value="${pr.id}">${esc(pr.nom)} — ${profilCompte(pr)}</option>`)).join('')}</select>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">${profilsDroits().length
           ? 'Choisis le métier : menus et actions sont posés automatiquement à la création. <b>Les box ne sont pas dedans</b> — elles dépendent du secteur de la personne, coche-les ensuite sur sa ligne. <a onclick="profilsGerer()" style="color:var(--acc);cursor:pointer;text-decoration:underline">Gérer les profils</a>'
           : 'Aucun profil pour l\'instant. Pour en créer un : règle les droits de quelqu\'un dans la liste des utilisateurs, puis « 💾 Enregistrer comme profil » sur sa ligne — il sera proposé ici à chaque création.'}</div></div>`:''}
@@ -20994,13 +21029,13 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
         <div class="field"><label>Secteur — départements</label><input name="departements" value="${esc(lt?lt.departements:'')}" placeholder="Ex : 85 Vendée, 17, 44"><div style="font-size:11px;color:var(--t3);margin-top:4px">Sert à l'affectation auto et à « ses » interventions.</div></div>
         <div class="field"><label>Couleur (carte)</label><select name="couleur"><option value="">Auto</option>${(TECH_PALETTE||[]).map((c,i)=>`<option value="${c}" ${lt&&lt.couleur===c?'selected':''}>${['Vert','Bleu','Violet','Orange','Rouge','Cyan','Jaune','Rose'][i]||c}</option>`).join('')}</select></div>
       </div>
+      ${accSection}
       ${id?`<div class="field"><label>Statut</label><select name="actif"><option value="true" ${u.actif?'selected':''}>Actif</option><option value="false" ${!u.actif?'selected':''}>Désactivé</option></select></div>`
           :`<div class="field"><label>Mot de passe provisoire *</label>
              <div style="display:flex;gap:8px"><input name="pwd" id="nu-pwd" required minlength="8" value="${esc(mdpProvisoire())}" style="flex:1;font-family:var(--mono,monospace)" autocomplete="new-password" autocapitalize="off"><button type="button" class="btn ghost" title="En générer un autre" onclick="document.getElementById('nu-pwd').value=mdpProvisoire()">🎲</button></div>
              <div style="font-size:11px;color:var(--t3);margin-top:4px"><b>Obligatoire</b> (8 caractères minimum) — proposé tout seul, tu peux le changer. Il est <b>envoyé par e-mail</b> à la personne avec le <b>lien de connexion de l'entreprise</b> (si un e-mail est renseigné ci-dessus) et affiché pour que tu puisses aussi le lui transmettre. À sa première connexion, l'app lui fera choisir son propre mot de passe.</div></div>
            ${(entrepriseNom()||!localStorage.getItem('elanB_sync_team'))?'':`<div class="field" style="background:color-mix(in srgb,var(--org,#e8a33d) 10%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 40%,transparent);border-radius:12px;padding:10px 12px"><label>Nom de ton entreprise *</label><input name="entNom" required placeholder="ex : GCI" autocomplete="organization">
              <div style="font-size:11px;color:var(--t3);margin-top:4px">Pas encore renseigné : il est <b>obligatoire</b>, car il est mis <b>dans le lien de connexion</b> et affiché à tes utilisateurs sur l'écran de connexion : « Vous allez vous connecter à l'entreprise <b>…</b> ».</div></div>`}`}
-      ${accSection}
       <div class="modal-foot"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button><button type="submit" class="btn">${id?'Enregistrer':'Créer'}</button></div></form>`);
 }
 /* Identifiant proposé tout seul depuis le prénom (+ nom si déjà pris), tant qu'on ne l'a pas modifié à la main */
@@ -21145,7 +21180,13 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
     }
     const nu={id:uid(),prenom:d.prenom,nom:d.nom,login:loginNorm,email:(d.email||'').trim(),drId:(d.drId||''),chefId:(d.chefId||''),role:d.role,techId,actif:true,acces,boxValidDR:(d.boxValidDR!==undefined),pwdHash:await sha256(pwd),mustChangePwd:true};
     db.users.push(nu);
-    logEvent('Utilisateur créé',`@${loginNorm}`+(_profilPose?' — profil « '+_profilPose+' »':''),'auth');
+    /* Les box se posent APRÈS la création : userBoxVoit a besoin de l'identifiant du compte.
+       On passe TOUTES les box, cochées ou non — décocher une box ouverte à toute l'équipe doit
+       poser une exception, c'est précisément ce que fait userBoxVoit avec `false`. */
+    let _nBox=0;
+    if(!acces.caps.voirTout){ (db.boxes||[]).filter(b=>b&&b.actif!==false).forEach(b=>{
+      const on=nuBoxes.has(b.id); userBoxVoit(nu.id,b.id,on); if(on) _nBox++; }); }
+    logEvent('Utilisateur créé',`@${loginNorm}`+(_profilPose?' — profil « '+_profilPose+' »':'')+(acces.caps.voirTout?' — toutes les box':_nBox?' — '+_nBox+' box':''),'auth');
     save(); closeModal(); views.utilisateurs();
     setTimeout(()=>userIdentifiantsModal(nu,pwd),120);
     return; }
