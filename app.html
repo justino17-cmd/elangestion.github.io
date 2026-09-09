@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '617';
+const APP_VERSION = '618';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5926,8 +5926,14 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
     const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db));
     /* `verNum` est ce que la règle Firestore compare au minimum exigé. Un refus « permission-denied »
        ici ne veut plus dire « pas authentifié » : il veut dire « cette version n'est plus acceptée ». */
-    _fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||''),verNum:APP_VERSION_NUM})
-      .catch(er=>{ console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){} }); }catch(er){ console.error('encrypt',er); } };
+    /* Une écriture que le serveur n'a pas acquittée en 15 s est une écriture en file d'attente
+       chez un appareil qui se croit en ligne. On la déclare hors ligne : la page se rechargera
+       au retour du réseau, ce qui jette la file — la base de l'équipe fait foi. */
+    let _acquitte=false;
+    const _ecriture=_fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||''),verNum:APP_VERSION_NUM});
+    setTimeout(()=>{ if(!_acquitte){ _horsLignePush=true; try{ horsLigneDebut('écriture sans réponse'); }catch(_e){} } },15000);
+    _ecriture.then(()=>{ _acquitte=true; })
+      .catch(er=>{ _acquitte=true; console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){} }); }catch(er){ console.error('encrypt',er); } };
 
   if(now) go(); else _syncTimer=setTimeout(go,800); }
 /* ══ LE GARDE-FOU DU RÉTRÉCISSEMENT ══
@@ -27276,6 +27282,23 @@ try{
   window.addEventListener('offline',()=>{ try{ horsLigneDebut('réseau coupé'); }catch(e){} });
   window.addEventListener('online',()=>{ try{ horsLigneReprise(false); }catch(e){} });
 }catch(e){}
+/* ══ LE BATTEMENT — on ne demande pas au navigateur, on vérifie ══
+   Justin, 10 septembre 2026, 0 h 23 : « j'ai coupé le wifi mais ça marche, c'est normal ? ».
+   Non. `navigator.onLine` reste vrai dès qu'une interface existe (Ethernet, partage de
+   connexion, VPN), et Safari le laisse à vrai bien après la coupure. Le seul signal fiable est
+   une réponse de notre serveur : toutes les 20 s (et au retour au premier plan), un HEAD sur
+   /health. Deux échecs de suite = hors ligne, quoi qu'en dise le navigateur. */
+let _hbEchecs=0,_hbPas=20000,_hbTimer=null;
+async function battement(){
+  clearTimeout(_hbTimer);
+  let ok=false;
+  try{ const c=new AbortController(); const t=setTimeout(()=>c.abort(),8000);
+    const r=await fetch(PUSH_API+'/health',{method:'HEAD',cache:'no-store',signal:c.signal}); clearTimeout(t); ok=!!(r&&r.ok); }catch(e){}
+  if(ok){ _hbEchecs=0; if(_horsLigne) horsLigneReprise(false); }
+  else { _hbEchecs++; if(_hbEchecs>=2) horsLigneDebut('serveur injoignable'); }
+  _hbTimer=setTimeout(battement,_hbPas);
+}
+try{ setTimeout(battement,5000); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ _hbEchecs=Math.max(_hbEchecs,1); battement(); } }); }catch(e){}
 /* ══════════ LA MISE À JOUR SE DEMANDE, MAIS ELLE INSISTE ═══════════════════════════════
    Retour en arrière assumé, décidé par Justin le 8 septembre 2026 après l'avoir essayé :
    « remets le bouton mise à jour, c'est plus sûr — et s'ils ne la font pas, ça leur met un
