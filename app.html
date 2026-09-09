@@ -26993,7 +26993,7 @@ function updateSyncBtn(){ const b=$('sync-btn'); if(!b) return; b.style.color=_s
 /* Bannière « nouvelle version » */
 function showUpdateBanner(){ if($('update-banner')) return; const d=document.createElement('div'); d.id='update-banner';
   d.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));z-index:130;background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:12px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5);display:flex;gap:12px;align-items:center';
-  d.innerHTML='Mise à jour disponible'+(typeof majAttenteTxt==='function'?majAttenteTxt():'')+' <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
+  d.innerHTML='Mise à jour — elle se fera dès que tu auras fini'+(typeof majAttenteTxt==='function'?majAttenteTxt():'')+' <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
   document.body.appendChild(d); }
 /* « Mettre à jour » : on demande d'abord au service worker de ranger la version fraîche
    (réseau lent compris), puis on recharge — sinon l'ancienne copie revenait et le bandeau avec. */
@@ -27024,11 +27024,82 @@ function majAppliquer(){ const b=$('update-banner'); if(b) b.innerHTML='⏳ Mise
    · et désormais l'insistance : le bandeau REVIENT toutes les dix minutes tant que la mise à
      jour n'est pas faite. Le fermer le repousse de dix minutes, il ne l'éteint pas. */
 let _majArmee=false, _majTimer=null, _majDepuis=0;
+/* ══════════ LA MISE À JOUR SE FAIT TOUTE SEULE — MAIS JAMAIS AU MAUVAIS MOMENT ══════════
+   Justin, 9 septembre 2026, après la panne de perte de comptes : « le problème du bouton
+   mise à jour, tout le monde ne va pas le faire, et ça crée des bugs. C'est à nous de forcer
+   la mise à jour, et qu'elle refasse une synchronisation derrière. Que ça se fasse
+   automatiquement pour tout le monde, même s'ils sont sur l'application — sauf s'ils sont en
+   train de gérer quelque chose. Leurs modifications restent enregistrées : les modifications
+   sont faites, et la mise à jour se fait derrière. »
+
+   ⛔ POURQUOI ON REVIENT SUR LA DÉCISION DU 8 SEPTEMBRE. Ce jour-là, l'automatique avait été
+   retiré au profit du bouton (« remets le bouton, c'est plus sûr »). La panne du 9 a montré
+   le coût de ce choix : six appareils sur quatre versions, et un seul appareil resté en
+   arrière suffisait à effacer les comptes de tout le monde. Un bouton qu'une personne sur
+   deux ne touche jamais n'est pas un contrôle, c'est une panne différée.
+   Ce qui rendait l'automatique dangereux, c'était de recharger AU MILIEU D'UN GESTE. On ne
+   supprime donc pas la prudence, on la déplace : la mise à jour attend d'être au bon moment.
+
+   « Occupé » veut dire quelque chose de précis, et se lit dans l'état réel de la page :
+   · une fenêtre est ouverte (formulaire, pavé de saisie, comparatif de réception…) ;
+   · le curseur est dans un champ — quelqu'un écrit ;
+   · une synchro attend d'être poussée (elle est retardée de 800 ms) ;
+   · le scanner ou la caméra tourne ;
+   · un geste a eu lieu il y a moins de 8 secondes.
+   Tant que l'une de ces conditions tient, on repasse dans 5 secondes. Jamais de rechargement
+   par-dessus quelqu'un qui travaille. */
+let _majAuto=false, _majAutoTimer=null, _dernierGeste=0;
+try{ ['pointerdown','keydown','touchstart'].forEach(function(e){
+  document.addEventListener(e,function(){ _dernierGeste=Date.now(); },{passive:true,capture:true}); }); }catch(e){}
+function majOccupe(){
+  try{
+    const ov=document.getElementById('overlay');
+    if(ov&&ov.classList.contains('open')) return 'une fenêtre est ouverte';
+    const a=document.activeElement;
+    if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName||'')) return 'quelqu\'un écrit';
+    if(typeof _syncTimer!=='undefined'&&_syncTimer) return 'une synchro attend d\'être poussée';
+    if(typeof scanTimer!=='undefined'&&scanTimer) return 'le scanner tourne';
+    if(typeof scanStream!=='undefined'&&scanStream) return 'la caméra tourne';
+    if(_dernierGeste&&Date.now()-_dernierGeste<8000) return 'geste en cours';
+  }catch(e){}
+  return '';
+}
+/* Le rechargement ne part QUE quand la page est libre, et jamais sans avoir poussé d'abord.
+   `syncPush(true)` écrit tout de suite ; on lui laisse 1,2 s pour que le chiffrement et
+   l'écriture Firestore aboutissent avant que la page disparaisse. */
+function majAutoArmer(){
+  if(_majAuto) return; _majAuto=true;
+  const essayer=function(){
+    if(!_majAuto) return;
+    const occ=majOccupe();
+    if(occ){ _majAutoTimer=setTimeout(essayer,5000); return; }
+    try{ localStorage.setItem('elan_maj_depuis',String(APP_VERSION||'')); }catch(e){}
+    try{ if(typeof syncPush==='function') syncPush(true); }catch(e){}
+    try{ toast('Mise à jour — l\'application se recharge…',1600); }catch(e){}
+    setTimeout(function(){ try{ majAppliquer(); }catch(e){ try{ location.reload(); }catch(_){} } },1200);
+  };
+  _majAutoTimer=setTimeout(essayer,4000);
+}
 function majArmer(){
   if(_majArmee) return; _majArmee=true; _majDepuis=Date.now();
   try{ showUpdateBanner(); }catch(e){ try{ toast('Mise à jour disponible'); }catch(_){} }
   clearInterval(_majTimer);
   _majTimer=setInterval(()=>{ try{ showUpdateBanner(); }catch(e){} },600000);
+  /* Le bandeau reste — il dit ce qui se passe, et permet de partir tout de suite à qui le
+     veut. Mais on ne dépend plus de son clic. */
+  try{ majAutoArmer(); }catch(e){}
+}
+/* ══════════ « C'EST FAIT » — la confirmation que Justin demandait ═══════════════════════
+   Une mise à jour silencieuse laisse un doute : est-ce qu'elle a eu lieu ? On garde la
+   version d'AVANT au moment de partir, et on le dit au retour. Une seule fois. */
+function majConfirmer(){
+  try{
+    const av=localStorage.getItem('elan_maj_depuis');
+    if(!av) return;
+    localStorage.removeItem('elan_maj_depuis');
+    if(String(av)===String(APP_VERSION||'')) return;   // rien n'a changé : on ne dit rien
+    setTimeout(function(){ try{ toast('✓ Mise à jour installée — version '+APP_VERSION,4200); }catch(e){} },1500);
+  }catch(e){}
 }
 /* Depuis combien de temps elle attend — c'est ce qui transforme un rappel en argument. */
 function majAttenteTxt(){
@@ -27092,6 +27163,7 @@ if('serviceWorker' in navigator){
     if(d.op!=='maj') return;
     try{ if(typeof majArmer==='function') majArmer(); else toast('Nouvelle version prête — rouvrez l\'application'); }catch(e){}
   }); }catch(e){}
+  try{ majConfirmer(); }catch(e){}
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('sw.js').then(reg=>{
       reg.update && reg.update();   // vérifie une mise à jour à chaque ouverture
