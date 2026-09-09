@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v812';
+const CACHE = 'elan-gestion-v813';
 const ASSETS = [
   './',
   'index.html',
@@ -62,6 +62,7 @@ self.addEventListener('activate', e => {
       try { await caches.delete(k); } catch (_) {}
     }
     await self.clients.claim();
+
   })());
 });
 
