@@ -13,6 +13,30 @@ de ligne du tout.
 
 ---
 
+## État au 10 septembre 2026, 1 h du matin — après la panne ELAN
+
+Tout ce qui suit est **en vigueur**, vérifié de bout en bout (serveur, Firestore lu avec les
+règles publiées, fichiers servis) :
+
+- **Version minimale exigée : v620**, réglée depuis la Tour, portée par `versions.json` et par
+  `teamop_config/version` (min 620). Google refuse toute écriture d'un appareil sous v620.
+- **Règles Firestore publiées dans `elan-gestion` = `firestore.rules`** : OP GESTION + espace
+  client, **sans la messagerie**. `op_companies` répond 403 — voulu. OP MESSAGES aura son projet
+  (`firestore-opmessages.rules`) ; `messages.html` est hors d'usage jusqu'à sa bascule.
+- **Mode en ligne seulement**, sans option ; battement vérifié toutes les 20 s.
+- **Trois ordres de suppression en attente chez ELAN** (`florent-2`, `florent-3`, `ludo`) : retirés
+  de l'annuaire, supprimés de l'application au premier appareil ELAN ouvert en v620. Le badge
+  « ⏳ suppression en attente » de la Tour doit disparaître après ça — si au 11 septembre au soir
+  il est toujours là, aucun appareil d'ELAN ne s'est ouvert, ou il faut regarder `ordres.json`.
+- Projet Firebase `Team-OP` (`team-op-3d413`) supprimé par Justin ; `Messagerie-ELAN` gardé.
+
+**À faire ensuite, par ordre d'importance :** la vraie cure (fusion par enregistrement des 27
+collections) ; calmer le battement de présence (une poussée de toute la base toutes les deux
+minutes par appareil — inoffensif, mais c'est ce qui gonfle les lectures Firestore) ; la bascule
+d'OP MESSAGES sur son projet ; mentionner le nom des salariés dans `sous-traitance.html`.
+
+---
+
 ## ⛔ La dette la plus grave : un seul teamId pour toutes les entreprises
 
 **Les cinq routes de messagerie ne sont plus le sujet — elles n'étaient que le symptôme.**
