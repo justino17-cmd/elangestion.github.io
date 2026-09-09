@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '614';
+const APP_VERSION = '615';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5786,7 +5786,41 @@ function usersFusionner(localUsers,remoteUsers,tombes,prioriteLocale){
   const second =prioriteLocale?(remoteUsers||[]):(localUsers||[]);
   premier.forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
   second .forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
-  return out;
+  return usersSansDoublonLogin(out);
+}
+/* ⛔ UN IDENTIFIANT, UN SEUL COMPTE — signalé par ELAN le 9 septembre 2026 : « il y a un
+   compte admin en double ».
+   C'est une conséquence directe de la fusion : elle réunit par IDENTIFIANT INTERNE (`id`).
+   Or, pendant la panne, la même personne a pu être RECRÉÉE sur un appareil qui ne voyait plus
+   son compte — même login, id différent. La fusion, faisant son travail, a rapporté les deux.
+   Ce n'est pas une donnée perdue, c'est une donnée en double : deux lignes « @florent », et
+   un annuaire de connexion qui porte deux empreintes pour le même identifiant.
+   On collapse donc par login, en gardant le compte le plus ÉTABLI. L'ordre de préférence est
+   écrit pour ne jamais enfermer quelqu'un dehors :
+   · JAMAIS celui avec lequel on est connecté — le retirer déconnecterait séance tenante ;
+   · celui qui a déjà choisi son mot de passe (mustChangePwd absent) : quelqu'un s'en sert ;
+   · celui qui porte une adresse e-mail (« mot de passe oublié » y est rattaché) ;
+   · à égalité, le premier venu — la priorité de la fusion a déjà tranché lequel est frais. */
+function usersSansDoublonLogin(list){
+  const par={}, sans=[];
+  (list||[]).forEach(u=>{ const k=String((u&&u.login)||'').trim().toLowerCase();
+    if(!k){ sans.push(u); return; } (par[k]=par[k]||[]).push(u); });
+  const score=u=>{
+    let n=0;
+    if(currentUser&&u.id===currentUser.id) n+=1000;      // jamais soi-même
+    if(u.pwdHash&&!u.mustChangePwd) n+=100;              // quelqu'un s'en sert vraiment
+    if(String(u.email||'').trim()) n+=10;
+    if(u.actif!==false) n+=1;
+    return n;
+  };
+  const out=[];
+  Object.keys(par).forEach(k=>{ const g=par[k];
+    if(g.length===1){ out.push(g[0]); return; }
+    const garde=g.slice().sort((a,b)=>score(b)-score(a))[0];
+    out.push(garde);
+    try{ logEvent('Doublon d\'identifiant fusionné','@'+k+' — '+(g.length-1)+' ligne(s) en trop retirée(s)','auth'); }catch(e){}
+  });
+  return out.concat(sans);
 }
 function usersTombesFusion(a,b){
   const m={}; [].concat(usersTombes(a),usersTombes(b)).forEach(x=>{ const id=(x&&x.id)||x; if(id) m[id]=(x&&x.ts)?x:{id:id,ts:(x&&x.ts)||0}; });
