@@ -1,5 +1,5 @@
 /* OP GESTION — Service Worker (mode hors-ligne) */
-const CACHE = 'elan-gestion-v812';
+const CACHE = 'elan-gestion-v813';
 const ASSETS = [
   './',
   'index.html',
@@ -63,40 +63,6 @@ self.addEventListener('activate', e => {
     }
     await self.clients.claim();
 
-    /* ══════════ RECHARGEMENT FORCÉ — UNE FOIS, À CETTE ACTIVATION ════════════════════════
-       Demandé par Justin le 9 septembre 2026, sur tous les appareils, après la panne de perte
-       de comptes (v613). La raison est précise et n'est pas le confort : tant qu'un appareil
-       reste sur une version d'avant le correctif, il peut ENCORE écraser les comptes créés
-       ailleurs. Chez ELAN, six appareils tournaient sur quatre versions (v604 à v612).
-       Attendre qu'ils cliquent sur le bandeau, c'est accepter que la panne continue.
-
-       ⛔ POURQUOI C'EST LE SERVICE WORKER QUI LE FAIT, ET PAS L'APPLICATION : on ne peut pas
-       changer le code déjà installé sur un appareil en v604. Le service worker, lui, est
-       re-téléchargé par le navigateur et par `reg.update()` à chaque ouverture — c'est le
-       SEUL chemin qui atteint une version ancienne.
-
-       ⛔ POURQUOI ÇA NE BOUCLE PAS : `activate` ne se déclenche qu'à l'installation d'un
-       NOUVEAU sw.js. Une fois activé, il ne se rejoue pas. Le rechargement est donc unique
-       par version publiée — jamais une boucle.
-
-       Trois précautions :
-       · on prévient d'abord la page (`op:'maj-avant-rechargement'`) et on laisse 1,8 s : les
-         versions récentes en profitent pour pousser ce qui attend (la synchro est retardée de
-         800 ms), les anciennes ignorent le message sans dommage ;
-       · on ne recharge QUE l'application (app.html / beta.html). Le site vitrine, la Tour et
-         l'espace client ne sont pas concernés — personne ne perd un formulaire de contact ;
-       · `navigate()` échoue silencieusement sur un client non contrôlé : on ne casse rien. */
-    try {
-      const ws = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-      const app = ws.filter(w => /\/(app|beta)\.html/.test(w.url || ''));
-      if (app.length) {
-        app.forEach(w => { try { w.postMessage({ op: 'maj-avant-rechargement' }); } catch (_) {} });
-        await new Promise(r => setTimeout(r, 1800));
-        for (const w of app) {
-          try { await w.navigate(w.url); } catch (_) { try { w.postMessage({ op: 'maj-recharge' }); } catch (_) {} }
-        }
-      }
-    } catch (_) {}
   })());
 });
 

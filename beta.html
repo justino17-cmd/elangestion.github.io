@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '613-beta';
+const APP_VERSION = '614-beta';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5689,14 +5689,28 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
         /* Le document reçu remplace tout — sauf les COMPTES, qu'on réunit avec les nôtres.
            Sans ça, l'appareil qui vient de créer trois comptes les perdrait à la première
            synchro venue d'un appareil resté en arrière, et ne les repousserait donc jamais. */
+        /* ⛔ ON REPOUSSE DÈS QUE NOTRE VUE DIFFÈRE DE CELLE DU NUAGE — pas seulement quand
+           la liste GRANDIT. La v613 ne renvoyait que les créations : une SUPPRESSION faite
+           ici ne repartait jamais, et le premier appareil qui avait encore le compte le
+           faisait revenir à la synchro suivante. Une suppression doit voyager aussi sûrement
+           qu'une création. */
+        let _repousser=false;
         try{ const tomb=usersTombesFusion(db,remote);
-          const av=(db.users||[]).length;
-          remote.users=usersFusionner(db.users,remote.users,tomb);
+          const distants=(remote.users||[]).length;
+          /* priorité au DISTANT : le document reçu est plus récent que nous, par construction
+             (on a vérifié d.ts > _syncTs juste au-dessus). */
+          remote.users=usersFusionner(db.users,remote.users,tomb,false);
           if(tomb.length) remote.usersSupprimes=tomb;
-          if(remote.users.length>((JSON.parse(plain).users)||[]).length){ setTimeout(()=>{ try{ syncPush(true); }catch(e){} },1200); }
-          void av;
-        }catch(e){}
+          _repousser = (remote.users.length!==distants)
+                    || (tomb.length!==usersTombes(remote).length)
+                    || (usersTombes(db).length>0 && usersTombes(db).length!==tomb.length);
+        }catch(e){
+          /* ⛔ SI LA FUSION ÉCHOUE, ON N'APPLIQUE PAS. Laisser passer `db=remote` après un
+             échec, c'est retomber exactement dans la panne d'origine — en silence. */
+          _syncApplying=false; return;
+        }
         _syncApplying=true; db=remote; localStorage.setItem(STORE_KEY,JSON.stringify(db)); _syncTs=d.ts||Date.now();
+        if(_repousser) setTimeout(()=>{ try{ syncPush(true); }catch(e){} },1200);
         try{ localStorage.removeItem('elanB_frais'); }catch(e){}
         if(currentUser&&!compteVerifier()){ _syncApplying=false; return; }   // supprimé / désactivé par l'entreprise → déconnecté
         try{ refreshBadges&&refreshBadges(); updateBell&&updateBell();
@@ -5758,13 +5772,20 @@ setInterval(()=>{ try{ if(!currentUser||!_syncOn||_syncApplying) return; const u
    box, des produits, des interventions. La fusion générale est un autre chantier, à mener
    seul et à tester longuement — on commence par ce qui enferme des gens dehors. */
 function usersTombes(base){ const t=(base&&base.usersSupprimes)||[]; return Array.isArray(t)?t:[]; }
-function usersFusionner(localUsers,remoteUsers,tombes){
+/* ⛔ QUI GAGNE SUR UN COMPTE CONNU DES DEUX CÔTÉS — corrigé après relecture adverse.
+   La v613 donnait TOUJOURS raison au distant. C'était juste à la réception (le document reçu
+   est plus récent que nous), mais FAUX dans syncPush : là, le distant qu'on vient de relire
+   est souvent plus VIEUX que la modification qu'on est justement en train d'enregistrer —
+   renommer quelqu'un, changer son e-mail, le désactiver revenait alors en arrière tout seul.
+   Le sens de priorité est donc devenu un paramètre, décidé par l'appelant, qui seul sait
+   lequel des deux côtés porte la version fraîche. */
+function usersFusionner(localUsers,remoteUsers,tombes,prioriteLocale){
   const s=new Set((tombes||[]).map(x=>(x&&x.id)||x).filter(Boolean));
   const out=[], vus=new Set();
-  /* Le distant passe en premier : sur un compte connu des deux côtés, c'est SA version qu'on
-     garde (il est plus récent par construction — on ne fusionne que vers un document neuf). */
-  (remoteUsers||[]).forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
-  (localUsers||[]).forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
+  const premier=prioriteLocale?(localUsers||[]):(remoteUsers||[]);
+  const second =prioriteLocale?(remoteUsers||[]):(localUsers||[]);
+  premier.forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
+  second .forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
   return out;
 }
 function usersTombesFusion(a,b){
@@ -5781,14 +5802,20 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
     try{
       const snap=await _fbDoc.get();
       const d=snap&&snap.data();
-      if(d&&(d.ts||0)>(_syncTs||0)){
+      /* ⛔ PLUS DE CONDITION SUR L'HORODATAGE. La v613 ne fusionnait que si le document
+         distant était plus récent que `_syncTs` — or `_syncTs` est notre propre horloge :
+         un appareil dont l'heure avance de quelques minutes ne fusionnait plus JAMAIS, et
+         redevenait exactement l'appareil qui efface les comptes des autres. L'union est sans
+         danger dans tous les cas : on la fait toujours. */
+      if(d){
         const plain=await syncReadRemote(d);
         if(plain){ const remote=JSON.parse(plain);
           const tomb=usersTombesFusion(db,remote);
           const av=(db.users||[]).length;
-          db.users=usersFusionner(db.users,remote.users,tomb);
+          /* priorité au LOCAL : ce qu'on s'apprête à écrire est ce qu'on vient de modifier. */
+          db.users=usersFusionner(db.users,remote.users,tomb,true);
           if(tomb.length) db.usersSupprimes=tomb;
-          if(db.users.length>av){ try{ toast((db.users.length-av)+' compte(s) créé(s) ailleurs — récupérés',4200); }catch(e){}
+          if(db.users.length!==av){ if(db.users.length>av){ try{ toast((db.users.length-av)+' compte(s) créé(s) ailleurs — récupérés',4200); }catch(e){} }
             try{ localStorage.setItem(STORE_KEY,JSON.stringify(db)); }catch(e){} }
         }
       }
@@ -6647,7 +6674,29 @@ function visibleBoxMvts(list){ if(!currentUser) return []; if(currentUser.role==
   if(can('voirTout')) return list||[];
   return (list||[]).filter(m=>m.parId===me); }
 function visibleMouvements(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(m=>(m.boxId&&ids.has(m.boxId))||(m.technicien&&m.technicien===me)); }
-function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const tid=myTechId(); return (list||[]).filter(v=>!!tid&&(v.techId===tid||v.conducteurTechnicienId===tid)); }
+/* ══════════ LES VÉHICULES SE DÉSIGNENT, COMME LES BOX ═══════════════════════════════════
+   Justin, 9 septembre 2026 : « pour les box il sélectionne le box, pour les véhicules il
+   sélectionne le véhicule qui lui est assigné. En gros, pour toutes les catégories où ça
+   marche comme les box, bien désigner ce qu'il doit voir. »
+   Jusqu'ici un véhicule ne se voyait QUE par la fiche technicien (titulaire ou conducteur) —
+   automatique, donc impossible à corriger : on ne pouvait ni ouvrir le camion d'un collègue à
+   quelqu'un qui le conduit en dépannage, ni fermer un véhicule à une personne qui y reste
+   rattachée sur le papier. On reprend exactement le modèle des box (v590) : deux listes
+   d'EXCEPTIONS rangées sur le véhicule, et on n'écrit que ce qui s'écarte du défaut. */
+function vehiculeAuto(v,u){ const tid=u&&u.techId; return !!(tid&&(v.techId===tid||v.conducteurTechnicienId===tid)); }
+const vehExclu=(v,userId)=>!!(userId&&((v&&v.userIdsExclus)||[]).includes(userId));
+function userVehiculeVoit(userId,vehId,on){
+  const v=(db.vehicules||[]).find(x=>x.id===vehId); if(!v||!userId) return;
+  v.userIds=(v.userIds||[]).filter(x=>x!==userId);
+  v.userIdsExclus=(v.userIdsExclus||[]).filter(x=>x!==userId);
+  const u=(db.users||[]).find(x=>x.id===userId)||{};
+  const auto=vehiculeAuto(v,u);
+  if(on){ if(!auto) v.userIds.push(userId); }
+  else  { if(auto) v.userIdsExclus.push(userId); }
+}
+function userVehiculeVoitIl(v,u){ return !vehExclu(v,u&&u.id)&&(vehiculeAuto(v,u)||((v.userIds||[]).includes(u&&u.id))); }
+function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return [];
+  return (list||[]).filter(v=>userVehiculeVoitIl(v,currentUser)); }
 function visibleJournal(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const me=currentUser.id; return (list||[]).filter(j=>j.userId===me||(j.cibleUserId&&j.cibleUserId===me)); }
 /* ── Les rubriques qui n'avaient AUCUN filtre ──────────────────────────────────────────
    Un technicien ne voit déjà que ses interventions — mais il voyait TOUS les clients de
@@ -20952,10 +21001,20 @@ function usrDroitsHtml(u,admin){
           :b.visibleTous?'visible par toute l\'équipe':viaTech?'via sa fiche technicien':resp?'responsable de la box':'';
         return ligne('🧱 '+esc(b.nom||b.numero||'Box'),pourquoi,swH('box_'+b.id,boxOuverte(b))); }).join('')||'<div class="usr-x">Aucune box pour l\'instant.</div>'}
     </div></details></div>`;
+  /* Même forme que les box : on dit d'où vient l'ouverture, et on dit quand elle a été
+     retirée. Masqué avec « Tout voir », qui rend la question sans objet. */
+  const vehs=(db.vehicules||[]).filter(v=>v&&v.actif!==false);
+  const nVeh=vehs.filter(v=>userVehiculeVoitIl(v,u)).length;
+  const vehHtml=vehs.length?`<div class="usr-box" style="display:${toutVoir?'none':'block'}"><details class="usr-cat"><summary><b>🚐 Véhicules qu'il voit</b><span class="usr-cn">${nVeh}/${vehs.length}</span><span class="usr-cc" aria-hidden="true">▾</span></summary><div class="usr-cb">
+      <div class="usr-x" style="margin:8px 0 2px">Sans « Tout voir », il ne voit que les véhicules cochés ici — en plus de celui dont sa fiche technicien est titulaire ou conductrice.</div>
+      ${vehs.map(v=>{ const auto=vehiculeAuto(v,u); const exclu=vehExclu(v,u.id);
+        const pourquoi=exclu?'<span style="color:var(--org,#e8a33d)">retiré à cette personne</span>':auto?'via sa fiche technicien':'';
+        return ligne('🚐 '+esc(vPlaque(v)+(v.modele?' · '+v.modele:'')),pourquoi,swH('veh_'+v.id,userVehiculeVoitIl(v,u))); }).join('')}
+    </div></details></div>`:'';
   const perso=!!(u.acces&&(Object.keys(u.acces.caps||{}).length||Object.keys(u.acces.modules||{}).length));
   return `<div class="usr-d" id="usr-d-${u.id}">
     <div class="usr-res">Voit <b>${vus}</b> menus sur ${tousMods.length} · ${toutVoir?'<b>toutes</b> les box':'<b>'+nBox+'</b> box'}${userCap(u,'validerDR')?' · <b>valide</b> les mouvements et demandes':''}${perso?'':' · <span class="usr-x">suit son rôle, rien de réglé à part</span>'}</div>
-    ${cats}${autresHtml}${boxHtml}
+    ${cats}${autresHtml}${boxHtml}${vehHtml}
     ${admin?`<div class="usr-pf">
       ${profilsDroits().length?`<select class="usr-pf-s" onchange="profilAppliquer('${u.id}',this.value);this.value=''">
         <option value="">🎛 Appliquer un profil…</option>
@@ -21137,7 +21196,8 @@ function usrDroitsValider(uid){
   USER_CAPS.forEach(([k])=>{ const v=val('cap_'+k); if(v!==null) u.acces.caps[k]=v; });
   PERM_GRPS.forEach(([g])=>{ ['ajouter','modifier','supprimer'].forEach(d=>{ const v=val('cat_'+g+'_'+d); if(v!==null) u.acces.caps['cat_'+g+'_'+d]=v; }); });
   NAV.flatMap(x=>x.items).forEach(m=>{ const v=val('mod_'+m.k); if(v!==null) u.acces.modules[m.k]=v; });
-  if(!u.acces.caps.voirTout){ (db.boxes||[]).forEach(b=>{ const v=val('box_'+b.id); if(v!==null) userBoxVoit(u.id,b.id,v); }); }
+  if(!u.acces.caps.voirTout){ (db.boxes||[]).forEach(b=>{ const v=val('box_'+b.id); if(v!==null) userBoxVoit(u.id,b.id,v); });
+    (db.vehicules||[]).forEach(vh=>{ const v=val('veh_'+vh.id); if(v!==null) userVehiculeVoit(u.id,vh.id,v); }); }
   logEvent('Droits modifiés','@'+(u.login||'')+' — depuis la liste des utilisateurs','auth');
   save(); toast('✓ Droits de '+fullName(u)+' enregistrés — actifs immédiatement',3500);
   views.utilisateurs();
@@ -21210,16 +21270,30 @@ function nuBoxHtml(){
     <div style="font-size:11px;color:var(--t3);margin-top:4px">Il n'ouvrira <b>que</b> les box cochées. Décocher une box <b>ouverte à toute l'équipe</b> la lui ferme à lui seul, sans rien changer pour les autres. Modifiable ensuite depuis sa ligne.</div></div>
     <div id="nu-box-tout" style="display:${nuBoxTout?'block':'none'}"><div class="fgroup" style="padding:12px 14px;font-size:12.5px;color:var(--t2);line-height:1.55">📦 Ce profil donne <b>« Tout voir »</b> : ce compte ouvrira <b>toutes</b> les box, y compris celles créées plus tard. Il n'y a rien à cocher.</div></div>`;
 }
-/* Le profil choisi décide si la question des box se pose : « Tout voir » la rend sans objet. */
+let nuVehs=new Set();
+function nuVehHtml(){
+  const vs=(db.vehicules||[]).filter(v=>v&&v.actif!==false);
+  if(!vs.length) return '';
+  return `<div class="field" id="nu-veh-bloc" style="display:${nuBoxTout?'none':'block'}"><label>🚐 Véhicules qu'il voit <span style="font-weight:400;color:var(--t3)">— coche celui qui lui est assigné</span></label>
+    <div style="max-height:200px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">
+      ${vs.map(v=>`<label style="display:flex;align-items:center;gap:9px;padding:6px 4px;cursor:pointer">
+        <input type="checkbox" ${nuVehs.has(v.id)?'checked':''} onchange="this.checked?nuVehs.add('${v.id}'):nuVehs.delete('${v.id}')" style="width:18px;height:18px;accent-color:var(--acc)">
+        <span style="flex:1;min-width:0">🚐 ${esc(vPlaque(v))}${v.modele?' <span style="color:var(--t3);font-size:11.5px">· '+esc(v.modele)+'</span>':''}</span></label>`).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--t3);margin-top:4px">Il ne verra <b>que</b> ces véhicules. Modifiable ensuite depuis sa ligne.</div></div>`;
+}
+/* Le profil choisi décide si la question des box et des véhicules se pose : « Tout voir » la
+   rend sans objet pour les deux. */
 function nuProfilChange(pid){
   const pr=pid?profilDroits(pid):null;
   nuBoxTout=!!(pr&&pr.caps&&pr.caps.voirTout);
-  const b=document.getElementById('nu-box-bloc'), t=document.getElementById('nu-box-tout');
+  const b=document.getElementById('nu-box-bloc'), t=document.getElementById('nu-box-tout'), vb=document.getElementById('nu-veh-bloc');
   if(b) b.style.display=nuBoxTout?'none':'block';
   if(t) t.style.display=nuBoxTout?'block':'none';
+  if(vb) vb.style.display=nuBoxTout?'none':'block';
 }
 function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUserNew=!id; window._formUserRole0=u.role||'technicien';
-  if(!id){ nuBoxes=new Set(); nuBoxTout=false; }
+  if(!id){ nuBoxes=new Set(); nuVehs=new Set(); nuBoxTout=false; }
   // Rattachements vus depuis le DR : avec 65 techniciens, ouvrir 65 fiches n'a pas de sens.
   // Même donnée que le champ « Directeur régional responsable », lue dans l'autre sens.
   drRattaches = new Set((db.users||[]).filter(x=>x&&id&&x.drId===id).map(x=>x.id));
@@ -21241,6 +21315,7 @@ function formUser(id){ const u=id?db.users.find(x=>x.id===id):{}; window._formUs
         <select name="drId">${[`<option value="">— aucun (tous les DR sont prévenus) —</option>`].concat(valideursDR().filter(x=>x.id!==u.id).map(x=>`<option value="${x.id}" ${u.drId===x.id?'selected':''}>${esc(fullName(x))}</option>`)).join('')}</select>
         <div style="font-size:11px;color:var(--t3);margin-top:4px">Ses demandes et ses mouvements de box partent à ce DR, et lui seul les voit dans « Validations DR ». Sans DR choisi, tous les valideurs sont prévenus, comme avant.</div></div>
       ${!id?nuBoxHtml():''}
+      ${!id?nuVehHtml():''}
       ${id&&capOf('validerDR')?`<div class="field"><label>Personnes rattachées à ce valideur</label>
         <div style="max-height:210px;overflow:auto;border:1px solid var(--brd);border-radius:10px;padding:6px">${(db.users||[]).filter(x=>x&&x.actif!==false&&x.id!==id).map(x=>`
           <label style="display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer">
@@ -21424,8 +21499,11 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
        On passe TOUTES les box, cochées ou non — décocher une box ouverte à toute l'équipe doit
        poser une exception, c'est précisément ce que fait userBoxVoit avec `false`. */
     let _nBox=0;
+    let _nVeh=0;
     if(!acces.caps.voirTout){ (db.boxes||[]).filter(b=>b&&b.actif!==false).forEach(b=>{
-      const on=nuBoxes.has(b.id); userBoxVoit(nu.id,b.id,on); if(on) _nBox++; }); }
+      const on=nuBoxes.has(b.id); userBoxVoit(nu.id,b.id,on); if(on) _nBox++; });
+      (db.vehicules||[]).filter(v=>v&&v.actif!==false).forEach(v=>{
+        const on=nuVehs.has(v.id); userVehiculeVoit(nu.id,v.id,on); if(on) _nVeh++; }); }
     logEvent('Utilisateur créé',`@${loginNorm}`+(_profilPose?' — profil « '+_profilPose+' »':'')+(acces.caps.voirTout?' — toutes les box':_nBox?' — '+_nBox+' box':''),'auth');
     save(); closeModal(); views.utilisateurs();
     setTimeout(()=>userIdentifiantsModal(nu,pwd),120);
@@ -25820,7 +25898,8 @@ async function boot(){
   // On ne retire que ce qui correspond EXACTEMENT à la démo et n'a jamais servi (aucun vrai compte touché).
   try{
     const uDemo=db.users.find(u=>u.login==='marc'&&u.prenom==='Marc'&&u.nom==='Dubois'&&!u.pwdHash);
-    if(uDemo){ db.users=db.users.filter(u=>u!==uDemo); ch=true; }
+    if(uDemo){ db.usersSupprimes=usersTombesFusion(db,{usersSupprimes:[{id:uDemo.id,ts:Date.now()}]});
+      db.users=db.users.filter(u=>u!==uDemo); ch=true; }
     const tDemoIds=(db.techniciens||[]).filter(t=>['marc@elan.fr','sophie@elan.fr','karim@elan.fr'].includes(t.email)&&['Marc Dubois','Sophie Martin','Karim Benali'].includes(t.nom)).map(t=>t.id);
     const cDemoIds=(db.clients||[]).filter(c=>['contact@tilleuls.fr','aubonpain@mail.fr','cabinet@stroch.fr'].includes(c.email)).map(c=>c.id);
     if(tDemoIds.length||cDemoIds.length){
@@ -26942,7 +27021,7 @@ function updateSyncBtn(){ const b=$('sync-btn'); if(!b) return; b.style.color=_s
 /* Bannière « nouvelle version » */
 function showUpdateBanner(){ if($('update-banner')) return; const d=document.createElement('div'); d.id='update-banner';
   d.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));z-index:130;background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:12px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5);display:flex;gap:12px;align-items:center';
-  d.innerHTML='Mise à jour disponible'+(typeof majAttenteTxt==='function'?majAttenteTxt():'')+' <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
+  d.innerHTML='Mise à jour — elle se fera dès que tu auras fini'+(typeof majAttenteTxt==='function'?majAttenteTxt():'')+' <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
   document.body.appendChild(d); }
 /* « Mettre à jour » : on demande d'abord au service worker de ranger la version fraîche
    (réseau lent compris), puis on recharge — sinon l'ancienne copie revenait et le bandeau avec. */
@@ -26973,11 +27052,82 @@ function majAppliquer(){ const b=$('update-banner'); if(b) b.innerHTML='⏳ Mise
    · et désormais l'insistance : le bandeau REVIENT toutes les dix minutes tant que la mise à
      jour n'est pas faite. Le fermer le repousse de dix minutes, il ne l'éteint pas. */
 let _majArmee=false, _majTimer=null, _majDepuis=0;
+/* ══════════ LA MISE À JOUR SE FAIT TOUTE SEULE — MAIS JAMAIS AU MAUVAIS MOMENT ══════════
+   Justin, 9 septembre 2026, après la panne de perte de comptes : « le problème du bouton
+   mise à jour, tout le monde ne va pas le faire, et ça crée des bugs. C'est à nous de forcer
+   la mise à jour, et qu'elle refasse une synchronisation derrière. Que ça se fasse
+   automatiquement pour tout le monde, même s'ils sont sur l'application — sauf s'ils sont en
+   train de gérer quelque chose. Leurs modifications restent enregistrées : les modifications
+   sont faites, et la mise à jour se fait derrière. »
+
+   ⛔ POURQUOI ON REVIENT SUR LA DÉCISION DU 8 SEPTEMBRE. Ce jour-là, l'automatique avait été
+   retiré au profit du bouton (« remets le bouton, c'est plus sûr »). La panne du 9 a montré
+   le coût de ce choix : six appareils sur quatre versions, et un seul appareil resté en
+   arrière suffisait à effacer les comptes de tout le monde. Un bouton qu'une personne sur
+   deux ne touche jamais n'est pas un contrôle, c'est une panne différée.
+   Ce qui rendait l'automatique dangereux, c'était de recharger AU MILIEU D'UN GESTE. On ne
+   supprime donc pas la prudence, on la déplace : la mise à jour attend d'être au bon moment.
+
+   « Occupé » veut dire quelque chose de précis, et se lit dans l'état réel de la page :
+   · une fenêtre est ouverte (formulaire, pavé de saisie, comparatif de réception…) ;
+   · le curseur est dans un champ — quelqu'un écrit ;
+   · une synchro attend d'être poussée (elle est retardée de 800 ms) ;
+   · le scanner ou la caméra tourne ;
+   · un geste a eu lieu il y a moins de 8 secondes.
+   Tant que l'une de ces conditions tient, on repasse dans 5 secondes. Jamais de rechargement
+   par-dessus quelqu'un qui travaille. */
+let _majAuto=false, _majAutoTimer=null, _dernierGeste=0;
+try{ ['pointerdown','keydown','touchstart'].forEach(function(e){
+  document.addEventListener(e,function(){ _dernierGeste=Date.now(); },{passive:true,capture:true}); }); }catch(e){}
+function majOccupe(){
+  try{
+    const ov=document.getElementById('overlay');
+    if(ov&&ov.classList.contains('open')) return 'une fenêtre est ouverte';
+    const a=document.activeElement;
+    if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName||'')) return 'quelqu\'un écrit';
+    if(typeof _syncTimer!=='undefined'&&_syncTimer) return 'une synchro attend d\'être poussée';
+    if(typeof scanTimer!=='undefined'&&scanTimer) return 'le scanner tourne';
+    if(typeof scanStream!=='undefined'&&scanStream) return 'la caméra tourne';
+    if(_dernierGeste&&Date.now()-_dernierGeste<8000) return 'geste en cours';
+  }catch(e){}
+  return '';
+}
+/* Le rechargement ne part QUE quand la page est libre, et jamais sans avoir poussé d'abord.
+   `syncPush(true)` écrit tout de suite ; on lui laisse 1,2 s pour que le chiffrement et
+   l'écriture Firestore aboutissent avant que la page disparaisse. */
+function majAutoArmer(){
+  if(_majAuto) return; _majAuto=true;
+  const essayer=function(){
+    if(!_majAuto) return;
+    const occ=majOccupe();
+    if(occ){ _majAutoTimer=setTimeout(essayer,5000); return; }
+    try{ localStorage.setItem('elanB_maj_depuis',String(APP_VERSION||'')); }catch(e){}
+    try{ if(typeof syncPush==='function') syncPush(true); }catch(e){}
+    try{ toast('Mise à jour — l\'application se recharge…',1600); }catch(e){}
+    setTimeout(function(){ try{ majAppliquer(); }catch(e){ try{ location.reload(); }catch(_){} } },1200);
+  };
+  _majAutoTimer=setTimeout(essayer,4000);
+}
 function majArmer(){
   if(_majArmee) return; _majArmee=true; _majDepuis=Date.now();
   try{ showUpdateBanner(); }catch(e){ try{ toast('Mise à jour disponible'); }catch(_){} }
   clearInterval(_majTimer);
   _majTimer=setInterval(()=>{ try{ showUpdateBanner(); }catch(e){} },600000);
+  /* Le bandeau reste — il dit ce qui se passe, et permet de partir tout de suite à qui le
+     veut. Mais on ne dépend plus de son clic. */
+  try{ majAutoArmer(); }catch(e){}
+}
+/* ══════════ « C'EST FAIT » — la confirmation que Justin demandait ═══════════════════════
+   Une mise à jour silencieuse laisse un doute : est-ce qu'elle a eu lieu ? On garde la
+   version d'AVANT au moment de partir, et on le dit au retour. Une seule fois. */
+function majConfirmer(){
+  try{
+    const av=localStorage.getItem('elanB_maj_depuis');
+    if(!av) return;
+    localStorage.removeItem('elanB_maj_depuis');
+    if(String(av)===String(APP_VERSION||'')) return;   // rien n'a changé : on ne dit rien
+    setTimeout(function(){ try{ toast('✓ Mise à jour installée — version '+APP_VERSION,4200); }catch(e){} },1500);
+  }catch(e){}
 }
 /* Depuis combien de temps elle attend — c'est ce qui transforme un rappel en argument. */
 function majAttenteTxt(){
@@ -27030,9 +27180,18 @@ if('serviceWorker' in navigator){
      de rechargement pendant une saisie. */
   try{ if(navigator.serviceWorker) navigator.serviceWorker.addEventListener('message',ev=>{
     const d=(ev&&ev.data)||{};
+    /* Le service worker prévient AVANT de recharger de force (v614) : on profite de ces
+       1,8 secondes pour pousser ce qui attend — la synchro est retardée de 800 ms, et un
+       rechargement au mauvais moment perdrait le dernier geste. Les versions d'avant ce
+       correctif ignorent simplement ce message : elles seront rechargées quand même, et
+       leur `save()` a déjà écrit le stockage local. */
+    if(d.op==='maj-avant-rechargement'){ try{ if(typeof syncPush==='function') syncPush(true); }catch(e){}
+      try{ toast('Mise à jour en cours — l\'application se recharge…',2500); }catch(e){} return; }
+    if(d.op==='maj-recharge'){ try{ location.reload(); }catch(e){} return; }
     if(d.op!=='maj') return;
     try{ if(typeof majArmer==='function') majArmer(); else toast('Nouvelle version prête — rouvrez l\'application'); }catch(e){}
   }); }catch(e){}
+  try{ majConfirmer(); }catch(e){}
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('sw.js').then(reg=>{
       reg.update && reg.update();   // vérifie une mise à jour à chaque ouverture

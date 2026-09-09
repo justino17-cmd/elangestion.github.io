@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '613';
+const APP_VERSION = '614';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -5689,14 +5689,28 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
         /* Le document reçu remplace tout — sauf les COMPTES, qu'on réunit avec les nôtres.
            Sans ça, l'appareil qui vient de créer trois comptes les perdrait à la première
            synchro venue d'un appareil resté en arrière, et ne les repousserait donc jamais. */
+        /* ⛔ ON REPOUSSE DÈS QUE NOTRE VUE DIFFÈRE DE CELLE DU NUAGE — pas seulement quand
+           la liste GRANDIT. La v613 ne renvoyait que les créations : une SUPPRESSION faite
+           ici ne repartait jamais, et le premier appareil qui avait encore le compte le
+           faisait revenir à la synchro suivante. Une suppression doit voyager aussi sûrement
+           qu'une création. */
+        let _repousser=false;
         try{ const tomb=usersTombesFusion(db,remote);
-          const av=(db.users||[]).length;
-          remote.users=usersFusionner(db.users,remote.users,tomb);
+          const distants=(remote.users||[]).length;
+          /* priorité au DISTANT : le document reçu est plus récent que nous, par construction
+             (on a vérifié d.ts > _syncTs juste au-dessus). */
+          remote.users=usersFusionner(db.users,remote.users,tomb,false);
           if(tomb.length) remote.usersSupprimes=tomb;
-          if(remote.users.length>((JSON.parse(plain).users)||[]).length){ setTimeout(()=>{ try{ syncPush(true); }catch(e){} },1200); }
-          void av;
-        }catch(e){}
+          _repousser = (remote.users.length!==distants)
+                    || (tomb.length!==usersTombes(remote).length)
+                    || (usersTombes(db).length>0 && usersTombes(db).length!==tomb.length);
+        }catch(e){
+          /* ⛔ SI LA FUSION ÉCHOUE, ON N'APPLIQUE PAS. Laisser passer `db=remote` après un
+             échec, c'est retomber exactement dans la panne d'origine — en silence. */
+          _syncApplying=false; return;
+        }
         _syncApplying=true; db=remote; localStorage.setItem(STORE_KEY,JSON.stringify(db)); _syncTs=d.ts||Date.now();
+        if(_repousser) setTimeout(()=>{ try{ syncPush(true); }catch(e){} },1200);
         try{ localStorage.removeItem('elan_frais'); }catch(e){}
         if(currentUser&&!compteVerifier()){ _syncApplying=false; return; }   // supprimé / désactivé par l'entreprise → déconnecté
         try{ refreshBadges&&refreshBadges(); updateBell&&updateBell();
@@ -5758,13 +5772,20 @@ setInterval(()=>{ try{ if(!currentUser||!_syncOn||_syncApplying) return; const u
    box, des produits, des interventions. La fusion générale est un autre chantier, à mener
    seul et à tester longuement — on commence par ce qui enferme des gens dehors. */
 function usersTombes(base){ const t=(base&&base.usersSupprimes)||[]; return Array.isArray(t)?t:[]; }
-function usersFusionner(localUsers,remoteUsers,tombes){
+/* ⛔ QUI GAGNE SUR UN COMPTE CONNU DES DEUX CÔTÉS — corrigé après relecture adverse.
+   La v613 donnait TOUJOURS raison au distant. C'était juste à la réception (le document reçu
+   est plus récent que nous), mais FAUX dans syncPush : là, le distant qu'on vient de relire
+   est souvent plus VIEUX que la modification qu'on est justement en train d'enregistrer —
+   renommer quelqu'un, changer son e-mail, le désactiver revenait alors en arrière tout seul.
+   Le sens de priorité est donc devenu un paramètre, décidé par l'appelant, qui seul sait
+   lequel des deux côtés porte la version fraîche. */
+function usersFusionner(localUsers,remoteUsers,tombes,prioriteLocale){
   const s=new Set((tombes||[]).map(x=>(x&&x.id)||x).filter(Boolean));
   const out=[], vus=new Set();
-  /* Le distant passe en premier : sur un compte connu des deux côtés, c'est SA version qu'on
-     garde (il est plus récent par construction — on ne fusionne que vers un document neuf). */
-  (remoteUsers||[]).forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
-  (localUsers||[]).forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
+  const premier=prioriteLocale?(localUsers||[]):(remoteUsers||[]);
+  const second =prioriteLocale?(remoteUsers||[]):(localUsers||[]);
+  premier.forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
+  second .forEach(u=>{ if(u&&u.id&&!s.has(u.id)&&!vus.has(u.id)){ out.push(u); vus.add(u.id); } });
   return out;
 }
 function usersTombesFusion(a,b){
@@ -5781,14 +5802,20 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
     try{
       const snap=await _fbDoc.get();
       const d=snap&&snap.data();
-      if(d&&(d.ts||0)>(_syncTs||0)){
+      /* ⛔ PLUS DE CONDITION SUR L'HORODATAGE. La v613 ne fusionnait que si le document
+         distant était plus récent que `_syncTs` — or `_syncTs` est notre propre horloge :
+         un appareil dont l'heure avance de quelques minutes ne fusionnait plus JAMAIS, et
+         redevenait exactement l'appareil qui efface les comptes des autres. L'union est sans
+         danger dans tous les cas : on la fait toujours. */
+      if(d){
         const plain=await syncReadRemote(d);
         if(plain){ const remote=JSON.parse(plain);
           const tomb=usersTombesFusion(db,remote);
           const av=(db.users||[]).length;
-          db.users=usersFusionner(db.users,remote.users,tomb);
+          /* priorité au LOCAL : ce qu'on s'apprête à écrire est ce qu'on vient de modifier. */
+          db.users=usersFusionner(db.users,remote.users,tomb,true);
           if(tomb.length) db.usersSupprimes=tomb;
-          if(db.users.length>av){ try{ toast((db.users.length-av)+' compte(s) créé(s) ailleurs — récupérés',4200); }catch(e){}
+          if(db.users.length!==av){ if(db.users.length>av){ try{ toast((db.users.length-av)+' compte(s) créé(s) ailleurs — récupérés',4200); }catch(e){} }
             try{ localStorage.setItem(STORE_KEY,JSON.stringify(db)); }catch(e){} }
         }
       }
@@ -25871,7 +25898,8 @@ async function boot(){
   // On ne retire que ce qui correspond EXACTEMENT à la démo et n'a jamais servi (aucun vrai compte touché).
   try{
     const uDemo=db.users.find(u=>u.login==='marc'&&u.prenom==='Marc'&&u.nom==='Dubois'&&!u.pwdHash);
-    if(uDemo){ db.users=db.users.filter(u=>u!==uDemo); ch=true; }
+    if(uDemo){ db.usersSupprimes=usersTombesFusion(db,{usersSupprimes:[{id:uDemo.id,ts:Date.now()}]});
+      db.users=db.users.filter(u=>u!==uDemo); ch=true; }
     const tDemoIds=(db.techniciens||[]).filter(t=>['marc@elan.fr','sophie@elan.fr','karim@elan.fr'].includes(t.email)&&['Marc Dubois','Sophie Martin','Karim Benali'].includes(t.nom)).map(t=>t.id);
     const cDemoIds=(db.clients||[]).filter(c=>['contact@tilleuls.fr','aubonpain@mail.fr','cabinet@stroch.fr'].includes(c.email)).map(c=>c.id);
     if(tDemoIds.length||cDemoIds.length){
