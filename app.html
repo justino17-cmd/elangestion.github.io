@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '618';
+const APP_VERSION = '619';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5943,6 +5943,18 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
 const COLLS_GARDEES=['interventions','clients','boxes','produits','mouvements','bons','devis','factures','vehicules','pointages','contrats','demandes','telecollectes','techniciens','fournisseurs','chantiers','registres'];
 let _retraitVoulu=0;
 function syncRetraitVoulu(){ _retraitVoulu=Date.now(); }
+/* L'identifiant existe-t-il déjà dans le document de l'équipe ? true / false, ou null quand le
+   serveur n'a pas répondu (hors ligne, clé différente) — et null se traite comme un refus. */
+async function loginExisteAilleurs(login,saufId){
+  if(!_syncOn||!_fbDoc) return false;   // pas d'espace d'équipe : rien à confronter
+  try{
+    const snap=await _fbDoc.get({source:'server'});
+    const d=snap&&snap.data(); if(!d||!d.enc) return false;
+    const plain=await syncReadRemote(d); if(!plain) return null;
+    const remote=JSON.parse(plain);
+    return (remote.users||[]).some(x=>x&&x.login&&x.id!==saufId&&String(x.login).trim().toLowerCase()===login);
+  }catch(e){ return null; }
+}
 function syncManque(local,remote){
   let pire=null;
   COLLS_GARDEES.forEach(k=>{ const r=remote&&remote[k]; if(!Array.isArray(r)||r.length<5) return;
@@ -21605,6 +21617,17 @@ async function saveUser(e,id){ e.preventDefault(); const d=Object.fromEntries(ne
   if(!id && !planPlaceLibre()){ proposerAbonnement(); return; }
   const loginNorm=(d.login||'').trim().toLowerCase();
   if(db.users.some(x=>x.login&&x.login.toLowerCase()===loginNorm&&x.id!==id)){ toast('Identifiant déjà utilisé'); return; }
+  /* ⛔ ET CONTRE LE NUAGE, PAS SEULEMENT CONTRE CET APPAREIL — ELAN, 9 septembre 2026. Les trois
+     « @florent » sont nés ainsi : un appareil qui ne voyait plus le compte l'a recréé — même
+     identifiant, id différent — parce que l'unicité n'était jugée que sur la base locale. On relit
+     le document de l'équipe, AU SERVEUR (une lecture), et on refuse si l'identifiant y vit déjà.
+     Sans réponse du serveur, on refuse aussi : créer un compte est un geste qui se fait en ligne. */
+  const _ancienLogin=id?String((db.users.find(x=>x.id===id)||{}).login||'').trim().toLowerCase():'';
+  if(loginNorm!==_ancienLogin){
+    const ailleurs=await loginExisteAilleurs(loginNorm,id);
+    if(ailleurs===true){ toast('Cet identifiant existe déjà chez l\'équipe — cet appareil n\'était pas à jour. Recharge l\'application.',4200); return; }
+    if(ailleurs===null){ toast('Impossible de vérifier l\'identifiant auprès de l\'équipe — réessaie avec du réseau.',3600); return; }
+  }
   // Rôle technicien/chef → crée ou met à jour la fiche technicien liée automatiquement
   const isTech=roleEstTech(d.role);
   let techId=d.techId||'';
@@ -27227,17 +27250,7 @@ function majObligatoire(min){
   try{ cnxSignaler('bloque',{motif:'v'+APP_VERSION+' sous le minimum v'+min}); }catch(e){}
   try{ clearTimeout(_majAutoTimer); }catch(e){}
   try{ if(navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); }catch(e){}
-  const lancer=()=>{ majEcran('Mise à jour obligatoire','Cette version ('+String(APP_VERSION).replace(/[^0-9a-z.-]/gi,'')+') n\'est plus acceptée par le serveur : elle pourrait abîmer les données de l\'équipe. La nouvelle version s\'installe maintenant.'); setTimeout(majAppliquer,900); };
-  const occ=(typeof majOccupe==='function')?majOccupe():'';
-  if(!occ){ lancer(); return; }
-  /* Quelqu'un est en train de saisir : un bandeau qui compte, pas un écran qui recouvre — sinon
-     « termine ce que tu fais » est impossible. */
-  let reste=45;
-  const tick=()=>{ if(!majOccupe()||reste<=0){ lancer(); return; }
-    try{ let b=$('update-banner'); if(!b){ b=document.createElement('div'); b.id='update-banner'; b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));z-index:130;background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:12px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5)'; document.body.appendChild(b); }
-      b.textContent='Mise à jour obligatoire dans '+reste+' s — termine ce que tu fais'; }catch(e){}
-    reste--; setTimeout(tick,1000); };
-  tick();
+  majPrete(true);
 }
 let _versionDernierControle=0;
 async function versionVerifier(force){ try{
@@ -27348,8 +27361,6 @@ function majOccupe(){
   try{
     const ov=document.getElementById('overlay');
     if(ov&&ov.classList.contains('open')) return 'une fenêtre est ouverte';
-    const a=document.activeElement;
-    if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName||'')) return 'quelqu\'un écrit';
     if(typeof _syncTimer!=='undefined'&&_syncTimer) return 'une synchro attend d\'être poussée';
     if(typeof scanTimer!=='undefined'&&scanTimer) return 'le scanner tourne';
     if(typeof scanStream!=='undefined'&&scanStream) return 'la caméra tourne';
@@ -27373,14 +27384,35 @@ function majAutoArmer(){
   };
   _majAutoTimer=setTimeout(essayer,4000);
 }
+/* ══ PLEIN ÉCRAN, TOUT DE SUITE, BORNÉ — Justin, 10 septembre 2026 : « quand il y a une mise
+   à jour, je voudrais que ça se mette en plein écran, plus sûr ». Un bandeau s'ignore ; un
+   écran, non. Et la v616 attendait « que la personne ait fini » SANS LIMITE : un appareil
+   laissé sur l'écran de connexion ne se mettait jamais à jour. Désormais : libre → ça part ;
+   occupé (une fenêtre ouverte, la caméra, un geste récent) → l'écran le dit, compte à rebours,
+   et une seule porte de sortie, « Terminer ma saisie d'abord », qui laisse deux minutes au
+   plus. Après, ça part quoi qu'il arrive. */
+let _majDeadline=0,_majSnooze=false,_majEnRoute=false;
+function majPrete(oblig){
+  if(_majEnRoute) return;
+  if(!_majDeadline) _majDeadline=Date.now()+(oblig?60000:120000);
+  const occ=(typeof majOccupe==='function')?majOccupe():'';
+  if(!occ||Date.now()>=_majDeadline){
+    _majEnRoute=true; clearTimeout(_majAutoTimer);
+    majEcran(oblig?'Mise à jour obligatoire':'Mise à jour','La nouvelle version s\'installe. Quelques secondes — ne ferme pas l\'application.');
+    try{ if(typeof syncPush==='function') syncPush(true); }catch(e){}   // ce qui est enregistré part avant le rechargement
+    setTimeout(majAppliquer,1200); return;
+  }
+  if(_majSnooze){ clearTimeout(_majAutoTimer); _majAutoTimer=setTimeout(()=>majPrete(oblig),3000); return; }   // porte de sortie prise : on revient sans écran, jusqu'à la limite
+  const reste=Math.max(0,Math.ceil((_majDeadline-Date.now())/1000));
+  majEcran(oblig?'Mise à jour obligatoire':'Nouvelle version prête','Quelqu\'un travaille sur cet appareil ('+occ+'). La mise à jour démarre dès que c\'est fini — dans '+reste+' s au plus.');
+  try{ const a=$('maj-actions'); if(a) a.innerHTML='<button class="btn" onclick="majMaintenant()">Mettre à jour maintenant</button> <button class="btn ghost" onclick="majTerminerSaisie()">Terminer ma saisie d\'abord</button>'; }catch(e){}
+  clearTimeout(_majAutoTimer); _majAutoTimer=setTimeout(()=>majPrete(oblig),1000);
+}
+function majMaintenant(){ _majDeadline=1; majPrete(!!_versionBloquee); }
+function majTerminerSaisie(){ _majSnooze=true; try{ const e=$('maj-ecran'); if(e) e.remove(); }catch(_e){} try{ toast('D\'accord — la mise à jour partira dès que tu as fini, dans deux minutes au plus',3200); }catch(_e){} majPrete(!!_versionBloquee); }
 function majArmer(){
   if(_majArmee) return; _majArmee=true; _majDepuis=Date.now();
-  try{ showUpdateBanner(); }catch(e){ try{ toast('Mise à jour disponible'); }catch(_){} }
-  clearInterval(_majTimer);
-  _majTimer=setInterval(()=>{ try{ showUpdateBanner(); }catch(e){} },600000);
-  /* Le bandeau reste — il dit ce qui se passe, et permet de partir tout de suite à qui le
-     veut. Mais on ne dépend plus de son clic. */
-  try{ majAutoArmer(); }catch(e){}
+  try{ majPrete(false); }catch(e){ try{ majAppliquer(); }catch(_e){} }
 }
 /* ══════════ « C'EST FAIT » — la confirmation que Justin demandait ═══════════════════════
    Une mise à jour silencieuse laisse un doute : est-ce qu'elle a eu lieu ? On garde la
