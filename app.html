@@ -4763,7 +4763,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '607';
+const APP_VERSION = '608';
 /* Vrai uniquement dans beta.html (beta-build.js le bascule). La bêta ne connaît alors aucun
    compte de départ et demande au serveur avant d'ouvrir : les accès d'essai se créent et se
    coupent depuis la Tour de contrôle. Ici, dans l'application des clients : jamais. */
@@ -16914,12 +16914,22 @@ function renderBoxProdList(){
   const q=norm(boxProdSearch);
   let entries=Object.keys(b.stock).map(pid=>({pid,p:produit(pid),s:b.stock[pid]||{ctn:0,u:0}})).filter(e=>e.p&&e.p.id);
   if(q) entries=entries.filter(e=>norm((e.p.nom||'')+' '+(e.p.ref||'')+' '+(e.p.categorie||'')+' '+(e.p.fournisseurs||[]).join(' ')).includes(q));
-  // ce qu'il y a dans le box d'abord (les plus gros stocks en tête), puis à commander, puis les épuisés
-  const ord={enStock:0,aCommander:1,epuise:2};
+  /* DEUX NIVEAUX, ET PAS UN DE PLUS — demande de Justin, 9 septembre 2026 : « les produits
+     dans l'ordre alphabétique, mais les produits en stock restent en haut pour ne pas avoir
+     à aller chercher ».
+     Avant, la liste descendait par QUANTITÉ, puis par état (en stock / à commander / épuisé).
+     Deux inconvénients qui se cumulaient : on ne pouvait pas retrouver un produit dont on
+     connaît le nom — il fallait le lire ligne par ligne — et l'ordre CHANGEAIT à chaque
+     mouvement, si bien que la ligne qu'on venait de toucher se déplaçait sous le doigt.
+     Un stock qui bouge ne doit pas réorganiser l'écran : seul le passage à zéro le fait.
+     · ce qu'il reste dans la box (cartons compris) au-dessus de ce qui est à zéro ;
+     · à l'intérieur de chaque groupe, l'ordre alphabétique français — 'fr' + sensitivity
+       'base' pour que « Aérosol » se range à sa lettre et non après « Z », et que les
+       majuscules ne fassent pas deux alphabets. */
   const qteDe=e=>(e.s.u||0)+((e.s.ctn||0)>0?(e.p.qteCarton||1)*(e.s.ctn||0):0);
-  entries.sort((a,b2)=>{ const qa=qteDe(a),qb=qteDe(b2); if((qa>0)!==(qb>0)) return qa>0?-1:1;
-    const ea=boxEtat(a.s.u),eb=boxEtat(b2.s.u); if(ord[ea.k]!==ord[eb.k]) return ord[ea.k]-ord[eb.k];
-    if(qa!==qb) return qb-qa; return (a.p.nom||'').localeCompare(b2.p.nom||''); });
+  entries.sort((a,b2)=>{ const qa=qteDe(a),qb=qteDe(b2);
+    if((qa>0)!==(qb>0)) return qa>0?-1:1;
+    return (a.p.nom||'').localeCompare(b2.p.nom||'','fr',{sensitivity:'base'}); });
   if(!entries.length){ el.innerHTML=`<div style="color:var(--t3);font-size:13px;padding:18px;text-align:center">${boxProdSearch?'Aucun résultat.':'Aucun produit dans cette box. Touche ＋ Ajouter.'}</div>`; return; }
   el.innerHTML=entries.map(({pid,p,s})=>{ const e=boxEtat((s.u||0)+((s.ctn||0)>0?(p.qteCarton||1)*(s.ctn||0):0)); const low=e.k!=='enStock';
     const li=boxAttenteProduit(b.id,pid);
