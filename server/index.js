@@ -1934,8 +1934,8 @@ let sauvQuota = new Map();
    dans app.html — une copie de lui serait lisible par n'importe qui, relecture du gardien du
    10 septembre 2026), un espace fermé (« le blocage d'abord », comme les 14 autres endroits),
    une clé fausse. */
-function sauvRefus(t, kh) {
-  if (ESPACES_INTOUCHABLES.includes(t)) return { code: 403, error: 'pas de copie pour l\'espace de repli' };
+function sauvRefus(t, kh, quoi) {
+  if (ESPACES_INTOUCHABLES.includes(t)) return { code: 403, error: 'pas de ' + (quoi || 'copie') + ' pour l\'espace de repli' };
   if (entFermes.espaces.includes(t)) return { code: 403, error: 'espace fermé' };
   const ok = espaceCleOk(t, kh); if (ok === null) return { code: 404, error: 'espace inconnu' }; if (!ok) return { code: 403, error: 'clé d\'équipe incorrecte' };
   return null;
@@ -3328,6 +3328,58 @@ async function fbAdminJeton() {
     return j.access_token;
   } catch (e) { console.error('clé admin firebase :', e.message); return ''; }
 }
+/* ══ LE JETON D'ÉQUIPE — l'identité que Firestore n'a pas encore ═══════════════════════════
+   Aujourd'hui l'application se connecte à Firebase en ANONYME (`signInAnonymously`) : Google
+   sait qu'un appareil est connecté, jamais À QUELLE ENTREPRISE il appartient. C'est pour ça
+   que la règle Firestore ne sait dire que « toute personne connectée » — et donc que
+   n'importe quel compte anonyme lit et écrit le document de n'importe quelle entreprise.
+   Reproduit le 10 septembre 2026 : avec les seules constantes du fichier public, le contenu
+   d'une entreprise restée sur la clé par défaut se déchiffre intégralement.
+
+   Cette route rend un JETON SIGNÉ qui porte l'entreprise dans `claims.t`. Une fois que tous
+   les appareils s'en servent, la règle peut enfin dire quelque chose de vrai :
+
+       match /elan_teams/{teamId} {
+         allow read, write: if request.auth != null && request.auth.token.t == teamId;
+       }
+
+   ⚠️ L'ORDRE EST VITAL, et c'est exactement la leçon de la porte de version : publier cette
+   règle AVANT que tous les appareils présentent le jeton ferme la porte aux retardataires,
+   qui n'ont alors plus accès aux données de leur propre entreprise. D'abord tout le monde
+   monte, ENSUITE la porte se ferme.
+
+   La preuve demandée est celle des copies de sauvegarde — `kh`, l'empreinte SHA-256 de la
+   clé d'équipe, jamais la clé — et les refus sont les mêmes, pour les mêmes raisons. En
+   particulier l'ESPACE DE REPLI est exclu : ses deux clés sont écrites en clair dans
+   app.html, une preuve venant de lui ne prouve rien. Ces appareils restent donc en anonyme
+   — et c'est précisément ce qui rend le déménagement des entreprises restées sur la clé
+   partagée OBLIGATOIRE avant de pouvoir fermer la porte. */
+let jetonQuota = new Map();
+app.post('/api/fb/jeton', async (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
+  if (!t || !/^[0-9a-f]{64}$/.test(kh)) return res.status(400).json({ error: 't et kh requis' });
+  if (jetonQuota.size > 5000) jetonQuota = new Map();
+  if (!quotaOk(jetonQuota, 't:' + t, 120, 3600000)) return res.status(429).json({ error: 'trop de demandes — réessaie plus tard' });
+  /* La MÊME garde que les copies de sauvegarde, à un mot près — une seule fonction, parce que
+     deux copies d'un contrôle de sécurité finissent toujours par diverger (c'est la leçon des
+     quatre portes de sortie d'espace, corrigées le même jour). */
+  const refus = sauvRefus(t, kh, 'jeton'); if (refus) return res.status(refus.code).json({ error: refus.error });
+  if (!fbAdminCle || !fbAdminCle.client_email || !fbAdminCle.private_key) return res.status(503).json({ error: 'firebase_off' });
+  try {
+    const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const now = Math.floor(Date.now() / 1000);
+    /* Un identifiant par ENTREPRISE, pas par appareil : la règle ne regarde que
+       l'appartenance, et un compte Firebase par téléphone en ouvrirait des milliers pour
+       rien. Il est dérivé de `t`, donc stable, et ne porte aucune donnée de personne. */
+    const uid = 'eq_' + crypto.createHash('sha256').update('teamop:' + t).digest('hex').slice(0, 32);
+    const sans = b64u({ alg: 'RS256', typ: 'JWT' }) + '.' + b64u({
+      iss: fbAdminCle.client_email, sub: fbAdminCle.client_email,
+      aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+      iat: now, exp: now + 3600, uid, claims: { t } });
+    const sig = crypto.createSign('RSA-SHA256').update(sans).sign(fbAdminCle.private_key).toString('base64url');
+    return res.json({ ok: true, jeton: sans + '.' + sig });
+  } catch (e) { console.error('jeton équipe : signature impossible —', e.message); return res.status(500).json({ error: 'signature impossible' }); }
+});
 const fsBase = () => 'https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents';
 async function fbAdminFetch(url, opts, tok) {
   const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 10000);

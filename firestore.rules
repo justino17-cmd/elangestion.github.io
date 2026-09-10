@@ -62,6 +62,37 @@ service cloud.firestore {
         || (request.resource.data.get('verNum', 0) is int
             && request.resource.data.get('verNum', 0) >= versionMin());
     }
+    // ── ⛔ LA DETTE OUVERTE : « connecté » NE VEUT PAS DIRE « de cette entreprise » ──
+    // connecte() n'exige qu'un compte ANONYME — celui que l'application se crée elle-même
+    // (app.html, signInAnonymously). {teamId} n'est comparé à rien. Donc, aujourd'hui :
+    //   • LECTURE : n'importe quel compte anonyme lit le document de n'importe quelle
+    //     entreprise. Reproduit le 10 septembre 2026 — avec les seules constantes du fichier
+    //     servi publiquement (SYNC_SECRET_DEFAULT, SYNC_SALT), le contenu d'une entreprise
+    //     restée sur la clé par défaut se déchiffre INTÉGRALEMENT : nom, adresses et
+    //     téléphones des clients, montants, mot de passe administrateur.
+    //   • ÉCRITURE : elle ne demande AUCUNE clé. versionOk() ne sépare rien — `verNum` est
+    //     fourni par celui qui écrit. Écraser le document d'une entreprise, y compris une
+    //     entreprise à clé propre, ne demande donc rien d'autre qu'un compte anonyme.
+    //
+    // LE REMÈDE EST PRÊT CÔTÉ CODE (v640) mais PAS ENCORE PUBLIÉ ICI, et c'est délibéré.
+    // Le serveur TeamOP délivre désormais, contre la preuve de la clé d'équipe, un jeton
+    // signé qui porte l'entreprise (POST /api/fb/jeton → claims.t), et l'application s'en
+    // sert au lieu de la connexion anonyme. Quand TOUS les appareils l'auront, remplacer le
+    // bloc ci-dessous par :
+    //
+    //     match /elan_teams/{teamId} {
+    //       allow read, write: if request.auth != null && request.auth.token.t == teamId;
+    //     }
+    //
+    // ⚠️ DEUX CONDITIONS AVANT DE PUBLIER CETTE LIGNE, chacune payante si on l'oublie :
+    //  1. Tous les appareils doivent présenter le jeton. Publier avant ferme la porte aux
+    //     retardataires — qui perdent alors l'accès aux données de LEUR PROPRE entreprise.
+    //     La Tour de contrôle sait exiger une version : c'est le même geste, dans le même
+    //     ordre. D'abord tout le monde monte, ENSUITE la porte se ferme.
+    //  2. L'espace de REPLI (voir ESPACES_INTOUCHABLES côté serveur) n'a pas de jeton : sa
+    //     clé est écrite en clair dans app.html, une preuve venant de lui ne prouve rien.
+    //     Les entreprises qui y vivent encore doivent d'abord déménager dans leur propre
+    //     espace, avec leur propre clé — sans quoi cette règle les coupe toutes.
     match /elan_teams/{teamId} {
       allow read:   if connecte();
       allow write:  if connecte() && versionOk();

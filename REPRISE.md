@@ -13,6 +13,61 @@ de ligne du tout.
 
 ---
 
+## v640 — donner enfin une identité à Firestore (la moitié sûre)
+
+Justin, après avoir lu la dette : « dis-moi je dois faire quoi pour les règles ». Réponse
+honnête : **rien tout de suite**, et surtout ne pas y toucher seul — une règle mal écrite
+ferme la porte à toutes les entreprises en même temps. Mais la moitié qui ne risque rien
+peut se faire tout de suite, et c'est ce qui est fait.
+
+**Le problème, en une phrase.** L'application se connectait à Firebase en **anonyme** :
+Google savait qu'un appareil était là, jamais à quelle entreprise il appartenait. Une règle
+ne peut donc dire que « toute personne connectée » — et `{teamId}` n'est comparé à rien.
+D'où : n'importe quel compte anonyme lit ET écrit le document de n'importe quelle
+entreprise. Reproduit : avec les seules constantes du fichier servi publiquement, le contenu
+d'une entreprise restée sur la clé par défaut se déchiffre intégralement.
+
+**Ce qui est en place (v640).** Le serveur délivre, contre la preuve de la clé d'équipe
+(`kh`, l'empreinte SHA-256, jamais la clé), un **jeton Firebase signé** qui porte l'entreprise
+dans `claims.t` — route `POST /api/fb/jeton`. L'application le présente au lieu de la
+connexion anonyme. La clé de signature était déjà sur le VPS et fonctionnait : c'est elle qui
+écrit dans Firestore le minimum de version réglé depuis la Tour.
+
+**Rien ne change pour personne aujourd'hui, et c'est délibéré.** Tant que le jeton échoue —
+réseau coupé, serveur muet, espace de repli — l'appareil garde ou ouvre une session anonyme et
+continue exactement comme avant. On met tout le monde en place **avant** de fermer la porte.
+
+**Ce qui reste, et dans cet ordre :**
+
+1. **Exiger la v640 depuis la Tour**, et attendre que le compteur « appareils sous le
+   minimum » tombe à zéro. C'est le même geste que la porte de version, pour la même raison.
+2. **Déménager les entreprises restées sur la clé partagée** (chantier ci-dessous, ouvert
+   depuis le 8 septembre). L'espace de repli n'a **pas** de jeton — sa clé est écrite en clair
+   dans `app.html`, une preuve venant de lui ne prouve rien. Publier la règle sans avoir
+   déménagé ces entreprises les couperait toutes. **C'est ce qui rend ce chantier bloquant, et
+   plus seulement souhaitable.**
+3. **Alors seulement**, Justin colle dans la console Firebase :
+   ```
+   match /elan_teams/{teamId} {
+     allow read, write: if request.auth != null && request.auth.token.t == teamId;
+   }
+   ```
+   La règle est déjà écrite, en commentaire, dans `firestore.rules`, avec les deux conditions
+   ci-dessus et ce qu'on risque à les ignorer.
+
+Vérifié sur un serveur isolé (jamais la production) : 400 sans preuve, 400 sur une empreinte
+mal formée, 404 sur un espace inconnu, **403 sur l'espace de repli**, 403 sur une clé fausse,
+429 au-delà du plafond ; et avec une clé de signature jetable, le jeton produit a une signature
+RS256 valide, la bonne audience Identity Toolkit, `claims:{t}` seul, soixante minutes de
+validité, et un identifiant dérivé de `t` sans aucune donnée de personne. `tests/test-640.js`
+(31 vérifications) refait la fabrique et vérifie la signature à chaque exécution.
+
+Un détail mesuré et corrigé au passage : la demande de jeton bloquait **huit secondes** quand
+l'API ne répond pas — huit secondes avant le premier échange, sur un téléphone en bord de
+réseau. Ramené à quatre, comme la course d'authentification voisine.
+
+---
+
 ## v639 — « il faut que personne n'écrase rien »
 
 Demande de Justin, 10 septembre au soir, après avoir vu le bandeau des doublons persister sur

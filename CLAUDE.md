@@ -45,11 +45,11 @@ cd server && npm audit --omit=dev  # failles dans les dépendances de production
 node --check server/index.js       # contrôle de syntaxe, depuis la racine
 ```
 
-**Douze suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
+**Treize suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
 réelles d'`app.html` et les exécute — elles testent donc le fichier livré.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 337 vérifications, ~4 s
+for f in tests/test-*.js; do node "$f"; done   # 387 vérifications, ~5 s
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -184,6 +184,17 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   techniciens ressuscitées en un seul geste d'affichage. On prévient avec la pastille « +N », on
   écrit après un tap. C'est aussi la règle « rien ne s'écrit au seul chargement », appliquée aux
   écrans profonds.
+- ⛔ **L'ORDRE, pour fermer la règle Firestore : les appareils D'ABORD, la porte ENSUITE.**
+  Depuis la v640, l'application ne se connecte plus à Firebase en anonyme : elle présente un
+  jeton signé par le serveur (`POST /api/fb/jeton`) qui porte l'entreprise dans `claims.t`.
+  La règle publiée, elle, n'a **pas** changé — `firestore.rules` porte la future en commentaire.
+  Deux conditions avant de la publier, chacune payante si on l'oublie : **tous** les appareils
+  doivent présenter le jeton (sinon les retardataires perdent l'accès aux données de leur
+  propre entreprise), et les entreprises restées sur l'espace de **repli** doivent avoir
+  déménagé — le repli n'a pas de jeton, sa clé étant écrite en clair dans `app.html`, donc une
+  preuve venant de lui ne prouve rien. Corollaire : `fbJetonEquipe()` doit TOUJOURS pouvoir
+  échouer sans casser la synchro (elle rend `''` et l'appareil repart en anonyme). Ne jamais
+  rendre le jeton obligatoire côté client avant que la règle le soit côté Google.
 - ⛔ **Une box se fusionne PRODUIT PAR PRODUIT, pas en bloc.** C'est le seul enregistrement que
   plusieurs personnes modifient en même temps sans se marcher dessus : chacune sur un produit
   différent. Chaque ligne de stock porte sa date dans `b._ms[produit]`, retraits compris, et
