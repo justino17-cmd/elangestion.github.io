@@ -16278,10 +16278,15 @@ function produitsFusionnerDoublonsUI(boxId){
   const bx=boxId?(db.boxes||[]).find(x=>x.id===boxId):null;
   let g=produitsDoublons(); if(bx) g=g.filter(l=>bx.stock&&l.some(p=>bx.stock[p.id]));
   if(!g.length){ toast('Aucun doublon'); return; }
-  const cles=bx?new Set(g.map(l=>produitCle(l[0]))):null;
-  const n=g.reduce((a,l)=>a+Math.max(0,produitsFusionnables(l).length-1),0);
-  const liste=g.slice(0,8).map(l=>'• '+(l[0].nom||'')+' ×'+l.length).join('\n')+(g.length>8?'\n… et '+(g.length-8)+' autre(s)':'');
-  if(!confirm('Fusionner '+n+' fiche(s) en double en '+g.length+' produit(s) ?\n\n'+liste+'\n\nMême nom = même produit : si ce sont deux produits différents, touche plutôt « C\'est normal ». Le stock des box s\'additionne, rien d\'autre n\'est supprimé. Ça se propage à toute l\'équipe.')) return;
+  /* La même règle qu'au bandeau : on ne compte et on ne promet que ce qui est vraiment repliable.
+     Un groupe entièrement déclaré « produits distincts » sauf un homonyme neuf reste signalé, mais
+     il se tranche un par un — annoncer « 0 fiche » dans la question serait un bouton qui ment. */
+  const gFus=g.filter(l=>produitsFusionnables(l).length>1);
+  if(!gFus.length){ toast('Rien à fusionner d\'un coup : sur chacun, il reste un homonyme à trancher un par un',4200); return; }
+  const cles=bx?new Set(gFus.map(l=>produitCle(l[0]))):null;
+  const n=gFus.reduce((a,l)=>a+produitsFusionnables(l).length-1,0);
+  const liste=gFus.slice(0,8).map(l=>'• '+(l[0].nom||'')+' ×'+produitsFusionnables(l).length).join('\n')+(gFus.length>8?'\n… et '+(gFus.length-8)+' autre(s)':'');
+  if(!confirm('Fusionner '+n+' fiche(s) en double en '+gFus.length+' produit(s) ?\n\n'+liste+'\n\nMême nom = même produit : si ce sont deux produits différents, touche plutôt « C\'est normal ». Le stock des box s\'additionne, rien d\'autre n\'est supprimé. Ça se propage à toute l\'équipe.')) return;
   const r=produitsFusionnerDoublons(cles);
   toast(r.fiches+' fiche(s) fusionnée(s) — '+db.produits.length+' produits maintenant',4200);
   produitsDoublonsRafraichir();
