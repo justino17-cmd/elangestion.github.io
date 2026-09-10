@@ -181,6 +181,12 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
    toute la largeur en tete — c'est ce qu'on lit en premier. Les colonnes sont en
    grille, pas en `columns` CSS : un bloc ne doit jamais etre coupe en deux. */
 .fiche-page{display:grid;grid-template-columns:1fr;gap:18px;align-items:start}
+/* Un élément de grille a min-width:auto : son minimum est son min-content. La carte
+   « Gérer ce client » porte un tableau de connexions dont le min-content fait 428 px — la
+   colonne 1fr se résolvait donc à 475 px et poussait toutes les cartes hors de l'écran.
+   L'overflow posé sur le div qui enveloppe le tableau n'y pouvait rien : il n'est pas sur
+   l'élément de grille. Mesuré à 390 px : scrollWidth 490 avant, 375 après. */
+.fiche-page>*{min-width:0}
 /* Les blocs etaient des sections d'une meme carte : ils portent un filet et une
    marge de tete en style EN LIGNE. Devenus cartes a part entiere, ils n'en ont
    plus besoin. On ne modifie pas leur balisage — blocDossier() sert aussi
@@ -2653,11 +2659,15 @@ function tourAccesCharger(slug,regenerer){
   var el=document.getElementById('lg-acces'); if(el) el.textContent='…';
   apiPost('/api/monitor/espaces/acces',{slug:slug,regenerer:!!regenerer}).then(function(r){
     var el=document.getElementById('lg-acces'); if(!el) return;
-    if(r&&r.acces){ el.textContent=r.acces;
+    /* apiPost rend {ok, d} — la charge utile est dans « d ». Lire r.acces donnait donc
+       toujours undefined : la modale affichait « code indisponible » quel que soit le
+       code renvoyé par le serveur, qui lui répond bien {ok, slug, acces, ts, par, vu}. */
+    var d=(r&&r.d)||{};
+    if(r&&r.ok&&d.acces){ el.textContent=d.acces;
       var q=document.getElementById('lg-acces-quand');
-      if(q) q.textContent=r.vu?('dernier usage le '+new Date(r.vu).toLocaleDateString('fr-FR')):'jamais utilisé pour l\'instant'; }
-    else { el.textContent='—'; el.style.fontSize='13px'; el.style.letterSpacing='0';
-      el.textContent=(r&&r.error)||'code indisponible'; }
+      if(q) q.textContent=d.vu?('dernier usage le '+new Date(d.vu).toLocaleDateString('fr-FR')):'jamais utilisé pour l\'instant'; }
+    else { el.style.fontSize='13px'; el.style.letterSpacing='0';
+      el.textContent=d.error||'code indisponible'; }
   }).catch(function(){ var el=document.getElementById('lg-acces'); if(el) el.textContent='—'; });
 }
 /* Reprendre la main sur les identifiants de départ d'un espace qui n'a pas encore servi.
@@ -2838,23 +2848,36 @@ function chargerEspaces(){
     if(TAB==='abonnements'||TAB==='entreprises') render();
   }).catch(function(){ ESP.loaded=true; ESP.err='Serveur injoignable.'; if(TAB==='abonnements') render(); });
 }
+/* Elle écrivait DIRECTEMENT dans #pack-info et dans les quatre champs du formulaire : le
+   premier render() venu — et il en vient un dès que chargerDossier() répond — reconstruisait
+   la fiche et remettait « Chargement du statut… », que plus rien ne remplaçait. Mesuré au
+   banc à 0,5 / 1 / 2 / 3 / 5 s : toujours le même texte, pour un seul appel qui répondait
+   pourtant bien. Même faute que celle déjà corrigée sur #esp-formules, rejouée ici.
+   Elle garde donc un état, et c'est le rendu qui peint — comme regPliage(). */
+var PACK={nom:'',charge:false,err:'',d:null};
+function packPeindre(){
+  var el=document.getElementById('pack-info'); if(!el) return;
+  if(!PACK.charge){ el.textContent=PACK.nom?'Chargement du statut…':''; return; }
+  if(PACK.err){ el.innerHTML='<span style="color:var(--redText)">'+esc(PACK.err)+'</span>'; return; }
+  var d=PACK.d||{};
+  var sf=document.getElementById('abo-f')||document.getElementById('pack-f'); if(sf&&d.formule) sf.value=d.formule;
+  var sq=document.getElementById('abo-q')||document.getElementById('pack-q'); if(sq) sq.value=d.quantite||1;
+  var ss=document.getElementById('abo-st'); if(ss) ss.value=d.aboStatut||'auto';
+  var sd=document.getElementById('abo-fin'); if(sd) sd.value=d.aboFin||'';
+  var ST={auto:'automatique',actif:'activé par TEAM OP',essai:'en essai',impaye:'impayé',suspendu:'suspendu',annule:'annulé'};
+  if(d.formule){
+    el.innerHTML='Formule actuelle\u202f: <b>'+esc(d.formule)+(d.quantite>1?' ×'+d.quantite:'')+'</b> · statut\u202f: <b>'+esc(ST[d.aboStatut||'auto']||d.aboStatut)+'</b>'+(d.aboFin?' · jusqu\'au <b>'+esc(d.aboFin)+'</b>':'');
+  } else {
+    el.innerHTML='Aucune formule attribuée pour l\'instant — choisis-en une et Enregistrer.';
+  }
+}
 function tourPackPrefill(nom){
-  var info=document.getElementById('pack-info'); if(!info) return;
+  PACK={nom:nom||'',charge:false,err:'',d:null}; packPeindre();
   apiPost('/api/monitor/espaces/statut',{nom:nom}).then(function(r){
-    var el=document.getElementById('pack-info'); if(!el) return;
-    if(!(r&&r.ok&&r.d)){ el.innerHTML='<span style="color:var(--redText)">'+((r&&r.d&&r.d.error)||'Statut indisponible — le serveur a-t-il été mis à jour ?')+'</span>'; return; }
-    var d=r.d;
-    var sf=document.getElementById('abo-f')||document.getElementById('pack-f'); if(sf&&d.formule) sf.value=d.formule;
-    var sq=document.getElementById('abo-q')||document.getElementById('pack-q'); if(sq) sq.value=d.quantite||1;
-    var ss=document.getElementById('abo-st'); if(ss) ss.value=d.aboStatut||'auto';
-    var sd=document.getElementById('abo-fin'); if(sd) sd.value=d.aboFin||'';
-    var ST={auto:'automatique',actif:'activé par TEAM OP',essai:'en essai',impaye:'impayé',suspendu:'suspendu',annule:'annulé'};
-    if(d.formule){
-      el.innerHTML='Formule actuelle : <b>'+esc(d.formule)+(d.quantite>1?' ×'+d.quantite:'')+'</b> · statut : <b>'+esc(ST[d.aboStatut||'auto']||d.aboStatut)+'</b>'+(d.aboFin?' · jusqu\'au <b>'+esc(d.aboFin)+'</b>':'')+' — '+(d.paye?'<span style="color:var(--green)">✅ accès ouvert ('+esc(d.motif||'')+')</span>':'<span style="color:var(--amber)">🔒 accès fermé ('+esc(d.motif||'en attente de paiement')+')</span>');
-    } else {
-      el.innerHTML='Aucune formule attribuée pour l\'instant — choisis-en une et Enregistrer.';
-    }
-  }).catch(function(){ var el=document.getElementById('pack-info'); if(el) el.textContent='Serveur injoignable.'; });
+    if(PACK.nom!==nom) return;   /* une autre entreprise a été ouverte entre-temps */
+    if(!(r&&r.ok&&r.d)){ PACK.charge=true; PACK.err=(r&&r.d&&r.d.error)||'Statut indisponible — le serveur a-t-il été mis à jour ?'; packPeindre(); return; }
+    PACK.charge=true; PACK.d=r.d; packPeindre();
+  }).catch(function(){ if(PACK.nom===nom){ PACK.charge=true; PACK.err='Serveur injoignable.'; packPeindre(); } });
 }
 function tourStatutPack(nom){
   apiPost('/api/monitor/espaces/statut',{nom:nom}).then(function(r){
@@ -3064,6 +3087,9 @@ function renderVue(v){
      render(). Accroché à render(), le pliage ne s'appliquait donc jamais lors d'un changement
      d'onglet — c'est-à-dire presque jamais. */
   regPliage();
+  /* Ce que des chargements asynchrones ont écrit dans la page doit survivre au rendu : sinon
+     il repart à « Chargement… » sans que rien ne le remplisse. */
+  try{ packPeindre(); }catch(e){}
 }
 
 /* ── outils partagés ── */
@@ -4647,7 +4673,13 @@ function entSupprimer(t,nm){
   apiPost('/api/monitor/entreprise/apercu-suppression',{t:t}).then(function(r){
     if(!(r&&r.ok&&r.d&&r.d.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
     var a=r.d.apercu||{};
-    var l=function(n,mot){ return n?'<li>'+n+' '+mot+(n>1?'s':'')+'</li>':''; };
+    /* Le « s » se collait à la fin de la PHRASE, pas du nom : « 9 appareil abonné aux
+       notificationss », « 14 message écrit depuis la Tours », « 6 compte de connexions »,
+       « 41 erreur remontées ». Sur l'écran qui supprime définitivement une entreprise, un
+       inventaire qui écorche ce qu'il annonce n'inspire pas la confiance qu'il faudrait.
+       Le pluriel s'écrit donc en toutes lettres : le français d'ici est trop irrégulier
+       pour une règle (« mail » invariable, accord de l'adjectif, complément qui ne bouge pas). */
+    var l=function(n,un,plusieurs){ return n?'<li>'+n+' '+(n>1?plusieurs:un)+'</li>':''; };
     var rien=!(a.slugs&&a.slugs.length)&&!a.comptesAnnuaire&&!a.boites&&!a.abonnesPush&&!a.connexions&&!a.erreurs&&!a.ecransOuverts&&!a.comptesSite&&!a.mailsRecus&&!a.mailsEnvoyes&&!a.mailsEcrits;
     /* L'avertissement qui compte : un espace qui porte des comptes de connexion, un code
        d'accès ou de l'usage A FORCÉMENT été un vrai espace — comptesReg ne s'écrit que par
@@ -4684,18 +4716,18 @@ function entSupprimer(t,nm){
         ? '<div style="margin-top:16px;font-size:13.5px;color:var(--text2)">Il ne reste rien à supprimer pour cet espace.</div>'
         : '<div style="margin-top:16px;font-size:13.5px;color:var(--text2)">Voici ce qui va disparaître :</div>'+
           '<ul style="margin:8px 0 0;padding-left:20px;font-size:13.5px;color:var(--text2);line-height:1.9">'+
-            l((a.slugs||[]).length,'entrée d’annuaire')+
-            l(a.comptesAnnuaire,'compte de connexion')+
-            l(a.boites,'boîte mail reliée')+
-            l(a.abonnesPush,'appareil abonné aux notifications')+
-            l(a.connexions,'connexion enregistrée')+
-            l(a.erreurs,'erreur remontée')+
-            l(a.reponsesMail,'réponse de client')+
-            l(a.mailsRecus,'e-mail reçu archivé')+
-            l(a.mailsEnvoyes,'e-mail envoyé archivé')+
-            l(a.mailsEcrits,'message écrit depuis la Tour')+
-            l(a.ecransOuverts,'écran ouvert')+
-            l(a.comptesSite,'compte du site')+
+            l((a.slugs||[]).length,'entrée d’annuaire','entrées d’annuaire')+
+            l(a.comptesAnnuaire,'compte de connexion','comptes de connexion')+
+            l(a.boites,'boîte mail reliée','boîtes mail reliées')+
+            l(a.abonnesPush,'appareil abonné aux notifications','appareils abonnés aux notifications')+
+            l(a.connexions,'connexion enregistrée','connexions enregistrées')+
+            l(a.erreurs,'erreur remontée','erreurs remontées')+
+            l(a.reponsesMail,'réponse de client','réponses de clients')+
+            l(a.mailsRecus,'e-mail reçu archivé','e-mails reçus archivés')+
+            l(a.mailsEnvoyes,'e-mail envoyé archivé','e-mails envoyés archivés')+
+            l(a.mailsEcrits,'message écrit depuis la Tour','messages écrits depuis la Tour')+
+            l(a.ecransOuverts,'écran ouvert','écrans ouverts')+
+            l(a.comptesSite,'compte du site','comptes du site')+
             ((a.promos||[]).length?'<li>le code promo '+esc((a.promos||[]).join(', '))+'</li>':'')+
             (a.codeAcces?'<li>son code d’accès</li>':'')+
             (a.devisIA?'<li>son accès au Devis IA</li>':'')+
