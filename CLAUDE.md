@@ -117,6 +117,21 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   tout nouvel appel qui construirait un identifiant à partir d'un nom libre. Même esprit : les décisions d'une box (`db.boxDecisions`) et les paires déclarées
   distinctes (`db.produitsDistincts`) sont des collections à part, fusionnées par enregistrement — ne pas
   les ranger sur la box ni sur la fiche produit, la fusion en bloc écraserait le stock ajusté ailleurs.
+- **Ne jamais écrire une catégorie de produit hors de `CAT_LIST`.** Les huit sont la seule taxonomie
+  de l'application : elles portent une couleur et groupent le stock des box. Les catalogues
+  fournisseurs (`CATFOUR`) en ont 171 autres — les traduire par `rangerCatFour(étiquette, nom)`, jamais
+  les recopier. Deux règles y sont gravées : le NOM passe avant l'étiquette (un rayon nomme une cible,
+  le nom nomme l'objet), et rien qui nomme une cible ne se replie sur TP14 ni TP18 — ce sont les types
+  du règlement biocide qu'une entreprise trace, pas deux étagères parmi huit.
+- **Retirer un produit d'une box s'écrit TOUJOURS dans `db.boxDecisions`** (`boxDecider`). Quatre
+  chemins le font : la feuille « Retirer », la croix ✕ de « Modifier la box », le retrait direct de la
+  fiche, et le retrait validé par le DR. Sans cette trace, le catalogue repose tout seul ce qu'une
+  équipe a retiré à la main — et une pose multi-box efface en silence les décisions de trente équipes.
+  Règle jumelle : **une décision « Pas dans cette box » ne se lève que sur la box qu'on a sous les
+  yeux** (`boxPoserProduits(b,ids,{respecterEcartes})`).
+- **Une ligne de journal par GESTE, jamais par box.** `db.journal` est plafonné à 500 entrées à chaque
+  `save()` et re-tronqué à 500 à chaque fusion : douze box de cent produits effacent tout l'historique
+  de l'entreprise en un passage. Compter et nommer les box, ne pas réciter les produits.
 - **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante
 - ⛔ **NE JAMAIS TOUCHER À `SYNC_SECRET_DEFAULT` NI À `SYNC_SALT`** (`app.html`, vers la
   ligne 5059). Ce ne sont pas des noms, malgré les apparences :
