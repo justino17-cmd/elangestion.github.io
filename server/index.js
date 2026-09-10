@@ -3210,12 +3210,17 @@ async function versionsPousserFirestore() {
     return { fait: true };
   } catch (e) { console.error('teamop_config/version :', e.message); return { fait: false, motif: e.message }; }
 }
-/* La version réellement en ligne : on va la lire sur teamop.fr, une fois par quart d'heure.
-   C'est ce que la Tour compare au minimum, et ce que « Exiger la dernière version » exige. */
+/* La version réellement en ligne : on va la lire sur teamop.fr. C'est ce que la Tour affiche et ce
+   que « Exiger la dernière version » exige.
+   Le cache était d'un quart d'heure : après une publication, la Tour annonçait encore l'ancienne
+   version pendant quinze minutes — et surtout « Exiger la dernière version » exigeait ce chiffre
+   périmé, sans le dire. Signalé par Justin le 10 septembre 2026, la Tour montrant v625 alors que
+   teamop.fr servait v626. Une minute suffit : cette route n'est appelée que par la Tour, c'est-à-dire
+   par le patron, quelques fois par jour — et « Exiger » relit toujours, sans cache (frais). */
 const versionLigne = { v: 0, ts: 0, encours: null };
-function versionEnLigne() {
-  if (versionLigne.v && Date.now() - versionLigne.ts < 900000) return Promise.resolve(versionLigne.v);
-  if (versionLigne.encours) return versionLigne.encours;
+function versionEnLigne(frais) {
+  if (!frais && versionLigne.v && Date.now() - versionLigne.ts < 60000) return Promise.resolve(versionLigne.v);
+  if (versionLigne.encours) return versionLigne.encours;   // une lecture est déjà en cours : elle est fraîche par construction
   versionLigne.encours = (async () => {
     try {
       const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 15000);
@@ -3252,7 +3257,13 @@ app.get('/api/monitor/version', monAdmin, async (req, res) => {
 app.post('/api/monitor/version-min', monPatronStrict, async (req, res) => {
   const b = req.body || {};
   let min = parseInt(b.min, 10);
-  if (b.min === 'ligne') min = await versionEnLigne();   // « Exiger la dernière version » : celle qui est servie, pas un chiffre tapé
+  /* « Exiger la dernière version » : celle qui est SERVIE à l'instant, jamais un reste de cache.
+     Si teamop.fr n'a pas pu être lu, on refuse : exiger un numéro périmé, c'est bloquer les appareils
+     déjà à jour et laisser passer ceux qu'on voulait pousser — une erreur muette et coûteuse. */
+  if (b.min === 'ligne') {
+    min = await versionEnLigne(true);
+    if (!min || Date.now() - versionLigne.ts > 60000) return res.status(503).json({ error: 'La version en ligne n\'a pas pu être lue sur teamop.fr — réessaie dans un instant, ou tape le numéro à la main.' });
+  }
   if (!isFinite(min) || min < 0 || min > 99999) return res.status(400).json({ error: 'min : un entier entre 0 et 99999, ou « ligne »' });
   const enLigne = 'enLigne';   // le hors ligne n'est plus une option : le paramètre est ignoré
   versionsCfg.min = min; versionsCfg.enLigne = enLigne; versionsCfg.maj = Date.now(); versionsCfg.par = (req.tourUser && req.tourUser.nom) || '';
