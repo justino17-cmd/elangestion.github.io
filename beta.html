@@ -15896,7 +15896,11 @@ function cataloguePoser(cible,opts){
   const ids=new Set(cible.produits.map(p=>p&&p.id));
   const date=(opts&&opts.ancien)?{_m:1}:{};
   let np=0;
-  CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); const cle=produitCle({nom}); const id=idCatalogue(nom); if(!nom||vus.has(cle)||ids.has(id))return;
+  /* Ici l'identifiant DOIT rester déduit du nom (c'est ce qui rend « ↻ Catalogue OP » rejouable sans
+     refabriquer de doublons), donc pas d'idProduit. La garde tient parce que CATALOGUE est une
+     constante du fichier, entièrement latine : `slugNom` n'y rend jamais la chaîne vide. Le contrôle
+     est écrit ci-dessous plutôt que supposé — un nom qui slugue à rien est sauté. */
+  CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); const cle=produitCle({nom}); if(!nom||!slugNom(nom))return; const id=idCatalogue(nom); if(vus.has(cle)||ids.has(id))return;
     cible.produits.push({id:idCatalogue(nom),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0,cree:0,...date});
     vus.add(cle); ids.add(id); np++; });
   const vusF=new Set(cible.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
@@ -16088,7 +16092,15 @@ function plValider(){ if(!_plLignes.length){ toast('Colle d\'abord ta liste de p
      le geste que « ⧉ Copier la liste » rend justement facile. Même défaut que fcAddAll, même remède. */
   const deja=new Set((db.produits||[]).map(produitCle));
   _plLignes.forEach(x=>{ const k=produitCle({nom:x.nom}); if(!k||deja.has(k)) return; deja.add(k);
-    produitCreer({id:idCatalogue(x.nom),nom:x.nom,categorie:x.categorie||'',ref:x.ref||'',fournisseurs:x.fournisseur?[x.fournisseur.toUpperCase()]:[],prix:x.prix||0,unite:'unité',qte:0,seuil:0,perso:true},{push:true}); n++; });
+    /* idProduit et non idCatalogue : le nom vient d'un texte COLLÉ, donc entièrement libre — même
+       nature que le champ « produit hors stock ». Un nom qui ne laisse rien une fois réduit à
+       [a-z0-9] retomberait sur le générique « cat_x », et là c'est pire qu'ailleurs : deux appareils
+       hors ligne collant chacun un tel nom créeraient localement DEUX fiches sans collision visible,
+       puis fusionnerBases — qui unit par identifiant, sans jamais passer par la garde de
+       produitCreer — n'en garderait qu'une, l'autre et son stock disparaissant sans même être
+       signalés comme doublon. Trouvé par `relecteur` sur ce chemin précis, après la correction des
+       deux autres. */
+    produitCreer({id:idProduit(x.nom),nom:x.nom,categorie:x.categorie||'',ref:x.ref||'',fournisseurs:x.fournisseur?[x.fournisseur.toUpperCase()]:[],prix:x.prix||0,unite:'unité',qte:0,seuil:0,perso:true},{push:true}); n++; });
   n=(db.produits||[]).length-_avant;
   logEvent('Produits ajoutés en liste',n+' produit(s)','crud'); save(); closeModal();
   toast(n?n+' produit(s) ajoutés et rangés par catégorie':'Rien à ajouter (déjà existants)'); prdOnglet='perso'; views.produits();
