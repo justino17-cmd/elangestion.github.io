@@ -17796,8 +17796,9 @@ function mvtLignesSignees(m){
   lg.forEach(function(l){
     if(!l.produitId) return;
     if(m.type==='retrait'){ pris.push(l.produitId); return; }
-    if(m.type==='arrivage'){ mis.push(l.produitId); return; }
-    var d=(+l.du||0)+(+l.dc||0);
+    /* l'ACCORDÉ, pas la demande : une ligne que le DR a mise à zéro n'a pas bougé, elle ne se surligne pas (relecture v624) */
+    if(m.type==='arrivage'){ if(mvAcc(l,'qte')>0) mis.push(l.produitId); return; }
+    var d=mvAcc(l,'du')+mvAcc(l,'dc');
     if(d<0) pris.push(l.produitId); else if(d>0) mis.push(l.produitId);
   });
   return {pris:pris,mis:mis};
@@ -18701,7 +18702,7 @@ views.validations=function(){
       if(edit) rows.push(`<div class="mvl-r"><span class="mvl-n">${esc(p.nom||'Produit')}</span><span class="mvl-d">${sens} <b>${Math.abs(dem)} ${unit}</b></span><label class="mvl-q"><input type="number" inputmode="numeric" min="0" max="${Math.abs(dem)}" step="1" value="${Math.abs(acc)}" id="acc-${m.id}-${i}-${c}" aria-label="Quantité accordée pour ${esc(p.nom||'ce produit')}"><span>${unit}</span></label></div>`);
       else rows.push(`<div class="mvl-r${mod?' mvl-mod':''}"><span class="mvl-n">${esc(p.nom||'Produit')}</span><span class="mvl-d">${sens} ${Math.abs(dem)} ${unit}</span><span class="mvl-a${mod?'':' mvl-ok'}">${mod?(acc?`accordé <b>${Math.abs(acc)}</b> sur ${Math.abs(dem)}`:'<b>refusé</b> par le DR'):'accordé'}</span></div>`); }); });
     if(!rows.length) return '';
-    return `<div class="mvl" onclick="event.stopPropagation()">${rows.join('')}${edit?`<div class="mvl-aide">Baisse un chiffre pour n'accorder qu'une partie — <b>0</b> refuse la ligne. ${esc(prenomDe(m))} verra ce qui a été accordé.</div><input class="mvl-mot" id="mot-${m.id}" placeholder="Un mot pour ${esc(prenomDe(m))} (facultatif)" maxlength="140" autocomplete="off">`:''}</div>`; };
+    return `<div class="mvl" onclick="event.stopPropagation()">${rows.join('')}${edit?`<div class="mvl-aide">Baisse un chiffre pour n'accorder qu'une partie — <b>0</b> refuse la ligne. ${esc(prenomDe(m))} verra ce qui a été accordé.</div><input class="mvl-mot" id="mot-${m.id}" placeholder="Un mot pour ${esc(prenomDe(m))} (facultatif)" aria-label="Mot pour ${esc(prenomDe(m))}, facultatif" maxlength="140" autocomplete="off">`:''}</div>`; };
   const blocMv=`<div class="card"><div class="card-head"><h3>Mouvements de box (${mv.length})</h3></div>
     ${mv.length? mv.map(m=>estDr
       ? mvRow(m,'mvc')+mvLignesHtml(m,true)+`<div class="mvl-act" onclick="event.stopPropagation()"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button><button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div></div>`+mvEcart(m)
