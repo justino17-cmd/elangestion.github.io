@@ -1225,6 +1225,14 @@ body.jour #dia .dia-ctrl{border-top-color:rgba(20,28,48,.09)}
 .dos .n{font-variant-numeric:tabular-nums;min-width:18px;text-align:right}
 
 /* Les états vides parlent et donnent le geste suivant. */
+/* Le bandeau de panne du courrier : il porte l'erreur EXACTE renvoyée par le serveur, parce
+   qu'« impossible de lire » sans la raison ne permet à personne de réparer quoi que ce soit. */
+.mail-panne{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;background:var(--ambreBg);
+  color:var(--amber);border-radius:var(--r-3);padding:14px 16px;margin:0 0 12px;font-size:13px;line-height:1.55}
+.mail-panne svg{flex-shrink:0;margin-top:1px}
+.mail-panne>div{flex:1;min-width:180px}
+.mail-panne-l{color:var(--text2);font-size:12.5px;margin-top:4px;word-break:break-word}
+.mail-panne .btn-fant{flex-shrink:0}
 .sup-vide{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
   padding:38px 22px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
 .sup-vide .t{font-size:15px;font-weight:600;color:var(--text)}
@@ -1831,6 +1839,9 @@ var IC={
   ext:'<path d="M14 4h6v6"></path><path d="M20 4 11 13"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path>',
   chev:'<path d="M9 5l7 7-7 7"></path>',
   cadenas:'<rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path>',
+  /* Une boîte qui ne répond pas est un avertissement, pas une décoration : le triangle est le
+     seul signe que l'écran du courrier ait besoin en plus de ses onglets. */
+  alerte:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>',
   cb:'<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18"></path>',
   devisia:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path><path d="M18.5 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"></path>'
 };
@@ -1949,7 +1960,7 @@ function setBdg(id,n){ var e=$(id); if(!e) return;
 
 /* ═══ LES DONNÉES (toutes réelles) ═══ */
 var INC={list:[],cnt:{},nbEnt:0,loaded:false,err:'',sel:null,grp:null,f:{type:'',grav:'',statut:'actifs',app:'',ent:''}};
-var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',autoTout:false,
+var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',errListe:'',autoTout:false,
          sel:{boite:'toutes',dossier:'',nom:'Toutes les réceptions',role:'inbox'},lu:null,ouvert:null,q:'',
          /* Le rangement par entreprise est un filtre de CETTE page, pas une requête : la
             liste fusionnée des boîtes arrive déjà entière. Changer d'entreprise ne
@@ -2976,10 +2987,24 @@ function chargerMail(frais){
 function chargerMessages(){
   var s=MSG.sel, p='/api/monitor/mail/liste?page=0'+(MSG.q?'&q='+encodeURIComponent(MSG.q):'');
   if(s.boite&&s.boite!=='toutes') p+='&boite='+encodeURIComponent(s.boite)+'&dossier='+encodeURIComponent(s.dossier||'');
-  apiGet(p).then(function(d){ if(!d||d.error) return;
+  /* Elle avalait TOUT : « if(!d||d.error) return » sortait sans rien dire, et le .catch était
+     vide. Le serveur, lui, est bavard — il renvoie {error} avec un 502 quand une boîte est
+     injoignable, et un tableau « erreurs » en vue fusionnée. Résultat : quand l'IMAP refusait
+     la connexion, l'écran affichait « Rien dans ce dossier », ce qui est faux : il y a quelque
+     chose, on n'arrive simplement pas à le lire. C'est ce mensonge qui a fait dire « ça ne
+     marche plus » sans qu'on sache par quel bout le prendre. */
+  apiGet(p).then(function(d){
+    if(!d) return;
+    if(d.error){ MSG.errListe=String(d.error); MSG.messages=[]; MSG.total=0;
+      if(TAB==='support'||TAB==='accueil') render(); return; }
+    MSG.errListe=(d.erreurs&&d.erreurs.length)?d.erreurs.join(' · '):'';
     MSG.messages=d.messages||[]; MSG.total=Number(d.total)||0;
     if(TAB==='support'||TAB==='accueil') render();
-  }).catch(function(){});
+  }).catch(function(e){
+    MSG.errListe=(e&&e.status===502)?'La boîte ne répond pas (IMAP). Vérifiez l’adresse, le mot de passe d’application et le serveur dans « Boîtes reliées ».':msgErreur(e);
+    MSG.messages=[]; MSG.total=0;
+    if(TAB==='support'||TAB==='accueil') render();
+  });
 }
 
 /* ═══ RENDU ═══ */
@@ -4091,15 +4116,35 @@ function supLigne(o){
     (mailEtroit()?'<span class="reg-chev" aria-hidden="true">›</span>':'')+'</span></button>';
 }
 function mailListeRecue(){
+  return mailPanneBandeau()+mailListeRecueCorps();
+}
+/* Une boîte en panne doit se voir même quand une AUTRE boîte, elle, a des messages : le
+   bandeau se calcule donc à part et coiffe tous les cas, pas seulement la liste vide. */
+function mailPanneBandeau(){
+  var enPanne=(MSG.boites||[]).filter(function(b){ return b&&b.erreur; });
+  if(!enPanne.length) return '';
+  return '<div class="mail-panne">'+svg('alerte',18)+'<div><b>'+
+      (enPanne.length>1?enPanne.length+' boîtes ne répondent pas':'La boîte '+esc((enPanne[0].boite||{}).email||'')+' ne répond pas')+'</b>'+
+      enPanne.map(function(b){ return '<div class="mail-panne-l">'+esc((b.boite||{}).email||'')+' — '+esc(b.erreur)+'</div>'; }).join('')+
+      '<div class="mail-panne-l">Mot de passe d’application expiré, adresse de serveur changée, ou boîte pleine : c’est la cause la plus fréquente.</div>'+
+    '</div><button type="button" class="btn-fant" onclick="chargerMail(1)">Réessayer</button></div>';
+}
+function mailListeRecueCorps(){
   if(MSG.err) return supVide('support','Le serveur ne répond pas',esc(MSG.err),
     '<button type="button" class="btn-fant" onclick="chargerMail(1)">Réessayer</button>');
   if(!MSG.loaded) return supSquel();
   if(!MSG.boites.length) return supVide('support','Aucune boîte reliée',
     'Reliez la boîte support@teamop.fr pour lire ici ce que les clientes écrivent.',
     '<button type="button" class="btn-plein" onclick="supConnecterBoite()">Connecter une boîte</button>');
+  /* Le message d'erreur est déjà dans la réponse du serveur (« erreur » par boîte, 140
+     caractères, ou « error » avec un 502) : il n'était simplement jamais affiché. */
   var M=(MSG.messages||[]);
+  if(MSG.errListe) return supVide('support','Impossible de lire ce dossier',esc(MSG.errListe),
+    '<button type="button" class="btn-fant" onclick="chargerMail(1)">Réessayer</button>');
   if(!M.length) return supVide('support','Rien dans ce dossier',
-    'Les nouveaux messages arrivent tout seuls ; le bouton ⟳ force une relève.');
+    (MSG.boites||[]).some(function(b){ return b&&b.erreur; })
+      ?'Rien de lisible pour l’instant — voir l’avertissement ci-dessus.'
+      :'Les nouveaux messages arrivent tout seuls ; le bouton ⟳ force une relève.');
 
   /* ── TOUTES LES ENTREPRISES : groupé PAR ENTREPRISE, jamais à plat ──
      C'est la demande, mot pour mot : « je ne veux pas que tout soit mélangé entre eux ».
