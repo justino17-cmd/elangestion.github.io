@@ -4832,7 +4832,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '628-beta';
+const APP_VERSION = '629-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -15046,7 +15046,10 @@ function intGenererDoc(id,kind){ const i=db.interventions.find(x=>x.id===id); if
 }
 function dureeTrajet(min){ min=Math.max(1,Math.round(min)); const h=Math.floor(min/60), m=min%60; if(h&&m) return h+'h'+String(m).padStart(2,'0'); if(h) return h+'h'; return m+' min'; }
 /* Copier l'adresse (si le GPS/itinéraire ne trouve pas) → à coller dans n'importe quelle appli GPS */
-function fallbackCopy(text,done){ try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done&&done(); }catch(e){ prompt('Copie cette adresse :',text); } }
+/* quoi : ce qu'on copie, pour le dernier recours. execCommand rend FAUX sans lever quand le
+   navigateur refuse : sans ce test, on annonçait « copié » alors que rien ne l'était. */
+function fallbackCopy(text,done,quoi){ try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); const ok=document.execCommand('copy'); document.body.removeChild(ta); if(ok){ done&&done(); return; } }catch(e){}
+  prompt('Copie '+(quoi||'cette adresse')+' :',text); }
 function copierAdresse(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return; const c=db.clients.find(x=>x.id===i.clientId)||{};
   const adr=[i.adresse||c.adresse||c.adresseComplete||'', ((c.codePostal||'')+' '+(c.ville||'')).trim()].filter(Boolean).join(', ');
   if(!adr){ toast('Aucune adresse à copier'); return; }
@@ -16018,6 +16021,19 @@ function plAnalyse(){ const t=($('pl-texte')||{}).value||'';
   const c=$('pl-count'); if(c)c.textContent=_plLignes.length;
   const el=$('pl-apercu'); if(!el)return;
   const cats=[...CAT_LIST,'Sans catégorie'];
+  /* Au-delà de deux cents lignes, l'aperçu détaillé coûte plus qu'il ne rapporte : un menu de
+     catégories PAR LIGNE, c'est deux mégaoctets de HTML posés d'un coup et l'écran qui se fige —
+     mesuré à 770 ms pour 2 800 produits sur une machine rapide, bien pire sur un téléphone de
+     terrain. Et personne ne relit deux mille huit cents menus. On résume : combien, par catégorie,
+     et les premiers noms pour reconnaître sa liste. Les catégories restent celles devinées ou
+     lues dans la colonne, elles se corrigent ensuite fiche par fiche. */
+  if(_plLignes.length>200){
+    const parCat={}; _plLignes.forEach(x=>{ const k=x.categorie||'Sans catégorie'; parCat[k]=(parCat[k]||0)+1; });
+    el.innerHTML=`<div class="form-sec">Aperçu — ${_plLignes.length} produits</div>
+      <div style="font-size:13px;color:var(--t2);line-height:1.7">${Object.keys(parCat).sort((a,b)=>parCat[b]-parCat[a]).map(k=>`<b style="color:${k==='Sans catégorie'?'var(--t3)':catColor(k)}">${parCat[k]}</b> ${esc(k)}`).join(' · ')}</div>
+      <div style="font-size:12.5px;color:var(--t3);line-height:1.6;margin-top:8px">${_plLignes.slice(0,6).map(x=>esc(x.nom)).join(' · ')}${_plLignes.length>6?' … et '+(_plLignes.length-6)+' autres':''}</div>
+      <div style="font-size:12px;color:var(--t3);line-height:1.6;margin-top:8px">Trop de lignes pour vérifier les catégories une par une : elles se corrigent ensuite depuis la fiche d'un produit. Les produits déjà au catalogue seront ignorés.</div>`;
+    return; }
   el.innerHTML=_plLignes.length?`<div class="form-sec">Aperçu — vérifie les catégories</div>`+_plLignes.map((x,k)=>`<div class="frow" style="gap:8px">
     <div style="flex:1;min-width:0"><div style="font-size:14px;color:var(--t1)">${esc(x.nom)}</div>${x.fournisseur?`<div style="font-size:11px;color:var(--t3)">${esc(x.fournisseur)}${x.prix?' · '+x.prix.toFixed(2)+' €':''}</div>`:(x.prix?`<div style="font-size:11px;color:var(--t3)">${x.prix.toFixed(2)} €</div>`:'')}</div>
     <select onchange="_plLignes[${k}].categorie=this.value==='Sans catégorie'?'':this.value" style="width:150px;background:var(--card2);border:1px solid var(--brd2);border-radius:9px;padding:7px 8px;color:${x.categorie?catColor(x.categorie):'var(--t3)'};font-size:12px;font-weight:700">${cats.map(cc=>`<option ${((x.categorie||'Sans catégorie')===cc)?'selected':''}>${esc(cc)}</option>`).join('')}</select>
@@ -16025,7 +16041,11 @@ function plAnalyse(){ const t=($('pl-texte')||{}).value||'';
 }
 function plValider(){ if(!_plLignes.length){ toast('Colle d\'abord ta liste de produits'); return; }
   let n=0;
-  _plLignes.forEach(x=>{ if(db.produits.some(p=>norm(p.nom)===norm(x.nom))) return;   // pas de doublon
+  /* Les noms déjà connus, UNE fois — et la liste collée peut elle-même porter deux fois le même nom.
+     Relire tout le catalogue à chaque ligne coûtait cinq secondes d'écran figé pour 2 800 produits :
+     le geste que « ⧉ Copier la liste » rend justement facile. Même défaut que fcAddAll, même remède. */
+  const deja=new Set((db.produits||[]).map(p=>norm(p.nom)));
+  _plLignes.forEach(x=>{ const k=norm(x.nom); if(deja.has(k)) return; deja.add(k);
     produitCreer({nom:x.nom,categorie:x.categorie||'',ref:x.ref||'',fournisseurs:x.fournisseur?[x.fournisseur.toUpperCase()]:[],prix:x.prix||0,unite:'unité',qte:0,seuil:0,perso:true},{push:true}); n++; });
   logEvent('Produits ajoutés en liste',n+' produit(s)','crud'); save(); closeModal();
   toast(n?n+' produit(s) ajoutés et rangés par catégorie':'Rien à ajouter (déjà existants)'); prdOnglet='perso'; views.produits();
@@ -16221,7 +16241,7 @@ function produitsCopier(){
   const txt=catalogueLignes(list).join('\n');
   const fini=()=>toast(list.length+' produit'+(list.length>1?'s':'')+' copié'+(list.length>1?'s':'')+' — colle-les dans l\'autre espace avec « ＋ Liste »',4600);
   try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(fini,()=>fallbackCopy(txt,fini)); return; } }catch(e){}
-  fallbackCopy(txt,fini);
+  fallbackCopy(txt,fini,'la liste');
 }
 function renderProduitsList(){
   const el=$('prd-list'); if(!el) return;
