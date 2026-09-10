@@ -18,7 +18,13 @@ const { execFileSync } = require('child_process');
 const SURFACES = ['--bg', '--bg1', '--bg2', '--bg3', '--surface', '--inset', '--card', '--card2', '--hover', '--sel', '--chip'];
 const COUPLES = [
   { textes: ['--t1', '--t2', '--text', '--text2', '--code', '--strong', '--link'], fonds: SURFACES, seuil: 4.5 },
-  { textes: ['--t3', '--muted', '--dim'], fonds: SURFACES, seuil: 3.0 },          // secondaires : au moins le seuil UI
+  /* --muted et --dim sont du texte LU (horodatages, sous-titres, en-têtes de tableau) : la palette
+     PUPITRE les tient à 4,5 dans les deux thèmes, autant que l'outil l'exige. --t3 (app.html) reste à 3. */
+  { textes: ['--t3'], fonds: SURFACES, seuil: 3.0 },
+  { textes: ['--muted', '--dim'], fonds: SURFACES, seuil: 4.5 },
+  /* la teinte d'application sur ses lavis, et les encres d'état sur leurs fonds (tour.html) */
+  { textes: ['--app-txt'], fonds: ['--app-bg', '--sel'], seuil: 4.5 },
+  { textes: ['--bleu', '--amber', '--redText', '--green'], fonds: ['--bleuBg', '--ambreBg', '--rougeBg', '--vertBg'], seuil: 4.5 },
   { textes: ['--side-ink'], fonds: ['--side'], seuil: 4.5 },
   { textes: ['--side-mut'], fonds: ['--side'], seuil: 3.0 },
   // La rubrique active est un vert plein qui porte sa propre encre (dessin d'Apple, v561) :
@@ -139,6 +145,8 @@ for (const fichier of process.argv.slice(2)) {
   if (!f.size) console.log('✓ variables : aucune variable fantôme');
   else for (const [nom, e] of f) {
     if (e.sansSecours) bloquant = true;
+ /* un nom qui finit par un tiret est construit dans le JS (« var(--ic-'+x+') ») : le navigateur le résout, ce lecteur de texte non */
+ if (nom.endsWith('-')) continue;
     console.log(`${e.sansSecours ? '✗' : '⚠'} variable ${nom} jamais définie — ${e.avecSecours} usage(s) avec secours, ${e.sansSecours} sans (propriété ignorée)`);
   }
 
