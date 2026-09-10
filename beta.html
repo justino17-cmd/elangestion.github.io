@@ -16889,13 +16889,14 @@ function renderBoxesList(){
   let list=visibleBoxes(db.boxes).filter(b=> !q || norm((b.numero||'')+' '+(b.nom||'')+' '+(b.ville||'')+' '+(b.codePostal||'')).includes(q));
   if(!list.length){ el.innerHTML=`<div class="card">${emptyState('🧱','Aucune box.',can('supprimer')?'Ajouter':'',can('supprimer')?'formBox()':'')}</div>`; return; }
   const groups={}; list.forEach(b=>{ const g=b.groupe||'Sans groupe'; (groups[g]=groups[g]||[]).push(b); });
+  const candsNv=produitsRecents();   // une fois pour toutes les cartes
   el.innerHTML=Object.keys(groups).sort().map(g=>`<div class="nav-label" style="padding:14px 4px 6px">${esc(g==='Sans groupe'?'Sans groupe':g)}</div>`+groups[g].map(b=>{
     const ab=(b.categorie||'').replace(/[^A-Za-zÀ-ÿ0-9]/g,'').slice(0,2).toUpperCase()||'BX';
     return `<div class="pl-row" onclick="openBox('${b.id}')">
       <span style="width:44px;height:44px;border-radius:10px;background:color-mix(in srgb,var(--acc) 12%,transparent);color:var(--acc);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;flex-shrink:0">${esc(ab)}</span>
       <div class="pl-info">
         <div style="display:flex;align-items:center;gap:6px"><span class="mono" style="color:var(--acc);font-size:11px;font-weight:700">${esc(b.numero||'')}</span>${b.actif===false?'<span class="st st-red" style="font-size:9px">Inactif</span>':''}</div>
-        <div class="pl-title">${esc(b.nom)||esc(b.adresse)||esc(b.numero)||'Box'}${(()=>{ const nv=boxNouveautes(b).length; return nv?` <span class="bxp-pastille bxp-pastille-carte" title="Nouveaux produits au catalogue, pas encore dans cette box">+${nv>9?'9+':nv}</span>`:''; })()}</div>
+        <div class="pl-title">${esc(b.nom)||esc(b.adresse)||esc(b.numero)||'Box'}${(()=>{ const nv=candsNv.length?boxNouveautes(b,candsNv).length:0; return nv?` <span class="bxp-pastille bxp-pastille-carte" title="Nouveaux produits au catalogue, pas encore dans cette box">+${nv>9?'9+':nv}</span>`:''; })()}</div>
         <div style="display:flex;align-items:center;gap:6px"><span class="pl-meta">${esc(b.ville||'')||'—'}</span>${b.secteur?`<span class="st st-green" style="font-size:9px">${esc(b.secteur)}</span>`:''}</div>
       </div>
       <span style="color:var(--t3);font-size:22px;font-weight:300">›</span>
@@ -16933,7 +16934,7 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
 let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
 /* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
-function openBox(id){ boxView=id; boxProdSearch='';
+function openBox(id){ boxView=id; boxProdSearch=''; _doublonsOuvert=false;   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
   /* Le destinataire vaut pour UNE visite : rouvrir la box, c'est un nouveau geste, souvent
      pour quelqu'un d'autre. Le garder d'une visite à l'autre attribuerait en silence des
      produits au technicien d'hier. */
@@ -18327,13 +18328,21 @@ function boxRetirerAnnuler(){ const d=_dernierRetrait; if(!d) return; const b=(d
    ou la naissance de la box si elle est plus récente (une box créée demain ne voit pas comme nouveau
    ce qui existait avant elle). Aucune écriture de migration : un produit sans date de création se lit
    dans son identifiant uid() (base 36 des millisecondes), un identifiant de catalogue (cat_, four_) vaut 0. */
-const BOX_NOUVEAUTES_DEPUIS=Date.parse('2026-09-10T10:00:00Z');
+const BOX_NOUVEAUTES_DEPUIS=Date.parse('2026-09-10T10:00:00Z');   // ⚠ ne PAS avancer à chaque version : un plancher, pas une date de publication
 function uidTs(id){ id=String(id||''); if(!/^[0-9a-z]{13}$/.test(id)) return 0; const t=parseInt(id.slice(0,8),36); return (t>0&&t<=Date.now()+86400000)?t:0; }
 function produitCree(p){ if(!p) return 0; if(p.cree!==undefined&&p.cree!==null) return +p.cree||0; return uidTs(p.id); }
 function boxDecision(b){ return (db.boxDecisions||[]).find(d=>d&&d.id===b.id)||null; }
 function boxVuTs(b){ return Math.max(BOX_NOUVEAUTES_DEPUIS,uidTs(b.id)||0); }
-function boxNouveautes(b){ if(!b) return []; b.stock=b.stock||{}; const d=boxDecision(b); const ec=(d&&d.ecartes)||{}; const vu=boxVuTs(b);
-  return abpDisponibles(b).filter(p=>!p._demo&&produitCree(p)>vu&&!ec[p.id]).sort((x,y)=>produitCree(y)-produitCree(x)); }
+/* Les candidats d'abord — les fiches créées après le plancher, en général zéro ou quelques-unes —
+   puis la garde de la box, réduite à eux. computeNotifs() appelle ceci pour chaque box à CHAQUE save()
+   de toute l'application : parcourir 800 produits × 30 box à chaque tap serait payé sur le terrain. */
+function produitsRecents(){ const vu=BOX_NOUVEAUTES_DEPUIS; return (db.produits||[]).filter(p=>p&&p.id&&!p._demo&&produitCree(p)>vu); }
+function boxNouveautes(b,cands){ if(!b) return []; b.stock=b.stock||{}; const d=boxDecision(b); const ec=(d&&d.ecartes)||{}; const vu=boxVuTs(b);
+  const liste=(cands||produitsRecents()).filter(p=>produitCree(p)>vu&&!ec[p.id]&&!b.stock[p.id]); if(!liste.length) return [];
+  /* même garde qu'abpDisponibles : ni un nom déjà posé sous un autre identifiant (sauf paire déclarée distincte), ni deux fois le même nom */
+  const parId=new Map((db.produits||[]).map(p=>[p.id,p])); const dansBox=new Set();
+  Object.keys(b.stock).forEach(pid=>{ const p=parId.get(pid); if(p&&!produitDistinct(p)) dansBox.add(produitCle(p)); });
+  const vus=new Set(); return liste.filter(p=>{ if(produitDistinct(p)) return true; const k=produitCle(p); if(dansBox.has(k)||vus.has(k)) return false; vus.add(k); return true; }).sort((x,y)=>produitCree(y)-produitCree(x)); }
 /* Les décisions vivent dans leur propre collection, fusionnée par enregistrement : écrites sur la box,
    elles lui poseraient un _m neuf et la fusion en bloc écraserait le stock ajusté sur un autre appareil. */
 function boxDecider(b,ids){ db.boxDecisions=db.boxDecisions||[]; let d=boxDecision(b); if(!d){ d={id:b.id,ecartes:{}}; db.boxDecisions.push(d); } d.ecartes=d.ecartes||{}; const now=Date.now();
@@ -23305,6 +23314,7 @@ function delItem(coll,id){
     if(!confirm('Supprimer ce produit ?'+(nb?' Il est encore présent dans '+nb+' box — ses quantités seront retirées partout.':''))) return;
     db.boxes.forEach(b=>{ if(b.stock) delete b.stock[id]; });
   } else if(coll==='boxes'){ const b=db.boxes.find(x=>x.id===id)||{};
+    db.boxDecisions=(db.boxDecisions||[]).filter(d=>!d||d.id!==id);   // sa décision de nouveautés part avec elle (tombe par estampiller)
     if(!confirm('Supprimer la box « '+(b.nom||b.numero||'')+' » ? Son stock et son historique disparaîtront.')) return;
     (db.bons||[]).forEach(x=>{ if(x.boxId===id) x.boxId=''; });          // les bons liés repartent sur le dépôt
     (db.demandes||[]).forEach(x=>{ if(x.boxId===id) x.boxId=''; });
@@ -26365,7 +26375,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
     /* Nouveaux produits au catalogue, à poser dans les box — UNE ligne par personne, pas une par box :
        même source que la pastille du bouton (boxNouveautes), et la ligne disparaît d'elle-même quand tout
        est décidé (ajouté ou écarté). Le créateur la voit aussi : c'est lui qui doit poser le produit. */
-    { const bxs=db.boxes.filter(notifBoxConcerne).filter(b=>b.actif!==false).map(b=>({b,n:boxNouveautes(b)})).filter(x=>x.n.length);
+    { const cands=produitsRecents(); const bxs=cands.length?db.boxes.filter(notifBoxConcerne).filter(b=>b.actif!==false).map(b=>({b,n:boxNouveautes(b,cands)})).filter(x=>x.n.length):[];
       if(bxs.length){ const tous={}; bxs.forEach(x=>x.n.forEach(p=>{ tous[p.id]=p; })); const liste=Object.values(tous).sort((a,b)=>produitCree(b)-produitCree(a)); const maxC=produitCree(liste[0]);
         out.push({id:'prdnew:'+maxC+':'+liste.length,ts:maxC,ic:'✨',txt:`<b>${liste.length} nouveau${liste.length>1?'x':''} produit${liste.length>1?'s':''}</b> au catalogue — ${liste.slice(0,3).map(p=>'« '+esc(p.nom)+' »').join(', ')}${liste.length>3?'…':''} — les ajouter à vos box ?${bxs.length>1?' · '+bxs.length+' box concernées':''}`,
           act:bxs.length===1?("openBox('"+bxs[0].b.id+"');setTimeout(openBoxProduits,450)"):"go('boxes')"}); } }
