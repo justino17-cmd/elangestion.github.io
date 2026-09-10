@@ -67,7 +67,7 @@ console.log('L\'ORDRE DU FICHIER : tout ce que migrate() appelle est déclaré a
   const lig=APP.split('\n'); const ligneDe=m=>lig.findIndex(l=>l.startsWith(m))+1;
   const load=ligneDe('let db = load();');
   v('« let db = load() » existe',load>0,true);
-  ['const CAT_LIST=','function catFourNorm(s){','const CAT_FOUR_REJET=','const CAT_FOUR_NOM=','const CAT_FOUR_NOM_FAIBLE=','const CAT_FOUR_MAP=','const CAT_DEVINE=','function devineCat(nom){','function rangerCatFour(catFournisseur,nomProduit){','const CATFOUR=']
+  ['const CAT_LIST=','function catFourNorm(s){','const CAT_FOUR_REJET=','const CAT_FOUR_NOM=','const CAT_FOUR_NOM_FAIBLE=','const CAT_FOUR_MAP=','const CAT_DEVINE=','function devineCat(nom){','function rangerCatFour(catFournisseur,nomProduit){','const CATFOUR=','const norm = s =>']
     .forEach(m=>{ const n=ligneDe(m); v(m.replace(/[={(].*$/,'').trim()+' est déclarée avant le chargement',n>0&&n<load,true); });
   /* et la garde qui dit pourquoi, pour que personne ne les redescende sans le savoir */
   v('la raison est écrite à côté',/zone morte temporelle/.test(APP),true); }
