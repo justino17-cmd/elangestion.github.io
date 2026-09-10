@@ -181,6 +181,12 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
    toute la largeur en tete — c'est ce qu'on lit en premier. Les colonnes sont en
    grille, pas en `columns` CSS : un bloc ne doit jamais etre coupe en deux. */
 .fiche-page{display:grid;grid-template-columns:1fr;gap:18px;align-items:start}
+/* Un élément de grille a min-width:auto : son minimum est son min-content. La carte
+   « Gérer ce client » porte un tableau de connexions dont le min-content fait 428 px — la
+   colonne 1fr se résolvait donc à 475 px et poussait toutes les cartes hors de l'écran.
+   L'overflow posé sur le div qui enveloppe le tableau n'y pouvait rien : il n'est pas sur
+   l'élément de grille. Mesuré à 390 px : scrollWidth 490 avant, 375 après. */
+.fiche-page>*{min-width:0}
 /* Les blocs etaient des sections d'une meme carte : ils portent un filet et une
    marge de tete en style EN LIGNE. Devenus cartes a part entiere, ils n'en ont
    plus besoin. On ne modifie pas leur balisage — blocDossier() sert aussi
@@ -235,7 +241,10 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
 .kpi{background:var(--surface);border:0;border-radius:var(--r-4);padding:18px 20px;box-shadow:var(--ombre-1);transition:background-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
 .kpi .n{font-size:30px;font-weight:700;letter-spacing:-.025em;line-height:1.05;font-variant-numeric:tabular-nums}
 .kpi .l{font-family:var(--fs);font-size:12.5px;font-weight:500;color:var(--muted);letter-spacing:0;text-transform:none;margin-top:6px}
-.grille-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+/* Le seuil est réglable par écran (--kpi-min) : Entreprises en a SIX, et à 190 px la sixième
+   tombait seule sur une deuxième rangée — une tuile orpheline qui casse la lecture d'un coup
+   d'œil. Le défaut reste 190 px : les autres écrans ne changent pas. */
+.grille-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--kpi-min,190px),1fr));gap:14px}
 .kpi.clic{cursor:pointer}
 .kpi.clic:hover{background:var(--hover);box-shadow:var(--ombre-2)}
 .kpi.clic:active{transform:scale(.985);transition-duration:var(--d-0)}
@@ -400,6 +409,48 @@ input.inp,select.sel-f{display:block;line-height:normal}
    --dim : --dim tombe à 4,27:1 sur le fond de page en thème jour, ce qui va pour un chevron,
    pas pour une phrase qu'on lit. */
 .reg-sous{margin-top:3px;font-size:12.5px;line-height:1.55;color:var(--muted);max-width:62ch}
+/* ── LE PLIAGE DES GROUPES ────────────────────────────────────────────────────────────────
+   Justin, 8 septembre 2026 : « il y a beaucoup trop de choses pour que ça soit cohérent et
+   logique ». Mesuré au banc, à 390 px : l'Accueil fait 2 405 px de haut — six écrans de
+   défilement — et l'onglet Accès 2 306. Ce n'est pas un problème de mots (165 sur l'Accueil)
+   mais de HAUTEUR : quatre groupes ouverts en même temps, tous complets.
+
+   On ne retire rien. Le registre est déjà classé par urgence : seul le premier groupe reste
+   ouvert, les suivants se replient sur leur titre — qui porte déjà le nom et le compte, donc
+   on sait ce qu'on n'ouvre pas. Un tap ouvre, et le choix est retenu par groupe : après un
+   tap, c'est la préférence de Justin qui décide, plus la mienne. */
+/* min-height suffit à garantir la cible de 44 px : un padding en plus rallongerait chaque
+   titre sur les écrans où rien ne se replie, et là le pliage coûterait sans rien rapporter. */
+.reg-tete{cursor:pointer;-webkit-tap-highlight-color:transparent;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;min-height:44px;
+  align-content:center;position:relative;padding-right:26px}
+.reg-tete .reg-nom,.reg-tete .reg-n{margin-right:0}
+/* align-content : sans lui, la ligne du titre se calait en HAUT de la boîte de 44 px et laissait
+   22 px d'air mort sous chaque titre — mesuré sur les sept groupes de l'Accueil. Un groupe replié
+   coûtait alors 66 px pour afficher 21 px de texte.
+   Le chevron sort du flux : dans un conteneur qui enveloppe, il repartait à la ligne dès que la
+   phrase du groupe remplissait la première — une tête de 73 px sur bureau, 97 px au téléphone,
+   avec un chevron seul au milieu de nulle part. Posé en absolu à droite, il reste sur la ligne du
+   titre quoi qu'il arrive, et le padding-right lui garde sa place. */
+.reg-chev{position:absolute;right:0;top:0;height:44px;display:flex;align-items:center;
+  flex-shrink:0;font-size:12px;color:var(--dim);transition:transform var(--d-2) var(--e-sortie)}
+/* Un seul glyphe, « › », qui tourne — au lieu d'un glyphe échangé PENDANT qu'il tourne, deux
+   mouvements qui se contredisaient. Fermé il pointe à droite (« il y a autre chose là-dessous »),
+   ouvert il pointe vers le contenu. C'est le sens de <details>, d'iOS et de Material ; l'ancien
+   rotate(-90deg) sur « › » le faisait pointer vers le HAUT une fois replié. */
+.reg-tete .reg-chev{transform:rotate(90deg)}
+.reg-g.plie .reg-tete .reg-chev{transform:none}
+.reg-g.plie .reg-tete{margin-bottom:0}
+.reg-g.plie>*:not(.reg-tete):not(.ac-tete){display:none}
+/* Un en-tête ENVELOPPÉ (.ac-tete, qui pose le titre et son bouton d'action côte à côte) est
+   l'enfant direct, pas .reg-tete : la règle ci-dessus l'emportait avec le corps, titre compris.
+   L'onglet Accès y perdait sa seconde porte — « Accès à la version publique », repliée par la
+   règle des 300 px — en entier : plus de titre, plus de compteur, plus de chevron, donc plus
+   rien à cliquer pour la rouvrir. Mesuré au banc : hauteur 0, en-tête invisible, groupe
+   inatteignable. Un groupe garde TOUJOURS son titre ; seul son bouton d'action part avec le corps. */
+.reg-g.plie>.ac-tete{margin-bottom:0}
+.reg-g.plie>.ac-tete>*:not(.reg-tete){display:none}
+.reg-g.plie .reg-sous{display:none}
+@media (prefers-reduced-motion:reduce){ .reg-chev{transition:none} }
 
 /* ── LA LIGNE, commune aux trois natures ──
    Un vrai <button> : le focus clavier et :focus-visible arrivent gratuitement par la règle
@@ -511,6 +562,42 @@ body.jour .reg-l.cli,body.jour .reg-l.haut{--rougeBg:rgba(179,46,46,.10);--ambre
   font-family:var(--fm);font-size:12.5px;cursor:pointer;border:0;
   transition:background-color var(--d-1) var(--e-sortie)}
 .reg-tech-l:hover{background:var(--hover);color:var(--strong)}
+
+/* ── LES QUATRE CHIFFRES DU DOSSIER ─── « 5 échecs de connexion » ne disait pas POURQUOI ───
+   Demande de Justin, 8 septembre 2026. Le chiffre était mort : il devient une porte.
+   Seule la puce qui MÈNE quelque part devient un bouton — une puce cliquable qui n'ouvre
+   rien apprend à l'œil qu'on ne clique nulle part ici, et coûte les trois autres. */
+.dsr-p{flex:1 1 82px;min-width:82px;text-align:left;padding:7px 9px;border-radius:var(--r-2);
+  background:none;border:0;color:inherit;font:inherit}
+button.dsr-p{cursor:pointer;min-height:56px;-webkit-tap-highlight-color:transparent;
+  box-shadow:inset 0 0 0 1px var(--hairline);
+  transition:background-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie)}
+button.dsr-p:hover{background:var(--hover)}
+button.dsr-p:active{background:var(--sel);transition-duration:var(--d-0)}
+button.dsr-p:focus-visible{outline:none;box-shadow:var(--anneau)}
+.dsr-n{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.dsr-l{font-size:11.5px;color:var(--muted);line-height:1.35}
+/* Le chevron dit « ça s'ouvre » sans ajouter un mot : à cette taille, « voir le détail »
+   ferait une deuxième ligne et mangerait le libellé. */
+.dsr-x{display:inline-block;margin-left:4px;color:var(--acc);font-weight:700;
+  transition:transform var(--d-1) var(--e-sortie)}
+button.dsr-p[aria-expanded="true"] .dsr-x{transform:rotate(90deg)}
+
+/* ── POURQUOI ILS N'ENTRENT PAS ─── le panneau qui s'ouvre sous les chiffres ───
+   Cinq motifs seulement existent côté app.html, et ils n'appellent pas la même action : trois
+   ne demandent RIEN (l'identifiant n'existe pas, le mot de passe est oublié, le compte a été
+   coupé par leur propre administrateur) et un seul est de notre côté. Afficher le motif brut
+   les mettait tous les cinq sur le même plan. */
+.ech-p{margin-top:10px;border-radius:var(--r-3);box-shadow:inset 0 0 0 1px var(--hairline);overflow:hidden}
+.ech-g{padding:11px 13px}
+.ech-g+.ech-g{border-top:1px solid var(--line)}
+.ech-gt{font-size:13px;font-weight:600;color:var(--strong);line-height:1.4}
+.ech-gq{font-family:var(--fm);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ech-gd{font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:3px}
+.ech-gl{font-size:12px;color:var(--text2);line-height:1.6;margin-top:7px}
+.ech-gl b{font-weight:600;color:var(--strong)}
+.ech-h{font-family:var(--fm);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ech-notre{box-shadow:inset 2px 0 0 var(--amber)}
 
 /* ── LE RIDEAU ─── les lignes ne sont plus des .item, la cascade #vue.entre .item ne les
    atteint donc plus et la liste apparaîtrait d'un bloc. C'est le GROUPE qui se pose, pas la
@@ -1138,6 +1225,14 @@ body.jour #dia .dia-ctrl{border-top-color:rgba(20,28,48,.09)}
 .dos .n{font-variant-numeric:tabular-nums;min-width:18px;text-align:right}
 
 /* Les états vides parlent et donnent le geste suivant. */
+/* Le bandeau de panne du courrier : il porte l'erreur EXACTE renvoyée par le serveur, parce
+   qu'« impossible de lire » sans la raison ne permet à personne de réparer quoi que ce soit. */
+.mail-panne{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;background:var(--ambreBg);
+  color:var(--amber);border-radius:var(--r-3);padding:14px 16px;margin:0 0 12px;font-size:13px;line-height:1.55}
+.mail-panne svg{flex-shrink:0;margin-top:1px}
+.mail-panne>div{flex:1;min-width:180px}
+.mail-panne-l{color:var(--text2);font-size:12.5px;margin-top:4px;word-break:break-word}
+.mail-panne .btn-fant{flex-shrink:0}
 .sup-vide{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
   padding:38px 22px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
 .sup-vide .t{font-size:15px;font-weight:600;color:var(--text)}
@@ -1180,7 +1275,10 @@ body.jour .lg-logo{box-shadow:0 8px 24px rgba(20,28,48,.18),0 0 0 1px rgba(0,0,0
 
 /* ══ LE COURRIER ═══ la maquette elle-même ══ */
 .mail{display:grid;grid-template-columns:1fr;border:1px solid var(--border);border-radius:var(--r-4);overflow:hidden;background:var(--surface)}
-@media(min-width:1000px){.mail{grid-template-columns:216px minmax(300px,352px) 1fr;min-height:560px}
+/* 216 px suffisaient à « support@teamop.fr » ; la colonne porte maintenant des noms
+   d'entreprise ET leurs catégories en retrait — « Pas encore rattachées » y tenait sur
+   deux lignes tronquées. */
+@media(min-width:1000px){.mail{grid-template-columns:252px minmax(300px,340px) 1fr;min-height:560px}
   .mail-rows{max-height:calc(100vh - 310px)}.mail-lect{overflow-y:auto;max-height:calc(100vh - 244px)}}
 .mail-doss{background:var(--inset);border-right:1px solid var(--line);padding:12px 10px}
 .mail-liste{border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
@@ -1205,6 +1303,25 @@ body.jour .lg-logo{box-shadow:0 8px 24px rgba(20,28,48,.18),0 0 0 1px rgba(0,0,0
 .dos .n{flex:0 0 auto;font-size:11.5px;color:var(--muted);font-weight:700}
 .dos.on .n{color:var(--acc)}
 .dos-t{font-size:10px;letter-spacing:var(--suivi-mono);color:var(--muted);font-family:var(--fm);margin:14px 0 6px 10px}
+/* ── LE COURRIER RANGÉ PAR ENTREPRISE ──
+   Les catégories sont EN RETRAIT sous leur entreprise, et le filet vertical dit à qui elles
+   appartiennent : sans lui, cinq lignes de plus se lisent comme cinq entreprises de plus.
+   Elles restent à 44 px — c'est le plancher tactile, pas une suggestion. */
+.dos.sous{margin-left:12px;width:calc(100% - 12px);min-height:44px;font-size:13px;color:var(--muted);
+  border-left:1px solid var(--line);border-radius:0 var(--r-2) var(--r-2) 0;padding-left:11px}
+.dos.sous:hover{color:var(--text2)}
+.dos.sous.on{background:var(--tint-gris);color:var(--strong);font-weight:600;border-left-color:var(--acc)}
+.dos.sous .dos-i{font-size:12.5px}
+.dos-note{font-size:12px;color:var(--muted);line-height:1.5;padding:4px 10px 8px}
+/* Les boîtes reliées ne sont plus une navigation : ce sont des témoins. Elles ne se cliquent
+   donc pas, et ne doivent pas ressembler à ce qui se clique. */
+.dos-plomb{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 10px;
+  font-family:var(--fm);font-size:11px;color:var(--muted);line-height:1.4}
+.dos-plomb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dos-plomb b{flex:0 0 auto;color:var(--amber);font-variant-numeric:tabular-nums}
+/* En barre horizontale (écran étroit), le retrait et le filet n'ont plus de sens. */
+.dos-bar .dos.sous{margin-left:0;width:auto;border-left:1px solid var(--trait-ui);border-radius:var(--r-pill);padding-left:14px}
+.dos-bar .dos-note,.dos-bar .dos-plomb{display:none}
 .mrow{display:flex;gap:10px;padding:11px 13px;border-bottom:1px solid var(--hairline);cursor:pointer;align-items:flex-start;transition:background-color var(--d-1) var(--e-sortie)}
 .mrow:hover{background:var(--hover)}
 .mrow:active{background:var(--sel);transition-duration:var(--d-0)}
@@ -1722,6 +1839,9 @@ var IC={
   ext:'<path d="M14 4h6v6"></path><path d="M20 4 11 13"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path>',
   chev:'<path d="M9 5l7 7-7 7"></path>',
   cadenas:'<rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path>',
+  /* Une boîte qui ne répond pas est un avertissement, pas une décoration : le triangle est le
+     seul signe que l'écran du courrier ait besoin en plus de ses onglets. */
+  alerte:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>',
   cb:'<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18"></path>',
   devisia:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path><path d="M18.5 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"></path>'
 };
@@ -1812,7 +1932,10 @@ function setTab(t,sansAnim){
   placerIndic(!sansAnim);
   amenerOngletEnVue();
   if(sansAnim) render(); else renderAnime();
-  if(t==='support'&&!MSG.loaded) chargerMail();
+  /* Le Courrier range par ENTREPRISE : sans l'annuaire ni les clients du site, il n'a aucun
+     moyen de savoir à qui appartient une adresse, et tout retomberait dans « pas encore
+     rattachées ». Ces deux listes ne se chargeaient que depuis l'onglet Entreprises. */
+  if(t==='support'){ if(!MSG.loaded) chargerMail(); if(!ENT.loaded) chargerEntreprises(); if(!CLI.loaded) chargerClients(); }
   /* PBL porte les espaces : sans lui, « Leurs espaces » resterait sur « Chargement… » pour qui
      ouvre Entreprises sans être passé par Accès. */
   if(t==='entreprises'){ if(!ENT.loaded) chargerEntreprises(); if(!CLI.loaded) chargerClients(); if(!PBL.loaded) chargerAccesPublics(); if(!CS.loaded) chargerComptesSite(); }
@@ -1837,8 +1960,12 @@ function setBdg(id,n){ var e=$(id); if(!e) return;
 
 /* ═══ LES DONNÉES (toutes réelles) ═══ */
 var INC={list:[],cnt:{},nbEnt:0,loaded:false,err:'',sel:null,grp:null,f:{type:'',grav:'',statut:'actifs',app:'',ent:''}};
-var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',autoTout:false,
+var MSG={boites:[],messages:[],nonLus:0,total:0,loaded:false,busy:false,err:'',errListe:'',autoTout:false,
          sel:{boite:'toutes',dossier:'',nom:'Toutes les réceptions',role:'inbox'},lu:null,ouvert:null,q:'',
+         /* Le rangement par entreprise est un filtre de CETTE page, pas une requête : la
+            liste fusionnée des boîtes arrive déjà entière. Changer d'entreprise ne
+            redemande donc rien au serveur, et le passage est instantané. */
+         selEnt:'toutes',selCat:'tout',
          compo:false,cDest:'',cSujet:'',cTexte:''};
 var CLI={list:[],total:0,loaded:false,err:'',sel:null,q:''};
 var ABO={abos:[],paiements:[],mrr:0,actifs:0,impayes:0,echecs:0,configured:false,loaded:false,err:'',f:''};
@@ -1883,6 +2010,7 @@ function chargerEntreprises(){
   ENT.loaded=false; ENT.err='';
   apiGet('/api/monitor/entreprises').then(function(d){
     ENT.liste=(d&&d.entreprises)||[];
+    _courrierEntCache={};   // l'annuaire vient de changer : ce qui en était déduit ne vaut plus
     ENT.stats={total:(d&&d.total)||0,horsAnnuaire:(d&&d.horsAnnuaire)||0,avecErreurs:(d&&d.avecErreurs)||0,avecEchecs:(d&&d.avecEchecs)||0};
     ENT.loaded=true; rafraichirSiConcerne();
   }).catch(function(){ ENT.err='Liste des entreprises illisible — serveur injoignable.'; ENT.loaded=true; rafraichirSiConcerne(); });
@@ -1999,6 +2127,59 @@ function chargerAccesPublics(){
     PBL.loaded=true; rafraichirSiConcerne();
   }).catch(function(){ PBL.err='Serveur injoignable — impossible de lister les accès publics.'; PBL.loaded=true; rafraichirSiConcerne(); });
 }
+/* ── POURQUOI ILS N'ARRIVENT PAS À SE CONNECTER ────────────────────────────────────────────
+   Demande de Justin, 8 septembre 2026 : « j'aimerais pouvoir cliquer dessus et savoir
+   pourquoi ils ont eu un échec de connexion ».
+   app.html n'envoie que CINQ motifs (vérifié dans le code, pas supposé), et un seul est de
+   notre côté. Les afficher bruts les mettait tous sur le même plan : « identifiant inconnu »
+   — quelqu'un tape un identifiant qui n'existe pas, il n'y a rien à faire — se lisait comme
+   « comptes pas encore arrivés », qui veut dire que NOTRE synchro n'avait pas fini. D'où la
+   traduction, et le liseré ambre sur le seul motif qui appelle une enquête.
+   Aucun changement de serveur : ts, login, motif et appareil sont déjà renvoyés par
+   /api/monitor/espace. Cet écran se publie donc par Pages seul. */
+var ECH_SENS={
+  'identifiant inconnu':{t:'Cet identifiant n’existe pas chez eux',
+    d:'Une faute de frappe, un ancien identifiant, ou quelqu’un d’extérieur qui essaie. Rien à corriger de notre côté.'},
+  'mot de passe incorrect':{t:'Le compte existe, le mot de passe non',
+    d:'Oublié. Un mot de passe provisoire se pose depuis leur fiche utilisateur (🔑), dans la liste de gauche.'},
+  'compte désactivé':{t:'Compte coupé par leur propre administrateur',
+    d:'Le mot de passe était bon. C’est leur entreprise qui a fermé l’accès — normal, sauf si c’est une erreur de leur part.'},
+  'comptes pas encore arrivés':{t:'La synchro n’avait pas fini',nous:true,
+    d:'C’est de notre côté : l’appareil n’avait pas encore reçu les comptes de l’entreprise. Réseau lent, ou synchro en panne — le seul motif de cette liste qui mérite une enquête.'},
+  'bêta refusée':{t:'Accès bêta refusé par le serveur',
+    d:'L’accès a été coupé depuis l’onglet Accès, ou n’a jamais existé.'}
+};
+/* L'état d'ouverture vit dans DOS, jamais dans le DOM : la vue est reconstruite par
+   innerHTML à chaque render(), et un pli qui se referme tout seul est un bug — même
+   raison qu'au pavé des espaces techniques (voir le CSS .reg-tech). */
+function dossierEchecs(){ DOS.echecs=!DOS.echecs; rafraichirSiConcerne(); }
+function blocEchecsDetail(ech){
+  /* Groupé par motif, pas par ordre chronologique : cinq lignes « mot de passe incorrect »
+     à la suite sont UNE histoire — quelqu'un a oublié son mot de passe — pas cinq incidents.
+     C'est la lecture que la liste plate ne donnait pas. */
+  var par={}, ordre=[];
+  ech.forEach(function(e){ var m=e.motif||'motif non enregistré';
+    if(!par[m]){ par[m]=[]; ordre.push(m); } par[m].push(e); });
+  var t='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:6px">🔑 Pourquoi ils n’arrivent pas à se connecter</div><div class="ech-p">';
+  ordre.forEach(function(m){
+    var l=par[m];
+    var s=ECH_SENS[m]||{t:m,d:'Motif inconnu de cette console — il vient peut-être d’une version plus récente de l’application.'};
+    /* Les événements arrivent du plus récent au plus ancien (cnxData fait unshift) :
+       le premier de chaque groupe est donc la dernière tentative. */
+    var qui={}, ordreQui=[];
+    l.forEach(function(e){ var k=e.login||'(sans identifiant)';
+      if(!qui[k]){ qui[k]={n:0,der:e}; ordreQui.push(k); } qui[k].n++; });
+    t+='<div class="ech-g'+(s.nous?' ech-notre':'')+'">'+
+      '<div class="ech-gt">'+esc(s.t)+' <span class="ech-gq">· '+l.length+' tentative'+(l.length>1?'s':'')+'</span></div>'+
+      '<div class="ech-gd">'+esc(s.d)+'</div>'+
+      '<div class="ech-gl">'+ordreQui.map(function(k){ var o=qui[k];
+        return '<b>'+esc(k)+'</b>'+(o.n>1?' × '+o.n:'')+
+          ' <span class="ech-h">'+esc(fmtJour(o.der.ts))+' à '+esc(fmtHeure(o.der.ts))+'</span>'+
+          (o.der.appareil?' <span class="ech-h">· '+esc(o.der.appareil)+'</span>':'');
+      }).join('<br>')+'</div></div>';
+  });
+  return t+'</div></div>';
+}
 function rafraichirSiConcerne(){
   /* 'abonnements' manquait : les codes promo arrivaient dans PRO sans que l'écran qui les
      affiche soit redessiné. */
@@ -2039,7 +2220,7 @@ function cnxF(v){ CNX.f=v; renderNav('fondu'); }
 /* Meme geste, meme libelle, meme place que dans les Entreprises et la Surveillance. */
 function cnxFermer(){ CNX.sel=null; CNX.det=null; CNX.detErr=''; renderNav('retour'); window.scrollTo(0,0); }
 var CNX_VIA={lien:'par le lien',entreprise:'nom d\'entreprise',session:'session gardée',identifiants:'identifiants',code:'code espace'};
-var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion']};
+var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],echec:['⛔','Échec'],deconnexion:['🚪','Déconnexion'],bloque:['🔒','Version bloquée — mise à jour forcée'],refus:['🛡️','Synchro refusée — appareil en retard, base de l’équipe reprise']};
 function cnxDepuis(ts){ if(!ts) return 'jamais'; var m=Math.round((Date.now()-ts)/60000);
   if(m<1) return 'à l\'instant'; if(m<60) return 'il y a '+m+' min'; var h=Math.round(m/60); if(h<24) return 'il y a '+h+' h'; var j=Math.round(h/24); if(j<30) return 'il y a '+j+' j'; return fmtJour(ts); }
 function cnxAppareil(e){ return [e.appareil,e.os,e.nav].filter(Boolean).join(' · ')+(e.pwa?' · app installée':''); }
@@ -2489,11 +2670,15 @@ function tourAccesCharger(slug,regenerer){
   var el=document.getElementById('lg-acces'); if(el) el.textContent='…';
   apiPost('/api/monitor/espaces/acces',{slug:slug,regenerer:!!regenerer}).then(function(r){
     var el=document.getElementById('lg-acces'); if(!el) return;
-    if(r&&r.acces){ el.textContent=r.acces;
+    /* apiPost rend {ok, d} — la charge utile est dans « d ». Lire r.acces donnait donc
+       toujours undefined : la modale affichait « code indisponible » quel que soit le
+       code renvoyé par le serveur, qui lui répond bien {ok, slug, acces, ts, par, vu}. */
+    var d=(r&&r.d)||{};
+    if(r&&r.ok&&d.acces){ el.textContent=d.acces;
       var q=document.getElementById('lg-acces-quand');
-      if(q) q.textContent=r.vu?('dernier usage le '+new Date(r.vu).toLocaleDateString('fr-FR')):'jamais utilisé pour l\'instant'; }
-    else { el.textContent='—'; el.style.fontSize='13px'; el.style.letterSpacing='0';
-      el.textContent=(r&&r.error)||'code indisponible'; }
+      if(q) q.textContent=d.vu?('dernier usage le '+new Date(d.vu).toLocaleDateString('fr-FR')):'jamais utilisé pour l\'instant'; }
+    else { el.style.fontSize='13px'; el.style.letterSpacing='0';
+      el.textContent=d.error||'code indisponible'; }
   }).catch(function(){ var el=document.getElementById('lg-acces'); if(el) el.textContent='—'; });
 }
 /* Reprendre la main sur les identifiants de départ d'un espace qui n'a pas encore servi.
@@ -2674,23 +2859,36 @@ function chargerEspaces(){
     if(TAB==='abonnements'||TAB==='entreprises') render();
   }).catch(function(){ ESP.loaded=true; ESP.err='Serveur injoignable.'; if(TAB==='abonnements') render(); });
 }
+/* Elle écrivait DIRECTEMENT dans #pack-info et dans les quatre champs du formulaire : le
+   premier render() venu — et il en vient un dès que chargerDossier() répond — reconstruisait
+   la fiche et remettait « Chargement du statut… », que plus rien ne remplaçait. Mesuré au
+   banc à 0,5 / 1 / 2 / 3 / 5 s : toujours le même texte, pour un seul appel qui répondait
+   pourtant bien. Même faute que celle déjà corrigée sur #esp-formules, rejouée ici.
+   Elle garde donc un état, et c'est le rendu qui peint — comme regPliage(). */
+var PACK={nom:'',charge:false,err:'',d:null};
+function packPeindre(){
+  var el=document.getElementById('pack-info'); if(!el) return;
+  if(!PACK.charge){ el.textContent=PACK.nom?'Chargement du statut…':''; return; }
+  if(PACK.err){ el.innerHTML='<span style="color:var(--redText)">'+esc(PACK.err)+'</span>'; return; }
+  var d=PACK.d||{};
+  var sf=document.getElementById('abo-f')||document.getElementById('pack-f'); if(sf&&d.formule) sf.value=d.formule;
+  var sq=document.getElementById('abo-q')||document.getElementById('pack-q'); if(sq) sq.value=d.quantite||1;
+  var ss=document.getElementById('abo-st'); if(ss) ss.value=d.aboStatut||'auto';
+  var sd=document.getElementById('abo-fin'); if(sd) sd.value=d.aboFin||'';
+  var ST={auto:'automatique',actif:'activé par TEAM OP',essai:'en essai',impaye:'impayé',suspendu:'suspendu',annule:'annulé'};
+  if(d.formule){
+    el.innerHTML='Formule actuelle\u202f: <b>'+esc(d.formule)+(d.quantite>1?' ×'+d.quantite:'')+'</b> · statut\u202f: <b>'+esc(ST[d.aboStatut||'auto']||d.aboStatut)+'</b>'+(d.aboFin?' · jusqu\'au <b>'+esc(d.aboFin)+'</b>':'');
+  } else {
+    el.innerHTML='Aucune formule attribuée pour l\'instant — choisis-en une et Enregistrer.';
+  }
+}
 function tourPackPrefill(nom){
-  var info=document.getElementById('pack-info'); if(!info) return;
+  PACK={nom:nom||'',charge:false,err:'',d:null}; packPeindre();
   apiPost('/api/monitor/espaces/statut',{nom:nom}).then(function(r){
-    var el=document.getElementById('pack-info'); if(!el) return;
-    if(!(r&&r.ok&&r.d)){ el.innerHTML='<span style="color:var(--redText)">'+((r&&r.d&&r.d.error)||'Statut indisponible — le serveur a-t-il été mis à jour ?')+'</span>'; return; }
-    var d=r.d;
-    var sf=document.getElementById('abo-f')||document.getElementById('pack-f'); if(sf&&d.formule) sf.value=d.formule;
-    var sq=document.getElementById('abo-q')||document.getElementById('pack-q'); if(sq) sq.value=d.quantite||1;
-    var ss=document.getElementById('abo-st'); if(ss) ss.value=d.aboStatut||'auto';
-    var sd=document.getElementById('abo-fin'); if(sd) sd.value=d.aboFin||'';
-    var ST={auto:'automatique',actif:'activé par TEAM OP',essai:'en essai',impaye:'impayé',suspendu:'suspendu',annule:'annulé'};
-    if(d.formule){
-      el.innerHTML='Formule actuelle : <b>'+esc(d.formule)+(d.quantite>1?' ×'+d.quantite:'')+'</b> · statut : <b>'+esc(ST[d.aboStatut||'auto']||d.aboStatut)+'</b>'+(d.aboFin?' · jusqu\'au <b>'+esc(d.aboFin)+'</b>':'')+' — '+(d.paye?'<span style="color:var(--green)">✅ accès ouvert ('+esc(d.motif||'')+')</span>':'<span style="color:var(--amber)">🔒 accès fermé ('+esc(d.motif||'en attente de paiement')+')</span>');
-    } else {
-      el.innerHTML='Aucune formule attribuée pour l\'instant — choisis-en une et Enregistrer.';
-    }
-  }).catch(function(){ var el=document.getElementById('pack-info'); if(el) el.textContent='Serveur injoignable.'; });
+    if(PACK.nom!==nom) return;   /* une autre entreprise a été ouverte entre-temps */
+    if(!(r&&r.ok&&r.d)){ PACK.charge=true; PACK.err=(r&&r.d&&r.d.error)||'Statut indisponible — le serveur a-t-il été mis à jour ?'; packPeindre(); return; }
+    PACK.charge=true; PACK.d=r.d; packPeindre();
+  }).catch(function(){ if(PACK.nom===nom){ PACK.charge=true; PACK.err='Serveur injoignable.'; packPeindre(); } });
 }
 function tourStatutPack(nom){
   apiPost('/api/monitor/espaces/statut',{nom:nom}).then(function(r){
@@ -2741,6 +2939,7 @@ function chargerClients(){
   apiGet('/api/monitor/clients').then(function(d){
     if(!d) return;
     CLI.list=(d.clients||[]).slice().sort(function(a,b){ return (b.majTs||b.inscrit||0)-(a.majTs||a.inscrit||0); });
+    _courrierEntCache={};   // ces fiches servent au rattachement du courrier : ce qui en était déduit ne vaut plus
     CLI.total=(d.total!=null?d.total:CLI.list.length); CLI.loaded=true; CLI.err='';
     if(TAB==='entreprises'||TAB==='accueil'||TAB==='support') render();
   }).catch(function(e){ CLI.err=msgErreur(e); CLI.loaded=true; if(TAB==='entreprises') render(); });
@@ -2788,10 +2987,24 @@ function chargerMail(frais){
 function chargerMessages(){
   var s=MSG.sel, p='/api/monitor/mail/liste?page=0'+(MSG.q?'&q='+encodeURIComponent(MSG.q):'');
   if(s.boite&&s.boite!=='toutes') p+='&boite='+encodeURIComponent(s.boite)+'&dossier='+encodeURIComponent(s.dossier||'');
-  apiGet(p).then(function(d){ if(!d||d.error) return;
+  /* Elle avalait TOUT : « if(!d||d.error) return » sortait sans rien dire, et le .catch était
+     vide. Le serveur, lui, est bavard — il renvoie {error} avec un 502 quand une boîte est
+     injoignable, et un tableau « erreurs » en vue fusionnée. Résultat : quand l'IMAP refusait
+     la connexion, l'écran affichait « Rien dans ce dossier », ce qui est faux : il y a quelque
+     chose, on n'arrive simplement pas à le lire. C'est ce mensonge qui a fait dire « ça ne
+     marche plus » sans qu'on sache par quel bout le prendre. */
+  apiGet(p).then(function(d){
+    if(!d) return;
+    if(d.error){ MSG.errListe=String(d.error); MSG.messages=[]; MSG.total=0;
+      if(TAB==='support'||TAB==='accueil') render(); return; }
+    MSG.errListe=(d.erreurs&&d.erreurs.length)?d.erreurs.join(' · '):'';
     MSG.messages=d.messages||[]; MSG.total=Number(d.total)||0;
     if(TAB==='support'||TAB==='accueil') render();
-  }).catch(function(){});
+  }).catch(function(e){
+    MSG.errListe=(e&&e.status===502)?'La boîte ne répond pas (IMAP). Vérifiez l’adresse, le mot de passe d’application et le serveur dans « Boîtes reliées ».':msgErreur(e);
+    MSG.messages=[]; MSG.total=0;
+    if(TAB==='support'||TAB==='accueil') render();
+  });
 }
 
 /* ═══ RENDU ═══ */
@@ -2804,6 +3017,48 @@ function chargerMessages(){
    la recherche rejouait toute la transition et toutes les entrées de cartes : l'écran
    avait l'air de bugger. render() ne bouge donc plus ; seul renderAnime() croise les vues. */
 function render(){ var v=$('vue'); if(v) renderVue(v); }
+/* Rendre les groupes pliables APRÈS coup, une fois pour toutes : ils sont fabriqués à quatorze
+   endroits différents, et les rendre pliables un par un aurait été quatorze occasions d'en
+   oublier un — et quatorze à retoucher au prochain écran. */
+var PLIS_CLE='tour_plis_v1';
+function plisLus(){ try{ return JSON.parse(localStorage.getItem(PLIS_CLE)||'{}')||{}; }catch(e){ return {}; } }
+function plisEcrire(o){ try{ localStorage.setItem(PLIS_CLE,JSON.stringify(o)); }catch(e){} }
+function regBascule(cle,el){
+  var g=el.closest('.reg-g'); if(!g) return;
+  var plie=g.classList.toggle('plie');
+  var o=plisLus(); o[cle]=plie?1:0; plisEcrire(o);
+  /* le glyphe ne change plus : c'est la rotation qui dit ouvert ou fermé */
+  el.setAttribute('aria-expanded',plie?'false':'true');
+}
+function regPliage(){
+  var v=$('vue'); if(!v) return;
+  var o=plisLus(), gs=v.querySelectorAll('.reg-g'), i=0;
+  [].forEach.call(gs,function(g){
+    var tete=g.querySelector('.reg-tete'); if(!tete||tete.dataset.pli) return;
+    var nom=(g.querySelector('.reg-nom')||{}).textContent||('g'+i);
+    var cle=TAB+'/'+nom.trim();
+    /* La règle, une seule, valable partout : le PREMIER groupe reste ouvert, et parmi les
+       suivants seuls les LONGS se replient. Mesurée ici, pas devinée par une liste d'écrans —
+       une liste aurait vieilli au premier écran ajouté. Le seuil de 300 px, c'est à peu près
+       un pouce de défilement : en dessous, replier ferait perdre plus (un titre de plus à
+       lire, un tap de plus) que ça ne fait gagner. Un résumé court comme « En un coup d'œil »
+       reste donc ouvert, une liste de quinze incidents se replie.
+       Dès que Justin touche un titre, son choix est enregistré et prime sur cette règle. */
+    /* Deux exceptions possibles : un groupe marqué reg-g-fixe ne se replie jamais tout seul.
+       L'onglet Accès s'en sert pour ses DEUX portes — la bêta et la version publique, qui crée
+       de vrais espaces d'entreprise : elles doivent se voir ensemble pour ne pas se confondre. */
+    var auto=(i>0) && g.scrollHeight>300 && !g.classList.contains('reg-g-fixe');
+    var plie=(o[cle]===undefined)?auto:(o[cle]===1);
+    if(plie) g.classList.add('plie');
+    tete.dataset.pli='1'; tete.setAttribute('role','button'); tete.setAttribute('tabindex','0');
+    tete.setAttribute('aria-expanded',plie?'false':'true');
+    var chev=document.createElement('span'); chev.className='reg-chev'; chev.setAttribute('aria-hidden','true');
+    chev.textContent='\u203A'; tete.appendChild(chev);
+    tete.addEventListener('click',function(ev){ if(ev.target.closest('button,a,input,select,label')) return; regBascule(cle,tete); });
+    tete.addEventListener('keydown',function(ev){ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); regBascule(cle,tete); } });
+    i++;
+  });
+}
 /* Ouvrir un dossier, revenir, changer un filtre : trois mouvements, tous décidés par
    l'utilisateur. 'avant' pousse le nouvel écran depuis la droite, 'retour' le ramène par la
    gauche, 'fondu' croise simplement. 'detail' et 'lecture' ne font bouger que la colonne de
@@ -2853,6 +3108,13 @@ function renderVue(v){
   else if(TAB==='equipe') v.innerHTML=vueEquipe();
   else if(TAB==='journal') v.innerHTML=vueJournal();
   if(v.classList.contains('entre')) compterKpi(v);
+  /* ICI et pas dans render() : renderAnime() appelle renderVue() directement, sans passer par
+     render(). Accroché à render(), le pliage ne s'appliquait donc jamais lors d'un changement
+     d'onglet — c'est-à-dire presque jamais. */
+  regPliage();
+  /* Ce que des chargements asynchrones ont écrit dans la page doit survivre au rendu : sinon
+     il repart à « Chargement… » sans que rien ne le remplisse. */
+  try{ packPeindre(); }catch(e){}
 }
 
 /* ── outils partagés ── */
@@ -3126,6 +3388,48 @@ var SVL_GROUPES=[
    'actifs' et non '', sinon il afficherait l'historique corrigés inclus, l'inverse de sa
    promesse. */
 function incReset(){ INC.f={type:'',grav:'',statut:'actifs',app:'',ent:''}; renderNav('fondu'); }
+/* ══ VERSIONS — la porte que la Tour tient (9 septembre 2026) ══
+   Ce qui a détruit les comptes d'ELAN : sept appareils sur onze en vieille version, dont chacun
+   réécrivait toute la base toutes les deux minutes. On ne met pas à jour un appareil qu'on ne
+   tient pas ; on lui ferme la porte du nuage. D'ici, le patron fixe la version minimale — en
+   dessous, un appareil lit encore mais n'écrit plus, et se met à jour tout seul — et le mode
+   en ligne. Aucune republication : c'est un réglage, pas une version. */
+var VER={loaded:false,encours:false,d:null,err:'',ts:0};
+function chargerVersion(){ if(VER.encours) return; VER.encours=true;
+  apiGet('/api/monitor/version').then(function(d){ VER.d=d||{}; VER.err=''; VER.loaded=true; VER.encours=false; VER.ts=Date.now(); if(TAB==='surveillance') render(); })
+  .catch(function(e){ VER.err=msgErreur(e); VER.loaded=true; VER.encours=false; VER.ts=Date.now(); if(TAB==='surveillance') render(); }); }
+function versionRegler(b,msg){ apiPost('/api/monitor/version-min',b).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    toast(msg||'Réglage enregistré');
+    if(x.d&&x.d.firestore&&!x.d.firestore.fait) setTimeout(function(){ toast('⚠️ Firestore pas mis à jour : '+(x.d.firestore.motif||'')); },1800);
+    VER.d=null; VER.loaded=false; chargerVersion(); }).catch(function(){ toast('Serveur injoignable'); }); }
+function versionExigerLigne(){ if(!confirm('Exiger la version en ligne pour TOUT LE MONDE ?\n\nTout appareil en dessous ne pourra plus rien enregistrer tant qu’il n’est pas à jour. Il se met à jour tout seul : dans les secondes qui suivent s’il est ouvert, à sa prochaine ouverture sinon.')) return; versionRegler({min:'ligne'},'Dernière version exigée pour tout le monde'); }
+function versionLever(){ if(!confirm('Lever l’exigence de version ?\n\nLes vieux appareils pourront de nouveau écrire dans le nuage — et donc écraser.')) return; versionRegler({min:0},'Exigence levée'); }
+function blocVersions(){
+  if(!VER.d&&!VER.err){ chargerVersion(); return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--muted);font-size:13px;margin-top:8px">Chargement…</div>'; }
+  if(VER.err&&!VER.d) return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--redText);font-size:13px;margin-top:8px">'+esc(VER.err)+' <a onclick="VER.err=\'\';chargerVersion()">réessayer</a></div>';
+  if(Date.now()-(VER.ts||0)>120000) chargerVersion();   // on montre ce qu'on a, et on rafraîchit derrière
+  var d=VER.d||{}, ligne=d.versionEnLigne||0, min=d.min||0, sous=d.sous||[], nSous=0;
+  sous.forEach(function(x){ nSous+=(x.n||0); });
+  var patron=(MYROLE==='patron');
+  var p=function(l,v,c){ return '<div class="kpi"><div class="n"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+l+'</div></div>'; };
+  return '<div class="sec" style="margin-top:18px">VERSIONS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— la porte du nuage</span></div>'+
+    '<div class="grille-kpi" style="margin-top:10px">'+
+      p('version en ligne', ligne?'v'+ligne:'?')+
+      p('minimum exigé', min?'v'+min:'aucun', min?'':'var(--amber)')+
+      p('appareils bloqués · 7 j', nSous, nSous?'var(--amber)':'')+
+    '</div>'+
+    '<div style="font-size:12.5px;color:var(--text2);line-height:1.6;margin-top:10px">Un appareil sous le minimum lit encore, mais <b>n’écrit plus</b> — le nuage refuse — et il se met à jour tout seul. L’application ne travaille qu’en ligne, sans option : sans réseau, elle affiche « Connexion requise » et n’enregistre rien. '+
+      (min?'':'<b>Aucun minimum n’est exigé : les vieilles versions écrivent encore.</b> ')+
+      (d.cleAdmin?'':'<span style="color:var(--redText)">⚠️ La clé d’administration Firebase manque sur le serveur : le réglage n’atteint pas Firestore, seule l’application s’y conforme.</span>')+
+    '</div>'+
+    (patron?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+
+      '<button class="btn-plein" onclick="versionExigerLigne()"'+(ligne?'':' disabled')+'>Exiger la dernière version'+(ligne?' (v'+ligne+')':'')+' pour tout le monde</button>'+
+      (min?'<button class="btn-fant" onclick="versionLever()">Lever l’exigence</button>':'')+
+    '</div>':'')+
+    (sous.length?'<div style="margin-top:12px">'+sous.map(function(x){ return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line);font-size:13px"><span style="flex:1"><b>'+esc(x.nom||x.t)+'</b></span><span class="past p-ambre">'+x.n+' appareil'+(x.n>1?'s':'')+' bloqué'+(x.n>1?'s':'')+'</span></div>'; }).join('')+'</div>':'')+
+    (d.maj?'<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Dernier réglage '+esc(fmtJour(d.maj))+(d.par?' par '+esc(d.par):'')+'</div>':'');
+}
 function vueSurveillance(){
   if(!INC.loaded) return enTete('Surveillance',SURV_DESC)+acSquel();
   if(INC.err) return enTete('Surveillance',SURV_DESC)+acErr('La surveillance ne répond pas',INC.err,'chargerIncidents()');
@@ -3280,7 +3584,7 @@ function vueSurveillance(){
 
   var ouverts=incOuverts().length;
   /* Un compte se lit APRÈS la commande qui le produit, pas au-dessus. */
-  return enTete('Surveillance',SURV_DESC)+kpis+filtres+
+  return enTete('Surveillance',SURV_DESC)+blocVersions()+kpis+filtres+
     '<div class="svl-compte">'+nomsG.length+' entreprise'+(nomsG.length>1?'s':'')+' · '+l.length+' problème'+(l.length>1?'s':'')+' affiché'+(l.length>1?'s':'')+' · '+ouverts+' ouvert'+(ouverts>1?'s':'')+'</div>'+
     (groupesRendus?'<div class="reg">'+groupesRendus+'</div>':listeVide)+saines+legende;
 }
@@ -3523,7 +3827,149 @@ function incCopier(id){
 }
 
 /* ══════════ 3. SUPPORT ══════════ */
-function mailAller(b,d,nom,role){ MSG.autoTout=false; MSG.sel={boite:b,dossier:d,nom:nom,role:role}; MSG.ouvert=null; MSG.lu=null; chargerMessages(); render(); }
+
+/* ═══════════════ LE COURRIER RANGÉ PAR ENTREPRISE ═══════════════════════════════════════
+   Demande de Justin, 8 septembre 2026 : « je voudrais que tout soit bien rangé par
+   entreprise quoi qu'il arrive. On clique, ça affiche tout dans chaque catégorie de
+   l'entreprise. Je ne veux pas que tout soit mélangé entre eux. »
+
+   La barre latérale rangeait par BOÎTE (support@, contact@) : deux entrées, et toutes les
+   entreprises mélangées à l'intérieur. Elle range maintenant par entreprise, chacune
+   portant ses catégories — la forme de la barre latérale de Mail.
+
+   AUCUN changement serveur : /api/monitor/mail/liste renvoie déjà « de », « lu », « marque »,
+   « pieces » et « auto » pour chaque message. Le rattachement se fait ici, et le passage
+   d'une entreprise à l'autre ne redemande donc rien.
+   ═══════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ⛔ LE PIÈGE, ET IL EST GROS. Rattacher par DOMAINE est juste quand l'entreprise a son
+   propre nom de domaine (bruno@elan-proprete.fr → ELAN) et catastrophique sinon : ELAN est
+   enregistrée sous une adresse gmail. Sans ce garde-fou, TOUS les gmail du monde
+   atterriraient dans son dossier — exactement le mélange qu'on cherche à supprimer.
+   La liste est volontairement large : mieux vaut un message « pas encore rattaché », qu'on
+   range à la main, qu'un message rangé avec assurance chez la mauvaise entreprise. */
+var MAIL_PUBLICS=['gmail.com','googlemail.com','hotmail.fr','hotmail.com','hotmail.be','hotmail.it',
+  'outlook.fr','outlook.com','outlook.be','live.fr','live.com','live.be','msn.com',
+  'yahoo.fr','yahoo.com','yahoo.co.uk','ymail.com','orange.fr','wanadoo.fr','free.fr','sfr.fr',
+  'neuf.fr','laposte.net','bbox.fr','numericable.fr','aol.com','icloud.com','me.com','mac.com',
+  'protonmail.com','protonmail.ch','proton.me','gmx.fr','gmx.com','gmx.net','yandex.com',
+  'zoho.com','mail.com','tutanota.com','hushmail.com','libero.it','web.de'];
+function mailDomaine(a){ var s=String(a||'').toLowerCase().trim(); var i=s.indexOf('@'); return i<0?'':s.slice(i+1); }
+function mailDomainePropre(d){ return !!d && MAIL_PUBLICS.indexOf(d)<0; }
+
+/* Adresse → entreprise, ou null. Deux passes, la plus sûre d'abord.
+   Le cache n'est pas une optimisation gratuite : courrierEnt() est appelée pour chaque
+   message à chaque render(), et render() se rejoue à chaque lettre tapée dans la recherche.
+   Il se vide dès que l'annuaire change (voir chargerEntreprises). */
+var _courrierEntCache={};
+function courrierEnt(adr){
+  var a=String(adr||'').toLowerCase().trim(); if(!a) return null;
+  if(_courrierEntCache[a]!==undefined) return _courrierEntCache[a];
+  var liste=(ENT.liste||[]), t=null, i;
+  for(i=0;i<liste.length;i++){ if(String(liste[i].email||'').toLowerCase().trim()===a){ t=liste[i]; break; } }
+  /* Le client du site porte parfois l'adresse quand l'espace ne l'a pas : on remonte alors
+     à l'entreprise par son nom — même chemin que voirClient(), pas un second. */
+  if(!t){
+    var c=(CLI.list||[]).filter(function(x){ return String(x.email||'').toLowerCase().trim()===a; })[0];
+    if(c) t=entParNom(c.entreprise||c.nom||'')||null;
+  }
+  var d=mailDomaine(a), propre=mailDomainePropre(d);
+  if(!t&&propre){
+    for(i=0;i<liste.length;i++){ var de=mailDomaine(liste[i].email);
+      if(de&&mailDomainePropre(de)&&de===d){ t=liste[i]; break; } }
+  }
+  /* Quatrième passe, et sans elle la fonction serait inutile sur les vraies données : une
+     entreprise s'inscrit souvent avec une adresse personnelle (ELAN est enregistrée sous un
+     gmail) pendant que ses salariés écrivent depuis le domaine de la société. Ni l'adresse
+     exacte ni le domaine ne les relient. On rapproche donc le nom de domaine du nom de
+     l'entreprise : elan-proprete.fr ↔ ELAN.
+     Deux garde-fous, parce qu'un rapprochement par le nom se trompe vite :
+     · des mots entiers d'au moins 4 lettres, jamais un morceau de mot (« ELA » dans
+       « relance » rattacherait n'importe quoi) ;
+     · si DEUX entreprises correspondent, on ne tranche pas — un message chez la mauvaise
+       est pire qu'un message à ranger à la main. */
+  if(!t&&propre){
+    var mots=mailMots(d.replace(/\.[a-z.]+$/,''));
+    var cands=liste.filter(function(e){
+      var em=mailMots((e.slug||'')+' '+(e.nom||''));
+      return em.some(function(w){ return mots.indexOf(w)>=0; });
+    });
+    if(cands.length===1) t=cands[0];
+  }
+  _courrierEntCache[a]=t; return t;
+}
+/* Mots d'au moins 4 lettres, sans accent ni ponctuation. 4 et pas 3 : « sas », « eur »,
+   « pro » sont dans la moitié des raisons sociales et ne distinguent rien. */
+function mailMots(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .split(/[^a-z0-9]+/).filter(function(w){ return w.length>=4; });
+}
+
+/* Les catégories d'une entreprise. Chacune tient à un champ que le serveur renvoie
+   RÉELLEMENT — on n'affiche pas un dossier « Corbeille » qu'on serait incapable de remplir. */
+var MAIL_CATS=[
+  {cle:'tout',   nom:'Tous les messages', ico:'📥'},
+  {cle:'traiter',nom:'À traiter',         ico:'🕗'},
+  {cle:'marques',nom:'Marqués',           ico:'🚩'},
+  {cle:'pieces', nom:'Pièces jointes',    ico:'📎'},
+  {cle:'envoyes',nom:'Envoyés',           ico:'📤'}
+];
+function mailDansCat(m,cle){
+  if(cle==='traiter') return !m.lu && !m.auto;
+  if(cle==='marques') return !!m.marque;
+  if(cle==='pieces')  return (m.pieces||0)>0;
+  return true;
+}
+function mailAttente(m){ return !m.lu && !m.auto; }
+
+/* Les messages reçus, groupés par entreprise. Le groupe « pas encore rattachées » est une
+   corbeille de tri, pas une entreprise : il reste toujours en dernier, quoi qu'il contienne. */
+function courrierParEnt(){
+  var par={}, ordre=[];
+  (MSG.messages||[]).forEach(function(m){
+    var e=courrierEnt(m.de), cle=e?e.t:'_autres';
+    /* « Non rattachées » et pas « Pas encore rattachées » : le nom passe dans une colonne de
+       238 px, où la version longue se coupait en « Pas encore rattac… ». Un libellé tronqué
+       cache une information — c'est la règle de résilience du skill, elle vaut ici aussi. */
+    if(!par[cle]){ par[cle]={ent:e,cle:cle,nom:e?(e.nom||e.t):'Non rattachées',msgs:[]}; ordre.push(cle); }
+    par[cle].msgs.push(m);
+  });
+  ordre.sort(function(a,b){
+    if(a==='_autres') return 1; if(b==='_autres') return -1;
+    var na=par[a].msgs.filter(mailAttente).length, nb=par[b].msgs.filter(mailAttente).length;
+    if(na!==nb) return nb-na;                                   // qui attend une réponse passe devant
+    return ((par[b].msgs[0]||{}).ts||0)-((par[a].msgs[0]||{}).ts||0);
+  });
+  return ordre.map(function(k){ return par[k]; });
+}
+/* Ce que TeamOP a envoyé à cette entreprise-là. Le journal d'envois porte l'adresse dans
+   « a » — on la repasse par le même rattachement, sinon « Envoyés » redeviendrait le seul
+   endroit où tout est mélangé. */
+function mailEnvoisDe(cle){
+  return (MSG.envoyes||[]).filter(function(x){
+    var e=courrierEnt(x.a); return cle==='_autres' ? !e : (!!e && e.t===cle);
+  });
+}
+function mailChoisirEnt(cle){
+  MSG.selEnt=cle; MSG.selCat='tout'; MSG.autoTout=false; MSG.ouvert=null; MSG.lu=null; MSG.envSel=null;
+  renderNav('fondu');
+}
+function mailChoisirCat(cle){
+  MSG.selCat=cle; MSG.ouvert=null; MSG.lu=null; MSG.envSel=null;
+  /* Les envois viennent d'une autre route que les réceptions : on ne les charge qu'au
+     moment où quelqu'un les demande, et une seule fois. */
+  if(cle==='envoyes'&&!MSG.envoyes) chargerEnvois();
+  renderNav('fondu');
+}
+function chargerEnvois(){
+  MSG.envoyes=MSG.envoyes||null;
+  apiGet('/api/monitor/mails').then(function(d){ if(!d) return;
+    MSG.envoyes=d.mails||[]; MSG.envErr='';
+    if(TAB==='support') render();
+  }).catch(function(){ MSG.envErr='Serveur injoignable — ou serveur à mettre à jour (git pull + restart).';
+    if(TAB==='support') render(); });
+}
+
 function mailQ(v){ MSG.autoTout=false; MSG.q=v||''; chargerMessages(); }
 function mailActualiser(){ chargerMail(true); toast('Boîte support actualisée'); }
 function compoOuvrir(dest){ MSG.compo=true; if(dest) MSG.cDest=dest; renderNav('lecture'); }
@@ -3565,7 +4011,10 @@ function repondre(){
    ═══════════════════════════════════════════════════════════════════════════════════════ */
 function mailEtroit(){ try{ return window.innerWidth<1000; }catch(e){ return false; } }
 function mailRetour(){ MSG.ouvert=null; MSG.lu=null; MSG.envSel=null; renderNav('lecture-retour'); }
-function mailEnvoyes(){ return MSG.sel.boite==='envoyes'; }
+/* « Envoyés » n'est plus un dossier à part : c'est une catégorie DE L'ENTREPRISE ouverte.
+   Le reste de l'écran (recherche, lecture, volet de droite) continue de s'y référer par
+   cette fonction — c'est elle qui a changé de source, pas ses appelants. */
+function mailEnvoyes(){ return MSG.selCat==='envoyes'; }
 
 /* ── Volet 1 : les dossiers ─────────────────────────────────────────────────────────── */
 function mailDossiers(){
@@ -3574,12 +4023,38 @@ function mailDossiers(){
       '<span class="dos-i">'+icone+'</span><span class="dos-n">'+esc(nom)+'</span>'+
       (n?'<span class="n">'+n+'</span>':'')+'</button>';
   };
-  var h=d(MSG.sel.boite==='toutes', 'mailAller(\'toutes\',\'\',\'Toutes les réceptions\',\'inbox\')', '📥', 'Toutes les réceptions', MSG.nonLus);
-  if(MSG.boites.length>1) h+='<div class="dos-t">Boîtes reliées</div>';
-  h+=MSG.boites.map(function(x){ var b=x.boite||{}, id=b.id||b.email||'';
-    return d(MSG.sel.boite===id, 'mailAller(\''+jsq(id)+'\',\'\',\''+jsq(b.email||'Boîte')+'\',\'inbox\')', '✉️', b.email||'Boîte', x.nonLus);
+  var groupes=courrierParEnt();
+  var attTot=(MSG.messages||[]).filter(mailAttente).length;
+
+  var h='<div class="dos-t">Rechercher</div>'+
+    d(MSG.selEnt==='toutes', 'mailChoisirEnt(\'toutes\')', '🗂️', 'Toutes les entreprises', attTot);
+
+  h+='<div class="dos-t">Entreprises</div>';
+  if(!ENT.loaded&&!ENT.err) h+='<div class="dos-note">Chargement de l’annuaire…</div>';
+  else if(!groupes.length) h+='<div class="dos-note">Aucun message reçu pour l’instant.</div>';
+
+  groupes.forEach(function(g){
+    var ouvert=(MSG.selEnt===g.cle);
+    h+=d(ouvert, 'mailChoisirEnt(\''+jsq(g.cle)+'\')', (g.ent?'🏢':'❓'), g.nom, g.msgs.filter(mailAttente).length);
+    /* Les catégories n'apparaissent que sous l'entreprise ouverte : les afficher pour
+       toutes ferait une barre de cinquante lignes où plus rien ne se voit. */
+    if(!ouvert) return;
+    h+=MAIL_CATS.map(function(c){
+      var n=(c.cle==='envoyes') ? (MSG.envoyes?mailEnvoisDe(g.cle).length:0)
+                                : g.msgs.filter(function(m){ return mailDansCat(m,c.cle); }).length;
+      return '<button class="dos sous'+(MSG.selCat===c.cle?' on':'')+'" onclick="mailChoisirCat(\''+jsq(c.cle)+'\')">'+
+        '<span class="dos-i">'+c.ico+'</span><span class="dos-n">'+esc(c.nom)+'</span>'+
+        (n?'<span class="n">'+n+'</span>':'')+'</button>';
+    }).join('');
+  });
+
+  /* Les boîtes reliées restent visibles, en bas et en petit. Ce n'est plus le rangement,
+     c'est la plomberie : savoir laquelle est branchée et laquelle a du retard. Les rendre
+     cliquables ramènerait le mélange qu'on vient de supprimer. */
+  if(MSG.boites.length) h+='<div class="dos-t">Boîtes reliées</div>'+MSG.boites.map(function(x){
+    var b=x.boite||{};
+    return '<div class="dos-plomb"><span>'+esc(b.email||'Boîte')+'</span>'+(x.nonLus?'<b>'+x.nonLus+'</b>':'')+'</div>';
   }).join('');
-  h+='<div class="dos-t">TeamOP</div>'+d(mailEnvoyes(), 'envoyesOuvrir()', '📤', 'Envoyés', (MSG.envoyes||[]).length);
   return h;
 }
 
@@ -3597,6 +4072,17 @@ function supAva(nom,adr){
    source, mais le serveur ne crée le suivi qu'à la PREMIÈRE ouverture : un message jamais
    ouvert a suivi:null. On garde donc `lu`, qui existe toujours. */
 function supNature(m){ if(m.auto) return 'auto'; if(!m.lu) return 'att'; return 'vu'; }
+/* Une ligne de message reçu. Extraite parce que deux chemins la dessinent désormais — la
+   vue « toutes les entreprises » et la vue d'une entreprise — et qu'une ligne de courrier
+   qui ne se ressemble pas d'une vue à l'autre est précisément ce qu'on corrige ici. */
+function mailLigneRecue(m,att){
+  var cle=m.boite+'|'+m.dossier+'|'+m.uid;
+  var l3=[]; if(m.boiteNom||m.boite) l3.push(esc(m.boiteNom||m.boite));
+  if(m.deNom&&m.de&&m.deNom!==m.de) l3.push(esc(m.de));
+  return supLigne({nom:m.deNom||m.de,adr:m.de,ts:m.ts,objet:m.objet,l3:l3.join(' · '),
+    pieces:m.pieces,marque:m.marque,repondu:m.repondu,att:!!att,on:(MSG.lu===cle),
+    action:"lireMessage('"+jsq(m.boite)+"','"+jsq(m.dossier)+"',"+m.uid+")"});
+}
 function supAutoTout(){ MSG.autoTout=true; render(); }
 function supVide(ico,titre,txt,btn){
   return '<div class="sup-vide">'+svg(ico,22)+'<div class="t">'+titre+'</div><div>'+txt+'</div>'+(btn||'')+'</div>';
@@ -3630,15 +4116,75 @@ function supLigne(o){
     (mailEtroit()?'<span class="reg-chev" aria-hidden="true">›</span>':'')+'</span></button>';
 }
 function mailListeRecue(){
+  return mailPanneBandeau()+mailListeRecueCorps();
+}
+/* Une boîte en panne doit se voir même quand une AUTRE boîte, elle, a des messages : le
+   bandeau se calcule donc à part et coiffe tous les cas, pas seulement la liste vide. */
+function mailPanneBandeau(){
+  var enPanne=(MSG.boites||[]).filter(function(b){ return b&&b.erreur; });
+  if(!enPanne.length) return '';
+  return '<div class="mail-panne">'+svg('alerte',18)+'<div><b>'+
+      (enPanne.length>1?enPanne.length+' boîtes ne répondent pas':'La boîte '+esc((enPanne[0].boite||{}).email||'')+' ne répond pas')+'</b>'+
+      enPanne.map(function(b){ return '<div class="mail-panne-l">'+esc((b.boite||{}).email||'')+' — '+esc(b.erreur)+'</div>'; }).join('')+
+      '<div class="mail-panne-l">Mot de passe d’application expiré, adresse de serveur changée, ou boîte pleine : c’est la cause la plus fréquente.</div>'+
+    '</div><button type="button" class="btn-fant" onclick="chargerMail(1)">Réessayer</button></div>';
+}
+function mailListeRecueCorps(){
   if(MSG.err) return supVide('support','Le serveur ne répond pas',esc(MSG.err),
     '<button type="button" class="btn-fant" onclick="chargerMail(1)">Réessayer</button>');
   if(!MSG.loaded) return supSquel();
   if(!MSG.boites.length) return supVide('support','Aucune boîte reliée',
     'Reliez la boîte support@teamop.fr pour lire ici ce que les clientes écrivent.',
     '<button type="button" class="btn-plein" onclick="supConnecterBoite()">Connecter une boîte</button>');
+  /* Le message d'erreur est déjà dans la réponse du serveur (« erreur » par boîte, 140
+     caractères, ou « error » avec un 502) : il n'était simplement jamais affiché. */
   var M=(MSG.messages||[]);
+  if(MSG.errListe) return supVide('support','Impossible de lire ce dossier',esc(MSG.errListe),
+    '<button type="button" class="btn-fant" onclick="chargerMail(1)">Réessayer</button>');
   if(!M.length) return supVide('support','Rien dans ce dossier',
-    'Les nouveaux messages arrivent tout seuls ; le bouton ⟳ force une relève.');
+    (MSG.boites||[]).some(function(b){ return b&&b.erreur; })
+      ?'Rien de lisible pour l’instant — voir l’avertissement ci-dessus.'
+      :'Les nouveaux messages arrivent tout seuls ; le bouton ⟳ force une relève.');
+
+  /* ── TOUTES LES ENTREPRISES : groupé PAR ENTREPRISE, jamais à plat ──
+     C'est la demande, mot pour mot : « je ne veux pas que tout soit mélangé entre eux ».
+     Une liste unique triée par date remettrait ELAN et sa voisine dans la même colonne. */
+  if(MSG.selEnt==='toutes'){
+    var gr=courrierParEnt();
+    return '<div class="reg" style="padding:4px 2px 12px">'+gr.map(function(g,i){
+      var att=g.msgs.filter(mailAttente).length;
+      var sous=g.ent
+        ? (att?att+' en attente de réponse.':'Tout est ouvert.')
+        : 'Adresses qu’aucune fiche ne réclame. Ouvrez-les pour savoir à qui les rattacher.';
+      /* UN SEUL plan élevé par écran — la règle du socle, et ce qui le garde crédible.
+         Ce n'est pas arbitraire : le tri met en tête l'entreprise qui attend le plus de
+         réponses. Le plan élevé va donc à celle qui a besoin de toi maintenant, et à elle
+         seule. Si personne n'attend, tout est à plat et l'écran le dit ainsi. */
+      var haut=(i===0&&att>0&&g.ent);
+      return supGroupe(esc(g.nom),g.msgs.length,sous,!!g.ent,(haut?'reg-cli':(g.ent?'reg-bloc':'reg-bloc mien')),
+        g.msgs.slice(0,6).map(function(m){ return mailLigneRecue(m,!m.lu); }).join(''),
+        g.msgs.length>6
+          ? '<button type="button" class="ac-plus" onclick="mailChoisirEnt(\''+jsq(g.cle)+'\')">Voir les '+g.msgs.length+' messages de '+esc(g.nom)+' →</button>'
+          : '');
+    }).join('')+'</div>';
+  }
+
+  /* ── UNE ENTREPRISE : ses messages seuls, dans la catégorie choisie ── */
+  var grp=courrierParEnt().filter(function(x){ return x.cle===MSG.selEnt; })[0];
+  if(!grp) return supVide('support','Plus aucun message pour cette entreprise',
+    'Ses messages ont peut-être été déplacés ou supprimés depuis la boîte.',
+    '<button type="button" class="btn-fant" onclick="mailChoisirEnt(\'toutes\')">Revenir à toutes les entreprises</button>');
+  var cat=(MAIL_CATS.filter(function(c){ return c.cle===MSG.selCat; })[0])||MAIL_CATS[0];
+  var Mc=grp.msgs.filter(function(m){ return mailDansCat(m,cat.cle); });
+  if(!Mc.length) return supVide('support','Rien dans « '+esc(cat.nom)+' »',
+    'Chez '+esc(grp.nom)+', aucun message ne correspond à cette catégorie.',
+    '<button type="button" class="btn-fant" onclick="mailChoisirCat(\'tout\')">Voir tous ses messages</button>');
+  /* Dans une catégorie précise, le tri par nature n'a plus de sens — « Marqués » est déjà
+     un tri. On ne garde les trois seaux que pour « Tous les messages ». */
+  if(cat.cle!=='tout') return '<div class="reg" style="padding:4px 2px 12px">'+
+    supGroupe(esc(grp.nom)+' · '+esc(cat.nom),Mc.length,'',true,'reg-cli',
+      Mc.map(function(m){ return mailLigneRecue(m,!m.lu); }).join(''),'')+'</div>';
+  M=Mc;
   var GR=[
    {cle:'att', titre:'À traiter', sous:'Reçus, pas encore ouverts. C’est la pile qui attend une réponse.',opt:true,bloc:'reg-cli'},
    {cle:'vu',  titre:'Déjà ouverts', sous:'Ouverts depuis cette console. Le ↩ marque ceux auxquels une réponse est partie.',opt:true,bloc:'reg-bloc'},
@@ -3658,12 +4204,7 @@ function mailListeRecue(){
       pied='<button type="button" class="ac-plus" onclick="supAutoTout()">Voir les '+(l.length-5)+' autres notifications →</button>';
     }
     return supGroupe(G.titre,l.length,G.sous,G.opt,G.bloc,vus.map(function(m){
-      var cle=m.boite+'|'+m.dossier+'|'+m.uid;
-      var l3=[]; if(m.boiteNom||m.boite) l3.push(esc(m.boiteNom||m.boite));
-      if(m.deNom&&m.de&&m.deNom!==m.de) l3.push(esc(m.de));
-      return supLigne({nom:m.deNom||m.de,adr:m.de,ts:m.ts,objet:m.objet,l3:l3.join(' · '),
-        pieces:m.pieces,marque:m.marque,repondu:m.repondu,att:(G.cle==='att'),on:(MSG.lu===cle),
-        action:"lireMessage('"+jsq(m.boite)+"','"+jsq(m.dossier)+"',"+m.uid+")"});
+      return mailLigneRecue(m,G.cle==='att');
     }).join(''),pied);
   }).join('');
   return '<div class="reg" style="padding:4px 2px 12px">'+g+'</div>';
@@ -3674,7 +4215,14 @@ function mailListeEnvoyee(){
   var L=MSG.envoyes;
   if(!L) return supSquel();
   var q=String(MSG.envQ||'').toLowerCase();
-  var vus=L.map(function(m,i){ return {m:m,i:i}; }).filter(function(o){ if(!q) return true;
+  /* L'index d'origine est conservé : envoyeLire() pointe dans MSG.envoyes, pas dans le
+     filtrage. Sans ça, ouvrir un envoi depuis une entreprise ouvrirait celui d'une autre. */
+  var vus=L.map(function(m,i){ return {m:m,i:i}; }).filter(function(o){
+    /* Le rangement par entreprise vaut ici AUSSI : « Envoyés » était le dernier endroit où
+       tout restait mélangé. */
+    if(MSG.selEnt!=='toutes'){ var e=courrierEnt(o.m.a);
+      if(MSG.selEnt==='_autres' ? !!e : (!e||e.t!==MSG.selEnt)) return false; }
+    if(!q) return true;
     return (mailEnt(o.m.a)+' '+(o.m.a||'')+' '+(o.m.sujet||'')).toLowerCase().indexOf(q)>=0; });
   if(!vus.length) return q
     ? supVide('avion','Aucun envoi ne correspond','Rien ne correspond à « '+esc(MSG.envQ)+' ».',
@@ -3699,6 +4247,9 @@ function mailListeEnvoyee(){
 }
 /* e-mail du destinataire → nom de l'entreprise, quand la fiche existe */
 function mailEnt(a){ a=String(a||'').toLowerCase();
+  /* Même rattachement que la barre latérale, et pas un second : un envoi rangé chez ELAN
+     doit porter le nom « ELAN », pas l'adresse brute parce que la fiche client manquait. */
+  var e=courrierEnt(a); if(e) return e.nom||e.t||a;
   var c=(CLI.list||[]).find(function(x){ return String(x.email||'').toLowerCase()===a; });
   if(c) return c.entreprise||c.nom||a;
   return (/teamop\.fr$/i.test(a)?'TeamOP (interne)':'')||a||'—'; }
@@ -3738,15 +4289,10 @@ function envoyeLecture(){
       '<div class="lec-act"><span class="past p-vert">📤 Envoyé par TeamOP</span></div>')+
     '<div class="lec-corps">'+esc(m.txt||'(aperçu non conservé pour ce message)')+'</div></div>';
 }
-function envoyesOuvrir(){
-  MSG.sel={boite:'envoyes',dossier:'',nom:'Envoyés',role:'sent'}; MSG.envQ=MSG.envQ||''; MSG.ouvert=null; render();
-  apiGet('/api/monitor/mails').then(function(d){ if(!d) return;
-    MSG.envoyes=d.mails||[]; MSG.envErr='';
-    if(TAB==='support'&&mailEnvoyes()) render();
-  }).catch(function(){ MSG.envErr='Serveur injoignable — ou serveur à mettre à jour (git pull + restart).'; if(TAB==='support') render(); });
-}
+/* Rouvrir les envois après un échec réseau. Ne touche plus à MSG.sel : « Envoyés » est
+   devenu une catégorie de l'entreprise ouverte, pas un dossier parallèle. */
+function envoyesOuvrir(){ MSG.selCat='envoyes'; MSG.envQ=MSG.envQ||''; MSG.ouvert=null; MSG.envErr=''; render(); chargerEnvois(); }
 function envoyesQ(v){ MSG.envQ=String(v||''); rendreDifféré(); }
-function vueEnvoyes(){ return mailListeEnvoyee(); }
 
 /* ── L'écran complet ────────────────────────────────────────────────────────────────── */
 /* Replier la barre : sur un grand écran, 232 px de menu permanents devant un tableau qu'on
@@ -3928,7 +4474,7 @@ function vueEntreprises(){
   /* On ne compte QUE les espaces d'annuaire : un espace hors annuaire n'a pas de code, donc
      pas de clé connue — le compter « à migrer » ferait un chiffre qui ne descend jamais. */
   var aMigrer=(ENT.liste||[]).filter(function(x){ return x.dansAnnuaire && !x.cleePropre; }).length;
-  var kpi='<div class="grille-kpi simple" style="margin-bottom:20px">'+
+  var kpi='<div class="grille-kpi simple" style="--kpi-min:170px;margin-bottom:20px">'+
     compteur(st.total||0,'entreprises connues','','')+
     compteur(st.avecErreurs||0,'erreurs signalées','--redText','erreurs')+
     compteur(st.avecEchecs||0,'échecs de connexion','--amber','echecs')+
@@ -3972,9 +4518,13 @@ function vueEntreprises(){
     var al=[];
     if(o.erreurs) al.push('<span class="past p-rouge" title="'+o.erreurs+' erreur(s) signalée(s)">🐛 '+o.erreurs+'</span>');
     if(o.echecs24) al.push('<span class="past p-ambre" title="échecs de connexion sur 24 h">🔑 '+o.echecs24+'</span>');
-    if(eV.retard) al.push('<span class="past p-ambre" title="Version en ligne : v'+refV+'">⬇ v'+eV.haute+'</span>');
-    if(o.suspendu) al.push('<span class="past p-rouge" title="Espace suspendu">⏸</span>');
-    if(o.promo&&o.promo.actif) al.push('<span class="past p-vert" title="Formule offerte jusqu’au '+esc(o.promo.finLe)+'">🎁</span>');
+    if(eV.retard) al.push('<span class="past p-ambre" title="Version en ligne : v'+refV+'">⬇ v'+eV.haute+' en retard</span>');
+    /* Ces deux-là ne portaient qu'un pictogramme : « ⏸ » pour un espace suspendu — le fait le
+       plus grave qu'une fiche puisse porter — et « 🎁 » pour une formule offerte. En niveaux de
+       gris, ou pour qui ne distingue pas le rouge du vert, ils ne disaient rien. Le socle est
+       clair : la couleur ne parle jamais seule, toute pastille porte un mot ou un chiffre. */
+    if(o.suspendu) al.push('<span class="past p-rouge" title="Espace suspendu">⏸ Suspendue</span>');
+    if(o.promo&&o.promo.actif) al.push('<span class="past p-vert" title="Formule offerte jusqu’au '+esc(o.promo.finLe)+'">🎁 Offerte</span>');
     var alertes=al.slice(0,2).join('')+(al.length>2?'<span class="reg-plus">+'+(al.length-2)+'</span>':'');
 
     /* Un fait absent DISPARAÎT : pas de « — » de remplissage, et les séparateurs ne sont
@@ -4056,25 +4606,35 @@ function vueEntreprises(){
     tech.map(function(o){ return '<button type="button" class="reg-tech-l" onclick="entSel(\''+jsq(o.t)+'\')">'+esc(o.t)+'</button>'; }).join('')+
     '</div></div>' : '';
 
+  /* Deux vides différents, deux phrases différentes : « rien ne correspond » suppose une
+     recherche ou un filtre. Sans l'un ni l'autre, c'est qu'aucune entreprise n'est encore
+     connue — et là il faut dire d'où elles viennent, pas laisser croire à un filtre. */
   var liste=(groupes||pave)? '<div class="reg">'+groupes+'</div>'+pave
-    : '<div class="vide">Aucune entreprise ne correspond.</div>';
+    : (ENT.q||ENT.filtre)
+      ? '<div class="vide">Aucune entreprise ne correspond à cette recherche.'+
+        (ENT.filtre?' <button class="btn-fant" onclick="entFiltre(\''+ENT.filtre+'\')">Retirer le filtre</button>':'')+'</div>'
+      : '<div class="vide">Aucune entreprise connue pour l’instant.<br>Elles apparaissent dès qu’une s’inscrit sur le site, qu’un espace est ouvert depuis la Tour, ou qu’un appareil s’y connecte.</div>';
   /* Une entreprise ouverte prend toute la page : ni liste, ni compteurs. Les compteurs
      parlent de l'ensemble des entreprises — les garder à côté d'une fiche, c'est occuper
      un quart de l'écran avec autre chose que ce qu'on est venu lire. */
   if(ENT.sel) return tete+ficheEntreprise();
+  /* PLEINE LARGEUR, et non plus liste à gauche + colonne de détail à droite. Depuis que la
+     fiche s'ouvre en pleine page (le `return` juste au-dessus), cette colonne de détail ne
+     pouvait plus rendre QUE son texte d'attente — « Choisissez une entreprise dans la liste » —
+     tout en prenant la moitié de l'écran. Mesuré à 1440 px : 468 px pour la liste, 619 pour
+     l'attente, et vingt chaînes tronquées faute de place, dont l'adresse e-mail de CHAQUE
+     cliente et le nombre d'appareils, coupé pour dix-sept pixels. Le commentaire qui suivait
+     promettait déjà « elle n'occupe plus la moitié de l'écran pour rien » : c'est fait. */
   return tete+kpi+
-    '<div class="deux md"><div class="col-liste">'+
-      '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
-        '<span>'+l.length+' sur '+(ENT.liste||[]).length+'</span>'+
-        (ENT.filtre?'<button class="btn-fant" style="padding:2px 10px;font-size:11.5px" onclick="entFiltre(\''+ENT.filtre+'\')">'+
-          esc({erreurs:'avec des erreurs',echecs:'avec des échecs de connexion',retard:'sans la dernière mise à jour',horsAnnuaire:'hors annuaire'}[ENT.filtre]||'')+' ✕</button>':'')+
-      '</div>'+
-      liste+'</div>'+
-    '<div class="col-detail"><div class="col-detail-sticky">'+ficheEntreprise()+'</div></div></div>';
+    '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+      '<span>'+l.length+' sur '+(ENT.liste||[]).length+'</span>'+
+      (ENT.filtre?'<button class="btn-fant" style="padding:2px 10px;font-size:11.5px" onclick="entFiltre(\''+ENT.filtre+'\')">'+
+        esc({erreurs:'avec des erreurs',echecs:'avec des échecs de connexion',retard:'sans la dernière mise à jour',
+             horsAnnuaire:'hors annuaire',migrer:'à migrer (clé partagée)'}[ENT.filtre]||'')+' ✕</button>':'')+
+    '</div>'+
+    liste;
 }
-/* Ce que la fiche montre quand personne n'est choisi ne sert plus qu'à un cas : la liste
-   vide. On la garde donc, mais elle n'occupe plus la moitié de l'écran pour rien. */
 
 /* LA FICHE D'UNE ENTREPRISE — tout ce qui la concerne, et rien d'autre. Avant, l'onglet
    empilait sous la liste les espaces de TOUT LE MONDE puis les comptes de TOUT LE MONDE :
@@ -4158,7 +4718,13 @@ function entSupprimer(t,nm){
   apiPost('/api/monitor/entreprise/apercu-suppression',{t:t}).then(function(r){
     if(!(r&&r.ok&&r.d&&r.d.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
     var a=r.d.apercu||{};
-    var l=function(n,mot){ return n?'<li>'+n+' '+mot+(n>1?'s':'')+'</li>':''; };
+    /* Le « s » se collait à la fin de la PHRASE, pas du nom : « 9 appareil abonné aux
+       notificationss », « 14 message écrit depuis la Tours », « 6 compte de connexions »,
+       « 41 erreur remontées ». Sur l'écran qui supprime définitivement une entreprise, un
+       inventaire qui écorche ce qu'il annonce n'inspire pas la confiance qu'il faudrait.
+       Le pluriel s'écrit donc en toutes lettres : le français d'ici est trop irrégulier
+       pour une règle (« mail » invariable, accord de l'adjectif, complément qui ne bouge pas). */
+    var l=function(n,un,plusieurs){ return n?'<li>'+n+' '+(n>1?plusieurs:un)+'</li>':''; };
     var rien=!(a.slugs&&a.slugs.length)&&!a.comptesAnnuaire&&!a.boites&&!a.abonnesPush&&!a.connexions&&!a.erreurs&&!a.ecransOuverts&&!a.comptesSite&&!a.mailsRecus&&!a.mailsEnvoyes&&!a.mailsEcrits;
     /* L'avertissement qui compte : un espace qui porte des comptes de connexion, un code
        d'accès ou de l'usage A FORCÉMENT été un vrai espace — comptesReg ne s'écrit que par
@@ -4195,18 +4761,18 @@ function entSupprimer(t,nm){
         ? '<div style="margin-top:16px;font-size:13.5px;color:var(--text2)">Il ne reste rien à supprimer pour cet espace.</div>'
         : '<div style="margin-top:16px;font-size:13.5px;color:var(--text2)">Voici ce qui va disparaître :</div>'+
           '<ul style="margin:8px 0 0;padding-left:20px;font-size:13.5px;color:var(--text2);line-height:1.9">'+
-            l((a.slugs||[]).length,'entrée d’annuaire')+
-            l(a.comptesAnnuaire,'compte de connexion')+
-            l(a.boites,'boîte mail reliée')+
-            l(a.abonnesPush,'appareil abonné aux notifications')+
-            l(a.connexions,'connexion enregistrée')+
-            l(a.erreurs,'erreur remontée')+
-            l(a.reponsesMail,'réponse de client')+
-            l(a.mailsRecus,'e-mail reçu archivé')+
-            l(a.mailsEnvoyes,'e-mail envoyé archivé')+
-            l(a.mailsEcrits,'message écrit depuis la Tour')+
-            l(a.ecransOuverts,'écran ouvert')+
-            l(a.comptesSite,'compte du site')+
+            l((a.slugs||[]).length,'entrée d’annuaire','entrées d’annuaire')+
+            l(a.comptesAnnuaire,'compte de connexion','comptes de connexion')+
+            l(a.boites,'boîte mail reliée','boîtes mail reliées')+
+            l(a.abonnesPush,'appareil abonné aux notifications','appareils abonnés aux notifications')+
+            l(a.connexions,'connexion enregistrée','connexions enregistrées')+
+            l(a.erreurs,'erreur remontée','erreurs remontées')+
+            l(a.reponsesMail,'réponse de client','réponses de clients')+
+            l(a.mailsRecus,'e-mail reçu archivé','e-mails reçus archivés')+
+            l(a.mailsEnvoyes,'e-mail envoyé archivé','e-mails envoyés archivés')+
+            l(a.mailsEcrits,'message écrit depuis la Tour','messages écrits depuis la Tour')+
+            l(a.ecransOuverts,'écran ouvert','écrans ouverts')+
+            l(a.comptesSite,'compte du site','comptes du site')+
             ((a.promos||[]).length?'<li>le code promo '+esc((a.promos||[]).join(', '))+'</li>':'')+
             (a.codeAcces?'<li>son code d’accès</li>':'')+
             (a.devisIA?'<li>son accès au Devis IA</li>':'')+
@@ -4319,23 +4885,86 @@ function joursRestants(fin){
 /* QUI TRAVAILLE CHEZ EUX. Deux sources croisées côté serveur : l'annuaire dit qui PEUT se
    connecter, les connexions disent qui le fait vraiment. Un identifiant qui n'a jamais servi
    est une information — compte oublié, ou personne qui n'arrive pas à entrer. */
+/* Supprimer un compte depuis la Tour — Justin, 10 septembre 2026 : « un bouton de suppression de
+   compte, avec un code que je reçois par mail, pour éviter l'erreur ». Deux temps : le code part,
+   le code revient. Puis l'annuaire ferme la porte tout de suite, et le premier appareil de
+   l'entreprise qui s'ouvre supprime le compte dans l'application (la base est chiffrée : personne
+   d'autre ne peut le faire). */
+function compteSupprimer(login){
+  var d=(DOS&&DOS.d)||{}; if(!d.t) return;
+  if(!confirm('Supprimer le compte « '+login+' » chez '+(DOS.nom||'cette entreprise')+' ?\n\nUn code de confirmation va t’être envoyé par mail. Après validation : l’identifiant ne peut plus entrer, et le compte est supprimé de l’application au premier appareil de l’entreprise qui s’ouvre.')) return;
+  apiPost('/api/monitor/compte/supprimer',{t:d.t,login:login}).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    var code=prompt('Code reçu par mail'+((x.d&&x.d.dest)?' ('+x.d.dest+')':'')+' :'); if(!code) return;
+    return apiPost('/api/monitor/compte/supprimer',{t:d.t,login:login,code:String(code).trim()}).then(function(y){
+      if(!(y&&y.ok)){ toast('⚠️ '+((y&&y.d&&y.d.error)||'refusé')); return; }
+      toast('Suppression ordonnée — l’identifiant ne peut plus entrer ; le compte part au prochain appareil ouvert'); chargerDossier(DOS.nom); });
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+function compteReautoriser(login){
+  var d=(DOS&&DOS.d)||{}; if(!d.t) return;
+  if(!confirm('Réautoriser l’identifiant « '+login+' » ?\n\nIl pourra de nouveau être déposé dans l’annuaire par l’entreprise (un nouveau salarié du même nom, par exemple).')) return;
+  apiPost('/api/monitor/compte/reautoriser',{t:d.t,login:login}).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    toast('Identifiant réautorisé'); chargerDossier(DOS.nom);
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
+/* Le bouton demandé par Justin devant la liste d'ELAN (« supprime bien tout ici ») : ces
+   identifiants n'existent nulle part, on efface les tentatives qui les font apparaître. */
+function tentativesEffacer(){
+  var d=(DOS&&DOS.d)||{}; var tapes=(d.utilisateurs||[]).filter(function(u){ return !u.derniere&&!u.dansAnnuaire; }).map(function(u){ return u.login; });
+  if(!tapes.length||!d.t) return;
+  if(!confirm('Effacer du journal les '+tapes.length+' identifiant(s) tapé(s) qui n’existent pas ?\n\n'+tapes.join(', ')+'\n\nCe ne sont pas des comptes : rien ne change chez l’entreprise. Seules ces tentatives disparaissent d’ici.')) return;
+  apiPost('/api/monitor/connexions/effacer-tentatives',{t:d.t,logins:tapes}).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    toast((x.d.effacees||0)+' tentative(s) effacée(s)'); chargerDossier(DOS.nom);
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
 function blocUtilisateurs(){
   var d=(DOS&&DOS.d)||null;
   if(!DOS||!DOS.loaded) return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS</div><div style="margin-top:9px;color:var(--muted);font-size:13px">Chargement…</div></div>';
   if(!d||!d.utilisateurs||!d.utilisateurs.length) return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS</div><div style="margin-top:9px;color:var(--muted);font-size:13px">Aucun compte connu pour cet espace.</div></div>';
-  return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px"><div class="sec">LEURS UTILISATEURS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+d.utilisateurs.length+'</span></div>'+
-    '<div style="margin-top:9px">'+d.utilisateurs.map(function(u){
+  /* Deux natures, séparées : les COMPTES (dans l'annuaire, ou déjà connectés) et les IDENTIFIANTS
+     TAPÉS QUI N'EXISTENT PAS — vus seulement dans le journal des échecs. Les seconds étaient
+     affichés comme des utilisateurs, et Justin y a cherché des « comptes fantômes » à supprimer
+     (9 septembre 2026). Il n'y a rien à supprimer : le compte n'a jamais été créé, ou il a été
+     perdu avant d'être déposé. Le dire ici évite de le chercher partout ailleurs. */
+  var vrais=d.utilisateurs.filter(function(u){ return u.derniere||u.dansAnnuaire; });
+  var tapes=d.utilisateurs.filter(function(u){ return !u.derniere&&!u.dansAnnuaire; });
+  /* Sous l'identifiant, le nom — Justin, 10 septembre 2026 : « on a l'utilisateur et en dessous le
+     nom prénom ». Il arrive avec l'annuaire (v620) ou avec la connexion suivante ; avant, on le dit. */
+  var ligne=function(u){
       var souci=u.echecs>0, jamais=!u.derniere;
       return '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--line)">'+
-        '<span class="mono" style="flex:1;min-width:130px;font-size:13px;font-weight:600">'+esc(u.login)+
-          (u.role?'<span style="font-weight:400;color:var(--muted);font-size:11.5px"> · '+esc(u.role)+'</span>':'')+'</span>'+
+        '<span style="flex:1;min-width:130px"><span class="mono" style="font-size:13px;font-weight:600">'+esc(u.login)+'</span>'+
+          (u.role?'<span style="font-weight:400;color:var(--muted);font-size:11.5px"> · '+esc(u.role)+'</span>':'')+
+          (u.nom?'<div style="font-size:12px;color:var(--text2);margin-top:1px">'+esc(u.nom)+'</div>':'<div style="font-size:11.5px;color:var(--muted);margin-top:1px">nom inconnu — arrive à sa prochaine connexion</div>')+'</span>'+
         '<span style="font-size:12px;color:var(--muted)">'+(jamais?'jamais connecté':esc(fmtJour(u.derniere)))+
           (u.appareils?' · '+u.appareils+' appareil'+(u.appareils>1?'s':''):'')+
           (u.version?' · v'+esc(u.version):'')+'</span>'+
         (souci?'<span class="past p-ambre" title="échecs de connexion">🔑 '+u.echecs+'</span>':'')+
+        (u.bloques?'<span class="past p-ambre" title="écritures refusées : version bloquée ou appareil en retard">🔒 '+u.bloques+'</span>':'')+
         (jamais&&u.dansAnnuaire?'<span class="past p-gris">inutilisé</span>':'')+
-      '</div>';
-    }).join('')+'</div></div>';
+        (u.attente?'<span class="past p-ambre" title="ordonnée depuis la Tour ; exécutée au premier appareil de l’entreprise qui s’ouvre">⏳ suppression en attente</span>':'')+
+        (u.supprime?'<span class="past p-gris" title="exécutée par un appareil de l’entreprise ; l’identifiant reste banni de l’annuaire tant que tu ne le réautorises pas">🚫 supprimé · banni</span>':'')+
+        (MYROLE==='patron'&&!u.attente&&!u.supprime?'<button class="btn-fant danger" style="padding:4px 10px;font-size:12px" onclick="compteSupprimer(\''+jsq(u.login)+'\')">Supprimer</button>':'')+
+      '</div>'; };
+  var sv=d.sauvegarde||{}, bannis=d.bannis||[];
+  return '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:16px">'+
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">🗂 Copies de sauvegarde chiffrées sur notre serveur : '+
+      (sv.possible===false?'<span style="color:var(--amber)">impossible — espace hors annuaire, aucune clé d’équipe connue du serveur</span>':((sv.n||0)+(sv.derniere?' · dernière '+cnxDepuis(sv.derniere):' · aucune encore (elles arrivent avec la v621, au plus une par demi-heure et par appareil)')))+'</div>'+
+    /* Les identifiants supprimés depuis la Tour restent bannis de l'annuaire — un appareil ne peut
+       pas lever ça, seul le patron le peut, ici. Sans ce bloc, un ban invisible serait un ban
+       qu'on ne comprend plus le jour où l'entreprise embauche quelqu'un du même nom. */
+    (bannis.length?'<div style="font-size:12px;color:var(--muted);margin-bottom:10px">🚫 Identifiants bannis de l’annuaire (supprimés depuis la Tour) : '+bannis.map(function(b){ return '<span class="mono">'+esc(b.login)+'</span>'+(b.fait?'':' <span style="color:var(--amber)">(pas encore exécuté)</span>')+(MYROLE==='patron'?' <a onclick="compteReautoriser(\''+jsq(b.login)+'\')" style="cursor:pointer">réautoriser</a>':''); }).join(' · ')+'</div>':'')+
+    '<div class="sec">LEURS UTILISATEURS <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">— '+vrais.length+'</span></div>'+
+    '<div style="margin-top:9px">'+vrais.map(ligne).join('')+'</div>'+
+    (tapes.length?'<div class="sec" style="margin-top:16px;color:var(--amber)">'+tapes.length+' IDENTIFIANT'+(tapes.length>1?'S':'')+' TAPÉ'+(tapes.length>1?'S':'')+' QUI N’EXISTE'+(tapes.length>1?'NT':'')+' PAS</div>'+
+      '<div style="font-size:12px;color:var(--text2);line-height:1.55;margin-top:6px">Quelqu’un a tapé ces identifiants et ça a échoué. Ce ne sont pas des comptes : il n’y a rien à supprimer — le compte n’a jamais été créé, ou il a été perdu avant d’être déposé dans l’annuaire. Si la personne doit travailler, l’entreprise crée son compte.</div>'+
+      '<div style="margin-top:6px">'+tapes.map(function(u){ return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)"><span class="mono" style="flex:1;font-size:13px;color:var(--muted)">'+esc(u.login)+'</span><span class="past p-ambre" title="tentatives de connexion">'+u.echecs+' tentative'+(u.echecs>1?'s':'')+'</span></div>'; }).join('')+'</div>'+
+      (MYROLE==='patron'?'<div style="margin-top:10px"><button class="btn-fant" onclick="tentativesEffacer()">Effacer ces tentatives du journal</button></div>':'')
+    :'')+
+  '</div>';
 }
 
 /* SON espace — pas ceux de tout le monde. Même carte qu'avant, filtrée sur l'entreprise. */
@@ -4525,12 +5154,21 @@ function blocDossier(){
   if(!DOS.loaded) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">Chargement du dossier…</div></div>';
   if(DOS.err) return t+'<div style="margin-top:10px;color:var(--muted);font-size:13px">'+esc(DOS.err)+'</div></div>';
   var d=DOS.d||{}, r=(d.connexions&&d.connexions.resume)||{}, u=d.usage||{};
-  var puce=function(n,l,c){ return '<div style="flex:1;min-width:82px"><div style="font-size:19px;font-weight:700'+(c?';color:'+c:'')+'">'+n+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
-  t+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 4px">'+
+  /* Une puce devient un BOUTON dès qu'elle mène quelque part (4e argument), et seulement
+     là : rendre cliquable ce qui n'ouvre rien apprend à l'œil qu'on ne clique nulle part
+     ici, et fait perdre les trois autres avec. */
+  var puce=function(n,l,c,act){
+    var dedans='<div class="dsr-n"'+(c?' style="color:'+c+'"':'')+'>'+n+'</div>'+
+               '<div class="dsr-l">'+l+(act?'<span class="dsr-x">›</span>':'')+'</div>';
+    return act ? '<button class="dsr-p" type="button" aria-expanded="'+(DOS.echecs?'true':'false')+'" onclick="'+act+'">'+dedans+'</button>'
+               : '<div class="dsr-p">'+dedans+'</div>';
+  };
+  var nEch=((d.connexions&&d.connexions.echecs)||[]).length;
+  t+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px">'+
     puce(r.utilisateurs7||0,'personnes · 7 j')+
     puce(u.total||0,'écrans ouverts')+
     puce((d.erreurs||[]).length,'erreurs',(d.erreurs||[]).length?'var(--redText)':'')+
-    puce((d.connexions&&d.connexions.echecs||[]).length,'échecs de connexion',(d.connexions&&d.connexions.echecs||[]).length?'var(--amber)':'')+
+    puce(nEch,'échecs de connexion',nEch?'var(--amber)':'',nEch?'dossierEchecs()':'')+
   '</div>';
   /* ── LEURS VERSIONS ──
      « Version utilisée » venait de usageData, qui n'en connaît QU'UNE : la dernière vue.
@@ -4573,8 +5211,12 @@ function blocDossier(){
   if(d.promo) t+='<div style="margin:8px 0;padding:9px 11px;border-radius:9px;background:var(--tint-gris);font-size:12.5px">🎁 Code <b class="mono">'+esc(d.promo.code)+'</b> — '+(d.promo.actif?'formule offerte jusqu’au <b>'+esc(d.promo.finLe)+'</b>':'terminée le '+esc(d.promo.finLe))+'</div>';
   /* Les echecs d'abord : « quelqu'un chez eux n'arrive pas a entrer » se traite avant tout. */
   var ech=(d.connexions&&d.connexions.echecs)||[];
-  if(ech.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:5px">🔑 N’arrivent pas à se connecter</div>'+
-    ech.slice(0,5).map(function(e){ return '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+esc(fmtJour(e.ts))+' · <b>'+esc(e.login||'identifiant inconnu')+'</b>'+(e.motif?' — '+esc(e.motif):'')+'</div>'; }).join('')+'</div>';
+  /* Fermé : les cinq dernières lignes, comme avant. Ouvert (le chiffre a été cliqué) : le
+     même contenu groupé par motif, avec l'heure et ce que chaque motif veut dire. On ne
+     montre pas les deux — c'était déjà l'écran le plus chargé de la Tour. */
+  if(ech.length) t+= DOS.echecs ? blocEchecsDetail(ech)
+    : '<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:5px">🔑 N’arrivent pas à se connecter</div>'+
+      ech.slice(0,5).map(function(e){ return '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+esc(fmtJour(e.ts))+' · <b>'+esc(e.login||'identifiant inconnu')+'</b>'+(e.motif?' — '+esc(e.motif):'')+'</div>'; }).join('')+'</div>';
   var er=(d.erreurs||[]);
   if(er.length) t+='<div style="margin-top:12px"><div style="font-size:12px;font-weight:700;color:var(--redText);margin-bottom:5px">🐛 Erreurs rencontrées</div>'+
     er.slice(0,6).map(function(b){
@@ -5132,13 +5774,13 @@ function vueEssais(){
   var pubTour=(PBL.liste||[]).filter(function(e){ return e.origine!=='site'; });
   var susp=pubTour.filter(function(e){ return e.suspendu; }).length;
 
-  var gBeta='<div class="reg-g"><div class="ac-tete"><div class="reg-tete">'+
+  var gBeta='<div class="reg-g reg-g-fixe"><div class="ac-tete"><div class="reg-tete">'+
     '<span class="reg-nom">Accès à la bêta</span>'+
     (BT.loaded&&!BT.err?'<span class="reg-n">'+nBeta+(coupes?' · '+coupes+' coupé'+(coupes>1?'s':''):'')+'</span>':'')+
     '<div class="reg-sous">N’ouvrent que teamop.fr/beta.html — jamais les données d’une entreprise. Champ Entreprise vide, puis l’identifiant et le mot de passe donnés ici.</div>'+
     '</div><button type="button" class="ac-act" onclick="accAllerForm(\'ac-f-beta\')">Ouvrir un accès bêta</button></div>'+
     accBlocBeta()+'</div>';
-  var gPub='<div class="reg-g"><div class="ac-tete"><div class="reg-tete">'+
+  var gPub='<div class="reg-g reg-g-fixe"><div class="ac-tete"><div class="reg-tete">'+
     '<span class="reg-nom">Accès à la version publique</span>'+
     (PBL.loaded&&!PBL.err?'<span class="reg-n">'+pubTour.length+(susp?' · '+susp+' suspendu'+(susp>1?'s':''):'')+'</span>':'')+
     '<div class="reg-sous">De vrais espaces sur teamop.fr/app.html, avec de vraies données qui se synchronisent. L’adresse e-mail est la clé : la réutiliser rouvre le même espace.</div>'+
