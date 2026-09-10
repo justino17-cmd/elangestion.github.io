@@ -96,10 +96,35 @@ synchroniser auraient un doublon — que le détecteur repère et fusionne sans 
 demanderait de changer `idCatalogue` pour tous les noms longs, donc de renommer 62 fiches déjà posées
 chez les clients : **un déménagement de données, pas une correction.** À ne rouvrir que seul.
 
+**Trois pertes de données dans la fusion elle-même**, trouvées par l'audit et corrigées dans la même
+version :
+
+- **Le stock global `p.qte`** — celui qu'`intStockAjuste` décrémente à chaque intervention, sans
+  rapport avec `b.stock` — n'était pas repris de la fiche retirée : fusionner 30 et 12 en laissait 30.
+  Il s'additionne désormais, comme celui des box.
+- **Les décisions de box** (`db.boxDecisions[].ecartes`) sont rangées PAR IDENTIFIANT DE PRODUIT, en
+  clés d'objet. Le marcheur générique ne voit que les champs nommés `produitId` : il les manquait
+  toutes. Une fiche écartée exprès par l'équipe redevenait une nouveauté après une fusion, et
+  `boxAutoNouveautes` la reposait dans la box.
+- **Une déclaration « c'est normal, ce sont deux produits »** était emportée par un troisième homonyme
+  arrivé après coup, et effacée sans le dire. Nouvelle fonction `produitsFusionnables(l)` : la fusion,
+  l'aperçu chiffré et le compte du bouton en sortent tous les trois, donc le bouton ne promet plus ce
+  qu'il ne tient pas. Un groupe dont tout est déclaré distinct sauf un reste signalé — il mérite une
+  décision — mais « Tout fusionner » ne le compte plus.
+
+**Ce que `relecteur` a trouvé dans ce que je venais d'écrire, et qui est corrigé** : `idCatalogue`
+réduit un nom à `[a-z0-9]`. De la ponctuation seule, ou une écriture non latine, ne laisse rien et
+retombe sur le générique `cat_x`. Deux produits sans rapport saisis dans le champ « produit hors
+stock » d'une intervention prenaient alors le même identifiant — et la garde ci-dessus ne les
+départageait pas, puisqu'elle compare des slugs, donc deux chaînes vides. Le second se voyait rendre
+la fiche du premier, et son stock allait dessus, en silence. Ces noms-là gardent un identifiant unique
+(`idProduit`), et `produitCreer` porte la même ceinture (`produitMemeNom`) pour tout appelant futur.
+
 Vérifié en navigateur sur la bêta, catalogue réel : semis 110 fiches toutes en `cat_*`, `cree:0`,
 `_m:1` ; les cinq gammes fournisseurs ajoutées d'affilée → 2 867 produits, **0 doublon, 0 identifiant
-`four_`, une seule empreinte ajoutée**, aucune erreur JavaScript. 116 vérifications automatiques vertes
-(`test-625`, `test-pont`, `test-633`, `test-634`, `test-version`).
+`four_`, une seule empreinte ajoutée**, aucune erreur JavaScript ; la base d'ELAN rejouée →
+220 / 110 doublons / 369 unités devient 110 / 0 / **369**. 140 vérifications automatiques vertes
+(`test-625`, `test-pont`, `test-633`, `test-634`, `test-634b`, `test-version`).
 
 **Courrier de la Tour — « ça ne marche plus » (10 septembre au matin)** : les routes vont bien (401
 partout sur `api.teamop.fr`), le module `server/mail.js` se charge. Le serveur renvoie la cause
