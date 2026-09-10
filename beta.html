@@ -16935,7 +16935,8 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
 let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
 /* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
-function openBox(id){ boxView=id; boxProdSearch=''; _doublonsOuvert=false; try{ boxAutoNouveautes(bxpBox()); }catch(e){}   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
+/* opts.sansAuto : ouverture par déduction (une ligne d'historique qui cite la box) — on regarde, on n'écrit pas */
+function openBox(id,opts){ boxView=id; boxProdSearch=''; _doublonsOuvert=false; if(!(opts&&opts.sansAuto)){ try{ boxAutoNouveautes(bxpBox()); }catch(e){} }   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
   /* Le destinataire vaut pour UNE visite : rouvrir la box, c'est un nouveau geste, souvent
      pour quelqu'un d'autre. Le garder d'une visite à l'autre attribuerait en silence des
      produits au technicien d'hier. */
@@ -18214,7 +18215,7 @@ let bxpOnglet='ajouter', bxpNouvSel=new Set(), bxpRetSel=new Set(), bxpRetPhase=
 function bxpBox(){ return (db.boxes||[]).find(x=>x.id===boxView)||null; }
 /* Les trois listes se calculent UNE fois à l'ouverture et après chaque écriture — jamais à la frappe :
    produitsDoublons() parcourt tout le catalogue, une recherche ne doit pas le relancer à chaque lettre. */
-function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b)}; return bxpCache; }
+function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b),dejaCles:new Set((db.produits||[]).map(produitCle))}; return bxpCache; }
 function openBoxProduits(){ const b=bxpBox(); if(!b) return;
   abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpOnglet='ajouter'; bxpRetPhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
   bxpCalculer(b); bxpCache.nouv.forEach(p=>bxpNouvSel.add(p.id));   // les nouveautés arrivent cochées : le geste attendu, c'est de les poser
@@ -18257,7 +18258,7 @@ function bxpRendreAjout(b,c){ const el=$('bxp-corps'); const nouv=c.nouv; const 
 let CATFOUR_N=null;
 function bxpFourMatches(){ if(!CATFOUR_N) CATFOUR_N=CATFOUR.map(x=>norm(x[0]+' '+(x[1]||''))); const q=norm(($('abp-search')||{}).value||'');
   if(!q&&!bxpFour) return [];   // sans recherche ni fournisseur choisi, on ne déroule pas 2 809 lignes
-  const deja=new Set((db.produits||[]).map(produitCle)); const out=[];
+  const deja=(bxpCache&&bxpCache.dejaCles)||new Set((db.produits||[]).map(produitCle)); const out=[];   // calculé à l'ouverture, pas à chaque frappe
   for(let i=0;i<CATFOUR.length;i++){ const x=CATFOUR[i]; if(bxpFour&&x[2]!==bxpFour) continue; if(q&&!CATFOUR_N[i].includes(q)) continue; if(deja.has(produitCle({nom:x[0]}))) continue; out.push(i); }
   return out; }
 function bxpFourChoisir(f){ bxpFour=(bxpFour===f)?'':f; const el=$('bxp-four'); if(!el) return;
@@ -18301,7 +18302,7 @@ function addBoxProd(){ const b=bxpBox(); if(!b) return; if(!abpSel.size&&!bxpFou
   fourIdx.forEach(i=>{ const x=CATFOUR[i]; const k=produitCle({nom:x[0]}); let p=parCle.get(k);
     if(!p){ p=produitCreer({id:idCatalogue(x[2]+' '+x[0],'four'),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0},{push:true}); parCle.set(k,p); crees.push(p); }
     ids.push(p.id); });
-  const r=boxPoserProduits(b,ids); if(!r.poses.length&&!crees.length){ toast('Rien à ajouter : ces produits sont déjà dans la box'); abpSel=new Set(); bxpFourSel=new Set(); bxpRafraichir(); return; }
+  const r=boxPoserProduits(b,[...new Set(ids)]); if(!r.poses.length&&!crees.length){ toast('Rien à ajouter : ces produits sont déjà dans la box'); abpSel=new Set(); bxpFourSel=new Set(); bxpRafraichir(); return; }
   if(crees.length) logEvent('Produits ajoutés au catalogue depuis la box',(b.nom||b.numero||'')+' : '+crees.map(p=>p.nom).join(', '),'crud');
   if(r.poses.length) logEvent('Produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock');
   save(); closeModal(); renderBoxDetail(); toast(r.poses.length+' produit'+(r.poses.length>1?'s':'')+' ajouté'+(r.poses.length>1?'s':'')+' à la box, quantités à zéro'+(crees.length?' · '+crees.length+' nouveau'+(crees.length>1?'x':'')+' au catalogue':'')+(r.deja.length?' · '+r.deja.length+' déjà posé'+(r.deja.length>1?'s':'')+' entre-temps':''),4200); }
@@ -21639,8 +21640,12 @@ function journalGo(id){ const j=db.journal.find(x=>x.id===id); if(!j) return;
   if(m){ detailIntervention(m.id); return; }
   m=db.clients.find(x=>x.nom&&x.nom.length>2&&dn.includes(norm(x.nom)));
   if(m){ ficheClient(m.id); return; }
-  m=db.boxes.find(x=>(x.nom&&x.nom.length>2&&dn.includes(norm(x.nom)))||(x.numero&&dn.includes(norm(x.numero))));
-  if(m){ openBox(m.id); return; }
+  /* Dans le périmètre seulement, et un numéro ne compte que comme mot entier d'au moins trois signes :
+     « 10 » se trouve dans n'importe quelle date. Et l'ouverture déduite ne pose rien (sansAuto) —
+     relire l'historique ne modifie pas une box. */
+  const motEntier=(mot)=>{ const k=norm(mot); return k.length>=3&&new RegExp('(^|[^a-z0-9])'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'([^a-z0-9]|$)').test(dn); };
+  m=visibleBoxes(db.boxes).find(x=>(x.nom&&x.nom.length>2&&dn.includes(norm(x.nom)))||(x.numero&&motEntier(String(x.numero))));
+  if(m){ openBox(m.id,{sansAuto:true}); return; }
   m=db.produits.find(x=>x.nom&&x.nom.length>3&&dn.includes(norm(x.nom)));
   if(m){ go('produits'); setTimeout(()=>{ try{ prdSearch=m.nom; views.produits(); }catch(e){} },60); return; }
   m=db.techniciens.find(x=>x.nom&&x.nom.length>2&&dn.includes(norm(x.nom)));
