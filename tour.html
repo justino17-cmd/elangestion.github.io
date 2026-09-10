@@ -781,10 +781,9 @@ button.dsr-p[aria-expanded="true"] .dsr-x{transform:rotate(90deg)}
   font-size:13px;line-height:1.55;color:var(--text2)}
 .ac-err b{color:var(--redText);font-weight:600;display:block}
 /* VIDE : .vide garde son cadre pointillé, on lui ajoute le geste suivant. */
-.vide.ac-vide{padding:28px 22px;display:flex;flex-direction:column;align-items:center;gap:13px;text-align:center}
-.vide.ac-vide p{margin:0;max-width:38ch}
+/* .ac-vide a disparu : videTour() rend .vide partout, avec ou sans tuile. */
 /* .btn-fant fait 34 px et il est partagé par les dix écrans : on le relève ici seulement. */
-.ac-err .btn-fant,.vide.ac-vide .btn-fant{min-height:44px;padding:0 16px}
+.ac-err .btn-fant,.vide .btn-fant{min-height:44px;padding:0 16px}
 
 /* ── LE RIDEAU ── la cascade #vue.entre .carte/.item:nth-child(n) ne s'applique plus ici : les
    .carte de l'accueil ont disparu. Ce n'est pas une perte, c'était un rideau FAUX — les deux
@@ -1954,7 +1953,8 @@ body.plans .reg-l.cli::before{display:none}
 /* ── ÉTAT VIDE : le glyphe de l'onglet, en gris, dans la tuile — l'écho de .ic-page, une
    seule fois de plus par écran, et jamais en couleur (ce n'est pas une destination). ── */
 .vide .ic svg{width:18px;height:18px}
-.vide p{margin:0;max-width:44ch;margin-left:auto;margin-right:auto}
+.vide p{margin:0 auto;max-width:44ch}
+.vide-espace{margin-top:26px}
 
 /* ── LE DOSSIER D'UN INCIDENT ─── la seule page de la Tour qui explique une panne ───
    Un seul plan (la carte de tête), un seul titre, et le reste en cartes de faits. ── */
@@ -2441,7 +2441,9 @@ function svg(n,t){ t=t||17; return '<svg width="'+t+'" height="'+t+'" viewBox="0
    titre / sous / action arrivent en HTML déjà échappé par l'appelant : plusieurs états vides
    portent un <br> ou un <b> dans leur phrase, et ce sont des textes du fichier, pas des données. */
 function videTour(titre,sous,action,ic){
-  return '<div class="vide"><div class="ic" aria-hidden="true">'+svg(ic||TAB,18)+'</div>'+
+  /* ic===false : pas de tuile. Dans un encart de 200 px sur l'accueil, un glyphe de 36 px
+     pèse plus lourd que la phrase qu'il accompagne — la même fonction, un dessin de moins. */
+  return '<div class="vide">'+(ic===false?'':'<div class="ic" aria-hidden="true">'+svg(ic||TAB,18)+'</div>')+
     (titre?'<b>'+titre+'</b>':'')+(sous?'<p>'+sous+'</p>':'')+(action||'')+'</div>';
 }
 /* Le squelette d'une liste : la FORME de ce qui arrive, pas un mot qui ment. Sans lui, la
@@ -3197,7 +3199,7 @@ function vueDevisIA(){
     'Un code activé à la main dont aucun espace ne s’est jamais connecté. Soit le code était faux, soit l’entreprise n’a jamais ouvert l’application.',false,
     '<div class="reg-bloc mien">'+mortes.map(function(x){ return ligne(x,true); }).join('')+'</div>'));
   var registre=G.length?'<div class="reg" style="margin-top:26px">'+G.join('')+'</div>'
-    :'<div class="vide ac-vide" style="margin-top:26px"><p>Aucune entreprise connue pour l’instant. Les espaces apparaissent ici dès qu’ils se connectent à l’application ; en attendant, un code peut être activé à la main ci-dessous.</p></div>';
+    :'<div class="vide-espace">'+videTour('','Aucune entreprise connue pour l’instant. Les espaces apparaissent ici dès qu’ils se connectent à l’application ; en attendant, un code peut être activé à la main ci-dessous.','',false)+'</div>';
 
   /* Le formulaire ne sert QU'aux espaces absents de la liste : l'écran le dit maintenant à
      Justin, au lieu de le dire au développeur en commentaire. */
@@ -3907,9 +3909,8 @@ function vueAccueil(){
   var prio;
   if(INC.err||MSG.err) prio=acErr('La surveillance ne répond pas',INC.err||MSG.err,'chargerIncidents()');
   else if(!INC.loaded) prio=acSquel();
-  else if(!G.length) prio='<div class="vide ac-vide"><p>Rien en attente. Les incidents signalés par les applications, '+
-    'les courriels non lus et les prélèvements refusés arrivent ici.</p>'+
-    '<button type="button" class="btn-fant" onclick="setTab(\'surveillance\')">Ouvrir la surveillance</button></div>';
+  else if(!G.length) prio=videTour('','Rien en attente. Les incidents signalés par les applications, les courriels non lus et les prélèvements refusés arrivent ici.',
+    '<button type="button" class="btn-fant" onclick="setTab(\'surveillance\')">Ouvrir la surveillance</button>',false);
   else prio='<div class="reg">'+G.map(acGroupe).join('')+'</div>';
 
   /* Quatre <div onclick> sans focus clavier, sans survol, sans rien qui dise qu'ils se cliquent.
@@ -3945,7 +3946,7 @@ function vueAccueil(){
       '<span class="reg-fin">'+(ok?'':'<span class="past p-rouge">Échec</span>')+
       '<span class="ac-n mini">'+esc(fmtEur(p.montant))+'</span>'+
       '<span class="reg-chev" aria-hidden="true">›</span></span></button>';
-  }).join('')||'<div class="vide ac-vide"><p>'+(ABO.configured?'Aucun paiement enregistré ces derniers jours.':'Stripe n’est pas relié au serveur : aucun paiement ne remonte.')+'</p></div>';
+  }).join('')||videTour('',(ABO.configured?'Aucun paiement enregistré ces derniers jours.':'Stripe n’est pas relié au serveur : aucun paiement ne remonte.'),'',false);
 
   /* chargerJournal() pose JR.err = « Réservé au patron… » quand MYROLE n'est pas patron, et
      vueAccueil() ne l'a jamais lu : un collaborateur lisait « Aucune activité enregistrée »
@@ -3956,7 +3957,7 @@ function vueAccueil(){
   else act=(JR.cnx||[]).slice(0,6).map(function(j){
     return '<div><time>'+esc(fmtDate(j.ts))+'</time><span>'+esc(j.qui||'—')+' — '+
       (j.ok?'connexion réussie':'tentative refusée'+(j.motif?' ('+esc(j.motif)+')':''))+'</span></div>';
-  }).join('')||'<div class="vide ac-vide"><p>Aucune connexion à la console enregistrée.</p></div>';
+  }).join('')||videTour('','Aucune connexion à la console enregistrée.','',false);
 
   return '<div class="page-tete"><div class="page-txt">'+
       '<div class="ttl-page">Bonjour '+esc(MYNOM)+'</div>'+
@@ -4034,9 +4035,9 @@ function vueEntreprisesMsg(){
   var rech='<div class="rech rech-seule">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(ENT.q||'')+'" oninput="entQ(this.value)"></div>';
   var kpi='<div class="grille-kpi simple" style="margin-bottom:16px"><div class="kpi"><div class="l">ouvertes à OP MESSAGES</div><div class="n">'+tous.filter(function(o){ return o.opMessages; }).length+'</div></div><div class="kpi"><div class="l">entreprises connues</div><div class="n">'+tous.length+'</div></div></div>';
   var g1='<div class="reg-g reg-g-fixe"><div class="reg-tete"><span class="reg-nom">Ouvertes à OP MESSAGES</span><span class="reg-n">'+ouvertes.length+'</span></div>'+
-    (ouvertes.length?'<div class="reg-cli">'+ouvertes.map(function(o){ return ligne(o,true); }).join('')+'</div>':'<div class="vide"><b>Aucune entreprise ouverte à OP MESSAGES</b>Ouvrir une entreprise ci-dessous ajoute la rangée SUITE dans son OP GESTION.</div>')+'</div>';
+    (ouvertes.length?'<div class="reg-cli">'+ouvertes.map(function(o){ return ligne(o,true); }).join('')+'</div>':videTour('Aucune entreprise ouverte à OP MESSAGES','Ouvrir une entreprise ci-dessous ajoute la rangée SUITE dans son OP GESTION.','','messages'))+'</div>';
   var g2='<div class="reg-g"><div class="reg-tete"><span class="reg-nom">Toutes les autres</span><span class="reg-n">'+autres.length+'</span><div class="reg-sous">Fermées à OP MESSAGES. Le patron peut les ouvrir.</div></div>'+
-    (autres.length?'<div class="reg-bloc">'+autres.map(function(o){ return ligne(o,false); }).join('')+'</div>':'<div class="vide">Rien d’autre.</div>')+'</div>';
+    (autres.length?'<div class="reg-bloc">'+autres.map(function(o){ return ligne(o,false); }).join('')+'</div>':videTour('','Rien d’autre : toutes les entreprises connues sont déjà ouvertes à OP MESSAGES.','',false))+'</div>';
   return tete+kpi+rech+'<div class="reg">'+g1+g2+'</div>';
 }
 function acGroupe(g){
@@ -4184,7 +4185,7 @@ function versionRegler(b,msg){ apiPost('/api/monitor/version-min',b).then(functi
 function versionExigerLigne(){ if(!confirm('Exiger la version en ligne pour TOUT LE MONDE ?\n\nTout appareil en dessous ne pourra plus rien enregistrer tant qu’il n’est pas à jour. Il se met à jour tout seul : dans les secondes qui suivent s’il est ouvert, à sa prochaine ouverture sinon.')) return; versionRegler({min:'ligne'},'Dernière version exigée pour tout le monde'); }
 function versionLever(){ if(!confirm('Lever l’exigence de version ?\n\nLes vieux appareils pourront de nouveau écrire dans le nuage — et donc écraser.')) return; versionRegler({min:0},'Exigence levée'); }
 function blocVersions(){
-  if(!VER.d&&!VER.err){ chargerVersion(); return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--muted);font-size:13px;margin-top:8px">Chargement…</div>'; }
+  if(!VER.d&&!VER.err){ chargerVersion(); return '<div class="sous-sec"><div class="sec">VERSIONS</div>'+squelListe(2)+'</div>'; }
   if(VER.err&&!VER.d) return '<div class="sec" style="margin-top:18px">VERSIONS</div><div style="color:var(--redText);font-size:13px;margin-top:8px">'+esc(VER.err)+' <a onclick="VER.err=\'\';chargerVersion()">réessayer</a></div>';
   if(Date.now()-(VER.ts||0)>120000) chargerVersion();   // on montre ce qu'on a, et on rafraîchit derrière
   var d=VER.d||{}, ligne=d.versionEnLigne||0, min=d.min||0, sous=d.sous||[], nSous=0;
@@ -5238,8 +5239,9 @@ function vueEntreprises(){
         'Toutes vos entreprises, d’où qu’elles viennent : inscrites sur le site, ouvertes depuis la Tour, ou simplement repérées par leurs connexions. Cliquez sur l’une d’elles pour ouvrir son dossier complet.',
         '<button class="btn-fant" onclick="cliCopierAdresses(this)" title="Copie toutes les adresses connues, une par ligne">📋 Copier les adresses</button> '+
         '<button class="btn-plein" onclick="annonceEnvoyer(this)" title="Envoie l’e-mail des nouveautés de la dernière mise à jour à toutes les entreprises">📣 Annoncer la mise à jour</button>');
-  if(!ENT.loaded) return tete+'<div class="vide">Chargement des entreprises…</div>';
-  if(ENT.err) return tete+'<div class="vide">'+esc(ENT.err)+'</div>';
+  if(!ENT.loaded) return tete+squelListe(6);
+  if(ENT.err) return tete+videTour('Liste illisible',esc(ENT.err),
+    '<button type="button" class="btn-fant" onclick="chargerEntreprises()">Réessayer</button>');
   /* Ces quatre nombres ne sont pas un tableau de bord : ce sont les quatre façons d'entrer
      dans le travail. « 3 avec des erreurs » ne sert à rien si on doit ensuite chercher
      lesquelles à la main — donc on clique dessus et la liste ne montre plus qu'elles.
@@ -5402,9 +5404,9 @@ function vueEntreprises(){
      connue — et là il faut dire d'où elles viennent, pas laisser croire à un filtre. */
   var liste=(groupes||pave)? '<div class="reg">'+groupes+'</div>'+pave
     : (ENT.q||ENT.filtre)
-      ? '<div class="vide">Aucune entreprise ne correspond à cette recherche.'+
-        (ENT.filtre?' <button class="btn-fant" onclick="entFiltre(\''+ENT.filtre+'\')">Retirer le filtre</button>':'')+'</div>'
-      : '<div class="vide">Aucune entreprise connue pour l’instant.<br>Elles apparaissent dès qu’une s’inscrit sur le site, qu’un espace est ouvert depuis la Tour, ou qu’un appareil s’y connecte.</div>';
+      ? videTour('Aucune entreprise ne correspond à cette recherche','Essayez un autre mot, ou retirez le filtre posé.',
+          (ENT.filtre?'<button type="button" class="btn-fant" onclick="entFiltre(\''+ENT.filtre+'\')">Retirer le filtre</button>':''))
+      : videTour('Aucune entreprise connue pour l’instant','Elles apparaissent dès qu’une s’inscrit sur le site, qu’un espace est ouvert depuis la Tour, ou qu’un appareil s’y connecte.','');
   /* Une entreprise ouverte prend toute la page : ni liste, ni compteurs. Les compteurs
      parlent de l'ensemble des entreprises — les garder à côté d'une fiche, c'est occuper
      un quart de l'écran avec autre chose que ce qu'on est venu lire. */
@@ -5823,12 +5825,14 @@ function blocComptesSite(){
   var t='<div style="margin-top:34px">'+
     '<div style="font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:8px">👤 Tous les comptes du site</div>'+
     '<div style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55">Les comptes de personnes, lus chez Firebase — y compris ceux qui n’ont jamais ouvert d’espace, invisibles partout ailleurs. Supprimer un compte retire son accès à l’application ; sa boîte mail n’est pas touchée.</div>';
-  if(!CS.loaded) return t+'<div class="vide">Chargement des comptes…</div></div>';
-  if(CS.err) return t+'<div class="vide">'+esc(CS.err)+'</div></div>';
+  if(!CS.loaded) return t+squelListe(4)+'</div>';
+  if(CS.err) return t+videTour('Comptes illisibles',esc(CS.err),
+    '<button type="button" class="btn-fant" onclick="chargerComptesSite()">Réessayer</button>')+'</div>';
   var q=(CS.q||'').toLowerCase().trim();
   var l=CS.comptes.filter(function(c){ return !q||((c.email||'')+' '+(c.nom||'')+' '+(c.societe||'')+' '+(c.entreprise||'')).toLowerCase().indexOf(q)>=0; });
   t+='<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Filtrer par nom, entreprise ou adresse…" value="'+esc(CS.q)+'" oninput="csQ(this.value)"></div>';
-  if(!l.length) return t+'<div class="vide">'+(q?'Aucun compte ne correspond.':'Aucun compte sur le site.')+'</div></div>';
+  if(!l.length) return t+(q?videTour('Aucun compte ne correspond','Essayez un autre nom, une autre entreprise ou une autre adresse.','')
+    :videTour('Aucun compte sur le site','Ils arrivent dès qu’une personne s’inscrit sur teamop.fr.',''))+'</div>';
   /* Le nombre d'anonymes est dit, pas caché : sans cette ligne on croirait que la console
      ignore des centaines de comptes, alors qu'elle les écarte volontairement. */
   t+='<div style="font-size:12px;color:var(--muted);margin-bottom:8px">'+l.length+' compte'+(l.length>1?'s':'')+(q?' sur '+CS.comptes.length:'')+
@@ -5948,8 +5952,8 @@ function blocGestionClient(){
           '<button type="button" class="pill-act v-act" onclick="tourApps(\''+jsq(es.slug||'')+'\',\''+jsq(es.nom||nm)+'\','+(es.opMessages?'false':'true')+')">'+(es.opMessages?'Fermer':'Ouvrir')+'</button>'+
           '<span class="v-note">Application séparée, abonnement séparé. Fermée, elle disparaît de la barre d’OP GESTION ; rien d’autre ne change.</span>';
       })()]])+
-    '<div class="sous-sec"><div class="sec">CONNEXIONS</div><div id="fiche-connexions" class="note">Chargement…</div></div>'+
-    '<div class="sous-sec"><div class="sec">ACTIVITÉ PAR ONGLET &amp; PROBLÈMES</div><div id="fiche-activite" class="note">Chargement…</div></div>'+
+    '<div class="sous-sec"><div class="sec">CONNEXIONS</div><div id="fiche-connexions">'+squelListe(2)+'</div></div>'+
+    '<div class="sous-sec"><div class="sec">ACTIVITÉ PAR ONGLET &amp; PROBLÈMES</div><div id="fiche-activite">'+squelListe(2)+'</div></div>'+
     sect('CONTACT',[['Référent',esc(c.nom||'—')],['E-mail','<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>'],['Téléphone',c.tel?('<a href="tel:'+esc(String(c.tel).replace(/[^0-9+]/g,''))+'">'+esc(c.tel)+'</a>'):'—']])+
     '<div class="sous-sec"><div class="sec">ACTIVITÉ RÉCENTE</div>'+dem+'</div>';
 }
@@ -6131,7 +6135,7 @@ function vueAbonnements(){
   if(ABO.err) return tete+acErr('Les abonnements ne répondent pas',ABO.err,'chargerAbos()')+blocPromos();
   /* Les formules offertes ne passent PAS par Stripe : elles disparaissaient exactement dans
      le seul cas où elles sont la seule information disponible. */
-  if(!ABO.configured) return tete+'<div class="vide"><b style="color:var(--text2)">Stripe n’est pas relié au serveur.</b><div style="margin-top:8px">Dès que Stripe sera relié, les abonnés, le revenu mensuel et les paiements apparaîtront ici tout seuls.</div></div>'+blocEspaces()+blocPromos();
+  if(!ABO.configured) return tete+videTour('Stripe n’est pas relié au serveur','Dès que Stripe sera relié, les abonnés, le revenu mensuel et les paiements apparaîtront ici tout seuls.','')+blocEspaces()+blocPromos();
 
   var abos=(ABO.abos||[]).slice();
   var enEssai=abos.filter(function(a){ return /trial|essai/i.test(String(a.statut||'')); }).length;
@@ -6247,10 +6251,10 @@ function vueAbonnements(){
 
   var corps;
   if(G.length) corps='<div class="reg">'+G.join('')+'</div>';
-  else if(f) corps='<div class="vide ac-vide"><p>Aucun abonnement dans cette catégorie'+(f==='past_due'?' — c’est une bonne nouvelle.':'.')+'</p>'+
-    '<button type="button" class="btn-fant" onclick="aboF(\'\')">Voir tous les abonnements</button></div>';
-  else corps='<div class="vide ac-vide"><p>Aucun abonnement chez Stripe pour l’instant. Les formules attribuées depuis la console apparaissent ici dès qu’un paiement est encaissé.</p>'+
-    '<button type="button" class="btn-fant" onclick="ouvrirStripe()">Ouvrir dans Stripe</button></div>';
+  else if(f) corps=videTour('Aucun abonnement dans cette catégorie'+(f==='past_due'?' — c’est une bonne nouvelle':''),'',
+    '<button type="button" class="btn-fant" onclick="aboF(\'\')">Voir tous les abonnements</button>');
+  else corps=videTour('Aucun abonnement chez Stripe pour l’instant','Les formules attribuées depuis la console apparaissent ici dès qu’un paiement est encaissé.',
+    '<button type="button" class="btn-fant" onclick="ouvrirStripe()">Ouvrir dans Stripe</button>');
 
   /* Les annulés : le sort des espaces techniques d'Entreprises. Ils ne demandent aucune
      décision et, mêlés aux autres, faisaient nombre sans faire sens. */
@@ -6450,9 +6454,10 @@ function pubLigne(e){
   '</div>';
 }
 function pubBloc(l,vide){
-  if(!PBL.loaded) return '<div class="vide" style="margin-top:10px">Chargement…</div>';
-  if(PBL.err) return '<div class="vide" style="margin-top:10px">'+esc(PBL.err)+'</div>';
-  if(!l.length) return '<div class="vide" style="margin-top:10px">'+vide+'</div>';
+  if(!PBL.loaded) return squelListe(2);
+  if(PBL.err) return videTour('Espaces illisibles',esc(PBL.err),
+    '<button type="button" class="btn-fant" onclick="chargerAccesPublics()">Réessayer</button>');
+  if(!l.length) return videTour('',vide,'',false);
   return l.map(pubLigne).join('');
 }
 
@@ -6580,20 +6585,22 @@ function btChantier(id,actuel){
 /* Un groupe garde TOUJOURS son titre, même vide : ce sont deux portes fixes, pas des natures
    calculées — le titre est ce qui dit pourquoi il n'y a rien. */
 function accBlocBeta(){
-  if(!BT.loaded) return '<div class="vide">Chargement des accès…</div>';
-  if(BT.err) return '<div class="vide">'+esc(BT.err)+'</div>';
+  if(!BT.loaded) return squelListe(3);
+  if(BT.err) return videTour('Accès illisibles',esc(BT.err),
+    '<button type="button" class="btn-fant" onclick="chargerEssais()">Réessayer</button>');
   var l=(BT.comptes||[]).slice().sort(function(a,b){
     var d=(a.actif===false?1:0)-(b.actif===false?1:0); if(d) return d;
     return (b.derniere||0)-(a.derniere||0); });
-  if(!l.length) return '<div class="vide ac-vide"><p>La bêta n’est ouverte à personne. Un accès bêta se donne à quelqu’un de l’équipe, pour un chantier précis — la personne, et l’écran qu’elle teste.</p>'+
-    '<button type="button" class="btn-fant" onclick="accAllerForm(\'ac-f-beta\')">Ouvrir le premier accès</button></div>';
+  if(!l.length) return videTour('La bêta n’est ouverte à personne','Un accès bêta se donne à quelqu’un de l’équipe, pour un chantier précis — la personne, et l’écran qu’elle teste.',
+    '<button type="button" class="btn-fant" onclick="accAllerForm(\'ac-f-beta\')">Ouvrir le premier accès</button>','essais');
   return '<div class="reg-bloc">'+l.map(accLigneBeta).join('')+'</div>';
 }
 function accBlocPub(l){
-  if(!PBL.loaded) return '<div class="vide">Chargement des espaces…</div>';
-  if(PBL.err) return '<div class="vide">'+esc(PBL.err)+'</div>';
-  if(!l.length) return '<div class="vide ac-vide"><p>Aucun espace ouvert depuis la Tour. Un espace public sert à essayer la vraie application, ou à la faire essayer — avec de vraies données.</p>'+
-    '<button type="button" class="btn-fant" onclick="accAllerForm(\'ac-f-pub\')">Ouvrir le premier espace</button></div>';
+  if(!PBL.loaded) return squelListe(3);
+  if(PBL.err) return videTour('Espaces illisibles',esc(PBL.err),
+    '<button type="button" class="btn-fant" onclick="chargerAccesPublics()">Réessayer</button>');
+  if(!l.length) return videTour('Aucun espace ouvert depuis la Tour','Un espace public sert à essayer la vraie application, ou à la faire essayer — avec de vraies données.',
+    '<button type="button" class="btn-fant" onclick="accAllerForm(\'ac-f-pub\')">Ouvrir le premier espace</button>','essais');
   return '<div class="reg-cli">'+l.map(accLignePub).join('')+'</div>';
 }
 function vueEssais(){
@@ -6726,7 +6733,7 @@ function vueEquipe(){
     '<div class="reg-sous">Le mot de passe existe encore, la porte ne s’ouvre plus. Rouvrir se fait d’un bouton ; supprimer est définitif.</div></div>'+
     '<div class="reg-bloc">'+coupes.map(function(u){ return ligne(u,false); }).join('')+'</div></div>');
   var liste=G.length?'<div class="reg">'+G.join('')+'</div>'
-    :'<div class="vide ac-vide"><p>Aucun compte d’équipe. Seul le vôtre ouvre cette console.</p></div>';
+    :videTour('Aucun compte d’équipe','Seul le vôtre ouvre cette console.','','equipe');
 
   var form=(MYROLE==='patron')?'<div class="carte"><div class="ttl-carte">Ajouter un collaborateur</div>'+
     '<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">'+
@@ -6745,7 +6752,7 @@ function vueEquipe(){
        rôle envoyé. Un menu qui ment sur un droit d'accès n'est pas une décoration. */
     '<div class="eqp-note"><b>Le compte créé est un collaborateur.</b> Il voit Surveillance, Support, Entreprises, Connexions clients, Abonnements et Devis IA — pas Équipe, pas Accès, pas le Journal de la console. Il n’y a pas d’autre rôle à donner depuis ici.</div>'+
     '<div class="eqp-note">Les comptes équipe se créent uniquement ici, sans e-mail. Le collaborateur se connecte ensuite avec ce nom et ce mot de passe via « Équipe TeamOP » sur la page Mon espace de teamop.fr.</div>'+
-  '</div>':'<div class="vide">Seul le patron peut créer des comptes.</div>';
+  '</div>':videTour('','Seul le patron peut créer des comptes.','',false);
   return tete+'<div class="deux eqp-deux"><div class="col-liste">'+liste+'</div>'+
     '<div class="col-detail">'+form+'</div></div>';
 }
