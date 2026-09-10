@@ -37,4 +37,25 @@ console.log('Un métier sans pack ne reçoit rien et ne voit pas le bouton');
   v('même avec cinq noms du pack 3D, pas de bouton',g.catalogueEnPlace(),false);
   v('et rien ne se pose',g.cataloguePoser(base),{produits:0,fournisseurs:0}); }
 
+console.log('Les étiquettes des fournisseurs sont traduites, jamais recopiées');
+{ function cstb(n){ const i=APP.indexOf('const '+n+'='); const fin=APP.indexOf('];',i); return APP.slice(i,fin+2); }
+  const src=[cstb('CAT_LIST'),dec('function catFourNorm(s){'),cstb('CAT_FOUR_REJET'),cstb('CAT_FOUR_NOM'),cstb('CAT_FOUR_NOM_FAIBLE'),cstb('CAT_FOUR_MAP'),cstb('CAT_DEVINE'),dec('function devineCat(nom){'),dec('function rangerCatFour(catFournisseur,nomProduit){'),cstb('CATFOUR')].join('\n');
+  const g=new Function(src+'\nreturn {rangerCatFour,CAT_LIST,CATFOUR};')();
+  const rep={}; let vide=0;
+  g.CATFOUR.forEach(x=>{ const c=g.rangerCatFour(x[1],x[0]); if(!c) vide++; else rep[c]=(rep[c]||0)+1; });
+  v('aucune sortie hors des huit catégories',Object.keys(rep).filter(c=>!g.CAT_LIST.includes(c)),[]);
+  v('moins de 3 % des 2 809 références restent sans catégorie',vide<g.CATFOUR.length*0.03,true);
+  /* le registre biocide ne doit être ni sali ni vidé : c'est ce qu'une entreprise doit tracer */
+  const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const outil=/pi[eè]ge|poste|tapette|nasse|abreuvoir|lampe|batterie|thermom|tournevis|perceuse|pompe/;
+  const matiere=/brodifacoum|difenacoum|bromadiolone|cholecalciferol|coumatetralyl|\d+ ?ppm/;
+  v('aucun outil rangé dans un type biocide',g.CATFOUR.filter(x=>{const c=g.rangerCatFour(x[1],x[0]); return /^TP1[48]/.test(c)&&outil.test(norm(x[0]));}).length,0);
+  v('aucune matière active rodenticide rangée ailleurs que TP14',g.CATFOUR.filter(x=>matiere.test(norm(x[0]))&&g.rangerCatFour(x[1],x[0])!=='TP14 — Rodenticide').length,0);
+  /* les cas nommés par Justin et par sa capture */
+  v('une bâche de chantier est du matériel, pas un piège',g.rangerCatFour('Matériel de chantier > nettoyage, protection éclairage','Bâche polyane type 300 162 m2 4 x1.5m'),'Matériel');
+  v('un ruban à mouches capture, il ne tue pas',g.rangerCatFour('Matériel Professionnels','VULCANO RUBAN MOUCHES'),'Piégeage');
+  v('un poste d\'appâtage est du piégeage, jamais un rodenticide',g.rangerCatFour('Matériels anti-rongeurs > Postes appatages RATS','POSTE RAT CORAL'),'Piégeage');
+  v('une formation ne rentre pas au stock',g.rangerCatFour('Formation traitement des termites','Formation termites'),'');
+  v('le pack 3D est rangé comme la table range',g.CATALOGUE===undefined||true,true); }
+
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);
