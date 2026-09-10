@@ -18,10 +18,9 @@ de ligne du tout.
 Tout ce qui suit est **en vigueur**, vérifié de bout en bout (serveur, Firestore lu avec les
 règles publiées, fichiers servis) :
 
-- **Version minimale exigée : v621**, réglée depuis la Tour, portée par `versions.json` et par
-  `teamop_config/version` (min 621). Google refuse toute écriture d'un appareil sous v621.
-  **v622 publiée le 10 septembre au matin : l'exiger aussi dès qu'ELAN a rouvert** (un DR sur
-  v621 verrait encore toutes les box de l'entreprise).
+- **Version minimale exigée : v622**, réglée depuis la Tour par Justin le 10 septembre au matin
+  (vérifié : `/api/version` → `min: 622`), portée par `versions.json` et par
+  `teamop_config/version`. Google refuse toute écriture d'un appareil sous v622.
 - **Règles Firestore publiées dans `elan-gestion` = `firestore.rules`** : OP GESTION + espace
   client, **sans la messagerie**. `op_companies` répond 403 — voulu. OP MESSAGES aura son projet
   (`firestore-opmessages.rules`) ; `messages.html` est hors d'usage jusqu'à sa bascule.
