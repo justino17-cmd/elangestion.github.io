@@ -3217,19 +3217,34 @@ async function versionsPousserFirestore() {
    périmé, sans le dire. Signalé par Justin le 10 septembre 2026, la Tour montrant v625 alors que
    teamop.fr servait v626. Une minute suffit : cette route n'est appelée que par la Tour, c'est-à-dire
    par le patron, quelques fois par jour — et « Exiger » relit toujours, sans cache (frais). */
+const versionQuota = new Map();   // « Exiger » tire une page de 3 Mo : le patron clique ça quelques fois par jour, pas dix fois par seconde
 const versionLigne = { v: 0, ts: 0, encours: null };
 function versionEnLigne(frais) {
   if (!frais && versionLigne.v && Date.now() - versionLigne.ts < 60000) return Promise.resolve(versionLigne.v);
   if (versionLigne.encours) return versionLigne.encours;   // une lecture est déjà en cours : elle est fraîche par construction
   versionLigne.encours = (async () => {
+    const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 15000);
     try {
-      const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 15000);
       const r = await fetch('https://teamop.fr/app.html', { signal: ctrl.signal, headers: { 'Cache-Control': 'no-cache' } });
-      clearTimeout(tm);
-      const t = r.ok ? await r.text() : '';
-      const m = /const APP_VERSION = '([0-9]+)'/.exec(t);
-      if (m) { versionLigne.v = parseInt(m[1], 10) || 0; versionLigne.ts = Date.now(); }
+      /* app.html pèse près de 3 Mo et APP_VERSION vit dans son premier demi-mégaoctet : on lit au fil
+         de l'eau et on coupe dès qu'on l'a trouvée, ou au plafond. Sans ça, chaque clic sur « Exiger »
+         tirait 3 Mo, et un corps qui s'arrête en route (pair mort, sans fermeture) figeait la promesse
+         POUR TOUJOURS — versionLigne.encours ne se vidant jamais, tout appel suivant s'y accrochait et
+         la fonction version restait morte jusqu'au redémarrage. Le délai couvre donc TOUTE la lecture,
+         corps compris, et il n'est levé qu'à la toute fin. */
+      if (r.ok && r.body) {
+        const dec = new TextDecoder(); let buf = '', lu = 0;
+        for await (const morceau of r.body) {
+          buf += dec.decode(morceau, { stream: true }); lu += morceau.length;
+          const m = /const APP_VERSION = '([0-9]+)'/.exec(buf);
+          if (m) { versionLigne.v = parseInt(m[1], 10) || 0; versionLigne.ts = Date.now(); break; }
+          if (lu > 1200000) break;                      // au-delà, ce n'est plus la page qu'on croit
+          if (buf.length > 200000) buf = buf.slice(-100); // la fenêtre glissante suffit : le motif fait 30 signes
+        }
+        try { ctrl.abort(); } catch (e) {}              // trouvée ou non : on ne tire pas le reste
+      }
     } catch (e) { console.error('version en ligne illisible :', e.message); }
+    clearTimeout(tm);
     versionLigne.encours = null;
     return versionLigne.v;
   })();
@@ -3258,11 +3273,20 @@ app.post('/api/monitor/version-min', monPatronStrict, async (req, res) => {
   const b = req.body || {};
   let min = parseInt(b.min, 10);
   /* « Exiger la dernière version » : celle qui est SERVIE à l'instant, jamais un reste de cache.
-     Si teamop.fr n'a pas pu être lu, on refuse : exiger un numéro périmé, c'est bloquer les appareils
-     déjà à jour et laisser passer ceux qu'on voulait pousser — une erreur muette et coûteuse. */
+     La garde regarde si la lecture a VRAIMENT abouti — pas si la valeur est récente. Une lecture
+     ratée juste après une lecture réussie laisserait passer l'ancien numéro : c'est exactement le
+     cas de production (v625 en mémoire, v626 publiée, teamop.fr qui hoquette), et la Tour rafraîchit
+     toutes les deux minutes, donc la fenêtre serait presque toujours ouverte. Échouer fermé.
+     Exiger un numéro périmé bloque les appareils déjà à jour et laisse passer ceux qu'on voulait
+     pousser — une erreur muette et coûteuse. */
   if (b.min === 'ligne') {
+    if (!quotaOk(versionQuota, 'exiger', 30, 3600000)) return res.status(429).json({ error: 'Trop de demandes — réessaie dans quelques minutes.' });
+    const tsAvant = versionLigne.ts;
     min = await versionEnLigne(true);
-    if (!min || Date.now() - versionLigne.ts > 60000) return res.status(503).json({ error: 'La version en ligne n\'a pas pu être lue sur teamop.fr — réessaie dans un instant, ou tape le numéro à la main.' });
+    if (!min || versionLigne.ts === tsAvant) {
+      monLog((req.tourUser && req.tourUser.nom) || 'patron', false, req, 'exiger la dernière version : teamop.fr illisible');
+      return res.status(503).json({ error: 'La version en ligne n\'a pas pu être lue sur teamop.fr — réessaie dans un instant.' });
+    }
   }
   if (!isFinite(min) || min < 0 || min > 99999) return res.status(400).json({ error: 'min : un entier entre 0 et 99999, ou « ligne »' });
   const enLigne = 'enLigne';   // le hors ligne n'est plus une option : le paramètre est ignoré
