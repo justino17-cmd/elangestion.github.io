@@ -3772,6 +3772,28 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .bst-att{font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);font-variant-numeric:tabular-nums;white-space:nowrap}
 .abp-etat{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--t3);padding:2px 2px 10px;font-variant-numeric:tabular-nums}
 .abp-etat b{color:var(--t1)}
+/* Le DR corrige à la validation (v624) : une ligne par produit, la demande à gauche, l'accordé à
+   droite. Le champ fait 16 px pour qu'iOS ne zoome pas dessus, et 44 px de haut pour le pouce. */
+.pl-row.mvc{flex-wrap:wrap;gap:10px 15px;cursor:default}
+.pl-row.mvc>.pl-info{flex:1 0 100%}   /* le libellé prend sa ligne ; pastilles, lignes et boutons passent dessous */
+.mvl-st{flex:1 0 100%;display:flex;gap:6px;flex-wrap:wrap}
+/* min-width:0 : sans lui, le nom du produit (insécable) dicte la largeur de la colonne et la carte déborde de l'écran */
+.mvl{flex:1 0 100%;min-width:0;display:flex;flex-direction:column;gap:4px}
+.mvl-r{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"n q" "d q";align-items:center;column-gap:12px;row-gap:1px;min-height:52px;padding:6px 10px;border-radius:10px;background:var(--card2);border:1px solid var(--brd);font-size:13px}
+.mvl-n{grid-area:n;min-width:0;font-weight:700;color:var(--t1);line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.mvl-d{grid-area:d;color:var(--t3);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.mvl-d b{color:var(--t2)}
+.mvl-q{grid-area:q;display:inline-flex;align-items:center;gap:5px;color:var(--t3);font-size:12px}
+.mvl-q input{width:64px;height:44px;text-align:center;font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;border-radius:10px;border:1px solid var(--brd2);background:var(--bg1);color:var(--t1);padding:0 6px}
+.mvl-a{grid-area:q;text-align:right;white-space:nowrap;font-weight:700;color:var(--org,#e8a33d);font-variant-numeric:tabular-nums}
+.mvl-a b{color:var(--org,#e8a33d)}
+.mvl-a.mvl-ok{color:var(--t3);font-weight:600}
+.mvl-mod{border-color:color-mix(in srgb,var(--org,#e8a33d) 45%,transparent)}
+.mvl-aide{font-size:11.5px;color:var(--t3);line-height:1.5;padding:2px 2px 0}
+.mvl-mot{width:100%;min-height:44px;margin-top:4px;border-radius:10px;border:1px solid var(--brd2);background:var(--bg1);color:var(--t1);padding:0 12px;font-size:16px}
+.mvl-act{flex:1 0 100%;display:flex;gap:8px;justify-content:flex-end}
+/* html[data-refonte] .btn fixe 38 px avec une spécificité plus haute : on la dépasse, le pouce a besoin de 44 */
+.mvl-act .btn,html[data-refonte] .mvl-act .btn{min-height:44px}
 .abp-etat .btn{margin-left:auto}
 .bandeau-doublons{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:color-mix(in srgb,var(--org,#e8a33d) 14%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 40%,transparent);border-radius:12px;padding:12px 14px;margin:0 0 10px;font-size:13px;line-height:1.5;color:var(--t1)}
 .bandeau-doublons>div{flex:1;min-width:200px}
@@ -4777,7 +4799,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '623-beta';
+const APP_VERSION = '624-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -17794,16 +17816,59 @@ function mvtRetrait(m){
   var g=mvtLignesSignees(m);
   return g.pris.length>0 && g.mis.length===0;
 }
-function boxMvtLibelle(m){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
-  if(m.type==='arrivage'){ const t=(m.lignes||[]).reduce((s,l)=>s+(l.qte||0),0); const bcN=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||{}).numero:''; return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s) → '+bn+(bcN?' · bon '+bcN:''); }
+/* ── LE DR CORRIGE LA QUANTITÉ À LA VALIDATION ── Justin, 10 septembre 2026 : « il retire cinq
+   produits et le DR veut qu'il n'en retire que quatre : il peut le modifier à la validation, et
+   ça se verra que le DR a refusé un produit ».
+   La demande reste écrite telle quelle (du, dc, qte) : c'est ce que le technicien a dit. Ce que
+   le DR accorde se pose À CÔTÉ (duAcc, dcAcc, qteAcc), et seulement quand il diffère — l'absence
+   du champ veut dire « accordé tel que demandé », ce qui vaut aussi pour tout ce qui a été validé
+   avant cette version. Le stock, le mouvement tracé, le bon de remise et le cumul du bon de
+   commande lisent l'ACCORDÉ ; le libellé dit les deux, pour que la correction se voie partout
+   où le mouvement s'affiche : Validations, journal, notification du technicien.
+   Le DR ne peut que baisser : accorder plus que demandé n'est pas valider, c'est faire un autre
+   mouvement — il le fait lui-même sur la box. */
+function mvAcc(l,cle){ if(!l) return 0; const a=l[cle+'Acc']; return (a===undefined||a===null)?(+l[cle]||0):(+a||0); }
+function mvModif(l,cle){ return !!l&&l[cle+'Acc']!==undefined&&l[cle+'Acc']!==null&&(+l[cle+'Acc']||0)!==(+l[cle]||0); }
+/* Les lignes d'un mouvement sous UNE forme : un ajustement simple est un lot d'une seule ligne,
+   et cette ligne est le mouvement lui-même. */
+function mvLignes(m){ if(!m) return []; if(m.lignes) return m.lignes; return (m.type==='ajustement')?[m]:[]; }
+/* Ce que le DR a accordé en tout — zéro partout, c'est un refus qui ne dit pas son nom. */
+function mvTotalAcc(m){ let t=0; if(m.type==='arrivage') (m.lignes||[]).forEach(l=>{ t+=Math.abs(mvAcc(l,'qte')); }); else mvLignes(m).forEach(l=>{ t+=Math.abs(mvAcc(l,'du'))+Math.abs(mvAcc(l,'dc')); }); return t; }
+/* « 4 sur 5 u » — la correction du DR, telle qu'elle se lit dans le motif d'un mouvement. */
+function mvCorrigeTxt(l){ const q=[]; ['qte','du','dc'].forEach(c=>{ if(mvModif(l,c)) q.push(Math.abs(mvAcc(l,c))+' sur '+Math.abs(+l[c]||0)+' '+(c==='dc'?'ctn':'u')); }); return q.join(' · '); }
+/* Une quantité signée, avec sa correction s'il y en a une : « −5 u », « −4 u accordé sur 5 »,
+   « 0 sur 5 u — refusé par le DR ». */
+function mvQteTxt(l,cle){ const d=+l[cle]||0; if(!d) return ''; const unit=cle==='dc'?'ctn':'u'; const a=mvAcc(l,cle);
+  if(!mvModif(l,cle)) return (d>0?'+':'')+d+' '+unit;
+  return a?((a>0?'+':'')+a+' '+unit+' accordé sur '+Math.abs(d)):('0 sur '+Math.abs(d)+' '+unit+' — refusé par le DR'); }
+/* court : sans le détail produit par produit — pour l'écran qui l'affiche déjà en lignes dessous */
+function boxMvtLibelle(m,court){ const b=db.boxes.find(x=>x.id===m.boxId)||{}; const bn=b.nom||b.numero||'box';
+  if(m.type==='arrivage'){ const ls=m.lignes||[]; const t=ls.reduce((s,l)=>s+mvAcc(l,'qte'),0); const tDem=ls.reduce((s,l)=>s+(+l.qte||0),0); const bcN=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||{}).numero:'';
+    return 'Arrivage '+(m.fournisseur||'')+' — +'+t+' produit(s)'+(t!==tDem?' (sur '+tDem+' comptés — corrigé par le DR)':'')+' → '+bn+(bcN?' · bon '+bcN:''); }
   if(m.type==='retrait'){ const p=produit(m.produitId); return 'Retrait de '+(p.nom||'produit')+' — '+bn; }
   if(m.type==='ajustementLot'){ const ls=m.lignes||[];
-    const dit=l=>{ const pl=produit(l.produitId); const q=[]; if(l.du) q.push((l.du>0?'+':'')+l.du+' u'); if(l.dc) q.push((l.dc>0?'+':'')+l.dc+' ctn');
+    const dit=l=>{ const pl=produit(l.produitId); const q=[mvQteTxt(l,'du'),mvQteTxt(l,'dc')].filter(Boolean);
       return (pl.nom||'Produit')+' '+(q.join(' · ')||'±0'); };
-    const tete=ls.length===1?dit(ls[0]):ls.length+' produits ajustés';
-    return tete+' — '+bn+(ls.length>1?' ('+ls.map(dit).join(' · ')+')':'')+(m.pourQui?' · remis à : '+m.pourQui:''); }
-  const p=produit(m.produitId); const parts=[]; if(m.du) parts.push((m.du>0?'+':'')+m.du+' u'); if(m.dc) parts.push((m.dc>0?'+':'')+m.dc+' ctn');
+    const tete=ls.length===1?dit(ls[0]):ls.length+' produits ajustés'+(m.modifieDR&&!court?' (corrigé par le DR)':'');
+    return tete+' — '+bn+(ls.length>1&&!court?' ('+ls.map(dit).join(' · ')+')':'')+(m.pourQui?' · remis à : '+m.pourQui:''); }
+  const p=produit(m.produitId); const parts=[mvQteTxt(m,'du'),mvQteTxt(m,'dc')].filter(Boolean);
   return (p.nom||'Produit')+' '+(parts.join(' · ')||'±0')+' — '+bn+(m.note?' · '+m.note:'')+(m.pourQui?' · remis à : '+m.pourQui:''); }
+/* Les champs du DR sur l'écran Validations, lus et bornés : entre 0 et la demande, dans le sens
+   de la demande. null quand l'écran ne les montre pas (tests, retrait) : rien à corriger. */
+function boxMvtAccordsLire(m){ const out={}; let vu=false;
+  const lire=(l,i,cle)=>{ const el=document.getElementById('acc-'+m.id+'-'+i+'-'+cle); if(!el) return; vu=true;
+    const dem=+l[cle]||0; let v=parseInt(el.value,10); if(isNaN(v)) v=Math.abs(dem); v=Math.min(Math.abs(dem),Math.max(0,v)); out[i+':'+cle]=dem<0?-v:v; };
+  if(m.type==='arrivage') (m.lignes||[]).forEach((l,i)=>lire(l,i,'qte'));
+  else mvLignes(m).forEach((l,i)=>{ if(l.du) lire(l,i,'du'); if(l.dc) lire(l,i,'dc'); });
+  return vu?out:null; }
+/* Pose l'accordé là où il diffère de la demande, efface la trace là où il ne diffère plus.
+   Renvoie le nombre de quantités corrigées. */
+function boxMvtAccordsPoser(m,acc){ if(!acc) return 0; let n=0;
+  const poser=(l,i,cle)=>{ const k=i+':'+cle; if(!(k in acc)) return; if(acc[k]===(+l[cle]||0)){ delete l[cle+'Acc']; return; } l[cle+'Acc']=acc[k]; n++; };
+  if(m.type==='arrivage') (m.lignes||[]).forEach((l,i)=>poser(l,i,'qte'));
+  else mvLignes(m).forEach((l,i)=>{ poser(l,i,'du'); poser(l,i,'dc'); });
+  return n; }
+function boxMvtAccordsEffacer(m){ const ls=m.type==='arrivage'?(m.lignes||[]):mvLignes(m); ls.forEach(l=>{ delete l.duAcc; delete l.dcAcc; delete l.qteAcc; }); delete m.modifieDR; delete m.motDR; }
 function boxMvtEnvoyer(m,silencieux){ db.boxMvtAttente=db.boxMvtAttente||[];
   m.id=uid(); m.ts=Date.now(); m.statut='enAttente'; m.par=fullName(currentUser); m.parId=currentUser&&currentUser.id;
   db.boxMvtAttente.unshift(m); if(db.boxMvtAttente.length>80) db.boxMvtAttente.length=80;
@@ -17840,21 +17905,30 @@ function boxMvtRefuser(m,motif){
   try{ if(m.parId) pushNotify('🚫 Refusé par le DR '+fullName(currentUser),boxMvtLibelle(m)+(motif?' — motif : '+motif:''),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations(); }
 let _resteApresValid='';
-function boxMvtValider(id,statut){ _resteApresValid='';
+/* accords : les quantités accordées par le DR, { 'index:du': -4, … } — lues sur l'écran quand il
+   n'est pas fourni. Le mot pour le technicien vient du champ de la même carte. */
+function boxMvtValider(id,statut,accords){ _resteApresValid='';
   if(!currentUser||!can('validerDR')){ toast('Validation réservée au DR / administrateur (droit « Valider les mouvements et demandes »)'); return; }
   const m=(db.boxMvtAttente||[]).find(x=>x.id===id&&x.statut==='enAttente'); if(!m) return;
-  if(statut==='refuse'){ const motif=prompt('Motif du refus :'); if(motif===null) return; boxMvtRefuser(m,motif); toast('Mouvement refusé'); return; }
+  const champMot=(typeof document!=='undefined')?document.getElementById('mot-'+m.id):null;
+  if(statut==='refuse'){ const motif=prompt('Motif du refus :',champMot?champMot.value:''); if(motif===null) return; boxMvtRefuser(m,motif); toast('Mouvement refusé'); return; }
   const b=db.boxes.find(x=>x.id===m.boxId);
   if(!b){ boxMvtRefuser(m,'box introuvable'); toast('Box introuvable — mouvement refusé'); return; }
+  /* La correction du DR se pose AVANT d'appliquer : tout ce qui suit lit l'accordé. Tout à zéro,
+     ce n'est pas une validation — c'est un refus, et un refus a un motif que le technicien lit. */
+  const nCorr=boxMvtAccordsPoser(m,accords===undefined?boxMvtAccordsLire(m):accords);
+  if(nCorr&&m.type!=='retrait'&&!mvTotalAcc(m)){ boxMvtAccordsEffacer(m); toast('Tout est à zéro — pour refuser le mouvement entier, utilise « Refuser » : le technicien saura pourquoi',4600); return; }
+  if(nCorr) m.modifieDR=true; else delete m.modifieDR;
+  const motDR=champMot?(champMot.value||'').trim().slice(0,140):''; if(motDR) m.motDR=motDR; else delete m.motDR;
   /* Le garde-fou ne vise QUE les bons entièrement reçus. Un bon « partielle » attend sa suite :
      le refuser ici, c'était annuler la seconde livraison d'une commande arrivée en deux fois. */
   if(m.type==='arrivage'&&m.bcId){ const bv=(db.bons||[]).find(x=>x.id===m.bcId); if(bv&&bv.statut==='livree'&&bonToutRecu(bv)){ boxMvtRefuser(m,'bon déjà entièrement réceptionné'); toast('Ce bon a déjà été reçu en entier — mouvement refusé (pas de double crédit)',4600); return; } }
   b.stock=b.stock||{};
   if(m.type==='arrivage'){
-    (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+l.qte; b.stock[l.produitId]=cur;
-      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:l.qte,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR)',vehiculeId:'',boxId:b.id,boxNomTxt:(b.nom||b.numero||''),technicien:m.par||'',validePar:fullName(currentUser),roleConso:roleDeNom(m.par||'')}); });
+    (m.lignes||[]).forEach(l=>{ const q=mvAcc(l,'qte'); if(!q) return; const cur=b.stock[l.produitId]||{ctn:0,u:0}; cur.u=(cur.u||0)+q; b.stock[l.produitId]=cur;
+      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:l.produitId,type:'entree',qte:q,motif:'Arrivage '+(m.fournisseur||'')+' — '+(b.nom||b.numero||'')+' (validé DR'+(mvModif(l,'qte')?' — '+mvCorrigeTxt(l):'')+')',vehiculeId:'',boxId:b.id,boxNomTxt:(b.nom||b.numero||''),technicien:m.par||'',validePar:fullName(currentUser),roleConso:roleDeNom(m.par||'')}); });
     const bonArr=m.bcId?((db.bons||[]).find(x=>x.id===m.bcId)||null):null;
-    b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).map(l=>({produitId:l.produitId,qte:l.qte})),photo:m.photo||'',par:m.par||'',bcId:m.bcId||'',bcNum:bonArr?bonNum(bonArr):''});
+    b.arrivages=b.arrivages||[]; b.arrivages.unshift({id:uid(),ts:Date.now(),fournisseur:m.fournisseur||'',lignes:(m.lignes||[]).filter(l=>mvAcc(l,'qte')>0).map(l=>({produitId:l.produitId,qte:mvAcc(l,'qte')})),photo:m.photo||'',par:m.par||'',bcId:m.bcId||'',bcNum:bonArr?bonNum(bonArr):''});
     if(b.arrivages.length>40) b.arrivages.length=40;
     if(m.bcId){ const bonV=(db.bons||[]).find(x=>x.id===m.bcId);
       if(bonV){ const complet=bonToutRecu(bonV);
@@ -17867,16 +17941,16 @@ function boxMvtValider(id,statut){ _resteApresValid='';
   } else if(m.type==='ajustementLot'){
     /* Toutes les lignes s'appliquent ensemble, ou aucune. C'est tout l'intérêt du lot :
        le DR juge un geste complet, pas trois fragments qu'il faudrait recoudre. */
-    const mot=(m.note||'Ajustement')+' (validé DR)';
-    (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0};
-      if(l.du){ cur.u=Math.max(0,(cur.u||0)+l.du); traceBox(b,l.produitId,l.du,'u',mot,m.par,fullName(currentUser),l.du<0?m.pourQui:''); }
-      if(l.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+l.dc); traceBox(b,l.produitId,l.dc,'ctn',mot,m.par,fullName(currentUser),l.dc<0?m.pourQui:''); }
+    (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; const du=mvAcc(l,'du'), dc=mvAcc(l,'dc');
+      const corr=mvCorrigeTxt(l); const mot=(m.note||'Ajustement')+' (validé DR'+(corr?' — '+corr:'')+')';
+      if(du){ cur.u=Math.max(0,(cur.u||0)+du); traceBox(b,l.produitId,du,'u',mot,m.par,fullName(currentUser),du<0?m.pourQui:''); }
+      if(dc){ cur.ctn=Math.max(0,(cur.ctn||0)+dc); traceBox(b,l.produitId,dc,'ctn',mot,m.par,fullName(currentUser),dc<0?m.pourQui:''); }
       b.stock[l.produitId]=cur;
       /* Le bon de remise se tient par PRODUIT : remiseAjoute() lit m.produitId, qu'un lot
          n'a pas. Lui passer le lot tel quel aurait écrasé toutes les quantités sur une seule
          ligne sans produit. On l'appelle donc ligne à ligne, ce qui donne au passage un bon
          de remise détaillé plutôt qu'un total opaque. */
-      const d=(l.du||0)+(l.dc||0);
+      const d=du+dc;
       if(m.pourQui&&d<0) remiseAjoute(Object.assign({},m,{produitId:l.produitId}),Math.abs(d)); });
   } else if(m.type==='retrait'){
     const s=(b.stock||{})[m.produitId]||{ctn:0,u:0};
@@ -17886,21 +17960,22 @@ function boxMvtValider(id,statut){ _resteApresValid='';
     delete b.stock[m.produitId];
     if(m.pourQui&&totR) remiseAjoute(m,totR);
   } else {
-    const cur=b.stock[m.produitId]||{ctn:0,u:0};
-    const mot=(m.note||'Ajustement')+' (validé DR)';
-    if(m.du){ cur.u=Math.max(0,(cur.u||0)+m.du); traceBox(b,m.produitId,m.du,'u',mot,m.par,fullName(currentUser),m.du<0?m.pourQui:''); }
-    if(m.dc){ cur.ctn=Math.max(0,(cur.ctn||0)+m.dc); traceBox(b,m.produitId,m.dc,'ctn',mot,m.par,fullName(currentUser),m.dc<0?m.pourQui:''); }
+    const cur=b.stock[m.produitId]||{ctn:0,u:0}; const du=mvAcc(m,'du'), dc=mvAcc(m,'dc');
+    const corr=mvCorrigeTxt(m); const mot=(m.note||'Ajustement')+' (validé DR'+(corr?' — '+corr:'')+')';
+    if(du){ cur.u=Math.max(0,(cur.u||0)+du); traceBox(b,m.produitId,du,'u',mot,m.par,fullName(currentUser),du<0?m.pourQui:''); }
+    if(dc){ cur.ctn=Math.max(0,(cur.ctn||0)+dc); traceBox(b,m.produitId,dc,'ctn',mot,m.par,fullName(currentUser),dc<0?m.pourQui:''); }
     b.stock[m.produitId]=cur;
-    if(m.pourQui&&((m.du||0)+(m.dc||0))<0) remiseAjoute(m,Math.abs((m.du||0)+(m.dc||0)));
+    if(m.pourQui&&(du+dc)<0) remiseAjoute(m,Math.abs(du+dc));
   }
   m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
   delegationTracer(m,'Mouvement de stock validé — '+boxMvtLibelle(m));
-  logEvent('Mouvement box validé',boxMvtLibelle(m),'stock',m.parId);
-  try{ if(m.parId) pushNotify('✅ Validé par le DR '+fullName(currentUser),boxMvtLibelle(m),'/app.html#v=boxes',[m.parId]); }catch(e){}
+  logEvent('Mouvement box validé'+(nCorr?' — quantités corrigées par le DR':''),boxMvtLibelle(m)+(m.motDR?' · « '+m.motDR+' »':''),'stock',m.parId);
+  try{ if(m.parId) pushNotify('✅ Validé par le DR '+fullName(currentUser)+(nCorr?' — quantités corrigées':''),boxMvtLibelle(m)+(m.motDR?' · « '+m.motDR+' »':''),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations();
+  const prenom=(m.par||'').split(' ')[0]||'le technicien';
   toast(_resteApresValid
     ? 'Validé — stock mis à jour. Le bon reste ouvert, il manque encore : '+_resteApresValid
-    : 'Validé — stock mis à jour', _resteApresValid?5600:3000); }
+    : 'Validé — stock mis à jour'+(nCorr?' · '+nCorr+' quantité'+(nCorr>1?'s':'')+' corrigée'+(nCorr>1?'s':'')+', '+prenom+' le verra':''), (_resteApresValid||nCorr)?5600:3000); }
 /* ══════════ « POUR QUI ? » AUSSI QUAND IL N'Y A PAS DE VALIDATION DR ════════════════════
    Signalé par ELAN le 9 septembre 2026 : « quand on donne du matériel, on écrit les noms,
    mais les noms ne s'affichent pas dans les mouvements ».
@@ -18614,15 +18689,29 @@ views.validations=function(){
   const mvEcart=m=>{ if(m.type!=='arrivage'||!m.bcId) return '';
     const bon=(db.bons||[]).find(x=>x.id===m.bcId); if(!bon) return '';
     return bonEcartHtml(bon,m); };
-  const mvRow=m=>`<div class="pl-row" data-mvt="${m.id}" style="cursor:default"><div class="pl-info"><div class="pl-title">${MICO[m.type]||'📦'} ${esc(boxMvtLibelle(m))}</div><div class="pl-meta">${esc(m.par||'')} · ${new Date(m.ts||0).toLocaleDateString('fr-FR')}${m.motifRefus?' · motif : '+esc(m.motifRefus):''}</div></div>`;
+  const mvRow=(m,cls)=>`<div class="pl-row${cls?' '+cls:''}" data-mvt="${m.id}" style="cursor:default"><div class="pl-info"><div class="pl-title">${MICO[m.type]||'📦'} ${esc(boxMvtLibelle(m,cls==='mvc'&&m.type!=='retrait'))}</div><div class="pl-meta">${esc(m.par||'')} · ${new Date(m.ts||0).toLocaleDateString('fr-FR')}${m.motifRefus?' · motif : '+esc(m.motifRefus):''}${m.motDR?' · mot du DR : « '+esc(m.motDR)+' »':''}</div></div>`;
+  /* Les lignes d'un mouvement, produit par produit. Pour le DR (edit) : la demande et un champ
+     pour n'en accorder qu'une partie. Pour les autres : seulement quand le DR a corrigé — sinon
+     le libellé dit déjà tout, et l'historique n'a pas besoin de doubler. */
+  const prenomDe=m=>(m.par||'').split(' ')[0]||'le technicien';
+  const mvLignesHtml=(m,edit)=>{ if(m.type==='retrait'||(!edit&&!m.modifieDR)) return '';
+    const ls=m.type==='arrivage'?(m.lignes||[]):mvLignes(m); const cles=m.type==='arrivage'?['qte']:['du','dc']; const rows=[];
+    ls.forEach((l,i)=>{ const p=produit(l.produitId); cles.forEach(c=>{ const dem=+l[c]||0; if(!dem) return; const unit=c==='dc'?'ctn':'u'; const acc=mvAcc(l,c), mod=mvModif(l,c);
+      const sens=m.type==='arrivage'?'reçu':(dem<0?'retirer':'ajouter');
+      if(edit) rows.push(`<div class="mvl-r"><span class="mvl-n">${esc(p.nom||'Produit')}</span><span class="mvl-d">${sens} <b>${Math.abs(dem)} ${unit}</b></span><label class="mvl-q"><input type="number" inputmode="numeric" min="0" max="${Math.abs(dem)}" step="1" value="${Math.abs(acc)}" id="acc-${m.id}-${i}-${c}" aria-label="Quantité accordée pour ${esc(p.nom||'ce produit')}"><span>${unit}</span></label></div>`);
+      else rows.push(`<div class="mvl-r${mod?' mvl-mod':''}"><span class="mvl-n">${esc(p.nom||'Produit')}</span><span class="mvl-d">${sens} ${Math.abs(dem)} ${unit}</span><span class="mvl-a${mod?'':' mvl-ok'}">${mod?(acc?`accordé <b>${Math.abs(acc)}</b> sur ${Math.abs(dem)}`:'<b>refusé</b> par le DR'):'accordé'}</span></div>`); }); });
+    if(!rows.length) return '';
+    return `<div class="mvl" onclick="event.stopPropagation()">${rows.join('')}${edit?`<div class="mvl-aide">Baisse un chiffre pour n'accorder qu'une partie — <b>0</b> refuse la ligne. ${esc(prenomDe(m))} verra ce qui a été accordé.</div><input class="mvl-mot" id="mot-${m.id}" placeholder="Un mot pour ${esc(prenomDe(m))} (facultatif)" maxlength="140" autocomplete="off">`:''}</div>`; };
   const blocMv=`<div class="card"><div class="card-head"><h3>Mouvements de box (${mv.length})</h3></div>
-    ${mv.length? mv.map(m=>mvRow(m)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button> <button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`+mvEcart(m)).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
+    ${mv.length? mv.map(m=>estDr
+      ? mvRow(m,'mvc')+mvLignesHtml(m,true)+`<div class="mvl-act" onclick="event.stopPropagation()"><button class="btn danger sm" onclick="boxMvtValider('${m.id}','refuse')">Refuser</button><button class="btn sm" onclick="boxMvtValider('${m.id}','valide')">Valider</button></div></div>`+mvEcart(m)
+      : mvRow(m)+'<span class="st st-org">En attente du DR</span></div>'+mvEcart(m)).join('') : emptyState('✅','Aucun mouvement de box en attente.','','')}
   </div>`;
   const bandeauV=demoV?`<div class="card" style="margin-bottom:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-style:dashed"><span style="font-size:17px">🧪</span><div style="flex:1;min-width:220px"><b>Simulation d'essai</b><div style="font-size:12px;color:var(--t3)">Pose des mouvements et une demande en attente de ton Valider, pour tester le circuit DR en vrai. Tout est marqué (démo).</div></div>${demoOnV?`<button type="button" class="btn ghost sm" onclick="mvtDemoRetirer();views.validations()">Retirer la simulation</button>`:(demoVBeta?`<button type="button" class="btn sm" onclick="mvtDemoPoser();views.validations()">Lancer la simulation</button>`:'')}</div>`:'';
   $('content').innerHTML=bandeauV+blocMv+`<div class="card"><div class="card-head"><h3>Demandes de commande (${att.length})</h3></div>
     ${att.length? att.map(d=>row(d)+`${estDr?`<div onclick="event.stopPropagation()" style="display:flex;gap:6px"><button class="btn danger sm" onclick="validerDemande('${d.id}','refuse')">Refuser</button> <button class="btn sm" onclick="validerDemande('${d.id}','valide')">Valider</button></div>`:'<span class="st st-org">En attente du DR</span>'}</div>`).join('') : emptyState('✅','Aucune demande en attente.','','')}
   </div>${(autres.length||mvHisto.length)?`<div class="card"><div class="card-head"><h3>Historique</h3></div>
-    ${mvHisto.map(m=>mvRow(m)+`<span class="st ${m.statut==='valide'?'st-green':'st-red'}">${m.statut==='valide'?'Validé':'Refusé'}${m.drNom?' · '+esc(m.drNom):''}</span></div>`+mvEcart(m)).join('')}
+    ${mvHisto.map(m=>mvRow(m,m.modifieDR?'mvc':'')+`${m.modifieDR?'<div class="mvl-st">':''}<span class="st ${m.statut==='valide'?'st-green':'st-red'}">${m.statut==='valide'?'Validé':'Refusé'}${m.drNom?' · '+esc(m.drNom):''}</span>${m.modifieDR?'<span class="st st-org">Corrigé par le DR</span></div>':''}`+mvLignesHtml(m,false)+'</div>'+mvEcart(m)).join('')}
     ${autres.map(d=>row(d)+`${badge(STATV,d.statut)}</div>`).join('')}</div>`:''}`;
 };
 /* La trace de la délégation, écrite des DEUX côtés — c'est ce que Justin demandait : « ça se
@@ -18847,7 +18936,7 @@ function bonEcartLignes(bon,mvt){
   ((bon&&bon.lignes)||[]).forEach(l=>{ const k=cle(l); if(!k||k==='txt:') return;
     par[k]=par[k]||{nom:nom(l),cmd:0,recu:0}; par[k].cmd+=bonLU(l); });
   ((mvt&&mvt.lignes)||[]).forEach(l=>{ const k=cle(l); if(!k||k==='txt:') return;
-    par[k]=par[k]||{nom:nom(l),cmd:0,recu:0}; par[k].recu+=(+l.qte||0); });
+    par[k]=par[k]||{nom:nom(l),cmd:0,recu:0}; par[k].recu+=mvAcc(l,'qte'); });
   return Object.keys(par).map(k=>{ const x=par[k]; return {nom:x.nom,cmd:x.cmd,recu:x.recu,ecart:x.recu-x.cmd}; })
     .sort((a,b)=>Math.abs(b.ecart)-Math.abs(a.ecart)||a.nom.localeCompare(b.nom));
 }
@@ -18915,7 +19004,7 @@ function bonResteDu(bon){
    yeux au moment de valider. */
 function bonResteApres(bon,mvt){
   const cmd=bonCmdCumul(bon), recu=bonRecuCumul(bon&&bon.id), out={};
-  ((mvt&&mvt.lignes)||[]).forEach(l=>{ if(l.produitId) recu[l.produitId]=(recu[l.produitId]||0)+(+l.qte||0); });
+  ((mvt&&mvt.lignes)||[]).forEach(l=>{ if(l.produitId) recu[l.produitId]=(recu[l.produitId]||0)+mvAcc(l,'qte'); });
   Object.keys(cmd).forEach(pid=>{ const r=cmd[pid]-(recu[pid]||0); if(r>0) out[pid]=r; });
   return out;
 }
@@ -26196,7 +26285,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
          « la plus récente en haut » n'ordonnait plus rien à l'intérieur du jour — c'est
          exactement ce que Justin voyait. tsValidation est posé à la décision ; le repli sur
          midi ne sert qu'aux décisions prises AVANT cette version. */
-      out.push({id:'mvres:'+m.id+':'+m.statut,ts:m.tsValidation||Math.min(Date.now(),new Date(m.dateValidation+'T23:59:00').getTime()),ic:ok?'✅':'🚫',txt:`${ok?'<b>Validé</b>':'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}`,act:m.boxId?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);"+mvtMarqueActe(m)):"go('validations')"}); });
+      out.push({id:'mvres:'+m.id+':'+m.statut,ts:m.tsValidation||Math.min(Date.now(),new Date(m.dateValidation+'T23:59:00').getTime()),ic:ok?'✅':'🚫',txt:`${ok?(m.modifieDR?'<b>Validé, quantités corrigées</b>':'<b>Validé</b>'):'<b>Refusé</b>'} par le DR${m.drNom?' <b>'+esc(m.drNom)+'</b>':''} — ${esc(boxMvtLibelle(m))}${!ok&&m.motifRefus?' · motif : '+esc(m.motifRefus):''}${m.motDR?' · « '+esc(m.motDR)+' »':''}`,act:m.boxId?("go('boxes');setTimeout(()=>openBox('"+m.boxId+"'),120);"+mvtMarqueActe(m)):"go('validations')"}); });
     if(notifVoitModule('demandes')) (db.demandes||[]).filter(d=>d.chefId===me&&d.statut!=='enAttente'&&!notifMoi(d.drNom)&&d.dateValidation&&d.dateValidation>=depuis).forEach(d=>{ const ok=d.statut==='valide';
       out.push({id:'demv:'+d.id+':'+d.statut,ts:d.tsValidation||new Date(d.dateValidation+'T12:00:00').getTime(),ic:ok?'✅':'🚫',txt:`Ta demande <b>${esc(d.num)}</b> a été ${ok?'<b>validée</b>':'<b>refusée</b>'} par le DR${d.drNom?' <b>'+esc(d.drNom)+'</b>':''}${!ok&&d.motifRefus?' · motif : '+esc(d.motifRefus):''}`,act:"go('demandes');cible('dem','"+d.id+"')"}); });
   }
