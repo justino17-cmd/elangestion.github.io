@@ -12832,7 +12832,7 @@ function t3dProdToStock(intId,ix){ const i=db.interventions.find(x=>x.id===intId
   const ex=db.produits.find(p=>produitCle(p)===produitCle({nom}));
   let pid;
   if(ex){ pid=ex.id; if(c3&&!ex.categorie3d) ex.categorie3d=c3; toast('« '+nom+' » existait déjà au stock — ligne reliée'); }
-  else { pid=idCatalogue(nom);
+  else { pid=idProduit(nom);
     produitCreer({id:pid,nom,unite:l.unite||'u',qte:0,seuil:0,prix:0,amm:'',matiereActive:'',
       categorie:'Ajouté depuis une intervention',categorie3d:c3,note:'ajouté depuis une intervention',fournisseurs:[]});
     logEvent('Nouveau produit',nom+' (depuis une intervention)','crud');
@@ -15087,7 +15087,7 @@ function intDelProduit(id,ix){ const i=db.interventions.find(x=>x.id===id);
   i.produitsUtilises.splice(ix,1); save(); renderIntDetail(id); }
 function intToggleProd(id,nom){ const i=db.interventions.find(x=>x.id===id); if(!i)return; i.produitsUtilises=i.produitsUtilises||[];
   let p=db.produits.find(x=>produitCle(x)===produitCle({nom}));
-  if(!p){ p=produitCreer({id:idCatalogue(nom),nom,categorie:'',fournisseurs:[],ref:'',unite:'unité',prix:0,qte:0,seuil:0}); }
+  if(!p){ p=produitCreer({id:idProduit(nom),nom,categorie:'',fournisseurs:[],ref:'',unite:'unité',prix:0,qte:0,seuil:0}); }
   const ix=i.produitsUtilises.findIndex(l=>l.produitId===p.id);
   if(ix>=0){ const l=i.produitsUtilises[ix]; intStockAjuste(i,p.id,-(+l.qte||1),l.unite); i.produitsUtilises.splice(ix,1); }
   else { i.produitsUtilises.push({produitId:p.id,qte:1}); intStockAjuste(i,p.id,1); }
@@ -15826,11 +15826,24 @@ function slugNom(nom){ return String(nom||'').toLowerCase().normalize('NFD').rep
 function idCatalogue(nom,prefixe){
   const c=slugNom(nom).slice(0,60);
   return (prefixe||'cat')+'_'+(c||'x'); }
+/* ⚠️ Un nom qui ne laisse RIEN une fois réduit à [a-z0-9] — de la ponctuation seule, une écriture non
+   latine — tombe sur le générique « cat_x ». Deux produits sans rapport prendraient alors le même
+   identifiant, et la garde de produitCreer (qui compare des slugs, donc deux chaînes vides) ne les
+   départagerait pas : le second se verrait rendre la fiche du premier, et son stock irait dessus.
+   Ces noms-là gardent donc un identifiant unique — mieux vaut un doublon visible, que le bandeau
+   sait traiter, qu'un stock mélangé en silence. Repéré par `relecteur` sur le champ « produit hors
+   stock » d'une intervention, seul endroit où un nom entièrement libre devient une fiche. */
+function idProduit(nom){ return slugNom(nom)?idCatalogue(nom):uid(); }
 /* L'identité d'un produit, pour dire « c'est le même » : son nom normalisé. Deux fiches qui
    portent le même nom sont un doublon, quelle que soit leur origine. */
 function produitCle(p){ return norm((p&&p.nom)||'').replace(/\s+/g,' ').trim(); }
 /* Empreinte courte et STABLE d'une chaîne (FNV-1a en base 36) : elle départage deux noms longs que la
    troncature à 60 signes confond, sans allonger l'identifiant plus que de six ou sept signes. */
+/* « Est-ce le même produit ? » pour l'identifiant : les slugs entiers quand ils existent (« TEENOX® EC »
+   et « Teenox EC » sont le même), le nom normalisé quand le slug est vide (deux noms de ponctuation
+   pure ne sont PAS le même produit, même s'ils slugent tous les deux en rien). */
+function produitMemeNom(a,b){ const sa=slugNom(a), sb=slugNom(b);
+  return (sa&&sb) ? sa===sb : produitCle({nom:a})===produitCle({nom:b}); }
 function empreinteNom(s){ let h=2166136261>>>0; s=String(s||''); for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h.toString(36); }
 /* opts.ancien : le semis du PREMIER DÉMARRAGE d'un appareil se date d'avant tout (_m = 1).
    Avec un identifiant déterministe, un appareil neuf recrée exactement la fiche qu'un collègue
@@ -15859,7 +15872,7 @@ function produitCreer(fiche,opts){ opts=opts||{}; const p=Object.assign({},fiche
      sans perdre de stock (v633). L'éviter demanderait de changer idCatalogue pour tous les noms longs,
      donc de renommer 62 fiches déjà posées chez les clients : un déménagement de données, pas une
      correction. */
-  if(existe && slugNom(existe.nom)!==slugNom(p.nom)){ p.id=p.id+'-'+empreinteNom(slugNom(p.nom)); existe=(db.produits||[]).find(x=>x&&x.id===p.id); }
+  if(existe && !produitMemeNom(existe.nom,p.nom)){ p.id=p.id+'-'+empreinteNom(slugNom(p.nom)||produitCle(p)); existe=(db.produits||[]).find(x=>x&&x.id===p.id); }
   if(existe) return existe;
   if(opts.semis) p.cree=0; else if(p.cree===undefined||p.cree===null){ p.cree=Date.now(); if(currentUser&&currentUser.id) p.creePar=currentUser.id; }
   db.produits=db.produits||[]; db.produits.push(p);
@@ -16108,6 +16121,10 @@ function produitsDoublons(){
    identifiant aléatoire, c'est reconstruire le catalogue autour d'une clé qu'aucun autre chemin ne
    sait retrouver — le prochain semis, le prochain import, le prochain collage repose alors une
    seconde fiche, et le doublon revient. */
+/* Ce qu'une fusion peut vraiment replier dans ce groupe : les fiches qu'aucune déclaration
+   « c'est normal, ce sont deux produits » ne protège. Le compte affiché sur le bouton et ce que
+   la fusion fait doivent sortir d'ICI tous les deux, sinon le bouton promet ce qu'il ne tient pas. */
+function produitsFusionnables(l){ const d=produitsDistinctIds(produitCle(l[0])); return l.filter(x=>!d.has(x.id)); }
 function produitsDoublonSurvivante(l){
   const nbBox=p=>(db.boxes||[]).filter(b=>b&&b.stock&&b.stock[p.id]).length;
   const deduit=p=>/^(cat|four)_/.test(String(p.id||''))?1:0;
@@ -16115,7 +16132,9 @@ function produitsDoublonSurvivante(l){
   return l.slice().sort((a,b)=>{ const ra=rang(a), rb=rang(b); for(let i=0;i<ra.length;i++){ if(ra[i]!==rb[i]) return rb[i]-ra[i]; } return String(a.id)<String(b.id)?-1:1; })[0];
 }
 /* Ce que ferait la fusion, sans la faire : la fiche gardée, celles retirées, et box par box l'addition. */
-function produitsFusionApercu(l){ const s=produitsDoublonSurvivante(l); const perdantes=l.filter(p=>p!==s); const box=[];
+function produitsFusionApercu(l){ const libres=produitsFusionnables(l); const s=produitsDoublonSurvivante(libres);
+  if(!s) return {s:null,perdantes:[],box:[],nbBox:0};   // groupe entièrement déclaré « deux produits » : rien à replier
+  const perdantes=libres.filter(p=>p!==s); const box=[];
   (db.boxes||[]).forEach(b=>{ if(!b||!b.stock||!perdantes.some(p=>b.stock[p.id])) return; const ajout=perdantes.reduce((t,p)=>t+((b.stock[p.id]&&+b.stock[p.id].u)||0),0); const avant=(b.stock[s.id]&&+b.stock[s.id].u)||0; box.push({nom:b.nom||b.numero||'box',avant,ajout,apres:avant+ajout}); });
   return {s,perdantes,box,nbBox:(db.boxes||[]).filter(b=>b&&b.stock&&b.stock[s.id]).length}; }
 /* cles : un Set de noms normalisés pour ne fusionner QUE ces groupes (la feuille en règle un à la fois) ;
@@ -16132,27 +16151,50 @@ function produitsFusionnerDoublons(cles){
   (db.produits||[]).forEach(p=>{ if(!p||!p.id) return; const d=parId.get(p.id);
     if(!d){ parId.set(p.id,p); gardes.push(p); return; }
     ['ref','categorie','amm','qteCarton','seuil','prix','nom'].forEach(k=>{ if(!d[k]&&p[k]) d[k]=p[k]; });
-    d.fournisseurs=[...new Set([].concat(d.fournisseurs||[],p.fournisseurs||[]))]; if(p.perso) d.perso=true; });
+    d.fournisseurs=[...new Set([].concat(d.fournisseurs||[],p.fournisseurs||[]))]; if(p.perso) d.perso=true;
+    d.qte=(+d.qte||0)+(+p.qte||0); });   // le stock global s'ADDITIONNE, comme celui des box
   const doublesId=(db.produits||[]).length-gardes.length;
   if(doublesId) db.produits=gardes;
   const groupes=produitsDoublons().filter(l=>!cles||cles.has(produitCle(l[0]))); if(!groupes.length&&!doublesId) return {paires:0,fiches:0};
-  const vers={}; let fiches=doublesId;
+  const vers={}; let fiches=doublesId, replies=0;
   groupes.forEach(l=>{
-    const s=produitsDoublonSurvivante(l);
-    l.filter(x=>x!==s&&x.id!==s.id).forEach(x=>{ vers[x.id]=s.id; fiches++;
+    /* Une fiche que l'équipe a déclarée « c'est normal, ce sont deux produits » ne se fusionne pas.
+       produitsDoublons() ne retire que les groupes ENTIÈREMENT déclarés ; un troisième homonyme créé
+       après coup ressignale le groupe — et jusqu'ici la fusion emportait alors les deux fiches
+       déclarées avec lui, en effaçant la déclaration sans le dire. Elles restent, le nouveau venu
+       rejoint celle qui est gardée, et la déclaration ne tombe que si le groupe s'est vraiment
+       replié sur une seule fiche. */
+    const dist=produitsDistinctIds(produitCle(l[0]));
+    const libres=produitsFusionnables(l);
+    if(libres.length<2){ return; }
+    replies++;
+    const s=produitsDoublonSurvivante(libres);
+    libres.filter(x=>x!==s&&x.id!==s.id).forEach(x=>{ vers[x.id]=s.id; fiches++;
       /* la survivante récupère ce qui lui manque : fournisseurs, référence, catégorie, prix, seuil */
       s.fournisseurs=[...new Set([].concat(s.fournisseurs||[],x.fournisseurs||[]))];
       if(!s.ref&&x.ref) s.ref=x.ref; if(!s.categorie&&x.categorie) s.categorie=x.categorie;
       if(!s.prix&&x.prix) s.prix=x.prix; if(!s.seuil&&x.seuil) s.seuil=x.seuil; if(!s.amm&&x.amm) s.amm=x.amm;
       if(!s.qteCarton&&x.qteCarton) s.qteCarton=x.qteCarton; if(x.perso) s.perso=true;
+      /* p.qte est le stock GLOBAL du produit, celui qu'intStockAjuste décrémente à chaque
+         intervention — il n'a rien à voir avec b.stock. Il n'était pas repris : fusionner deux
+         fiches à 30 et 12 en laissait 30, et 12 unités disparaissaient du catalogue. */
+      s.qte=(+s.qte||0)+(+x.qte||0);
       s.cree=Math.min(produitCree(s),produitCree(x)); });   // la plus ancienne des deux dates : une fusion ne fabrique pas une nouveauté
-    produitsDistinctsAnnuler(produitCle(l[0]));   // sans objet une fois fusionné
+    if(!dist.size) produitsDistinctsAnnuler(produitCle(l[0]));   // sans objet une fois replié sur une seule fiche
   });
   /* le stock des box : additionner, jamais écraser */
   (db.boxes||[]).forEach(b=>{ if(!b||!b.stock) return;
     Object.keys(b.stock).forEach(id=>{ const cible=vers[id]; if(!cible||cible===id) return;
       const src=b.stock[id]||{}, dst=b.stock[cible]||{ctn:0,u:0};
       b.stock[cible]={...dst,ctn:(+dst.ctn||0)+(+src.ctn||0),u:(+dst.u||0)+(+src.u||0)}; delete b.stock[id]; }); });
+  /* Les décisions de box (« pas dans cette box ») sont rangées PAR IDENTIFIANT DE PRODUIT, en clés
+     d'objet — le marcheur ci-dessous ne voit que les champs nommés « produitId », il les manquait
+     donc toutes. Sans ce report, une fiche écartée exprès par l'équipe redevenait une nouveauté
+     après une fusion, et boxAutoNouveautes la reposait dans la box. */
+  (db.boxDecisions||[]).forEach(d=>{ if(!d||!d.ecartes) return; let bouge=false;
+    Object.keys(d.ecartes).forEach(id=>{ const cible=vers[id]; if(!cible||cible===id) return;
+      d.ecartes[cible]=Math.max(+d.ecartes[cible]||0,+d.ecartes[id]||0); delete d.ecartes[id]; bouge=true; });
+    if(bouge) d.ts=Date.now(); });
   /* tout le reste : chaque « produitId » qui pointait vers une perdante pointe vers la survivante */
   const marche=v=>{ if(!v||typeof v!=='object') return;
     if(Array.isArray(v)){ v.forEach(marche); return; }
@@ -16163,9 +16205,9 @@ function produitsFusionnerDoublons(cles){
      « il manque encore… ». Le marcheur saute la clé « stock », traitée juste au-dessus. */
   Object.keys(db).forEach(c=>{ if(c!=='produits'&&c!=='produitsDistincts'&&Array.isArray(db[c])) marche(db[c]); });
   db.produits=(db.produits||[]).filter(p=>!vers[p.id]);
-  logEvent('Produits en double fusionnés',fiches+' fiche(s) fusionnée(s) en '+(groupes.length||doublesId)+' produit(s)','crud');
+  logEvent('Produits en double fusionnés',fiches+' fiche(s) fusionnée(s) en '+(replies||doublesId)+' produit(s)','crud');
   save();
-  return {paires:groupes.length,fiches};
+  return {paires:replies,fiches};
 }
 /* ── LE composant doublons : un seul, pour Produits, la fiche box et la feuille ──
    Justin, 10 septembre : « si l'application repère un doublon, ça lui dit : produits en double, est-ce
@@ -16179,7 +16221,11 @@ function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) ret
   const bx=opts.boxId?(db.boxes||[]).find(x=>x.id===opts.boxId):null;
   if(bx){ g=g.filter(l=>bx.stock&&l.some(p=>bx.stock[p.id])); if(!g.length) return ''; }
   const cles=bx?new Set(g.map(l=>produitCle(l[0]))):null;   // sur une box, « Tout fusionner » ne touche que ses produits
-  const n=g.reduce((a,l)=>a+l.length-1,0);
+  /* Ce que « Tout fusionner » peut vraiment replier : un groupe dont l'équipe a déjà déclaré toutes
+     les fiches sauf une reste signalé (le nouvel homonyme mérite une décision) mais n'est pas
+     fusionnable — le bouton ne doit ni le compter ni promettre de s'en occuper. */
+  const gFus=g.filter(l=>produitsFusionnables(l).length>1);
+  const n=gFus.reduce((a,l)=>a+produitsFusionnables(l).length-1,0);
   if(opts.replie&&!_doublonsOuvert) return `<div class="bandeau-doublons dbl-replie"><div><b>⚠ ${g.length} produit${g.length>1?'s':''} de cette box ${g.length>1?'sont':'est'} en double au catalogue</b></div><button type="button" class="btn ghost sm" onclick="_doublonsOuvert=true;produitsDoublonsRafraichir()">Voir</button></div>`;
   const touche=l=>!!bx&&!!bx.stock&&l.some(p=>bx.stock[p.id]);
   _doublonsTri=g.slice().sort((a,b)=>(touche(b)?1:0)-(touche(a)?1:0));
@@ -16187,11 +16233,13 @@ function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) ret
     return `<div class="dbl-f">réf. ${esc(p.ref||'—')} · ${esc((p.fournisseurs||[]).join(', ')||'—')} · dans ${nb} box · ${u} u au total</div>`; };
   const groupe=(l,i)=>{ const cle=produitCle(l[0]); const dist=produitsDistinctIds(cle); const partiel=[...dist].filter(id=>l.some(p=>p.id===id)).length;
     if(_doublonsApercu===cle){ const a=produitsFusionApercu(l);
+      if(!a.s) return `<div class="dbl-g"><b>« ${esc(l[0].nom)} »</b><div class="dbl-f">Toutes ces fiches sont déjà déclarées « produits distincts » : il n'y a rien à replier.</div>
+        <div class="dbl-btns"><button type="button" class="btn ghost sm" onclick="_doublonsApercu='';produitsDoublonsRafraichir()">Retour</button></div></div>`;
       return `<div class="dbl-g"><b>Garder une seule fiche « ${esc(l[0].nom)} » ?</b>
         <div class="dbl-f">Fiche gardée : ${a.s.ref?'réf. '+esc(a.s.ref):'sans réf.'}${(a.s.fournisseurs||[]).length?' · '+esc(a.s.fournisseurs.join(', ')):''} — posée dans ${a.nbBox} box.</div>
         ${a.perdantes.map(p=>`<div class="dbl-f">Fiche retirée : ${p.ref?'réf. '+esc(p.ref):'sans réf.'}${(p.fournisseurs||[]).length?' · '+esc(p.fournisseurs.join(', ')):''} — son stock s'ajoute à la fiche gardée.</div>`).join('')}
         ${a.box.length?`<div class="dbl-f">${a.box.map(x=>esc(x.nom)+' : '+x.avant+' u + '+x.ajout+' u → '+x.apres+' u').join(' · ')}</div>`:''}
-        <div class="dbl-f">Mouvements, demandes et bons sont redirigés. Rien n'est perdu. Ça vaut pour toute l'équipe.${partiel?' Ce groupe portait une déclaration « distincts » : elle sera effacée.':''}</div>
+        <div class="dbl-f">Mouvements, demandes et bons sont redirigés. Rien n'est perdu. Ça vaut pour toute l'équipe.${partiel?` Les ${partiel} fiche${partiel>1?'s':''} déjà déclarée${partiel>1?'s':''} « produit${partiel>1?'s':''} distinct${partiel>1?'s':''} » ${partiel>1?'restent':'reste'} à part — la déclaration de l'équipe tient.`:''}</div>
         <div class="dbl-btns"><button type="button" class="btn sm" id="dbl-ok" disabled onclick="produitsFusionnerUnGroupe(${i})">Garder une seule fiche</button><button type="button" class="btn ghost sm" onclick="_doublonsApercu='';produitsDoublonsRafraichir()">Retour</button></div></div>`; }
     return `<div class="dbl-g"><b>« ${esc(l[0].nom)} » ×${l.length}</b> — Est-ce normal, ou faut-il n'en garder qu'un et lier son stock à l'autre ?${l.map(fiche).join('')}${partiel?`<div class="dbl-f">${l.length} fiches, dont ${partiel} déjà déclarées distinctes.</div>`:''}
       <div class="dbl-btns"><button type="button" class="btn sm" onclick="doublonsApercu(${i})">Fusionner en un seul</button><button type="button" class="btn ghost sm" onclick="produitsDistinctsDeclarerUI(${i})">C'est normal, ${l.length===2?'deux produits':l.length+' produits'}</button></div>
@@ -16208,9 +16256,9 @@ function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) ret
   const html=g.length===1
     ? `<div class="bandeau-doublons dbl-ouvert"><div>${detail}</div>
         <button type="button" class="btn ghost sm" onclick="_doublonsPlusTard=true;produitsDoublonsRafraichir()">Plus tard</button></div>`
-    : `<div class="bandeau-doublons dbl-ouvert"><div><b>${g.length} produit${g.length>1?'s':''}${bx?' de cette box':''} en double</b> — ${n} fiche${n>1?'s':''} de trop.
-        <div class="dbl-btns"><button type="button" class="btn sm" onclick="produitsFusionnerDoublonsUI(${bx?'boxView':''})">Tout fusionner (${g.length})</button></div>
-        <div class="dbl-f">Une fiche par nom, le stock des box additionné, mouvements, demandes et bons redirigés. Rien n'est perdu, et ça vaut pour toute l'équipe.</div>
+    : `<div class="bandeau-doublons dbl-ouvert"><div><b>${g.length} produit${g.length>1?'s':''}${bx?' de cette box':''} en double</b>${n?` — ${n} fiche${n>1?'s':''} de trop.`:' — chacun porte déjà une déclaration « produits distincts ».'}
+        ${gFus.length?`<div class="dbl-btns"><button type="button" class="btn sm" onclick="produitsFusionnerDoublonsUI(${bx?'boxView':''})">Tout fusionner (${gFus.length})</button></div>
+        <div class="dbl-f">Une fiche par nom, le stock des box additionné, mouvements, demandes et bons redirigés. Rien n'est perdu, et ça vaut pour toute l'équipe.</div>`:`<div class="dbl-f">Rien à fusionner d'un coup : sur chacun, il reste un homonyme à trancher un par un — le déclarer distinct lui aussi, ou choisir la fiche à garder.</div>`}
         <div class="dbl-f">${g.slice(0,6).map(l=>esc(l[0].nom||'')+' ×'+l.length).join(' · ')}${g.length>6?' · … et '+(g.length-6)+' autres':''}</div>
         ${_doublonsUnParUn?detail:`<div class="dbl-btns"><button type="button" class="btn ghost sm" onclick="_doublonsUnParUn=true;produitsDoublonsRafraichir()">Les regarder un par un</button></div>`}</div>
         <button type="button" class="btn ghost sm" onclick="_doublonsPlusTard=true;produitsDoublonsRafraichir()">Plus tard</button></div>`;
@@ -16231,7 +16279,7 @@ function produitsFusionnerDoublonsUI(boxId){
   let g=produitsDoublons(); if(bx) g=g.filter(l=>bx.stock&&l.some(p=>bx.stock[p.id]));
   if(!g.length){ toast('Aucun doublon'); return; }
   const cles=bx?new Set(g.map(l=>produitCle(l[0]))):null;
-  const n=g.reduce((a,l)=>a+l.length-1,0);
+  const n=g.reduce((a,l)=>a+Math.max(0,produitsFusionnables(l).length-1),0);
   const liste=g.slice(0,8).map(l=>'• '+(l[0].nom||'')+' ×'+l.length).join('\n')+(g.length>8?'\n… et '+(g.length-8)+' autre(s)':'');
   if(!confirm('Fusionner '+n+' fiche(s) en double en '+g.length+' produit(s) ?\n\n'+liste+'\n\nMême nom = même produit : si ce sont deux produits différents, touche plutôt « C\'est normal ». Le stock des box s\'additionne, rien d\'autre n\'est supprimé. Ça se propage à toute l\'équipe.')) return;
   const r=produitsFusionnerDoublons(cles);
