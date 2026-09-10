@@ -53,7 +53,10 @@ console.log('L\'ordre du fichier : catalogueCompleter est appelée depuis migrat
 { const lig=APP.split('\n'); const l=m=>lig.findIndex(x=>x.startsWith(m))+1;
   v('migrate n\'écrit RIEN dans le catalogue : le geste est à l\'utilisateur',/catalogueCompleter/.test(APP),false);
   v('la bande de synchro est en tête de l\'onglet Ajouter',/el\.innerHTML=bandePack\+groupe/.test(APP),true);
-  v('la bulle compte ce qui manque',/const nPack=cataloguePackNeufs\(\)\.length;/.test(APP),true);
+  v('le compte est calculé UNE fois, dans bxpCache',/pack:cataloguePackNeufs\(\),/.test(APP),true);
+  v('la bulle le lit dans le cache',/const nPack=\(c\.pack\|\|\[\]\)\.length;/.test(APP),true);
+  v('la bande aussi, donc les deux comptes sont le même',/const pk=c\.pack\|\|\[\];/.test(APP),true);
+  v('cataloguePackNeufs n\'est appelée que là et au tap',(APP.match(/cataloguePackNeufs\(\)/g)||[]).length,2);
   v('le tap passe par cataloguePackSync',/onclick="cataloguePackSync\(\)"/.test(APP),true);
   v('la cible tactile bat la spécificité de la refonte',/html\[data-refonte\] \.bxp-cibles-l \.btn\.sm\{min-height:44px/.test(APP),true);
   v('cataloguePoser sait dater',/const naissance=\(opts&&\+opts\.naissance\)\|\|0;/.test(APP),true);
