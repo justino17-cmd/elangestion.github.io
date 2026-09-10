@@ -21,11 +21,15 @@ règles publiées, fichiers servis) :
 - **Version minimale exigée : v622**, réglée depuis la Tour par Justin le 10 septembre au matin
   (vérifié : `/api/version` → `min: 622`), portée par `versions.json` et par
   `teamop_config/version`. Google refuse toute écriture d'un appareil sous v622.
-  **v623 (doublons de produits) à exiger dès sa publication** : un appareil en v622 qui
-  s'ouvre pour la première fois sème encore le pack avec des identifiants aléatoires.
-  **v624 (le DR corrige la quantité) : à exiger aussi, sans urgence** — un appareil en v623 lit
-  un lot corrigé sans voir la correction : son historique dirait « −5 » là où −4 a été appliqué.
-  Le stock, lui, est juste partout : il n'est écrit qu'une fois, par l'appareil qui valide.
+  **10 septembre, 21 h : le minimum exigé est v633** (`/api/version` → `min: 633`), et **v634 est
+  publiée et servie** (sha256 vérifié identique au dépôt).
+
+  ⚠️ **v634 est à exiger dès que possible, et c'est la plus importante de la série.** Tant qu'un
+  appareil de l'entreprise reste sous v634, il continue de fabriquer des identifiants de produit que
+  les autres ne savent pas retrouver — donc de nouveaux doublons, y compris juste après une fusion.
+  Un appareil sous v634 qui colle une liste ou saisit un produit hors stock au nom non latin peut même
+  faire disparaître une fiche et son stock à la synchro (voir plus bas). La cure ne tient que si tout
+  le monde est passé.
 - **Règles Firestore publiées dans `elan-gestion` = `firestore.rules`** : OP GESTION + espace
   client, **sans la messagerie**. `op_companies` répond 403 — voulu. OP MESSAGES aura son projet
   (`firestore-opmessages.rules`) ; `messages.html` est hors d'usage jusqu'à sa bascule.
