@@ -1156,7 +1156,41 @@ app.post('/api/monitor/report', express.text({ type: 'text/plain', limit: '200kb
 // ── auth de la tour : comptes individuels {id, nom, hash, role:'patron'|'collaborateur', actif}
 //    stockés dans monitor.json (le premier compte patron est créé par server/set-admin.sh).
 //    POST /api/monitor/login {nom, pass} → token de session 24 h en mémoire, lié à l'utilisateur.
-const monTokens = new Map();          // token -> { exp, userId, nom, role }
+/* ── Les applications de la Tour ─────────────────────────────────────────────────────────────
+   Un compte de la Tour ne voit que les applications qu'on lui a ouvertes : OP GESTION, OP MESSAGES,
+   ou les deux. Un TABLEAU de clés, pas des booléens — ce serveur s'est déjà fait piéger par un
+   booléen relâché ({"opMessages":"false"} OUVRAIT l'application, voir /espaces/apps) ; une liste se
+   filtre contre une liste blanche, il n'y a pas de « faux qui vaut vrai ». Les clés sont celles
+   qu'écrit déjà /api/connexions et que porte le hash de la Tour (#gestion/…, #messages/…). */
+const TOUR_APPS = ['gestion', 'messages'];
+const TOUR_APP_NOM = { gestion: 'OP GESTION', messages: 'OP MESSAGES' };
+/* Les rapports d'incident portent des étiquettes historiques (« elan », « opmsg »…) : cette table
+   les rattache à une application. Une étiquette absente vaut OP GESTION — l'application qui existe. */
+const TOUR_APP_DES_TAGS = { opgestion: 'gestion', elan: 'gestion', 'elan-gestion': 'gestion', elangestion: 'gestion', espace: 'gestion', stripe: 'gestion', inconnue: 'gestion', opmessages: 'messages', opmsg: 'messages', messages: 'messages' };
+const monAppDeTag = t => TOUR_APP_DES_TAGS[String(t || '').toLowerCase()] || 'gestion';
+/* Seule source de vérité sur ce qu'un compte peut ouvrir. Le patron a TOUT, par calcul et non par
+   donnée : son champ apps est ignoré ici et refusé à l'écriture — on ne peut pas se retirer une
+   application par erreur, et set-admin.sh n'a rien à écrire. Un compte SANS champ vaut ['gestion']
+   seulement : OP MESSAGES s'ouvre par un geste du patron, tracé, jamais par défaut. Rien à réécrire
+   dans monitor.json — le champ n'apparaît qu'au premier réglage (migration paresseuse, comme
+   opMessages sur l'annuaire). Le compte de repli {id:'u0', role:'patron'} passe par ici aussi. */
+function monApps(u) {   // u : entrée de monUsers, ou la session de repli du jeton
+  if (!u || u.role === 'patron') return TOUR_APPS.slice();
+  const l = Array.isArray(u.apps) ? u.apps.filter(a => TOUR_APPS.includes(a)) : [];
+  return l.length ? [...new Set(l)] : ['gestion'];
+}
+/* Lecture d'une liste d'applications venue du client → { apps } ou { error }. Une clé inconnue est
+   REFUSÉE, pas ignorée en silence : le contraire du booléen relâché. Une liste vide aussi — couper
+   un accès, c'est users/toggle, pas une liste sans rien. */
+function monAppsLire(v) {
+  if (!Array.isArray(v)) return { error: 'apps : une liste d\'applications est attendue' };
+  const l = [...new Set(v.map(a => String(a)))];
+  const inconnue = l.find(a => !TOUR_APPS.includes(a));
+  if (inconnue !== undefined) return { error: 'application inconnue : ' + monStr(inconnue, 20) };
+  if (!l.length) return { error: 'au moins une application' };
+  return { apps: l };
+}
+const monTokens = new Map();          // token -> { exp, userId, nom, role, apps } — apps n'y est qu'un instantané, voir monAdmin
 // les sessions de la Tour survivent aux redémarrages du serveur
 const TOKENS_PATH = path.join(DATA_DIR, 'tour-sessions.json');
 try { for (const [t, v] of JSON.parse(fs.readFileSync(TOKENS_PATH, 'utf8'))) if (v && v.exp > Date.now()) monTokens.set(t, v); } catch (e) {}
@@ -1171,8 +1205,8 @@ function monUA(req) {   // appareil simplifié pour le journal (jamais l'UA comp
   const nv = /Edg\//.test(u) ? 'Edge' : (/OPR\//.test(u) ? 'Opera' : (/Chrome\//.test(u) ? 'Chrome' : (/Firefox\//.test(u) ? 'Firefox' : (/Safari\//.test(u) ? 'Safari' : (/curl/i.test(u) ? 'curl' : 'autre')))));
   return ap + ' · ' + nv;
 }
-function monLog(ident, ok, req, motif) {   // journal des connexions (réussies ET échouées)
-  monJournal.push({ ts: Date.now(), qui: monStr(ident, 120), ok: !!ok, appareil: monUA(req), motif: monStr(motif, 60) });
+function monLog(ident, ok, req, motif, apps) {   // journal des connexions (réussies ET échouées) ; apps : ce que le compte ouvre, sur les réussites
+  monJournal.push(Object.assign({ ts: Date.now(), qui: monStr(ident, 120), ok: !!ok, appareil: monUA(req), motif: monStr(motif, 60) }, apps ? { apps: monStr(apps, 40) } : {}));
   if (monJournal.length > 300) monJournal = monJournal.slice(-300);
   monSave();
 }
@@ -1204,12 +1238,44 @@ app.post('/api/monitor/login', (req, res) => {
   }
   const token = crypto.randomBytes(24).toString('hex');
   const duree = (req.body || {}).rester ? 30 * 24 * 3600000 : 24 * 3600000;   // « rester connecté » : 30 jours
-  monTokens.set(token, { exp: Date.now() + duree, userId: user.id, nom: user.nom, role: user.role });
+  const apps = monApps(user);
+  monTokens.set(token, { exp: Date.now() + duree, userId: user.id, nom: user.nom, role: user.role, apps });
   monTokensSave();
   monLoginTries.delete(ip); monLock.delete(ident);
-  monLog(user.nom, true, req, '');
-  res.json({ ok: true, token, exp: 24 * 3600, nom: user.nom, role: user.role });
+  monLog(user.nom, true, req, '', apps.join('+'));
+  res.json({ ok: true, token, exp: 24 * 3600, nom: user.nom, role: user.role, apps });
 });
+/* Quelle application possède une route. Tout ce qui n'est pas listé est OP GESTION : c'est
+   l'application qui existe, et une route oubliée doit être REFUSÉE à un compte OP MESSAGES,
+   jamais ouverte par défaut. Un compte limité à OP MESSAGES ne peut atteindre que COMMUN + MESSAGES.
+   Pourquoi une table ici plutôt qu'un middleware par route : il y a plus de 80 routes /api/monitor
+   (mail.js compris) ; en poser un par route, c'est autant d'occasions d'en oublier une, et l'oubli
+   OUVRIRAIT. Ici l'oubli FERME, et se voit : le compte reçoit un 403 avec le champ app.
+   ⚠ Une route /api/monitor nouvelle doit dire son application — ici, pas ailleurs. */
+const ROUTES_COMMUNES = /^\/api\/monitor\/(login|moi|users(\/.*)?|journal|issues(\/archive)?|status|expliquer|proposer|sante|support(\/.*)?|mail\/.*|entreprises)$/;   /* /mails (journal des e-mails d'OP GESTION, adresses des clientes) est GESTION, pas commune */
+const ROUTES_MESSAGES = /^\/api\/monitor\/(espaces\/apps|messages(\/.*)?)$/;
+function monAppDeRoute(req) {
+  /* Le chemin DÉCLARÉ de la route (req.route.path), pas l'URL reçue : Express accepte
+     « /API/MONITOR/ESPACES/APPS/ » pour la même route, et une table qui lirait l'URL brute
+     classerait cette variante en GESTION — ouvrant une route MESSAGES à un compte qui n'a que
+     GESTION. Repli sur l'URL normalisée si le garde était un jour monté hors d'une route. */
+  const p = String(req.route && typeof req.route.path === 'string' ? req.route.path : req.path).toLowerCase().replace(/\/+$/, '');
+  return ROUTES_COMMUNES.test(p) ? null : (ROUTES_MESSAGES.test(p) ? 'messages' : 'gestion');
+}
+function monAppRefuse(req, res) {   // vrai si la réponse est partie
+  const a = monAppDeRoute(req);
+  if (!a || req.tourUser.apps.includes(a)) return false;
+  res.status(403).json({ error: 'Cette action appartient à la Tour ' + TOUR_APP_NOM[a] + ' — ton compte n’y a pas accès.', app: a });
+  return true;
+}
+/* Même chose pour un incident : /issues est filtré à la lecture, mais /status, /expliquer et
+   /proposer prennent un id — filtrer la lecture et laisser l'écriture ouverte serait une passoire. */
+function monIssueRefuse(req, res, issue) {
+  const a = monAppDeTag(issue.app);
+  if (req.tourUser.apps.includes(a)) return false;
+  res.status(403).json({ error: 'Cet incident appartient à la Tour ' + TOUR_APP_NOM[a] + ' — ton compte n’y a pas accès.', app: a });
+  return true;
+}
 function monAdmin(req, res, next) {
   const m = /^Bearer\s+([a-f0-9]{48})$/.exec(String(req.headers.authorization || ''));
   const s = m && monTokens.get(m[1]);
@@ -1220,7 +1286,10 @@ function monAdmin(req, res, next) {
      édition à la main de monitor.json suffirait. */
   const u = (monUsers.length && s.userId) ? monUsers.find(x => x.id === s.userId) : null;
   if (monUsers.length && (!u || !u.actif)) return res.status(401).json({ error: 'accès désactivé — reconnecte-toi' });
-  req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role) };
+  /* apps se relit dans monUsers à CHAQUE requête, jamais dans le jeton : sinon un compte privé
+     d'OP MESSAGES la garderait jusqu'à 30 jours (« rester connecté »). Même règle que role et actif. */
+  req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role), apps: monApps(u || s) };
+  if (monAppRefuse(req, res)) return;
   next();
 }
 function monPatron(req, res, next) {
@@ -1239,14 +1308,21 @@ function monPatronStrict(req, res, next) {
      édition à la main de monitor.json suffirait. */
   const u = (monUsers.length && s.userId) ? monUsers.find(x => x.id === s.userId) : null;
   if (monUsers.length && (!u || !u.actif)) return res.status(403).json({ error: 'réservé au patron' });
-  req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role) };
+  req.tourUser = { id: s.userId, nom: (u ? u.nom : s.nom), role: (u ? u.role : s.role), apps: monApps(u || s) };   // apps relu dans monUsers, voir monAdmin
+  if (monAppRefuse(req, res)) return;   // avant le rôle : « c'est l'autre Tour » est la réponse la plus utile, et la Tour relit /moi dessus
   if (req.tourUser.role !== 'patron') return res.status(403).json({ error: 'réservé au patron' });
   next();
 }
 
+/* Ce que le compte connecté a le droit d'ouvrir, relu dans monUsers. La Tour l'appelle quand sa
+   session vient du stockage — sans ça, un collaborateur qui a reçu OP MESSAGES hier ne la verrait
+   qu'à sa prochaine connexion — et quand un 403 porte un champ app : ses droits ont changé. */
+app.get('/api/monitor/moi', monAdmin, (req, res) => {
+  res.json({ ok: true, id: req.tourUser.id, nom: req.tourUser.nom, role: req.tourUser.role, apps: req.tourUser.apps });
+});
 // ── gestion de l'équipe Tour (patron uniquement pour créer/désactiver/supprimer)
 app.get('/api/monitor/users', monPatronStrict, (req, res) => {
-  res.json({ users: monUsers.map(u => ({ id: u.id, nom: u.nom, email: u.email || '', role: u.role, actif: !!u.actif, ts: u.ts || 0, creePar: u.creePar || '' })) });
+  res.json({ users: monUsers.map(u => ({ id: u.id, nom: u.nom, email: u.email || '', role: u.role, actif: !!u.actif, ts: u.ts || 0, creePar: u.creePar || '', apps: monApps(u), appsPar: u.appsPar || '', appsTs: u.appsTs || 0 })) });
 });
 // journal des connexions (réussies et échouées) — visible par le patron dans la section Équipe
 app.get('/api/monitor/mails', monAdmin, (req, res) => { res.json({ ok: true, mails: mailsLog.slice(0, 120) }); });
@@ -1262,9 +1338,13 @@ app.post('/api/monitor/users', monPatronStrict, (req, res) => {
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'e-mail invalide (ou laisse le champ vide)' });
   if (monUsers.some(u => u.nom.toLowerCase() === nom.toLowerCase() || (email && String(u.email || '').toLowerCase() === email))) return res.status(409).json({ error: 'ce nom (ou cet e-mail) existe déjà' });
   if (monUsers.length >= 30) return res.status(400).json({ error: 'trop de comptes (30 max)' });
+  // apps facultatif : sans lui, le compte n'a qu'OP GESTION. Mêmes règles que users/apps.
+  let apps = null;
+  if ((req.body || {}).apps !== undefined) { const l = monAppsLire((req.body || {}).apps); if (l.error) return res.status(400).json({ error: l.error }); apps = l.apps; }
   const u = { id: 'u' + crypto.randomBytes(5).toString('hex'), nom, email, hash: monHash(pass), role: 'collaborateur', actif: true, ts: Date.now(), creePar: req.tourUser.nom };
+  if (apps) { u.apps = apps; u.appsPar = req.tourUser.nom; u.appsTs = u.ts; }
   monUsers.push(u); monSave();
-  res.json({ ok: true, user: { id: u.id, nom: u.nom, email: u.email, role: u.role, actif: true } });
+  res.json({ ok: true, user: { id: u.id, nom: u.nom, email: u.email, role: u.role, actif: true, apps: monApps(u) } });
 });
 app.post('/api/monitor/users/toggle', monPatronStrict, (req, res) => {
   const u = monUsers.find(x => x.id === (req.body || {}).id);
@@ -1280,6 +1360,18 @@ app.post('/api/monitor/users/delete', monPatronStrict, (req, res) => {
   if (u.role === 'patron') return res.status(400).json({ error: 'le compte patron ne peut pas être supprimé' });
   monUsers = monUsers.filter(x => x.id !== id); monSave();
   res.json({ ok: true });
+});
+/* Régler les applications d'un compte. Immédiat pour lui — le garde-fou relit monUsers à chaque
+   requête, pas le jeton. Un compte inactif peut en recevoir : le patron prépare avant de rouvrir. */
+app.post('/api/monitor/users/apps', monPatronStrict, (req, res) => {
+  const u = monUsers.find(x => x.id === (req.body || {}).id);
+  if (!u) return res.status(404).json({ error: 'compte introuvable' });
+  if (u.role === 'patron') return res.status(400).json({ error: 'le patron a toutes les applications' });
+  const l = monAppsLire((req.body || {}).apps);
+  if (l.error) return res.status(400).json({ error: l.error });
+  u.apps = l.apps; u.appsPar = req.tourUser.nom; u.appsTs = Date.now(); monSave();
+  console.log('Tour :', req.tourUser.nom, 'règle les applications de', u.nom, ':', l.apps.join('+'));   // compte d'équipe, pas une donnée client
+  res.json({ ok: true, id: u.id, apps: l.apps });
 });
 
 // ── Accès d'essai à la bêta (teamop.fr/beta.html) ──
@@ -2015,6 +2107,15 @@ app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
   for (const t of Object.keys(cnxData)) pousser(t, '', null);
 
   liste.sort((a, b) => (b.derniere || 0) - (a.derniere || 0));
+  /* Un compte sans OP GESTION ne voit de l'annuaire que ce qui sert OP MESSAGES : les entreprises
+     où elle est ouverte, avec de quoi les reconnaître ; les autres réduites au nom — il faut pouvoir
+     en ouvrir une. Formule, promo, clé, versions, erreurs, échecs : jamais à ce compte. */
+  if (!req.tourUser.apps.includes('gestion')) {
+    const proj = liste.map(x => x.opMessages
+      ? { t: x.t, slug: x.slug, nom: x.nom, email: x.email, opMessages: true, suspendu: x.suspendu, origine: x.origine, derniere: x.derniere }
+      : { t: x.t, slug: x.slug, nom: x.nom, opMessages: false });
+    return res.json({ ok: true, entreprises: proj, total: proj.length, opMessages: proj.filter(x => x.opMessages).length });
+  }
   res.json({
     ok: true, entreprises: liste, total: liste.length,
     horsAnnuaire: liste.filter(x => !x.dansAnnuaire).length,
@@ -2840,6 +2941,41 @@ app.post('/api/monitor/espaces/apps', monPatronStrict, (req, res) => {
   }
   console.log('Tour :', req.tourUser.nom, (veut ? 'ouvre' : 'ferme'), 'OP MESSAGES pour l\'espace', t);
   res.json({ ok: true, slug: vraiSlug, opMessages: veut });
+});
+/* ══ L'ÉTAT D'OP MESSAGES ══════════════════════════════════════════════════════════════════
+   L'application est en travaux : ses collections sont sorties du projet elan-gestion, la bascule
+   vers son propre projet attend une configuration web. La Tour OP MESSAGES le dit tel quel — on
+   n'invente pas de chiffres pour remplir un écran, l'état explicite EST l'information. Le jour de
+   la bascule, le patron le déclare ici, et l'accueil cesse d'afficher « en travaux ». Sans fichier,
+   c'est en travaux : on ne prétend jamais qu'elle marche. */
+const OPMSG_PATH = path.join(DATA_DIR, 'opmessages.json');
+const OPMSG_DEFAUT = { enTravaux: true, depuis: '2026-09-10', note: 'Les collections sont sorties du projet elan-gestion ; bascule vers le projet OP MESSAGES en attente de sa configuration web.', projet: '' };
+function opmsgLire() {
+  let d = null; try { d = JSON.parse(fs.readFileSync(OPMSG_PATH, 'utf8')); } catch (e) {}
+  const e = Object.assign({}, OPMSG_DEFAUT, d && typeof d === 'object' ? d : {});
+  e.enTravaux = e.enTravaux !== false;   // comparaison stricte, même raison que /espaces/apps : seul un vrai « false » sort des travaux
+  return e;
+}
+function opmsgOuvertes() {   // entreprises où OP MESSAGES est ouverte, une fois chacune
+  const vus = new Set();
+  for (const e of Object.values(espacesReg)) { if (e && e.opMessages === true) { const t = espaceT(e); if (t) vus.add(t); } }
+  return vus.size;
+}
+app.get('/api/monitor/messages/etat', monAdmin, (req, res) => {
+  const e = opmsgLire();
+  res.json({ ok: true, enTravaux: e.enTravaux, depuis: e.depuis, note: e.note, projet: monStr(e.projet, 80), entreprisesOuvertes: opmsgOuvertes(), par: monStr(e.par, 60), ts: e.ts || 0 });
+});
+app.post('/api/monitor/messages/etat', monPatronStrict, (req, res) => {
+  const b = req.body || {};
+  const enTravaux = b.enTravaux !== false;
+  const projet = monStr(b.projet, 80).trim();
+  // sortir des travaux sans projet, c'est prétendre qu'elle marche sans savoir où
+  if (!enTravaux && !/^[a-z0-9][a-z0-9-]{3,79}$/.test(projet)) return res.status(400).json({ error: 'nom du projet requis (minuscules, chiffres, tirets) pour sortir des travaux' });
+  const avant = opmsgLire();
+  const etat = { enTravaux, depuis: avant.depuis, note: avant.note, projet: projet || (enTravaux ? monStr(avant.projet, 80) : ''), par: req.tourUser.nom, ts: Date.now() };
+  try { fs.writeFileSync(OPMSG_PATH, JSON.stringify(etat)); } catch (e) { return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' }); }
+  console.log('Tour :', req.tourUser.nom, enTravaux ? 'remet OP MESSAGES en travaux' : 'déclare OP MESSAGES en service sur le projet ' + projet);
+  res.json({ ok: true, enTravaux, projet: etat.projet, entreprisesOuvertes: opmsgOuvertes() });
 });
 /* ══ RENOMMER UN ESPACE — donc changer son ADRESSE ══════════════════════════════════════════
    Le nom de l'espace n'est pas décoratif : c'est teamop.fr/ce-nom, l'adresse que l'entreprise
@@ -3669,10 +3805,14 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
 // liste des problèmes + compteurs (admin)
 app.get('/api/monitor/issues', monAdmin, (req, res) => {
   monPurge();
+  /* Filtré par application AVANT tout calcul : compteurs et entreprises se comptent sur ce que le
+     compte a le droit de voir — sinon un compte OP MESSAGES apprendrait combien d'incidents
+     OP GESTION existent, et chez qui. Forger la requête n'y change rien : le filtre est ici. */
+  const vis = monIssues.filter(i => req.tourUser.apps.includes(monAppDeTag(i.app)));
   const compteurs = { nouveau: 0, encours: 0, corrige: 0, ignore: 0 };
   const entSet = new Set();
-  for (const i of monIssues) { compteurs[i.statut] = (compteurs[i.statut] || 0) + 1; for (const e of i.entreprises || []) if (e.nom && e.nom !== 'inconnue') entSet.add(e.nom); }
-  res.json({ issues: monIssues.slice().sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0)), compteurs, entreprises: entSet.size });
+  for (const i of vis) { compteurs[i.statut] = (compteurs[i.statut] || 0) + 1; for (const e of i.entreprises || []) if (e.nom && e.nom !== 'inconnue') entSet.add(e.nom); }
+  res.json({ issues: vis.slice().sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0)), compteurs, entreprises: entSet.size });
 });
 
 // changement de statut (admin) — « corrige » déclenche l'e-mail automatique aux entreprises touchées
@@ -3682,6 +3822,7 @@ app.post('/api/monitor/status', monAdmin, async (req, res) => {
   if (statut === 'ignore' && req.tourUser.role !== 'patron') return res.status(403).json({ error: '« Ignorer » est réservé au patron' });
   const issue = monIssues.find(i => i.id === id);
   if (!issue) return res.status(404).json({ error: 'problème introuvable' });
+  if (monIssueRefuse(req, res, issue)) return;
   issue.statut = statut;
   issue.par = req.tourUser.nom;   // qui a agi en dernier (affiché « En cours — Karim »)
   if (note) issue.notes = ((issue.notes ? issue.notes + '\n' : '') + monStr(note, 300)).slice(-1000);
@@ -3763,6 +3904,7 @@ app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
     if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
     const issue = monIssues.find(i => i.id === (req.body || {}).id);
     if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    if (monIssueRefuse(req, res, issue)) return;
     if (issue.explication && !(req.body || {}).refaire) return res.json({ ok: true, explication: issue.explication, deja: true });
     if (expliqueUtilises() >= EXPLIQUE_MAX) return res.status(429).json({ error: 'Quota du jour atteint (' + EXPLIQUE_MAX + ' explications) — réessaie demain' });
 
@@ -3906,6 +4048,7 @@ app.post('/api/monitor/proposer', monPatronStrict, async (req, res) => {
     if (!ghActif()) return res.status(503).json({ error: 'Dépôt GitHub non configuré sur le serveur (config.json → github.token et github.depot)' });
     const issue = monIssues.find(i => i.id === (req.body || {}).id);
     if (!issue) return res.status(404).json({ error: 'incident introuvable' });
+    if (monIssueRefuse(req, res, issue)) return;
     const e = issue.explication;
     if (!e) return res.status(400).json({ error: 'Cherche d\'abord la cause : on ne corrige pas un incident qu\'on n\'a pas compris' });
     if (!e.codeLu || !e.fichier) return res.status(400).json({ error: 'La cause a été établie sans lire le code — pas de correctif automatique là-dessus' });
@@ -4022,9 +4165,10 @@ app.post('/api/monitor/proposer', monPatronStrict, async (req, res) => {
 
 // santé globale (admin) : reprend /health + uptime + répartition des problèmes
 app.get('/api/monitor/sante', monAdmin, (req, res) => {
+  const vis = monIssues.filter(i => req.tourUser.apps.includes(monAppDeTag(i.app)));   // même filtre que /issues : des chiffres qui contredisent la liste ne servent personne
   const compteurs = { nouveau: 0, encours: 0, corrige: 0, ignore: 0 };
-  for (const i of monIssues) compteurs[i.statut] = (compteurs[i.statut] || 0) + 1;
-  res.json({ ok: true, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, boite: !!(config.imap && config.imap.user), stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus, issues: compteurs, issuesTotal: monIssues.length });
+  for (const i of vis) compteurs[i.statut] = (compteurs[i.statut] || 0) + 1;
+  res.json({ ok: true, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, boite: !!(config.imap && config.imap.user), stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus, issues: compteurs, issuesTotal: vis.length });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4562,7 +4706,9 @@ app.post('/api/monitor/clients/metier', monAdmin, (req, res) => {
 });
 // historique complet : tout ce qui est sorti de la liste vivante, jamais supprimé
 app.get('/api/monitor/issues/archive', monAdmin, (req, res) => {
-  res.json({ archive: monArchive, total: monArchive.length, vivants: monIssues.length });
+  const visible = i => req.tourUser.apps.includes(monAppDeTag(i.app));   // même filtre que /issues
+  const archive = monArchive.filter(visible);
+  res.json({ archive, total: archive.length, vivants: monIssues.filter(visible).length });
 });
 // note interne sur un client (tracée)
 app.post('/api/monitor/clients/note', monAdmin, (req, res) => {
