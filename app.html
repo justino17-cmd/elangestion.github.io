@@ -3770,6 +3770,9 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .bst-eff{font-size:11.5px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums}
 /* la ligne « en attente » : orange, le mot ET le chiffre — le DR n'a pas encore dit oui */
 .bst-att{font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);font-variant-numeric:tabular-nums;white-space:nowrap}
+.abp-etat{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--t3);padding:2px 2px 10px;font-variant-numeric:tabular-nums}
+.abp-etat b{color:var(--t1)}
+.abp-etat .btn{margin-left:auto}
 .bandeau-doublons{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:color-mix(in srgb,var(--org,#e8a33d) 14%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 40%,transparent);border-radius:12px;padding:12px 14px;margin:0 0 10px;font-size:13px;line-height:1.5;color:var(--t1)}
 .bandeau-doublons>div{flex:1;min-width:200px}
 .bandeau-doublons span{color:var(--t3);font-size:12px}
@@ -5543,7 +5546,7 @@ function load(){
      change. Le bouton « ↻ Catalogue OP » reste le chemin volontaire. */
   if(!localStorage.getItem('elan_prod_v2')){
     d.produits = d.produits || [];
-    if(PACK_METIER_AUTO) cataloguePoser(d);
+    if(PACK_METIER_AUTO) cataloguePoser(d,{ancien:true});
     localStorage.setItem('elan_prod_v1','1'); localStorage.setItem('elan_prod_v2','1');
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){}
   }
@@ -15761,12 +15764,20 @@ function idCatalogue(nom,prefixe){
 /* L'identité d'un produit, pour dire « c'est le même » : son nom normalisé. Deux fiches qui
    portent le même nom sont un doublon, quelle que soit leur origine. */
 function produitCle(p){ return norm((p&&p.nom)||'').replace(/\s+/g,' ').trim(); }
-function cataloguePoser(cible){
+/* opts.ancien : le semis du PREMIER DÉMARRAGE d'un appareil se date d'avant tout (_m = 1).
+   Avec un identifiant déterministe, un appareil neuf recrée exactement la fiche qu'un collègue
+   a peut-être supprimée exprès ; datée de maintenant, elle battrait la tombe à la fusion et
+   reviendrait chez tout le monde. Datée d'avant, la tombe gagne (t >= _m) : supprimé reste
+   supprimé. L'empreinte de l'ombre ignore _m, donc save() ne la re-date pas tant que la fiche
+   ne change pas. Le bouton « ↻ Catalogue OP », lui, ne passe pas ce drapeau : là, ramener une
+   fiche supprimée par erreur est précisément ce qu'on demande. */
+function cataloguePoser(cible,opts){
   cible.produits=cible.produits||[]; cible.fournisseurs=cible.fournisseurs||[];
   const vus=new Set(cible.produits.map(p=>(p.nom||'').trim().toLowerCase()));
+  const date=(opts&&opts.ancien)?{_m:1}:{};
   let np=0;
   CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||vus.has(nom.toLowerCase()))return;
-    cible.produits.push({id:idCatalogue(nom),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0});
+    cible.produits.push({id:idCatalogue(nom),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0,...date});
     vus.add(nom.toLowerCase()); np++; });
   const vusF=new Set(cible.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
   let nf=0;
@@ -15979,7 +15990,10 @@ function produitsFusionnerDoublons(){
     if(Array.isArray(v)){ v.forEach(marche); return; }
     if(v.produitId&&vers[v.produitId]) v.produitId=vers[v.produitId];
     Object.keys(v).forEach(k=>{ if(k!=='stock'&&k!=='_tombes') marche(v[k]); }); };
-  Object.keys(db).forEach(c=>{ if(c!=='produits'&&c!=='boxes'&&Array.isArray(db[c])) marche(db[c]); });
+  /* les box aussi : elles portent leurs arrivages (b.arrivages[].lignes[].produitId), que
+     bonRecuCumul() compare aux bons — exclure la collection laissait un bon livré redevenir
+     « il manque encore… ». Le marcheur saute la clé « stock », traitée juste au-dessus. */
+  Object.keys(db).forEach(c=>{ if(c!=='produits'&&Array.isArray(db[c])) marche(db[c]); });
   db.produits=(db.produits||[]).filter(p=>!vers[p.id]);
   logEvent('Produits en double fusionnés',fiches+' fiche(s) fusionnée(s) en '+groupes.length+' produit(s)','crud');
   save();
@@ -15997,7 +16011,8 @@ function produitsDoublonsBandeau(){
 function produitsFusionnerDoublonsUI(){
   const g=produitsDoublons(); if(!g.length){ toast('Aucun doublon'); return; }
   const n=g.reduce((a,l)=>a+l.length-1,0);
-  if(!confirm('Fusionner '+n+' fiche(s) en double en '+g.length+' produit(s) ?\n\nLe stock des box s\'additionne, rien n\'est supprimé d\'autre. Ça se propage à toute l\'équipe.')) return;
+  const liste=g.slice(0,8).map(l=>'• '+(l[0].nom||'')+' ×'+l.length).join('\n')+(g.length>8?'\n… et '+(g.length-8)+' autre(s)':'');
+  if(!confirm('Fusionner '+n+' fiche(s) en double en '+g.length+' produit(s) ?\n\n'+liste+'\n\nMême nom = même produit : si deux conditionnements portent le même nom, renomme-les d\'abord. Le stock des box s\'additionne, rien d\'autre n\'est supprimé. Ça se propage à toute l\'équipe.')) return;
   const r=produitsFusionnerDoublons();
   toast(r.fiches+' fiche(s) fusionnée(s) — '+db.produits.length+' produits maintenant',4200);
   if(typeof boxView!=='undefined'&&boxView&&typeof renderBoxDetail==='function'&&$('box-prod-list')) renderBoxDetail(); else views.produits();
@@ -17218,12 +17233,14 @@ function boxBrouillon(boxId){
 }
 /* Tout ce qui attend une validation DR sur CE produit de CETTE box, tous demandeurs confondus :
    les lots envoyés ('enAttente', de n'importe qui) et mon brouillon. Rendu en unités. */
-/* (boxAttenteProduit, plus bas, ne regarde que MES lots — c'est elle qui nourrit le cadenas
-   « en attente » de la ligne. Celle-ci regarde tout le monde ; d'où un autre nom.) */
+/* Chaque fait s'affiche UNE fois sur la carte : mon brouillon → « +2 · restera 12 » sous le
+   stepper ; mon lot envoyé → le cadenas « 🔒 +2 en attente · retirer » sous le nom
+   (boxAttenteProduit, plus bas, ne regarde que MES lots) ; et ce que LES AUTRES attendent → cette
+   ligne orange sous le stepper. C'est elle que le DR voit sur la box d'un technicien. */
 function boxAttenteTous(boxId,pid){
   var moi=currentUser&&currentUser.id, ajout=0, retrait=0;
   (db.boxMvtAttente||[]).forEach(function(x){ if(!x||x.boxId!==boxId) return;
-    if(!(x.statut==='enAttente'||(x.statut==='brouillon'&&x.parId===moi))) return;
+    if(x.statut!=='enAttente'||x.parId===moi) return;
     if(x.type==='arrivage'){ (x.lignes||[]).forEach(function(l){ if(l&&l.produitId===pid) ajout+=(+l.qte||0); }); return; }
     var lignes=x.lignes||(x.produitId?[{produitId:x.produitId,du:x.du,dc:x.dc,quantite:x.quantite}]:[]);
     lignes.forEach(function(l){ if(!l||l.produitId!==pid) return;
@@ -18017,10 +18034,17 @@ function abpDisponibles(b){ const dansBox=new Set(); (db.produits||[]).forEach(p
   const vus=new Set(); return (db.produits||[]).filter(p=>{ if(b.stock[p.id]) return false; const k=produitCle(p); if(dansBox.has(k)||vus.has(k)) return false; vus.add(k); return true; }); }
 function renderAbpList(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; const el=$('abp-list'); if(!el)return;
   const q=norm($('abp-search')?$('abp-search').value:'');
-  const avail=abpDisponibles(b).filter(p=>!q||norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')).includes(q));
+  const tous=abpDisponibles(b);
+  const avail=tous.filter(p=>!q||norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')).includes(q));
   const c=$('abp-count'); if(c)c.textContent=abpSel.size;
-  if(!avail.length){ el.innerHTML='<div style="color:var(--t3);padding:14px;text-align:center">Tous les produits sont déjà dans la box.</div>'; return; }
-  el.innerHTML=avail.map(p=>{ const on=abpSel.has(p.id);
+  /* La modale DIT où on en est — Justin, 10 septembre : « quand de nouveaux produits arrivent,
+     ils refont Tout ajouter, ça dit ce qui est déjà là et ce qui est nouveau ». Le compte des
+     produits déjà posés, celui des nouveaux, et le bouton qui retire ce qui est à zéro. */
+  const deja=Object.keys(b.stock||{}).length, zeros=Object.keys(b.stock||{}).filter(id=>{ const st=b.stock[id]||{}; return !(+st.u||0)&&!(+st.ctn||0); }).length;
+  const etat=`<div class="abp-etat"><span><b>${deja}</b> déjà dans la box${zeros?` · <b>${zeros}</b> à zéro`:''}</span><span><b>${tous.length}</b> ${tous.length>1?'nouveaux à ajouter':'nouveau à ajouter'}</span>${zeros?`<button type="button" class="btn ghost sm" onclick="boxRetirerZeros();closeModal()">Retirer les ${zeros} à zéro</button>`:''}</div>`;
+  if(!avail.length){ el.innerHTML=etat+'<div style="color:var(--t3);padding:14px;text-align:center">'+(q?'Rien ne correspond à cette recherche.':'Tous les produits du catalogue sont déjà dans la box — rien de nouveau à ajouter.')+'</div>'; return; }
+  el.innerHTML=etat;
+  el.innerHTML+=avail.map(p=>{ const on=abpSel.has(p.id);
     return `<div class="pl-row" style="cursor:pointer" onclick="abpToggle('${p.id}')"><span style="font-size:20px;color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span>
       <div class="pl-info"><div class="pl-title">${esc(p.nom)}</div><div class="pl-meta">${esc(p.categorie||'')}${p.ref?' · '+esc(p.ref):''}</div></div></div>`;}).join('');
 }
