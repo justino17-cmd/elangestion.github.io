@@ -45,7 +45,10 @@ VRAI `teamopJoin` sur `beta.html`, ce qu'aucune suite ne peut faire — `load()`
 recharge la page, il n'est pas extractible.
 
 ```bash
-node tests/sonde-rejoindre.js     # demande Chromium et un serveur statique, voir ci-dessous
+# un serveur statique sur 8123 (commande dans CLAUDE.md), puis :
+node tests/sonde-rejoindre.js
+# playwright-core introuvable ? elle le dit et donne la commande :
+#   NODE_PATH=/opt/node22/lib/node_modules/playwright/node_modules node tests/sonde-rejoindre.js
 ```
 
 Elle garde ceci : un appareil DÉJÀ UTILISÉ qui rejoint un espace ne doit RIEN apporter. Avant la

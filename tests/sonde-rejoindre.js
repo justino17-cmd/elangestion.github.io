@@ -1,4 +1,14 @@
-const pw=require('playwright-core'); const att=ms=>new Promise(r=>setTimeout(r,ms));
+/* playwright-core n'est pas une dépendance du dépôt (il n'y a pas de package.json à la racine) :
+   on le cherche là où il vit vraiment, et on le DIT au lieu de mourir sur un MODULE_NOT_FOUND brut. */
+let pw; try{ pw=require('playwright-core'); }catch(e){
+  for(const c of ['/opt/node22/lib/node_modules/playwright/node_modules/playwright-core','playwright']){
+    try{ pw=require(c); break; }catch(_){}
+  }
+  if(!pw){ console.error('Sonde non lançable : playwright-core est introuvable.\n'+
+    'Elle demande un vrai navigateur — installe playwright, ou pointe NODE_PATH vers son dossier :\n'+
+    '  NODE_PATH=/opt/node22/lib/node_modules/playwright/node_modules node tests/sonde-rejoindre.js\n'+
+    'Les dix suites tests/test-*.js, elles, tournent sans rien installer.'); process.exit(2); }
+} const att=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{ const b=await pw.chromium.launch({executablePath:'/opt/pw-browsers/chromium',headless:false,args:['--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage']});
   const ctx=await b.newContext({viewport:{width:1200,height:900}}); const p=await ctx.newPage(); const err=[]; p.on('pageerror',e=>err.push(e.message)); p.on('dialog',d=>d.accept());
   await p.goto('http://127.0.0.1:8123/beta.html',{waitUntil:'load',timeout:60000}); await att(1500);
