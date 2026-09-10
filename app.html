@@ -5930,8 +5930,14 @@ function msElaguer(ms,st,now){ const lim=now-TOMBE_JOURS*86400000; const out={};
    on garde alors l'ancienne règle plutôt que de deviner. Une fois la v639 exigée depuis la
    Tour, les deux côtés en ont toujours et la maille fine est partout. */
 function boxFusionFine(gagnante,perdante){
+  /* `typeof [] === 'object'` : sans Array.isArray, un `_ms` sous forme de tableau passait
+     cette garde alors qu'estampiller() le rejette — deux règles pour la même donnée. Et
+     n'importe qui peut aujourd'hui écrire dans le document d'équipe (voir REPRISE.md) : une
+     charge abîmée ne doit jamais entrer dans la recomposition, seulement faire retomber sur
+     l'ancienne règle. */
+  const objet=x=>!!x&&typeof x==='object'&&!Array.isArray(x);
   const mA=gagnante&&gagnante._ms, mB=perdante&&perdante._ms;
-  if(!mA||!mB||typeof mA!=='object'||typeof mB!=='object') return null;
+  if(!objet(mA)||!objet(mB)) return null;
   const A=(gagnante.stock)||{}, B=(perdante.stock)||{};
   const st={}, ms={};
   new Set([].concat(Object.keys(A),Object.keys(B),Object.keys(mA),Object.keys(mB))).forEach(pid=>{
@@ -5943,7 +5949,13 @@ function boxFusionFine(gagnante,perdante){
   /* Les listes internes s'ajoutent au lieu de s'écraser : deux arrivages validés le même jour
      sur deux appareils, c'est deux arrivages. Union par identifiant, plafond conservé. */
   const parId=(x,y,cap)=>{ const m=new Map();
-    [].concat(Array.isArray(y)?y:[],Array.isArray(x)?x:[]).forEach(r=>{ if(r&&r.id!=null&&!m.has(String(r.id))) m.set(String(r.id),r); });
+    /* La GAGNANTE d'abord : à identifiant égal, c'est elle qui tranche, comme partout ailleurs
+       dans ce fichier. L'ordre inverse rendait la version du côté perdant — sans conséquence
+       aujourd'hui (un arrivage et un passage se créent puis se suppriment, jamais ne se
+       modifient), mais c'était une mine pour la première fonctionnalité qui éditerait un
+       arrivage après coup : elle aurait effacé l'édition la plus récente, en silence.
+       Signalé par `relecteur`. */
+    [].concat(Array.isArray(x)?x:[],Array.isArray(y)?y:[]).forEach(r=>{ if(r&&r.id!=null&&!m.has(String(r.id))) m.set(String(r.id),r); });
     const l=[...m.values()].sort((a,b)=>(b.ts||0)-(a.ts||0)); return cap?l.slice(0,cap):l; };
   const out=Object.assign({},gagnante,{stock:st,_ms:ms});
   if(Array.isArray(gagnante.arrivages)||Array.isArray(perdante.arrivages)) out.arrivages=parId(gagnante.arrivages,perdante.arrivages,40);
@@ -5991,7 +6003,14 @@ function fusionnerBases(local,remote,prioriteLocale){
 /* Ce qui dit si une fusion a changé quelque chose : ids et dates par collection, et les tombes. */
 /* Les dictionnaires entrent aussi dans la signature : sans eux, une fusion qui ramène le plan
    d'appâtage d'un collègue passait pour un non-événement, donc n'était jamais repoussée. */
-function baseSignature(d){ return collsFusion(d).sort().map(c=>c+':'+(d[c]||[]).map(r=>(r&&r.id!=null)?(String(r.id)+'@'+(r._m||0)):'').sort().join(',')).join('|')
+/* ⚠️ LA SIGNATURE DOIT VOIR CE QUE LA FUSION FINE A RECOMPOSÉ.
+   `boxFusionFine` garde le `_m` de la box gagnante tout en y injectant une ligne venant de la
+   perdante : la signature, qui ne regardait que `id@_m`, était donc IDENTIQUE avant et après.
+   `_repousser` ne se déclenchait pas, et la recomposition mettait plus longtemps à atteindre
+   un troisième appareil. Aucune perte — l'auteur du geste pousse de son côté — mais un délai
+   de convergence dans une course à trois. On ajoute donc l'empreinte des marques de lignes :
+   elles changent exactement quand une ligne de stock change. Signalé par `relecteur`. */
+function baseSignature(d){ return collsFusion(d).sort().map(c=>c+':'+(d[c]||[]).map(r=>(r&&r.id!=null)?(String(r.id)+'@'+(r._m||0)+(c==='boxes'&&r._ms?'~'+recEmpreinte(r._ms):'')):'').sort().join(',')).join('|')
   +'§'+COLLS_DICT.map(c=>c+':'+Object.keys((d&&d[c])||{}).sort().join(',')).join('|')
   +'#'+JSON.stringify(d._tombes||{}); }
 let db = load();

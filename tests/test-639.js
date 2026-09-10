@@ -168,4 +168,101 @@ console.log('\nAller-retour complet : trois appareils, sept gestes, rien ne se p
   v('total du stock : 3+4+5+10',[1,2,3,4].reduce((s,i)=>s+stockDe(nuage)['p'+i].u,0),22);
 }
 
+console.log('\nLa signature voit ce que la fusion fine a recomposé');
+{ /* `boxFusionFine` garde le `_m` de la box gagnante tout en y injectant une ligne venant de la
+     perdante. La signature, qui ne regardait que `id@_m`, était donc IDENTIQUE avant et après :
+     `_repousser` ne partait pas, et la recomposition mettait plus longtemps à atteindre un
+     TROISIÈME appareil. Trouvé par `relecteur` — c'est exactement ce qu'une sonde à deux
+     appareils ne peut pas voir, puisque chacun y pousse son propre geste. */
+  const socle=appareil(BASE); save(socle); const commun=copie(socle.getDb());
+  const A=appareil(commun), B=appareil(commun);
+  A.getDb().boxes[0].stock.pA={u:30,ctn:0}; save(A); attendre();
+  B.getDb().boxes[0].stock.pB={u:2,ctn:0}; save(B);
+  const avant=A.baseSignature(B.getDb());
+  const f=A.fusionnerBases(A.getDb(),B.getDb(),false);
+  v('la fusion a bien recomposé la box',[stockDe(f).pA.u,stockDe(f).pB.u],[30,2]);
+  v('le _m de la box gagnante n\'a pas bougé — c\'était le piège',
+    f.boxes[0]._m,B.getDb().boxes[0]._m);
+  v('mais la signature, elle, a changé : la repoussée partira',A.baseSignature(f)!==avant,true);
+  v('et deux bases identiques gardent la même signature',A.baseSignature(f),A.baseSignature(copie(f)));
+}
+
+console.log('\nÀ identifiant égal, c\'est le côté GAGNANT qui tranche');
+{ const g=appareil(BASE);
+  const gagnante={id:'bx1',_m:9,_ms:{},stock:{},arrivages:[{id:'a1',ts:5,valide:true}]};
+  const perdante={id:'bx1',_m:1,_ms:{},stock:{},arrivages:[{id:'a1',ts:5,valide:false},{id:'a2',ts:7}]};
+  const f=g.boxFusionFine(gagnante,perdante);
+  v('la version de la gagnante l\'emporte sur un identifiant partagé',
+    (f.arrivages.find(x=>x.id==='a1')||{}).valide,true);
+  v('et ce que seule la perdante avait est repris',f.arrivages.map(x=>x.id).sort(),['a1','a2']);
+}
+
+console.log('\nIdempotence et commutativité — la propriété qui fait qu\'une synchro converge');
+{ const socle=appareil(BASE); save(socle); const commun=copie(socle.getDb());
+  const A=appareil(commun), B=appareil(commun), C=appareil(commun);
+  A.getDb().boxes[0].stock.pA={u:1,ctn:0}; save(A); attendre();
+  B.getDb().boxes[0].stock.pB={u:2,ctn:0}; save(B); attendre();
+  C.getDb().boxes[0].stock.pC={u:3,ctn:0}; save(C);
+  const f1=A.fusionnerBases(A.getDb(),B.getDb(),false);
+  v('refusionner ne change plus rien',stockDe(A.fusionnerBases(f1,B.getDb(),false)),stockDe(f1));
+  v('ni une troisième fois, ni avec soi-même',stockDe(A.fusionnerBases(A.fusionnerBases(f1,B.getDb(),false),A.getDb(),false)),stockDe(f1));
+  const abc=A.fusionnerBases(A.fusionnerBases(A.getDb(),B.getDb(),false),C.getDb(),false);
+  const cba=A.fusionnerBases(A.fusionnerBases(C.getDb(),B.getDb(),false),A.getDb(),false);
+  const bca=A.fusionnerBases(A.fusionnerBases(B.getDb(),C.getDb(),false),A.getDb(),false);
+  v('A→B→C, C→B→A et B→C→A donnent le même stock',[stockDe(cba),stockDe(bca)],[stockDe(abc),stockDe(abc)]);
+  v('et les trois gestes tiennent',[stockDe(abc).pA.u,stockDe(abc).pB.u,stockDe(abc).pC.u],[1,2,3]);
+}
+
+console.log('\nDes marques abîmées font retomber sur l\'ancienne règle, jamais planter');
+{ /* N'importe qui peut aujourd'hui écrire dans le document d'équipe (voir REPRISE.md, la
+     règle Firestore) : une charge abîmée ne doit pas entrer dans la recomposition.
+     `typeof [] === 'object'` — d'où la garde explicite sur les tableaux. */
+  const g=appareil(BASE);
+  const bon={id:'bx1',stock:{pA:{u:1,ctn:0}},_ms:{pA:5}};
+  [['un tableau',[]],['une chaîne','x'],['nul',null],['absent',undefined]].forEach(([nom,abime])=>{
+    const mauvais={id:'bx1',stock:{pA:{u:9,ctn:0}}}; if(abime!==undefined) mauvais._ms=abime;
+    let a,b2; try{ a=g.boxFusionFine(bon,mauvais); }catch(e){ a='LEVÉ'; }
+    try{ b2=g.boxFusionFine(mauvais,bon); }catch(e){ b2='LEVÉ'; }
+    v('_ms '+nom+' : refusé proprement, dans les deux sens',[a,b2],[null,null]); });
+  let sansStock; try{ sansStock=g.boxFusionFine({id:'bx1',_ms:{pA:1}},{id:'bx1',_ms:{pA:2}}); }catch(e){ sansStock='LEVÉ'; }
+  v('une box sans stock ne lève pas',sansStock!=='LEVÉ',true);
+}
+
+console.log('\nCinq appareils, trois cents gestes, échanges dans le désordre');
+{ /* LE test de ce fichier. Une fusion peut être juste sur trois cas choisis et diverger sur
+     mille : ce qui compte, c'est que tous les appareils finissent sur le MÊME stock quel que
+     soit l'ordre des échanges. Horloge maîtrisée et tirage à graine fixe : le scénario est
+     rejoué à l'identique à chaque exécution. */
+  let horloge=1000000; const vraiNow=Date.now;
+  const sauverH=g=>{ horloge++; Date.now=()=>horloge; try{ g.estampiller(); } finally { Date.now=vraiNow; } };
+  const PRODS=['p1','p2','p3','p4','p5','p6','p7','p8'];
+  const dep={boxes:[{id:'bx1',nom:'Cuisine',actif:true,stock:{}},{id:'bx2',nom:'Réserve',actif:true,stock:{}}],
+    produits:PRODS.map(id=>({id,nom:id.toUpperCase()})),mouvements:[],_tombes:{}};
+  PRODS.forEach(p2=>{ dep.boxes[0].stock[p2]={u:20,ctn:0}; dep.boxes[1].stock[p2]={u:20,ctn:0}; });
+  const socle=appareil(dep); sauverH(socle); const commun=copie(socle.getDb());
+  const dev=[0,1,2,3,4].map(()=>appareil(commun));
+  let graine=42; const alea=()=>{ graine=(graine*1103515245+12345)&0x7fffffff; return graine/0x7fffffff; };
+  const pick=l=>l[Math.floor(alea()*l.length)];
+  let retraits=0, poses=0;
+  for(let tour=0;tour<300;tour++){
+    const g=pick(dev), bxId=pick(['bx1','bx2']), p2=pick(PRODS);
+    const b=g.getDb().boxes.find(x=>x.id===bxId);   // pick() DANS le find() serait retiré à chaque élément
+    b.stock=b.stock||{}; const r=alea();
+    if(r<0.15&&b.stock[p2]){ delete b.stock[p2]; retraits++; }
+    else if(r<0.25&&!b.stock[p2]){ b.stock[p2]={u:Math.floor(alea()*10),ctn:0}; poses++; }
+    else b.stock[p2]={u:Math.floor(alea()*30),ctn:Math.floor(alea()*3)};
+    sauverH(g);
+    if(tour%2===0){ const x=pick(dev), y=pick(dev); if(x!==y) x.setDb(x.fusionnerBases(x.getDb(),y.getDb(),alea()<0.5)); }
+  }
+  for(let k=0;k<2;k++) for(const x of dev) for(const y of dev) if(x!==y) x.setDb(x.fusionnerBases(x.getDb(),y.getDb(),false));
+  const vu=g=>JSON.stringify(['bx1','bx2'].map(id=>((g.getDb().boxes||[]).find(b=>b.id===id)||{}).stock||{}));
+  const ref=vu(dev[0]);
+  v('les cinq appareils convergent sur le même stock',dev.map(vu).every(t=>t===ref),true);
+  const st=['bx1','bx2'].map(id=>(dev[0].getDb().boxes.find(b=>b.id===id)||{}).stock||{});
+  v('aucun produit fantôme n\'est apparu',st.every(o=>Object.keys(o).every(p2=>PRODS.includes(p2))),true);
+  v('aucune quantité négative',st.some(o=>Object.values(o).some(x=>(x.u||0)<0||(x.ctn||0)<0)),false);
+  v('les marques restent bornées',dev[0].getDb().boxes.every(b=>Object.keys(b._ms||{}).length<=PRODS.length*2),true);
+  console.log('   ('+retraits+' retraits et '+poses+' poses parmi 300 gestes, 2 box, 8 produits)');
+}
+
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);
