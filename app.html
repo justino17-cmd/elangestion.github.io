@@ -4837,7 +4837,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '635';
+const APP_VERSION = '636';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5974,7 +5974,44 @@ function migrate(d){
         const c=rangerCatFour(p.categorie,p.nom); if(c) p.categorie=c; });
     }
   }catch(e){}
+  catalogueCompleter(d);
   return d;
+}
+/* ══ LE PACK SE MET À JOUR TOUT SEUL, MAIS SEULEMENT LÀ OÙ IL VIT DÉJÀ ══
+   Justin, 10 septembre 2026, devant une box d'ELAN toujours à 111 : « j'aurais voulu que ça soit
+   poussé automatiquement dans les Box et que ce soit nous qui les poussons ». C'était possible sans
+   rien imposer à personne, parce que la question n'est pas la même selon l'entreprise :
+
+   — une entreprise qui n'a JAMAIS eu le pack — une société de nettoyage, un nouveau venu — ne doit
+     rien recevoir. C'est la décision du 8 septembre (« quand quelqu'un prend OP GESTION, tout est
+     vide »), et PACK_METIER_AUTO=false continue de la porter : rien ici ne la contredit.
+   — une entreprise qui TRAVAILLE DÉJÀ avec le pack a dit oui une fois. Lui livrer les références
+     qu'on ajoute ensuite, c'est tenir à jour ce qu'elle utilise, pas lui imposer quoi que ce soit.
+     Sans ça, chaque ajout au pack attendait qu'un administrateur pense à toucher « ↻ Catalogue OP »
+     — et personne ne pense à toucher un bouton dont il ignore qu'il a quelque chose de neuf.
+
+   La garde est donc la MÊME que celle du bouton (catalogueEnPlace) : au moins cinq fiches du pack
+   déjà en place. En dessous, ce ne sont plus les restes d'un catalogue mais des saisies qui portent
+   le même nom, et on ne pose rien.
+
+   Deux dates, deux rôles, et il ne faut pas les confondre :
+   · cree = maintenant → les fiches sont des NOUVEAUTÉS, donc le « +N » sur les box, la cloche, et
+     l'entrée automatique dans les box à leur prochaine ouverture. C'est la demande.
+   · _m = 1 → la fiche est datée d'avant tout pour la FUSION. Une fiche qu'une équipe a supprimée
+     exprès a sa pierre tombale, et la tombe gagne (t >= _m). Supprimé reste supprimé. */
+function catalogueCompleter(d){
+  try{
+    if(!d||!Array.isArray(d.produits)) return 0;
+    const pack=metierPackDe(d).catalogue; if(!pack||!pack.length) return 0;
+    if(d.produits.length<5) return 0;
+    const ici=new Set(d.produits.map(produitCle));
+    let deja=0; for(const c of pack){ if(ici.has(produitCle({nom:c[0]}))&&++deja>=5) break; }
+    if(deja<5) return 0;   // le pack n'est pas en place ici : ce n'est pas à nous de l'y mettre
+    const r=cataloguePoser(d,{ancien:true,naissance:Date.now()});
+    if(r.produits) try{ (d.journal=d.journal||[]).unshift({id:uid(),ts:Date.now(),type:'stock',
+      action:'Catalogue OP mis à jour',detail:r.produits+' nouvelle(s) référence(s) ajoutée(s) au catalogue de l\'entreprise',auteur:'OP GESTION'}); }catch(e){}
+    return r.produits;
+  }catch(e){ return 0; }
 }
 function save(){ try{ estampiller(); }catch(e){} try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catch(e){ try{ toast('Stockage plein — réduis le nombre/poids des photos'); }catch(_){} } refreshBadges(); updateBell(); if(typeof syncPush==='function') syncPush(); if(typeof annuaireVeille==='function') annuaireVeille(); }
 
@@ -16230,6 +16267,11 @@ function cataloguePoser(cible,opts){
   const vus=new Set(cible.produits.map(produitCle));
   const ids=new Set(cible.produits.map(p=>p&&p.id));
   const date=(opts&&opts.ancien)?{_m:1}:{};
+  /* opts.naissance : la date de création à porter sur les fiches posées. 0 par défaut — un semis
+     n'est « nouveau » pour personne. La mise à jour du pack, elle, les date de maintenant : c'est
+     exactement ce qui les rend visibles comme nouveautés et les fait entrer dans les box toutes
+     seules (produitsRecents → boxNouveautes → boxAutoNouveautes). */
+  const naissance=(opts&&+opts.naissance)||0;
   let np=0;
   /* Ici l'identifiant DOIT rester déduit du nom (c'est ce qui rend « ↻ Catalogue OP » rejouable sans
      refabriquer de doublons), donc pas d'idProduit. La garde tient parce que CATALOGUE est une
@@ -16237,7 +16279,7 @@ function cataloguePoser(cible,opts){
      est écrit ci-dessous plutôt que supposé — un nom qui slugue à rien est sauté. */
   const pack=metierPackDe(cible);
   (pack.catalogue||[]).forEach(c=>{ const nom=(c[0]||'').trim(); const cle=produitCle({nom}); if(!nom||!slugNom(nom))return; const id=idCatalogue(nom); if(vus.has(cle)||ids.has(id))return;
-    cible.produits.push({id:idCatalogue(nom),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0,cree:0,...date});
+    cible.produits.push({id:idCatalogue(nom),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0,cree:naissance,...date});
     vus.add(cle); ids.add(id); np++; });
   const vusF=new Set(cible.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
   let nf=0;
@@ -16270,7 +16312,9 @@ function restoreCatalogue(){
   /* Deuxième verrou, et il n'est pas décoratif : la fonction est globale, donc appelable
      depuis la console d'un navigateur même quand le bouton n'est pas rendu. */
   if(!catalogueEnPlace()){ try{ toast('Catalogue non disponible pour ce métier — ajoute tes produits avec ＋ Produit'); }catch(e){} return; }
-  const n=cataloguePoser(db);
+  /* Datées de maintenant, comme la mise à jour automatique : une fiche qu'on vient de récupérer doit
+     revenir dans les box, pas dormir au catalogue en attendant qu'on l'y remette une par une. */
+  const n=cataloguePoser(db,{naissance:Date.now()});
   save(); views.produits();
   toast(n.produits||n.fournisseurs?`${n.produits} produit(s) et ${n.fournisseurs} fournisseur(s) ajouté(s)`:'Le catalogue est déjà complet');
 }
