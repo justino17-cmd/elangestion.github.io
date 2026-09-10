@@ -127,6 +127,40 @@ produits effaçaient tout l'historique de l'entreprise en un passage. Et le filt
 dans `delItem` s'exécutait AVANT le `confirm()` : annuler la suppression d'une box perdait quand même
 ses écartés, que le premier `save()` propageait à toute l'équipe.
 
+### v637 — rejoindre un espace déversait des données de démonstration chez le client
+
+**Trouvé en cherchant pourquoi ELAN voyait « 110 produits en double ».** Le bandeau disait vrai : les
+doublons étaient ceux du matin, au CATALOGUE (271 fiches), jamais fusionnés — pas dans la box, qui en
+montre 161 parce qu'elle affiche un nom une seule fois. Reproduit à l'unité près, et un seul scénario
+donne les deux nombres de la capture. La synchro du pack est hors de cause : rejouée trois fois sur
+une base saine, 160 fiches et zéro doublon ; sur 400 bases tirées au sort, jamais un groupe de plus.
+
+**Mais la chasse a trouvé autre chose, et c'était vivant.** Un appareil DÉJÀ UTILISÉ qui rejoint un
+espace (lien de connexion ou Code espace) retirait `STORE_KEY` mais pas `elan_vierge_v1`. Or le
+vidage des collections de démonstration n'a lieu **qu'une fois dans la vie de l'appareil**. Le semis
+survivait donc au rechargement, et la première synchro — qui est une UNION — le répandait dans toute
+l'entreprise.
+
+Mesuré en navigateur par le vrai `teamopJoin`, avant puis après :
+
+| | avant | après |
+|---|---|---|
+| produits injectés | 160 | 0 |
+| box de démonstration | « Cuisine — Restaurant Le Gourmet », « Réserve — Boulangerie Au Bon Pain » | aucune |
+| devis · factures · fournisseurs | 2 · 2 · 5 | 0 · 0 · 0 |
+| base du client après fusion | 220 → **380 fiches, 110 noms en TRIPLE** | 220, aucun triplet |
+
+Retirer le drapeau à cet endroit est sans danger, et c'est le seul endroit où ça l'est : on vient de
+supprimer la base, donc le vidage vide le semis et jamais des données.
+
+**Second défaut, du même rapport** : `cataloguePackSync` posait `_m:1` puis appelait `save()`, et
+`estampiller()` date de maintenant tout enregistrement absent de l'ombre — le `_m:1` était écrasé.
+Le commentaire promettait donc une protection qui n'existait pas. Corrigé en disant la vérité plutôt
+qu'en forçant la date : même en la faisant tenir, la fiche serait retirée à la fusion puis recomptée
+au chargement suivant, et la bulle reproposerait éternellement les mêmes fiches. **Ce qui légitime le
+retour d'une fiche écartée, ce n'est pas une date, c'est que quelqu'un a lu le nombre et touché
+« Synchroniser ».**
+
 ### v636 — les nouveautés du pack arrivent avec une bulle, jamais en douce
 
 **L'idée est de Justin**, et elle est meilleure que la mienne. J'avais écrit la mise à jour du pack
