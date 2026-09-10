@@ -58,4 +58,23 @@ console.log('Les étiquettes des fournisseurs sont traduites, jamais recopiées'
   v('une formation ne rentre pas au stock',g.rangerCatFour('Formation traitement des termites','Formation termites'),'');
   v('le pack 3D est rangé comme la table range',g.CATALOGUE===undefined||true,true); }
 
+console.log('L\'ORDRE DU FICHIER : tout ce que migrate() appelle est déclaré avant « let db = load() »');
+{ /* Le piège qui a coûté une relecture : une const référencée avant sa ligne de déclaration lève
+     ReferenceError (zone morte temporelle), et le try/catch de migrate l'avalait en silence — plus
+     aucun produit n'était rangé à l'ouverture, sans erreur visible. Les suites ne l'attrapaient pas :
+     elles rebâtissent leur propre bundle dans un ordre choisi à la main. Ce test-ci lit le fichier
+     RÉEL, dans son ordre réel. */
+  const lig=APP.split('\n'); const ligneDe=m=>lig.findIndex(l=>l.startsWith(m))+1;
+  const load=ligneDe('let db = load();');
+  v('« let db = load() » existe',load>0,true);
+  ['const CAT_LIST=','function catFourNorm(s){','const CAT_FOUR_REJET=','const CAT_FOUR_NOM=','const CAT_FOUR_NOM_FAIBLE=','const CAT_FOUR_MAP=','const CAT_DEVINE=','function devineCat(nom){','function rangerCatFour(catFournisseur,nomProduit){','const CATFOUR=']
+    .forEach(m=>{ const n=ligneDe(m); v(m.replace(/[={(].*$/,'').trim()+' est déclarée avant le chargement',n>0&&n<load,true); });
+  /* et la garde qui dit pourquoi, pour que personne ne les redescende sans le savoir */
+  v('la raison est écrite à côté',/zone morte temporelle/.test(APP),true); }
+
+console.log('Le formulaire d\'une box ne peut plus écarter ce qu\'il n\'a jamais vu');
+{ v('le départ est mémorisé à l\'ouverture',/boxFormStockDepart *= *Object\.keys\(boxFormStock\)/.test(APP),true);
+  v('les « partis » se calculent sur le départ, pas sur le stock frais',/const partis=boxFormStockDepart\.filter/.test(APP),true);
+  v('une fiche arrivée entre-temps est remise au lieu d\'être écrasée',/if\(!boxFormStock\[pid\]&&boxFormStockDepart\.indexOf\(pid\)<0\) obj\.stock\[pid\]=frais\[pid\]/.test(APP),true); }
+
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);
