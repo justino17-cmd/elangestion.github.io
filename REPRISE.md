@@ -66,6 +66,51 @@ Un détail mesuré et corrigé au passage : la demande de jeton bloquait **huit 
 l'API ne répond pas — huit secondes avant le premier échange, sur un téléphone en bord de
 réseau. Ramené à quatre, comme la course d'authentification voisine.
 
+### Ce que `gardien` a trouvé, et qui change la nature du chantier
+
+Six constats, tous corrigés. Trois valent d'être retenus parce qu'ils auraient fait exactement
+l'inverse de ce qu'on cherche :
+
+1. **La garde jugeait un espace sur son NOM, pas sur sa clé.** `ESPACES_INTOUCHABLES` refuse
+   l'espace de repli par son identifiant — mais des entreprises ont leur **propre** espace tout
+   en portant encore la clé partagée. Leur empreinte se calcule depuis le fichier public : elles
+   auraient reçu un vrai jeton, et la règle une fois fermée se serait refermée sur tout le monde
+   **sauf sur la population la plus exposée**. Il y a maintenant un refus sur la VALEUR de la
+   clé (`cleEstPublique`, 409), et une seule définition de « encore sur la clé partagée » dans
+   tout le serveur — le compteur de la Tour et la porte disaient sinon deux choses différentes.
+2. **Le plafond d'appels se comptait AVANT la preuve.** C'était une arme : 120 requêtes avec le
+   `t` d'une entreprise et n'importe quelle empreinte bien formée, et tous ses appareils prenaient
+   429 pour une heure — donc, la règle une fois fermée, **l'entreprise perdait l'accès à ses
+   propres données**, indéfiniment répétable. Le vidage de la table aussi : 5 001 identifiants
+   inventés remettaient tous les compteurs à zéro. Vérifié après correction : 100 fausses preuves
+   contre une entreprise ne consomment plus son quota, son vrai appareil obtient son jeton.
+3. **Un appareil passé par le portail client n'aurait JAMAIS demandé de jeton.** `espace.html`
+   déclare le même projet Firebase sur la même origine : la session était **partagée** avec
+   l'application. Un patron qui règle son abonnement puis ouvre OP GESTION arrivait avec son
+   compte e-mail — ni anonyme, ni porteur du jeton — et le code passait à côté. Sans effet
+   aujourd'hui ; la règle une fois fermée, Firestore aurait tout refusé et l'application aurait
+   travaillé en local toute la session **sans le dire**. OP GESTION a désormais sa propre
+   application Firebase nommée : chaque page sa session, aucune ne dérange l'autre.
+
+Et deux choses écrites noir sur blanc plutôt que corrigées, parce qu'elles se décident :
+
+- **La règle future avait perdu `versionOk()`** dans sa première rédaction — donc rouvrait la
+  porte de version, très exactement « ce qui a détruit les comptes d'ELAN ». Rétabli, et le
+  piège est signalé dans `firestore.rules` pour qui recopiera le bloc.
+- **Un jeton d'une heure n'est pas un accès d'une heure.** Firebase l'échange contre une session
+  renouvelable indéfiniment : après un seul échange, l'appareil ne repasse plus jamais par le
+  serveur. Donc fermer une entreprise depuis la Tour **ne coupe pas** son Firestore sur les
+  appareils déjà pourvus, changer la clé d'équipe ne révoque rien, et l'identifiant étant commun
+  à toute l'entreprise, on ne peut pas couper un seul appareil. Ce n'est pas une régression —
+  aujourd'hui l'anonyme donne tout à tout le monde — mais c'est un levier qu'on n'a pas et qu'on
+  pourrait croire acquis. Le fermer demande un identifiant par appareil et une durée de vie
+  effective plus courte : à traiter seul.
+
+Enfin, `espaceQuitter()` emporte maintenant **la session Firebase**. C'est le secret le plus
+vivant de tous, et il ne vit pas dans `localStorage` : sans ce retrait, un appareil qu'on rend
+ou dont la Tour ferme l'espace gardait un accès lecture **et écriture** valide et renouvelable
+sur le document de l'entreprise qu'il venait de quitter.
+
 ---
 
 ## v639 — « il faut que personne n'écrase rien »

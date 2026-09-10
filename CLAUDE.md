@@ -49,7 +49,7 @@ node --check server/index.js       # contrôle de syntaxe, depuis la racine
 réelles d'`app.html` et les exécute — elles testent donc le fichier livré.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 387 vérifications, ~5 s
+for f in tests/test-*.js; do node "$f"; done   # 398 vérifications, ~5 s
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche

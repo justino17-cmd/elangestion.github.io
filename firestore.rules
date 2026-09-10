@@ -81,10 +81,21 @@ service cloud.firestore {
     // bloc ci-dessous par :
     //
     //     match /elan_teams/{teamId} {
-    //       allow read, write: if request.auth != null && request.auth.token.t == teamId;
+    //       allow read:  if request.auth != null && request.auth.token.get('t', '') == teamId;
+    //       allow write: if request.auth != null && request.auth.token.get('t', '') == teamId
+    //                       && versionOk();
     //     }
     //
-    // ⚠️ DEUX CONDITIONS AVANT DE PUBLIER CETTE LIGNE, chacune payante si on l'oublie :
+    // ⚠️ NE PAS PERDRE versionOk() EN CHEMIN. Une première rédaction de ce bloc l'avait laissé
+    // tomber — donc rouvrait la porte de version, c'est-à-dire très exactement « ce qui a
+    // détruit les comptes d'ELAN » décrit lignes 45-54 : un appareil resté en vieille version
+    // réécrit toute la base de l'entreprise avec sa copie périmée. Le paradoxe serait complet,
+    // puisque la condition n°1 ci-dessous s'appuie sur ce même verrou pour orchestrer la
+    // migration. Et `token.get('t','')` plutôt que `token.t` : une session sans ce claim (un
+    // compte du portail client, voir espace.html) ferait autrement échouer la règle au lieu de
+    // simplement refuser.
+    //
+    // ⚠️ TROIS CONDITIONS AVANT DE PUBLIER CETTE LIGNE, chacune payante si on l'oublie :
     //  1. Tous les appareils doivent présenter le jeton. Publier avant ferme la porte aux
     //     retardataires — qui perdent alors l'accès aux données de LEUR PROPRE entreprise.
     //     La Tour de contrôle sait exiger une version : c'est le même geste, dans le même
@@ -93,6 +104,27 @@ service cloud.firestore {
     //     clé est écrite en clair dans app.html, une preuve venant de lui ne prouve rien.
     //     Les entreprises qui y vivent encore doivent d'abord déménager dans leur propre
     //     espace, avec leur propre clé — sans quoi cette règle les coupe toutes.
+    //  3. LES ENTREPRISES QUI ONT LEUR PROPRE ESPACE MAIS ENCORE LA CLÉ PARTAGÉE. C'est le
+    //     compteur « à migrer (clé partagée) » de la Tour de contrôle, et il doit être à ZÉRO.
+    //     Leur empreinte de clé se calcule depuis le fichier public : sans le refus posé
+    //     côté serveur (cleEstPublique), elles recevraient un vrai jeton — et la porte se
+    //     refermerait sur tout le monde SAUF sur la population la plus exposée. Avec le refus,
+    //     elles n'ont pas de jeton du tout : publier cette règle avant de les avoir déménagées
+    //     les coupe de leurs données. Dans les deux sens, le déménagement passe d'abord.
+    //
+    // ⚠️ CE QUE CETTE RÈGLE NE DONNE PAS, et qu'on pourrait croire acquis. Un jeton d'équipe
+    // vaut une heure, mais l'ACCÈS qu'il ouvre ne s'arrête pas au bout d'une heure : Firebase
+    // l'échange contre une session renouvelable indéfiniment, rangée sur l'appareil. Après un
+    // seul échange réussi, l'appareil ne repasse plus jamais par le serveur. Donc :
+    //   • fermer une entreprise depuis la Tour ne coupe PAS son Firestore sur les appareils
+    //     déjà pourvus (le refus « espace fermé » ne les rejoint jamais) ;
+    //   • changer la clé d'équipe ne révoque rien ;
+    //   • l'identifiant étant commun à toute l'entreprise, on ne peut pas couper UN appareil :
+    //     révoquer coupe toute l'entreprise d'un coup.
+    // Ce n'est pas une régression — aujourd'hui l'anonyme donne tout, à tout le monde. Mais
+    // c'est un levier qu'on n'a pas, et il faut le savoir avant d'en avoir besoin. Le fermer
+    // demanderait un identifiant par APPAREIL et une durée de vie effective plus courte
+    // (redemander un jeton périodiquement) : à traiter à part, pas au milieu d'autre chose.
     match /elan_teams/{teamId} {
       allow read:   if connecte();
       allow write:  if connecte() && versionOk();

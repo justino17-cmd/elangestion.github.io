@@ -67,7 +67,28 @@ console.log('\nLa route ne délivre rien sans preuve, et jamais pour le repli');
      d'espace, corrigées le même jour. */
   v('elle réutilise la garde des copies, elle n\'en écrit pas une seconde',
     /const refus = sauvRefus\(t, kh, 'jeton'\);/.test(route),true);
+  /* ⛔ LE PLAFOND SE COMPTE APRÈS LA PREUVE. Compté avant, il devenait une arme : 120 requêtes
+     avec le `t` d'une entreprise et n'importe quelle empreinte bien formée, et tous ses
+     appareils prennent 429 pour une heure — la règle une fois fermée, l'entreprise perdrait
+     l'accès à ses propres données, indéfiniment répétable. Et le vidage de la table aussi :
+     5001 identifiants inventés remettaient tous les compteurs à zéro. Trouvé par `gardien`. */
   v('elle est plafonnée en nombre d\'appels',/quotaOk\(jetonQuota/.test(route),true);
+  v('…et le plafond se compte APRÈS la preuve de clé, jamais avant',
+    route.indexOf('quotaOk(jetonQuota')>route.indexOf('sauvRefus(t, kh'),true);
+  v('…le vidage de la table aussi',
+    route.indexOf('jetonQuota = new Map()')>route.indexOf('sauvRefus(t, kh'),true);
+  /* ⛔ Une clé PUBLIQUE n'est pas une preuve. `sauvRefus` refuse l'espace de repli par son NOM ;
+     des entreprises ont leur propre identifiant d'espace tout en portant encore la clé écrite
+     en clair dans app.html. Sans ce refus, elles recevraient un vrai jeton — et la règle une
+     fois fermée se refermerait sur tout le monde SAUF sur la population la plus exposée. */
+  v('elle refuse un espace encore sur la clé PARTAGÉE, pas seulement l\'espace de repli',
+    /if \(cleEstPublique\(t\)\) return res\.status\(409\)/.test(route),true);
+  const pub=(SRV.match(/function cleEstPublique\(t\) \{[\s\S]*?\n\}/)||[''])[0];
+  v('cleEstPublique compare la VALEUR de la clé, et ne la rend jamais',
+    [/=== CLE_PAR_DEFAUT/.test(pub),/return (true|false)/.test(pub),!/return .*\bk\b\s*;/.test(pub)],[true,true,true]);
+  v('une seule définition de « encore sur la clé partagée » dans tout le serveur',
+    (SRV.match(/CLE_PAR_DEFAUT = '/g)||[]).length,1);
+  v('un jeton ne se met en cache nulle part en chemin',/Cache-Control', 'no-store'/.test(route),true);
   v('sans clé d\'administration, elle le dit au lieu de fabriquer n\'importe quoi',
     /firebase_off/.test(route),true);
   v('elle n\'écrit JAMAIS l\'identifiant d\'entreprise dans les journaux',
@@ -87,23 +108,52 @@ console.log('\nCôté application : le jeton s\'essaie, mais rien ne casse s\'il
   v('elle ne reste pas suspendue si le serveur ne répond pas',/AbortController/.test(jet),true);
 
   const auth=(APP.match(/async function syncAuth\(\)\{[\s\S]*?\n\}catch\(e\)\{ try\{ console\.warn\('auth sync/)||[''])[0];
-  v('une session ANONYME DÉJÀ EN PLACE tente aussi le jeton',/if\(!u \|\| u\.isAnonymous\)\{/.test(auth),true);
+  /* ⛔ ON JUGE SUR LE CLAIM, PAS SUR L'ANONYMAT. `espace.html` (le portail client) déclare le
+     même projet Firebase sur la même origine : sa session était PARTAGÉE avec l'application.
+     Un patron qui règle son abonnement puis ouvre OP GESTION arrivait donc ici avec un compte
+     e-mail — ni anonyme, ni porteur du jeton — et le bloc était sauté : cet appareil n'aurait
+     JAMAIS demandé de jeton, et se serait retrouvé muet le jour où la règle l'exige.
+     Trouvé par `gardien`. La vraie question est « cette session vaut-elle pour l'entreprise
+     qu'on a sous les yeux ? », et l'isolement des deux pages se fait par une application
+     Firebase NOMMÉE — la persistance étant rangée par nom d'application. */
+  v('l\'application Firestore d\'OP GESTION est NOMMÉE, séparée du portail client',
+    /firebase\.initializeApp\(cfg,'opgestion'\)/.test(APP),true);
+  v('plus aucun firebase.auth() global : tout passe par cette application',
+    (APP.match(/firebase\.auth\(\)/g)||[]).length,0);
+  v('la décision porte sur le claim, pas sur l\'anonymat',/if\(!cl\)\{/.test(auth),true);
   v('si le jeton échoue, on garde ou on ouvre une session anonyme — la synchro ne s\'arrête pas',
-    /if\(!firebase\.auth\(\)\.currentUser\) await firebase\.auth\(\)\.signInAnonymously\(\);/.test(auth),true);
+    /if\(!A\.auth\(\)\.currentUser\) await A\.auth\(\)\.signInAnonymously\(\);/.test(auth),true);
   v('un jeton d\'une AUTRE entreprise fait déconnecter',
-    /if\(cl && cl!==tIci\)\{ try\{ await firebase\.auth\(\)\.signOut\(\); \}/.test(auth),true);
-  v('le jeton n\'est demandé que si la session ne vaut pas déjà',
-    auth.indexOf('fbJetonEquipe()')>auth.indexOf('u.isAnonymous'),true);
+    /if\(cl && cl!==tIci\)\{ try\{ await A\.auth\(\)\.signOut\(\); \}/.test(auth),true);
+  v('le jeton n\'est demandé qu\'après avoir constaté que la session ne vaut pas',
+    auth.indexOf('fbJetonEquipe()')>auth.indexOf('if(!cl)'),true);
+  /* La session Firebase est le secret le plus VIVANT : elle se renouvelle indéfiniment toute
+     seule. Un appareil qu'on rend ou dont la Tour ferme l'espace la garderait sinon. */
+  const quitter=(APP.match(/function espaceQuitter\(\)\{[\s\S]*?\n\}/)||[''])[0];
+  v('quitter un espace emporte AUSSI la session Firebase',
+    /name==='opgestion'\)\[0\]; if\(a&&a\.auth\) a\.auth\(\)\.signOut\(\)/.test(quitter),true);
 }
 
 console.log('\nLa règle Firestore n\'a PAS changé — et c\'est l\'ordre qui protège');
 { v('la règle publiée est toujours la permissive',
     /allow read:\s+if connecte\(\);\s*\n\s*allow write:\s+if connecte\(\) && versionOk\(\);/.test(RULES),true);
   v('la règle future est écrite noir sur blanc, prête à coller',
-    /request\.auth\.token\.t == teamId/.test(RULES),true);
-  v('les deux conditions avant de la publier sont écrites',
-    [/Tous les appareils doivent présenter le jeton/.test(RULES),/espace de REPLI/.test(RULES)],[true,true]);
+    /request\.auth\.token\.get\('t', ''\) == teamId/.test(RULES),true);
+  /* ⛔ Une première rédaction de ce bloc avait laissé tomber versionOk() — donc rouvrait la
+     porte de version, très exactement « ce qui a détruit les comptes d'ELAN ». Trouvé par
+     `gardien`. Le paradoxe aurait été complet : la condition n°1 s'appuie sur ce verrou pour
+     orchestrer la migration. */
+  v('elle GARDE versionOk() sur l\'écriture',/== teamId\s*\n\s*\/\/\s*&& versionOk\(\);/.test(RULES),true);
+  v('les TROIS conditions avant de la publier sont écrites',
+    [/Tous les appareils doivent présenter le jeton/.test(RULES),/espace de REPLI/.test(RULES),
+     /ENCORE LA CLÉ PARTAGÉE/.test(RULES)],[true,true,true]);
   v('et le danger de l\'inverse aussi',/perdent alors l'accès aux données de LEUR PROPRE entreprise/.test(RULES),true);
+  /* Un jeton d'une heure n'est pas un accès d'une heure : Firebase l'échange contre une
+     session renouvelable indéfiniment. Fermer une entreprise depuis la Tour ne coupe donc
+     pas son Firestore sur un appareil déjà pourvu. Ce n'est pas une régression, mais c'est
+     un levier qu'on n'a pas — et qu'on pourrait croire acquis. */
+  v('ce que la règle NE donne pas est écrit aussi',
+    [/ne s'arrête pas au bout d'une heure/.test(RULES),/ne coupe PAS son Firestore/.test(RULES)],[true,true]);
 }
 
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);
