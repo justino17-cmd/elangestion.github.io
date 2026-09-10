@@ -95,8 +95,8 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
 - Ne pas écrire de données personnelles de clients dans les journaux
 - **Ne jamais faire `db.produits.push(…)`** : une fiche produit naît par `produitCreer(fiche,{semis,push})`
   (`app.html`), qui pose `cree`/`creePar` — c'est ce qui fait apparaître le « +N » sur les box et la cloche.
-  Un semis (catalogue, démo, bêta) passe `semis:true` (vaut 0, jamais « nouveau »). `grep -c 'db.produits.push'`
-  doit rester à 1. Même esprit : les décisions d'une box (`db.boxDecisions`) et les paires déclarées
+  Un semis (catalogue, démo, bêta) passe `semis:true` (vaut 0, jamais « nouveau »). Une seule LIGNE DE CODE
+  doit appeler `db.produits.push` — `grep -c` en compte deux, la seconde étant le commentaire qui le dit. Même esprit : les décisions d'une box (`db.boxDecisions`) et les paires déclarées
   distinctes (`db.produitsDistincts`) sont des collections à part, fusionnées par enregistrement — ne pas
   les ranger sur la box ni sur la fiche produit, la fusion en bloc écraserait le stock ajusté ailleurs.
 - **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante
