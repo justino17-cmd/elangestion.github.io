@@ -73,8 +73,19 @@ console.log('L\'ORDRE DU FICHIER : tout ce que migrate() appelle est déclaré a
   v('la raison est écrite à côté',/zone morte temporelle/.test(APP),true); }
 
 console.log('Le formulaire d\'une box ne peut plus écarter ce qu\'il n\'a jamais vu');
-{ v('le départ est mémorisé à l\'ouverture',/boxFormStockDepart *= *Object\.keys\(boxFormStock\)/.test(APP),true);
-  v('les « partis » se calculent sur le départ, pas sur le stock frais',/const partis=boxFormStockDepart\.filter/.test(APP),true);
-  v('une fiche arrivée entre-temps est remise au lieu d\'être écrasée',/if\(!boxFormStock\[pid\]&&boxFormStockDepart\.indexOf\(pid\)<0\) obj\.stock\[pid\]=frais\[pid\]/.test(APP),true); }
+/* v638 — l'invariant s'est durci et son écriture a changé. Ce que la v635 vérifiait (une
+   fiche ARRIVÉE pendant que la fenêtre était ouverte n'est pas écrasée) ne couvrait pas les
+   QUANTITÉS des fiches déjà là : le formulaire les rembobinait à l'instantané pris à son
+   ouverture, avec un _m neuf, donc gagnantes partout. Trois clous, désormais. */
+{ v('le départ mémorise les VALEURS, pas seulement les clés',/boxFormStockDepart *= *JSON\.parse\(JSON\.stringify\(boxFormStock\)\)/.test(APP),true);
+  v('saveBox part du stock VIVANT, jamais de l\'instantané du formulaire',
+    /const stock=\{\}; Object\.keys\(vivant\)\.forEach\(pid=>\{ stock\[pid\]=vivant\[pid\]; \}\)/.test(APP),true);
+  v('seule une fiche ajoutée ou une quantité retapée s\'applique par-dessus',
+    /if\(!av\|\|\(av\.u\|\|0\)!==\(ap\.u\|\|0\)\|\|\(av\.ctn\|\|0\)!==\(ap\.ctn\|\|0\)\) stock\[pid\]=ap;/.test(APP),true);
+  v('un produit qui a du stock ne part pas d\'un décochage — la croix ✕',/onclick="bfcRetirerUn\('\$\{pid\}'\)"/.test(APP),true);
+  v('…ni la case du catalogue',/function toggleBfc\(pid\)\{ if\(boxFormStock\[pid\]\)\{ if\(!bfcRetirable\(pid\)\) return;/.test(APP),true);
+  v('…ni « Tout retirer »',/if\(\(\+st\.u\|\|0\)\|\|\(\+st\.ctn\|\|0\)\)\{ bloques\+\+; return; \}/.test(APP),true);
+  v('et saveBox garde une seconde garde, au cas où la synchro remplisse entre-temps',
+    /if\(\(\+s\.u\|\|0\)>0\|\|\(\+s\.ctn\|\|0\)>0\)\{ gardes\.push/.test(APP),true); }
 
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);

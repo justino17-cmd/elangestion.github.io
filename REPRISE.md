@@ -13,6 +13,213 @@ de ligne du tout.
 
 ---
 
+## v639 — « il faut que personne n'écrase rien »
+
+Demande de Justin, 10 septembre au soir, après avoir vu le bandeau des doublons persister sur
+le compte ELAN : « je pense qu'il faudrait une synchronisation par utilisateur pour garantir
+une utilisation à 100 % sans qu'une personne écrase ou casse quoi que ce soit ».
+
+Le diagnostic est le sien et il est juste. **Une box est UN enregistrement pour la synchro.**
+Alexis change le stock de l'ADVION, Justin celui du DEBUSK, dans la MÊME box : les deux
+appareils tamponnent la box entière (`_m`), et à la fusion le plus récent l'emporte **en bloc**.
+Le travail de l'autre disparaît, sans message, sans pierre tombale — rien ne le détecte, jamais.
+Les correctifs de la v638 avaient supprimé les deux chemins qui rendaient ça *fréquent* (ouvrir
+une box écrivait partout, le formulaire rembobinait) ; la maille elle-même restait trop grosse.
+
+**La cure : descendre d'un cran.** Chaque LIGNE de stock porte sa date (`_ms[produit]`), retraits
+compris, et la fusion recompose le stock ligne à ligne. C'est exactement le couple `_m` / pierre
+tombale, appliqué à l'intérieur d'une box. Les listes internes (`arrivages`, `passages`)
+s'ajoutent par identifiant au lieu de s'écraser.
+
+Mesuré au navigateur sur le fichier bâti, deux appareils, la même box :
+
+| | ADVION | DEBUSK | ALTA |
+|---|---|---|---|
+| appareil A seul (sort 10 ADVION) | **30** | 12 | 5 |
+| appareil B seul (sort 10 DEBUSK) | 40 | **2** | 5 |
+| après fusion, chez A | **30** | **2** | 5 |
+| après fusion, chez B | **30** | **2** | 5 |
+
+Réservé aux box, et c'est délibéré : partout ailleurs, deux personnes qui touchent le même champ
+du même enregistrement est un **vrai** conflit, et le plus récent gagne — c'est le modèle, il est
+juste. Pendant le déploiement, un appareil resté en v638 n'a pas de marques : `boxFusionFine` se
+retire alors proprement et l'ancienne règle s'applique, plutôt que de deviner. **Exiger la v639
+depuis la Tour est donc ce qui rend la maille fine active partout.**
+
+### Les numéros de documents — un correctif qui n'en était pas un
+
+`relecteur` a bloqué la v638 sur ce point, et il avait raison. `intNum()` cherchait le plus grand
+numéro « archive comprise » — mais `intArchive()` reconstruit l'objet à la main et **ne gardait
+pas `num`**. Le bug mesuré (INT-2026-010 émis trois fois après des annulations) était entier, et
+**mon test le déclarait vert** parce qu'il simulait l'archivage en gardant le champ.
+
+Deux leçons versées dans `tests/LISEZMOI.md`, parce qu'elles se reproduiront :
+
+1. **Ne jamais tester un substitut de ce que le code produit.** Un état de départ se fabrique
+   avec la fonction réelle qui le fabrique en production, jamais à la main.
+2. **Extraire une fonction ENTIÈRE, pas son premier morceau qui compile.** L'extracteur des
+   suites rendait le plus COURT préfixe qui passe `new Function` : sur `ombreRelever`, il coupait
+   avant la ligne qui construit l'ombre des lignes de stock, et six vérifications échouaient sur
+   du code pourtant juste. Audit fait sur les douze suites : **seule la nouvelle était touchée.**
+
+Le correctif, lui, va plus loin que ce que le relecteur demandait : l'archive est **aussi
+plafonnée à 500**, donc même avec le numéro conservé, un numéro ancien finit par sortir de la
+mémoire. Il y a désormais un **plafond qui ne redescend jamais** (`db.numMax`), relevé à chaque
+enregistrement sur ce que la base contient vraiment, et **réuni par le MAXIMUM** à la fusion —
+jamais par « le plus récent gagne », qui laisserait un appareil en retard rendre un numéro déjà
+utilisé.
+
+### La suite possible, si Justin la veut
+
+La maille fine règle le cas mesuré. Le cran d'après serait **un document Firestore par appareil**
+plutôt qu'un seul par entreprise : personne ne pourrait alors structurellement écrire par-dessus
+personne, puisque chaque appareil n'écrirait que le sien, et la lecture serait leur union. C'est
+la lecture littérale de « synchronisation par utilisateur ». Ça change la disposition des données
+dans le nuage (migration de toutes les entreprises) et demande de nouvelles règles Firestore —
+donc ça se conçoit, se teste et se publie **seul**. À décider, pas fait.
+
+---
+
+## v638 — le soir du 10 septembre : quatre audits, vingt-cinq corrections
+
+Justin : « Tout et corriger pas de bug ou des problèmes qui pourrait causer des gros dégâts »,
+et « il faut vraiment une application qui marche bien et que tout soit fonctionnel à 100 % ».
+Quatre audits ont tourné en parallèle sur la v637 — destruction de données par la synchro,
+drapeaux de stockage et changement d'espace, cloisonnement entre entreprises, chiffres faux
+sur les documents. Chaque trouvaille ci-dessous a été **reproduite avec des chiffres** avant
+d'être corrigée, et **310 vérifications** dans `tests/` (dont la nouvelle suite `test-638.js`,
+52 clous) plus une sonde navigateur sur `beta.html` les tiennent.
+
+### Ce qui partait chez le client, faux
+
+| ce qu'on lisait | ce que ça valait vraiment |
+|---|---|
+| facture générée depuis une intervention, 250 mL d'un produit à 48 €/L | **12 000 € HT** au lieu de 12 € — `stockConv` n'était pas appliqué |
+| registre biocide réglementaire | **« 250 L »** pour 250 mL — l'unité de la fiche au lieu de celle de la ligne |
+| dossier sanitaire, 250 mL puis 2 L | **« 252 mL »** — deux unités additionnées sans conversion |
+| en-tête du PDF d'un devis | **« Modèle générique »** — la valeur par défaut de toute entreprise sans société déclarée |
+| prix unitaire tapé « 33,50 » | **3 350 €**, champ valide, aucune alerte |
+| TVA tapée « 5,5 » | **55 %** |
+| trois lignes à 1,5 × 33,33 | client lit 49,99 × 3 = 149,97, total imprimé **149,98** |
+
+**La virgule mérite un mot** : ce n'est pas un défaut du code mais du navigateur. Un
+`<input type="number"` avale la virgule en français — les chiffres se recollent et le champ
+reste **valide**. Mesuré sur Chromium en `fr-FR`. Le dépôt se croyait protégé par
+`parseFloat(String(v).replace(',','.'))` en douze endroits : inutile, la virgule n'atteint
+jamais le JavaScript. Corrigé par **un seul écouteur `keydown`**, qui remplace la frappe par un
+point via `document.execCommand('insertText')` — dix-neuf champs décimaux couverts d'un coup,
+et ceux qu'on ajoutera demain avec. Trois autres pistes ont été essayées et **mesurées
+mauvaises** avant celle-là : `inputmode` seul (sans effet), bascule du type en texte (perd le
+curseur : « 33,50 » devenait « .5033 »), `setRangeText` (refusé sur un champ numérique).
+
+### Ce qui détruisait des données
+
+- **La croix ✕ de « Modifier la box »** effaçait un produit ET sa quantité : sans confirmation,
+  sans mouvement, sans ligne de journal, et en posant un écart qui empêchait le catalogue de le
+  reposer. Mesuré : 40 u et 2 cartons disparus en un tap, propagés à l'équipe en deux secondes.
+  La feuille « Retirer » refusait pourtant le même geste depuis la v625. Deux chemins, la même
+  action, des règles opposées.
+- **Ouvrir une box écrivait dans TOUTES les box.** `boxAutoNouveautes` posait les nouveautés
+  partout, donc tamponnait chaque box, donc faisait gagner à cet appareil la fusion de chacune.
+  Mesuré, 12 box : un administrateur qui ouvre **une** box remet les 3 000 unités de départ et
+  efface les 120 unités que quatre techniciens venaient de sortir — pendant que les lignes de
+  mouvement continuent de dire le contraire. Fonction **supprimée** : la pastille « +N » et le
+  tap de Justin la remplacent, et c'est exactement ce qu'il avait demandé.
+- **Le formulaire de box rembobinait le stock.** `obj.stock = boxFormStock` réappliquait
+  l'instantané pris à l'ouverture de la fenêtre. Mesuré, fenêtre ouverte deux minutes : 12 u et
+  0 u revenus à 40 u et 12 u, avec un `_m` neuf donc gagnants partout. Le rattrapage de la v635
+  ne sauvait que les fiches *arrivées* entre-temps, jamais les *quantités*.
+- **Les plans d'appâtage ne se fusionnaient pas.** `plansSite`, `planNotes` et `permissions` sont
+  des dictionnaires, pas des listes : `fusionnerBases` les faisait suivre le côté prioritaire
+  **en entier**. Mesuré : le technicien pose 24 postes chez un client, l'administrateur 18 chez
+  un autre — après trois échanges il reste un seul plan. Les `relevesPlan` pointent alors sur des
+  postes disparus et le PDF réglementaire sort vide, sans message ni pierre tombale.
+- **`intNum()` comptait au lieu de prendre le maximum.** Une intervention annulée est archivée,
+  le compte redescend, le numéro suivant est **déjà émis**. Un seul appareil, aucune synchro :
+  dix interventions puis quatre annulations donnaient `INT-2026-010` trois fois.
+
+### Le semis de démonstration chez un client — trois autres portes
+
+La v637 avait corrigé deux portes sur quatre. Les deux autres avaient **exactement** le même
+défaut, non corrigé :
+
+- **`espace.html`, le lien d'activation d'un client.** C'est sa toute première minute. La base
+  partait, le drapeau restait, et `elan_frais` n'était jamais posé — donc la synchro faisait
+  l'union puis **poussait**. Le premier contenu reçu par le client : 160 produits, cinq
+  fournisseurs, deux devis, deux factures, deux contrats et les deux box « Cuisine — Restaurant
+  Le Gourmet » et « Réserve — Boulangerie Au Bon Pain ».
+- **Un espace fermé par la Tour.** Le client à qui on vient de couper l'accès se retrouvait
+  devant la boulangerie du semis, juste après un message disant l'inverse.
+- **`resetData()`**, sans appelant — et c'était la seule raison pour laquelle elle n'avait rien
+  cassé. **Supprimée.**
+
+Les trois portes d'`app.html` passent maintenant par **une seule fonction, `espaceQuitter()`**,
+qui retire aussi ce qui suivait l'appareil d'une entreprise à l'autre : la clé Anthropic
+(facturée à son propriétaire), le code d'équipe de l'assistant devis, un projet Firebase
+personnel (sinon les données de B partaient dans le nuage de A), l'annuaire, les marques de
+lecture d'une autre boîte, les compteurs d'usage, et jusqu'à **trois bases complètes** de
+l'entreprise précédente rangées en IndexedDB — que Paramètres réexportait à qui prenait
+l'appareil. `espace.html` refait la même chose en clair : elle ne partage aucun code avec
+l'application.
+
+Deux fuites d'un caractère et d'une clé, du même soir :
+
+- **`elan_repli_v1` comptait `indexOf('elan')`, sans souligné.** Les clés de la bêta
+  (`elanB_…`) étaient donc comptées : un appareil ayant servi à la bêta ou à un aperçu et
+  ouvrant l'application pour la **première** fois était jugé « déjà vu », donc rattaché à
+  **l'espace de repli partagé** avec la clé par défaut — exactement ce que la fermeture du repli
+  devait empêcher.
+- **`elan_espace_admin`** est écrite avec les six clés du lien lisible mais était la seule à ne
+  pas partir avec elles. `adminAnnuaireRetablir()`, rejouée à chaque chargement, promouvait
+  administrateur un **homonyme dans l'entreprise suivante**, et `save()` propageait la promotion
+  à toute l'équipe. Mesuré, avec la ligne de journal qui l'annonce.
+
+### Ce qui reste ouvert après la v638
+
+- ⛔ **La règle Firestore reste grande ouverte** — voir « Deuxième dette » plus bas. `allow read:
+  if connecte()` n'exige qu'un compte **anonyme**, celui que l'application crée elle-même. Un
+  audit l'a **reproduit** : avec les seules constantes publiques du fichier servi (`SYNC_SECRET_DEFAULT`,
+  `SYNC_SALT`), le contenu d'une entreprise restée sur la clé par défaut se déchiffre
+  intégralement — nom, adresses et téléphones clients, montants, mot de passe administrateur. Et
+  `allow write: if connecte() && versionOk()` ne demande **aucune clé** : `verNum` est fourni par
+  celui qui écrit, donc n'importe qui peut écraser le document de **n'importe quelle** entreprise,
+  y compris celles à clé propre. Le `versionOk()` ajouté en v616 visait la version périmée, pas le
+  cloisonnement. **Ni l'un ni l'autre ne se corrige depuis le dépôt** : il faut un `teamId` par
+  entreprise et une identité d'équipe vérifiable (jetons signés côté serveur avec `fbAdminCle`),
+  puis Justin publie les nouvelles règles dans sa console Firebase. À concevoir, tester et publier
+  **seul**.
+- **À l'intérieur d'une entreprise, il n'y a aucune frontière technique entre personnes.** La base
+  entière est en clair dans `localStorage` (le chiffrement ne couvre que le transport), et
+  `exportData()` est une fonction globale : un technicien qui ouvre la console repart avec la
+  comptabilité, les autres comptes et les empreintes de mots de passe. `visibleBoxes`,
+  `userSeesModule`, `canCat`, `permGarde` sont du **confort d'affichage**, pas des gardes. Ce
+  n'est pas une liste de trous à boucher un par un : c'est le modèle « toute la base synchronisée
+  en un document ». La seule vraie parade est un filtrage côté serveur — changement d'architecture.
+- **Deux appareils hors ligne peuvent émettre la même facture.** Aucun code côté appareil ne
+  l'empêche ; il faudrait un compteur partagé. Ce qui est fait : un **bandeau ambre** nomme les
+  numéros en double sur les listes devis et factures, pour que ça se découvre le jour même et non
+  au contrôle.
+- **Le plafond du journal remplit le budget des pierres tombales.** `db.journal` est tronqué à
+  500 et `estampiller` pose une tombe par entrée évincée : mesuré, `_tombes.journal` atteint
+  `TOMBE_MAX` (3 000) en une cinquantaine de jours à 60 gestes par jour. Sans danger tant que le
+  plafond par collection tient, mais `TOMBE_TOTAL` vaut 6 000 et deux collections tronquées
+  suffiraient à saturer — l'éviction globale se faisant par ancienneté, elle mangerait d'abord
+  les tombes des suppressions volontaires. À surveiller, pas à corriger dans l'urgence.
+- **`sauvegardeRemettre` lève la tombe de tout ce que la copie contient**, pas seulement de ce
+  qui est réellement remis : restaurer une collection ressuscite aussi ce que l'équipe avait
+  supprimé exprès depuis.
+- **La surveillance horaire est au rouge** — non pas parce que le site est tombé, mais parce que
+  les applications clientes ont remonté 48 erreurs en 24 h. Lisibles seulement dans
+  Tour → Surveillance (la route `/api/bugs` a besoin de `config.apiKey` sur le VPS).
+- **Le serveur n'a pas été touché ce soir.** L'audit `gardien` a trouvé, entre autres, un trou
+  dans les codes promo (`server/index.js` accepte `promoCode`/`promoFin` du corps de la requête
+  sans vérifier `config.promos`, alors que le bon chemin existe vingt lignes plus haut), treize
+  écritures non atomiques sur le fichier qui porte la clé de chaque client, et `/api/replies` et
+  `/api/mailboxes` toujours sans authentification. `server/**` se déploie automatiquement à la
+  poussée sur `main` : ces correctifs se font et se publient **à part**.
+
+---
+
 ## État au 10 septembre 2026, 1 h du matin — après la panne ELAN
 
 Tout ce qui suit est **en vigueur**, vérifié de bout en bout (serveur, Firestore lu avec les

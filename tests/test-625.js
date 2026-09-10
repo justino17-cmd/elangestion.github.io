@@ -5,7 +5,7 @@ function decoupe(entete){ const deb=APP.indexOf(entete); if(deb<0) throw new Err
 const morceaux=['const norm = s =>','function produitCle(p){','function boxStock(b,pid){','function produitsDistinctIds(cle){','function produitDistinct(p){','function produitsDistinctsDeclarer(cle,ids,nom){','function produitsDistinctsAnnuler(cle){',
   'function produitsDoublons(){','function produitsFusionnables(l){','function produitsDoublonSurvivante(l){','function produitsFusionApercu(l){','function produitsFusionnerDoublons(cles){',
   'let bxpOnglet=','function bxpBox(){','function abpDisponibles(b){','function boxPoserProduits(b,ids,opts){','function boxRetirable(b,pid){','function boxRetirerCoches(){','function boxRetirerAnnuler(){',
-  'const BOX_NOUVEAUTES_DEPUIS=','function uidTs(id){','function produitCree(p){','function boxDecision(b){','function boxVuTs(b){','function produitsRecents(){','function boxNouveautes(b,cands){','function boxAutoNouveautes(b){','function boxDecider(b,ids){','function boxDecisionAnnuler(b,pid){',
+  'const BOX_NOUVEAUTES_DEPUIS=','function uidTs(id){','function produitCree(p){','function boxDecision(b){','function boxVuTs(b){','function produitsRecents(){','function boxNouveautes(b,cands){','function boxDecider(b,ids){','function boxDecisionAnnuler(b,pid){',
   'let _pushProduitLot=','function produitCreer(fiche,opts){','function produitCreePrevenir(p){'].map(decoupe).join('\n');
 const bac=new Function('etat',`let db=etat.db, currentUser=etat.currentUser, journal=[], toasts=[], pushes=[], timers=[], boxView='bx', current='boxes', rendus=0;
   const logEvent=(a,b)=>journal.push(a+' · '+b); const save=()=>{ etat.saves++; }; const toast=t=>toasts.push(t); const toastAnnuler=(t,a)=>toasts.push(t+' ['+a+']');
@@ -15,7 +15,7 @@ const bac=new Function('etat',`let db=etat.db, currentUser=etat.currentUser, jou
   const pushNotify=(t,c,u,d)=>pushes.push({t,c,d}); const setTimeout=(f,ms)=>{ timers.push(f); return timers.length; }; const clearTimeout=()=>{};
   ${morceaux}
   return {poser:(d,u)=>{db=d;currentUser=u;}, setRet:ids=>{ bxpRetSel=new Set(ids); }, tick:()=>{ const t=timers.splice(0); t.forEach(f=>f()); },
-    uidTs,produitCree,boxNouveautes,boxAutoNouveautes,boxDecider,boxDecisionAnnuler,boxDecision,boxRetirable,boxPoserProduits,abpDisponibles,produitsDoublons,produitsDistinctIds,produitsDistinctsDeclarer,produitsDistinctsAnnuler,produitsFusionnerDoublons,produitsFusionApercu,produitCreer,boxRetirerCoches,boxRetirerAnnuler,
+    uidTs,produitCree,boxNouveautes,boxDecider,boxDecisionAnnuler,boxDecision,boxRetirable,boxPoserProduits,abpDisponibles,produitsDoublons,produitsDistinctIds,produitsDistinctsDeclarer,produitsDistinctsAnnuler,produitsFusionnerDoublons,produitsFusionApercu,produitCreer,boxRetirerCoches,boxRetirerAnnuler,
     dernier:()=>_dernierRetrait, journal,toasts,pushes, DEPUIS:BOX_NOUVEAUTES_DEPUIS};`)({db:{},currentUser:null,saves:0});
 let ok=0,ko=0; const v=(t,a,b)=>{ if(JSON.stringify(a)===JSON.stringify(b)){ok++;console.log('  ✓ '+t);} else {ko++;console.log('  ✗ '+t+'\n      attendu : '+JSON.stringify(b)+'\n      obtenu  : '+JSON.stringify(a));} };
 const ADMIN={id:'uAdmin',prenom:'Sophie',nom:'Admin',role:'admin'}; const D=bac.DEPUIS;
@@ -91,15 +91,17 @@ console.log('Retrait coché, revérifié, annulable');
   b.stock.A={u:2,ctn:0};   // un arrivage a reposé A entre-temps
   bac.boxRetirerAnnuler(); v('annuler ne touche pas un produit déjà reposé avec du stock',b.stock.A,{u:2,ctn:0});
   bac.setRet(['C']); bac.boxRetirerCoches(); v('rien retiré quand tout est gardé : message, pas de journal',/Rien retiré/.test(bac.toasts[bac.toasts.length-1]),true); }
-console.log('Le catalogue nourrit la box tout seul');
-{ const db=base(); bac.poser(db,ADMIN); const b=db.boxes[0]; const n=bac.boxAutoNouveautes(b);
-  v('à l\'ouverture, H et Dn se posent à zéro',[n,b.stock.H,b.stock.Dn],[2,{ctn:0,u:0},{ctn:0,u:0}]); /* v635 : UNE ligne pour tout le geste, pas une par box — db.journal est plafonné à 500 et douze
-     box l'auraient effacé en un passage. Elle compte les fiches et nomme les box, sans réciter. */
-  v('journal : UNE ligne pour tout le geste, comptée, qui nomme les box',
-    bac.journal.filter(l=>/Nouveaux produits du catalogue/.test(l)),
-    ['Nouveaux produits du catalogue posés dans les box · 4 fiche(s) à zéro dans 2 box : Box Nord, Box Sud']);
-  v('seconde ouverture : rien',bac.boxAutoNouveautes(b),0);
-  bac.setRet(['H']); bac.boxRetirerCoches(); v('retiré ET écarté : il ne revient pas',[b.stock.H,bac.boxNouveautes(b).map(p=>p.id),bac.boxAutoNouveautes(b)],[undefined,[],0]);
+console.log('Le catalogue nourrit les box au tap, jamais à l\'ouverture');
+{ const db=base(); bac.poser(db,ADMIN); const b=db.boxes[0];
+  /* v638 : boxAutoNouveautes a disparu — ouvrir une box n'écrit plus rien. Ce qui est testé
+     ici, c'est ce qui reste : la pose délibérée, et le fait qu'un produit retiré à zéro et
+     écarté ne se repose jamais tout seul. */
+  const poserPartout=()=>db.boxes.filter(x=>x.actif!==false)
+    .reduce((n,bx)=>n+bac.boxPoserProduits(bx,bac.boxNouveautes(bx).map(p=>p.id)).poses.length,0);
+  const n=poserPartout();
+  v('au tap, H et Dn se posent à zéro',[n,b.stock.H,b.stock.Dn],[4,{ctn:0,u:0},{ctn:0,u:0}]);
+  v('deuxième tap : plus rien à poser',poserPartout(),0);
+  bac.setRet(['H']); bac.boxRetirerCoches(); v('retiré ET écarté : il ne revient pas',[b.stock.H,bac.boxNouveautes(b).map(p=>p.id),poserPartout()],[undefined,[],0]);
   bac.boxRetirerAnnuler(); v('annuler le retrait lève l\'écart',[b.stock.H,Object.keys(bac.boxDecision(b).ecartes)],[{ctn:0,u:0},[]]);
   bac.setRet(['H']); bac.boxRetirerCoches(); const r=bac.boxPoserProduits(b,['H']); v('reposer à la main lève l\'écart aussi',[r.poses,Object.keys(bac.boxDecision(b).ecartes)],[['H'],[]]); }
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);

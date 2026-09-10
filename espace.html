@@ -991,7 +991,28 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
   function activate(code){ let o=null; try{ o=JSON.parse(decodeURIComponent(escape(atob(code)))); }catch(e){}
     if(!o||!o.t||!o.k){ alert('Code invalide.'); return; }
     if(!confirm('Activer votre espace « '+(o.n||o.t)+' » et créer votre compte administrateur OP GESTION ?')) return;
-    try{ localStorage.setItem('elan_sync_team',o.t); localStorage.setItem('elan_sync_secret',o.k); localStorage.setItem('elan_sync_on','1'); localStorage.removeItem('elan_gestion_v2'); sessionStorage.setItem('elan_create_admin','1'); }catch(e){}
+    /* ⛔ C'EST LA PREMIÈRE MINUTE D'UN CLIENT DANS SON ESPACE — elle doit être vide, pas
+       peuplée de la démonstration. Cette porte retirait la base sans retirer le drapeau de
+       vidage : sur un appareil ayant déjà servi (un téléphone de terrain, un poste de
+       démonstration commerciale), app.html rejouait alors seed() SANS vider — 160 produits,
+       cinq fournisseurs, deux devis, deux factures, deux contrats et DEUX BOX DE
+       DÉMONSTRATION nommées « Cuisine — Restaurant Le Gourmet » et « Réserve — Boulangerie Au
+       Bon Pain ». Sans « elan_frais » en plus, la synchro ne fait pas « on adopte les données
+       de l'espace » : elle fait l'union, constate qu'on a ce que l'équipe n'a pas, et POUSSE.
+       Le tout premier contenu que reçoit le client est la démonstration.
+       Le pendant de espaceQuitter() dans app.html — mêmes clés, mêmes raisons ; écrit ici en
+       clair parce que cette page ne partage aucun code avec l'application. */
+    try{
+      localStorage.setItem('elan_sync_team',o.t); localStorage.setItem('elan_sync_secret',o.k); localStorage.setItem('elan_sync_on','1');
+      localStorage.removeItem('elan_gestion_v2');
+      localStorage.removeItem('elan_vierge_v1');
+      localStorage.setItem('elan_frais','1');
+      ['elan_anthropic_key','elan_devis_code','op_devis_code','elan_sync_cfg','elan_annuaire_cache','elan_mail_lus','elan_mail_supp','elan_usage','elan_espace_admin',
+       'elan_lien_lisible','elan_lien_lisible_t','elan_lien_lisible_ts','elan_lien_lisible_kh','elan_lien_lisible_nom','elan_lien_lisible_motif']
+        .forEach(function(k){ try{ localStorage.removeItem(k); }catch(_){} });
+      sessionStorage.setItem('elan_create_admin','1');
+    }catch(e){}
+    try{ indexedDB.deleteDatabase('elan_cote'); }catch(e){}
     window.location.href='app.html';
   }
 </script>
