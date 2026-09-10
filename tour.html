@@ -1933,7 +1933,7 @@ body.plans .reg-l.cli::before{display:none}
 .tbl .h{font-family:var(--fm);font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
 /* six colonnes sur grand écran ; la première n'est PAS le titre de la ligne ici (c'est une
    heure), donc on défait le gras que le socle pose sur la première cellule */
-.cnx-tbl .hd,.cnx-tbl .rw{grid-template-columns:112px minmax(120px,1.3fr) minmax(110px,1fr) 104px minmax(120px,1fr) 96px}
+.cnx-tbl .hd,.cnx-tbl .rw{grid-template-columns:128px minmax(120px,1.3fr) minmax(110px,1fr) 104px minmax(120px,1fr) 96px}
 .cnx-tbl .rw>:first-child{font-weight:400;color:var(--muted)}
 @media(max-width:899px){
   .cnx-tbl .hd,.cnx-tbl .rw{grid-template-columns:minmax(0,1fr) auto}
@@ -1979,6 +1979,22 @@ body.plans .reg-l.cli::before{display:none}
 .inc-ou{margin-top:12px;font-size:12.5px;color:var(--text2)}
 .inc-ou .k{color:var(--muted)}
 .inc-ou .mono{color:var(--code)}
+
+/* ── LES CONNEXIONS D'UN ESPACE ─── six chiffres, trois faits, un tableau ── */
+.kpi .n.mot{font-size:16px;line-height:1.35;letter-spacing:-.01em}   /* « il y a 3 j » n'est pas un nombre : il ne prend pas la taille d'un nombre */
+.cnx-faits{margin-top:12px}
+/* six tuiles sur une rangée, et les chiffres alignés entre eux : sans space-between,
+   un libellé qui passe sur trois lignes fait descendre son seul chiffre. */
+.cnx-kpi{--kpi-min:128px}
+.cnx-bandeau{margin-bottom:16px}
+/* la recherche et le filtre posé sur la même ligne : la recherche prend la place, le
+   filtre dit ce qu'il retire et se retire d'un clic */
+.rech-rang{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.rech-rang>.rech{flex:1;min-width:220px}
+.rech-seule{margin-bottom:12px}
+.cnx-kpi .kpi{justify-content:space-between}
+.cnx-faits .g{color:var(--dim);font-weight:400}
+.cnx-suite{margin-top:10px}
 
 /* la cause et la correction : deux cartes de LECTURE — texte confortable, un seul geste */
 .inc-suite{margin-top:16px}
@@ -2838,30 +2854,49 @@ var CNX_EV={connexion:['✅','Connexion'],session:['🔁','Reprise de session'],
 function cnxDepuis(ts){ if(!ts) return 'jamais'; var m=Math.round((Date.now()-ts)/60000);
   if(m<1) return 'à l\'instant'; if(m<60) return 'il y a '+m+' min'; var h=Math.round(m/60); if(h<24) return 'il y a '+h+' h'; var j=Math.round(h/24); if(j<30) return 'il y a '+j+' j'; return fmtJour(ts); }
 function cnxAppareil(e){ return [e.appareil,e.os,e.nav].filter(Boolean).join(' · ')+(e.pwa?' · app installée':''); }
+/* Une ligne de connexion : six faits, un par colonne sur grand écran, deux colonnes
+   clampées au doigt (le tableau brut débordait de l'écran et cachait la version).
+   L'échec porte son mot (« ⛔ Échec ») et un rail rouge — jamais la couleur seule, et
+   surtout plus toute la ligne en rouge : un horodatage rouge n'est pas plus lisible. */
 function cnxLigne(e){ var ev=CNX_EV[e.ev]||['•',e.ev];
-  return '<tr'+(e.ev==='echec'?' style="color:var(--redText)"':'')+'><td style="white-space:nowrap">'+fmtDate(e.ts)+'</td>'+
-    '<td>'+ev[0]+' '+ev[1]+(e.motif?' <span style="color:var(--muted)">— '+esc(e.motif)+'</span>':'')+'</td>'+
-    '<td><b>'+esc(e.login||'—')+'</b>'+(e.role?' <span style="color:var(--muted)">'+esc(e.role)+'</span>':'')+'</td>'+
-    '<td>'+esc(CNX_VIA[e.via]||e.via||'—')+'</td>'+
-    '<td>'+esc(cnxAppareil(e)||'—')+'</td>'+
-    '<td>'+esc((e.app&&e.app!=='gestion')?e.app+' ':'')+(e.version?'v'+esc(e.version):'—')+'</td></tr>'; }
+  return '<div class="rw'+(e.ev==='echec'?' ko':'')+'">'+
+    '<span class="q h">'+esc(fmtDate(e.ts))+'</span>'+
+    '<span class="e">'+ev[0]+' '+ev[1]+(e.motif?'<span class="g"> — '+esc(e.motif)+'</span>':'')+'</span>'+
+    '<span class="u"><b>'+esc(e.login||'—')+'</b>'+(e.role?'<span class="g"> '+esc(e.role)+'</span>':'')+'</span>'+
+    '<span class="c">'+esc(CNX_VIA[e.via]||e.via||'—')+'</span>'+
+    '<span class="a">'+esc(cnxAppareil(e)||'—')+'</span>'+
+    '<span class="v">'+esc((e.app&&e.app!=='gestion')?e.app+' ':'')+(e.version?'v'+esc(e.version):'—')+'</span></div>'; }
+/* Le tableau, écrit une fois : la fiche d'une entreprise et l'écran Connexions montrent
+   exactement le même objet. Le corps défile sous un en-tête qui reste. */
+function cnxTable(ev){
+  return '<div class="tbl cnx-tbl"><div class="hd">'+
+    '<span>Quand</span><span>Quoi</span><span>Utilisateur</span><span>Chemin</span><span>Appareil</span><span>Version</span></div>'+
+    '<div class="corps">'+ev.map(cnxLigne).join('')+'</div></div>'; }
 function cnxResumeHtml(r,nom){ if(!r) return '';
   var versions=Object.keys(r.versions||{}).sort(function(a,b){ return verNum(b)-verNum(a); }).map(function(v){ return 'v'+esc(v)+' ×'+r.versions[v]; }).join(', ')||'—';
   var apps=Object.keys(r.apps||{}).map(function(a){ return esc(appNom(a))+' ('+r.apps[a]+')'; }).join(', ')||'—';
   var appareils=Object.keys(r.appareils||{}).map(function(a){ return esc(a)+' ('+r.appareils[a]+')'; }).join(', ')||'—';
-  var kpi=function(v,l,c){ return '<div style="flex:1;min-width:110px;background:var(--inset);border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="font-size:20px;font-weight:800;color:'+(c||'inherit')+'">'+v+'</div><div style="font-size:11.5px;color:var(--muted)">'+l+'</div></div>'; };
-  return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
-    kpi(r.derniere?cnxDepuis(r.derniere):'jamais','dernière connexion'+(r.dernierLogin?' · '+esc(r.dernierLogin):''))+
+  /* Les six chiffres étaient six tuiles faites à la main ; ce sont les KPI du socle. Seul
+     l'échec se colore : dix chiffres verts, c'est du bruit, et zéro échec se lit déjà tout
+     seul dans son libellé. */
+  var kpi=function(v,l,cl,mot){ return '<div class="kpi'+(cl?' '+cl:'')+'"><div class="n'+(mot?' mot':'')+'">'+v+'</div><div class="l">'+l+'</div></div>'; };
+  var fait=function(k,v){ return '<div><span class="k">'+k+'</span><span class="v">'+v+'</span></div>'; };
+  return '<div class="grille-kpi simple cnx-kpi">'+
+    kpi(r.derniere?cnxDepuis(r.derniere):'jamais','dernière connexion'+(r.dernierLogin?' · '+esc(r.dernierLogin):''),'','mot')+
     kpi(r.utilisateurs7||0,'utilisateurs actifs 7 j')+kpi(r.utilisateurs30||0,'utilisateurs actifs 30 j')+kpi(r.appareils7||0,'appareils 7 j')+
-    kpi(r.connexions7||0,'connexions 7 j')+kpi(r.echecs24||0,'échecs 24 h',r.echecs24?'var(--redText)':'var(--green)')+'</div>'+
-    '<div style="font-size:12.5px;color:var(--text2);line-height:1.8"><b>Versions</b> (par appareil) : '+versions+'<br><b>Applications</b> (30 j) : '+apps+'<br><b>Appareils</b> (30 j) : '+appareils+'</div>'; }
+    kpi(r.connexions7||0,'connexions 7 j')+kpi(r.echecs24||0,'échecs 24 h',r.echecs24?'ko':'')+'</div>'+
+    '<div class="kv cnx-faits">'+fait('Versions',versions+' <span class="g">par appareil</span>')+
+      fait('Applications',apps+' <span class="g">sur 30 j</span>')+fait('Appareils',appareils+' <span class="g">sur 30 j</span>')+'</div>'; }
 function vueConnexions(){
   var g=CNX.global||{};
   var tete=enTete('Connexions clients',
     'Qui se connecte, quand, depuis quel appareil, avec quelle version, par quel chemin — et les échecs. Remonté par les applications à chaque connexion (à partir de la v550).',
     '<button class="btn-fant" onclick="chargerConnexions()">↻ Actualiser</button>');
-  if(!CNX.loaded) return tete+'<div class="vide">Chargement des connexions…</div>';
-  if(CNX.err) return tete+'<div class="vide">'+esc(CNX.err)+'</div>';
+  /* Le squelette porte la FORME de ce qui arrive : « Chargement des connexions… » en texte
+     laissait l'écran vide pendant tout l'appel, puis tout apparaissait d'un coup. */
+  if(!CNX.loaded) return tete+squelListe(6);
+  if(CNX.err) return tete+videTour('Connexions illisibles',esc(CNX.err),
+    '<button type="button" class="btn-fant" onclick="chargerConnexions()">Réessayer</button>');
   /* Les chiffres ET les filtres disaient la même chose à deux endroits : « 2 échecs sur
      24 h » en carte, « Avec échecs » en bouton juste en dessous, sans que l'un mène à
      l'autre. Une seule rangée désormais, cliquable — le même geste que la Surveillance
@@ -2873,11 +2908,11 @@ function vueConnexions(){
       (clic?' onclick="cnxF(\''+(actif?'toutes':f)+'\')" tabindex="0" role="button" aria-pressed="'+(actif?'true':'false')+
             '" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();cnxF(\''+(actif?'toutes':f)+'\')}"'+
             ' title="'+(actif?'Revenir à toutes les entreprises':'Ne montrer que celles-là')+'"':'')+'>'+
-      '<div class="n"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+l+'</div></div>'; };
-  var bandeau='<div class="grille-kpi simple" style="margin-bottom:16px">'+
+      '<div class="n'+(c?' '+c:'')+'">'+v+'</div><div class="l">'+l+'</div></div>'; };
+  var bandeau='<div class="grille-kpi simple cnx-bandeau">'+
     kpi(g.connexions24||0,'connexions sur 24 h','','')+
     kpi(g.actives7||0,'entreprises actives sur 7 j','','actives')+
-    kpi(g.echecs24||0,'échecs de connexion sur 24 h',(g.echecs24||0)?'var(--redText)':'','echecs')+
+    kpi(g.echecs24||0,'échecs de connexion sur 24 h',(g.echecs24||0)?'rouge':'','echecs')+
     kpi(CNX.list.filter(function(x){ return !(x.resume.derniere>Date.now()-7*86400000); }).length,'silencieuses depuis 7 jours','','silence')+
   '</div>';
   var q=(CNX.q||'').toLowerCase().trim(); var now=Date.now();
@@ -2886,7 +2921,7 @@ function vueConnexions(){
   /* Les quatre boutons ont fondu dans les cartes du haut. Reste ce qu'ils avaient
      d'utile : dire en clair ce qui est filtré, et comment en sortir. */
   var filtres=(CNX.f&&CNX.f!=='toutes')
-    ? '<button class="btn-fant" style="padding:6px 12px" onclick="cnxF(\'toutes\')">'+
+    ? '<button type="button" class="btn-fant" onclick="cnxF(\'toutes\')">'+
         esc({actives:'Actives sur 7 jours',silence:'Silencieuses depuis 7 jours',echecs:'Avec des échecs'}[CNX.f]||'')+' ✕</button>'
     : '';
   /* Une entrée du registre. Même anatomie que dans Entreprises — c'est ce qui fait qu'on
@@ -2963,28 +2998,38 @@ function vueConnexions(){
       dedans.map(function(x){ return ligneCnx(x,g.cle); }).join('')+'</div></div>';
   });
   var table=grCnx? '<div class="reg">'+grCnx+'</div>'
-    : '<div class="vide">Aucune entreprise pour ce filtre.</div>';
+    : videTour('Aucune entreprise pour ce filtre',
+        'Rien ne correspond à ce que vous avez demandé — la liste complète est à un clic.',
+        (CNX.f&&CNX.f!=='toutes')?'<button type="button" class="btn-fant" onclick="cnxF(\'toutes\')">Retirer le filtre</button>':'');
   var det='';
   if(CNX.sel){ var e=CNX.list.filter(function(x){ return x.t===CNX.sel; })[0]||{};
-    det='<div style="margin-bottom:14px"><button class="btn-fant" onclick="cnxFermer()">← Toutes les entreprises</button></div>'+
-      '<div class="carte p24"><div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap">'+
-      '<div style="width:46px;height:46px;border-radius:12px;background:var(--avatar);border:1px solid var(--avatarBorder);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--blueSoft);flex-shrink:0">'+esc(sigle(e.nom||CNX.sel))+'</div>'+
-      '<div style="font-size:17px;font-weight:700">'+esc(e.nom||CNX.sel)+'</div></div>'+
-      (CNX.detErr?'<div class="vide">'+esc(CNX.detErr)+'</div>':(!CNX.det?'<div class="vide">Chargement…</div>':
-        '<div style="margin-top:12px">'+cnxResumeHtml(CNX.det.resume,e.nom)+'</div>'+
-        '<div class="sec" style="margin-top:16px">TOUTES LES CONNEXIONS ('+(CNX.det.evenements||[]).length+' dernières)</div>'+
-        '<div style="overflow:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase"><th style="text-align:left;padding:6px 8px">Quand</th><th style="text-align:left;padding:6px 8px">Quoi</th><th style="text-align:left;padding:6px 8px">Utilisateur</th><th style="text-align:left;padding:6px 8px">Chemin</th><th style="text-align:left;padding:6px 8px">Appareil</th><th style="text-align:left;padding:6px 8px">Version</th></tr></thead><tbody>'+
-        ((CNX.det.evenements||[]).map(cnxLigne).join('')||'<tr><td colspan="6" class="vide">Aucune connexion remontée pour l\'instant.</td></tr>')+'</tbody></table></div>'))+'</div>'; }
+    var evs=(CNX.det&&CNX.det.evenements)||[];
+    det='<div class="ent-retour"><button type="button" class="btn-fant" onclick="cnxFermer()">← Toutes les entreprises</button></div>'+
+      '<div class="carte p24">'+
+      '<div class="fiche-tete"><span class="av-gd">'+esc(sigle(e.nom||CNX.sel))+'</span>'+
+        '<div class="fiche-id"><div class="fiche-nom">'+esc(e.nom||CNX.sel)+'</div>'+
+        '<div class="fiche-sous mono">espace '+esc(CNX.sel)+'</div></div></div>'+
+      (CNX.detErr?'<div class="sous-sec">'+videTour('Détail illisible',esc(CNX.detErr),
+          '<button type="button" class="btn-fant" onclick="cnxSel(\''+jsq(CNX.sel)+'\')">Réessayer</button>')+'</div>'
+       :(!CNX.det?'<div class="sous-sec">'+squelListe(4)+'</div>':
+        '<div class="sous-sec">'+cnxResumeHtml(CNX.det.resume,e.nom)+'</div>'+
+        '<div class="sous-sec"><div class="sec">TOUTES LES CONNEXIONS <span class="n">— '+evs.length+' dernières</span></div>'+
+        (evs.length?cnxTable(evs)
+          :videTour('Aucune connexion remontée pour l’instant',
+            'Elles arrivent dès qu’un appareil de cette entreprise se connecte — les applications le signalent à partir de la v550.',''))+
+        '</div>'))+'</div>'; }
   if(CNX.sel) return tete+det;
-  return tete+bandeau+'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><div class="rech" style="flex:1;min-width:220px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CNX.q)+'" oninput="cnxQ(this.value)"></div>'+filtres+'</div>'+table;
+  return tete+bandeau+'<div class="rech-rang"><div class="rech">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(CNX.q)+'" oninput="cnxQ(this.value)"></div>'+filtres+'</div>'+table;
 }
 function tourConnexionsCharge(nm){
   apiPost('/api/monitor/espaces/connexions',{nom:nm,n:8}).then(function(r){
     var el=document.getElementById('fiche-connexions'); if(!el) return;
     if(!(r&&r.ok&&r.d&&r.d.ok)){ el.textContent=(r&&r.d&&r.d.error)||'Indisponible — le serveur a-t-il été mis à jour ?'; return; }
     var d=r.d, ev=d.evenements||[];
-    el.innerHTML=cnxResumeHtml(d.resume,nm)+(ev.length?'<div style="overflow:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>'+ev.map(cnxLigne).join('')+'</tbody></table></div>':'<div style="color:var(--muted);margin-top:8px">Aucune connexion remontée pour l\'instant (à partir de la v551 de l\'application).</div>')+
-      '<div style="margin-top:8px"><a style="color:var(--link);cursor:pointer" onclick="setTab(\'connexions\');cnxSel(\''+jsq(d.t)+'\')">Voir toutes les connexions →</a></div>';
+    el.innerHTML=cnxResumeHtml(d.resume,nm)+
+      (ev.length?'<div class="cnx-suite">'+cnxTable(ev)+'</div>'
+        :videTour('Aucune connexion remontée pour l’instant','Les applications les signalent à partir de la v551.','','connexions'))+
+      '<div class="cnx-suite"><button type="button" class="btn-fant" onclick="setTab(\'connexions\');cnxSel(\''+jsq(d.t)+'\')">Voir toutes les connexions →</button></div>';
   }).catch(function(){ var el=document.getElementById('fiche-connexions'); if(el) el.textContent='Serveur injoignable.'; });
 }
 
@@ -3936,7 +3981,7 @@ function vueEntreprisesMsg(){
       '<span class="reg-l2">'+(ouv?'<span class="past p-app messages">OP MESSAGES ouvert</span>':'<span class="past p-gris">fermé</span>')+(o.suspendu?' <span class="past p-rouge">⏸ Suspendue</span>':'')+(o.email?' · '+esc(o.email):'')+'</span>'+
       (o.slug?'<span class="reg-l3 mono">'+esc(o.slug)+'</span>':'')+'</span>'+
       '<span class="reg-fin">'+(MYROLE==='patron'?'<button type="button" class="btn-fant'+(ouv?' danger':' teinte')+'" onclick="tourApps(\''+jsq(o.slug||'')+'\',\''+jsq(nm)+'\','+(ouv?'false':'true')+')">'+(ouv?'Fermer':'Ouvrir')+'</button>':'')+'</span></div>'; };
-  var rech='<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(ENT.q||'')+'" oninput="entQ(this.value)"></div>';
+  var rech='<div class="rech rech-seule">'+svg('loupe',16)+'<input placeholder="Rechercher une entreprise…" value="'+esc(ENT.q||'')+'" oninput="entQ(this.value)"></div>';
   var kpi='<div class="grille-kpi simple" style="margin-bottom:16px"><div class="kpi"><div class="l">ouvertes à OP MESSAGES</div><div class="n">'+tous.filter(function(o){ return o.opMessages; }).length+'</div></div><div class="kpi"><div class="l">entreprises connues</div><div class="n">'+tous.length+'</div></div></div>';
   var g1='<div class="reg-g reg-g-fixe"><div class="reg-tete"><span class="reg-nom">Ouvertes à OP MESSAGES</span><span class="reg-n">'+ouvertes.length+'</span></div>'+
     (ouvertes.length?'<div class="reg-cli">'+ouvertes.map(function(o){ return ligne(o,true); }).join('')+'</div>':'<div class="vide"><b>Aucune entreprise ouverte à OP MESSAGES</b>Ouvrir une entreprise ci-dessous ajoute la rangée SUITE dans son OP GESTION.</div>')+'</div>';
