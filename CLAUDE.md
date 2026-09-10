@@ -93,6 +93,12 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
 - Ne pas modifier l'anti-abus (`server/index.js`) sans relire pourquoi il lit
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
+- **Ne jamais faire `db.produits.push(…)`** : une fiche produit naît par `produitCreer(fiche,{semis,push})`
+  (`app.html`), qui pose `cree`/`creePar` — c'est ce qui fait apparaître le « +N » sur les box et la cloche.
+  Un semis (catalogue, démo, bêta) passe `semis:true` (vaut 0, jamais « nouveau »). `grep -c 'db.produits.push'`
+  doit rester à 1. Même esprit : les décisions d'une box (`db.boxDecisions`) et les paires déclarées
+  distinctes (`db.produitsDistincts`) sont des collections à part, fusionnées par enregistrement — ne pas
+  les ranger sur la box ni sur la fiche produit, la fusion en bloc écraserait le stock ajusté ailleurs.
 - **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante
 - ⛔ **NE JAMAIS TOUCHER À `SYNC_SECRET_DEFAULT` NI À `SYNC_SALT`** (`app.html`, vers la
   ligne 5059). Ce ne sont pas des noms, malgré les apparences :
