@@ -3768,6 +3768,14 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .bbr-ch{flex-shrink:0;font-size:19px;font-weight:700;color:var(--acc);line-height:1;opacity:.75}
 /* Sous le chiffre d'un produit : ce qu'on en prend, et ce qu'il restera. */
 .bst-eff{font-size:11.5px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums}
+/* la ligne « en attente » : orange, le mot ET le chiffre — le DR n'a pas encore dit oui */
+.bst-att{font-size:11.5px;font-weight:700;color:var(--org,#e8a33d);font-variant-numeric:tabular-nums;white-space:nowrap}
+.abp-etat{display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--t3);padding:2px 2px 10px;font-variant-numeric:tabular-nums}
+.abp-etat b{color:var(--t1)}
+.abp-etat .btn{margin-left:auto}
+.bandeau-doublons{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:color-mix(in srgb,var(--org,#e8a33d) 14%,transparent);border:1px solid color-mix(in srgb,var(--org,#e8a33d) 40%,transparent);border-radius:12px;padding:12px 14px;margin:0 0 10px;font-size:13px;line-height:1.5;color:var(--t1)}
+.bandeau-doublons>div{flex:1;min-width:200px}
+.bandeau-doublons span{color:var(--t3);font-size:12px}
 /* Le stock d'une ligne EST un bouton : on le touche pour écrire la quantité au lieu de
    taper dix fois sur « − ». Il garde l'allure d'un chiffre — pas de fond, pas de bordure —
    mais la cible fait 44 px, comme les deux boutons qui l'encadrent. */
@@ -4769,7 +4777,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '622-beta';
+const APP_VERSION = '623-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5538,7 +5546,7 @@ function load(){
      change. Le bouton « ↻ Catalogue OP » reste le chemin volontaire. */
   if(!localStorage.getItem('elanB_prod_v2')){
     d.produits = d.produits || [];
-    if(PACK_METIER_AUTO) cataloguePoser(d);
+    if(PACK_METIER_AUTO) cataloguePoser(d,{ancien:true});
     localStorage.setItem('elanB_prod_v1','1'); localStorage.setItem('elanB_prod_v2','1');
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){}
   }
@@ -15741,12 +15749,35 @@ let prdExpanded={};
    exemplaires — load(), restoreCatalogue() et les outils de bêta : ajouter un champ au produit
    (le n° AMM et la matière active que réclame le registre sanitaire) en aurait mis deux à jour
    sur trois. Ne décide RIEN : c'est à l'appelant de dire s'il a le droit d'appeler. */
-function cataloguePoser(cible){
+/* ⛔ L'IDENTIFIANT D'UN PRODUIT DE CATALOGUE SE DÉDUIT DE SON NOM — ELAN, 10 septembre 2026.
+   Le pack métier est semé au premier démarrage de CHAQUE appareil (elan_prod_v2), et il l'était
+   avec uid() : deux appareils ouverts avant de s'être synchronisés semaient deux jeux
+   d'identifiants différents pour les mêmes 210 produits. La fusion par enregistrement (v621)
+   fait l'union par id — elle gardait donc les deux jeux. « Tout ajouter » dans une box posait
+   ensuite les deux : 210 produits sont devenus 420, chacun en double.
+   Avec un identifiant déduit du nom, deux appareils qui sèment le même catalogue produisent le
+   MÊME enregistrement, et la fusion n'en garde qu'un. La cure des bases déjà doublées est plus
+   bas : produitsFusionnerDoublons(). */
+function idCatalogue(nom,prefixe){
+  const c=String(nom||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
+  return (prefixe||'cat')+'_'+(c||'x'); }
+/* L'identité d'un produit, pour dire « c'est le même » : son nom normalisé. Deux fiches qui
+   portent le même nom sont un doublon, quelle que soit leur origine. */
+function produitCle(p){ return norm((p&&p.nom)||'').replace(/\s+/g,' ').trim(); }
+/* opts.ancien : le semis du PREMIER DÉMARRAGE d'un appareil se date d'avant tout (_m = 1).
+   Avec un identifiant déterministe, un appareil neuf recrée exactement la fiche qu'un collègue
+   a peut-être supprimée exprès ; datée de maintenant, elle battrait la tombe à la fusion et
+   reviendrait chez tout le monde. Datée d'avant, la tombe gagne (t >= _m) : supprimé reste
+   supprimé. L'empreinte de l'ombre ignore _m, donc save() ne la re-date pas tant que la fiche
+   ne change pas. Le bouton « ↻ Catalogue OP », lui, ne passe pas ce drapeau : là, ramener une
+   fiche supprimée par erreur est précisément ce qu'on demande. */
+function cataloguePoser(cible,opts){
   cible.produits=cible.produits||[]; cible.fournisseurs=cible.fournisseurs||[];
   const vus=new Set(cible.produits.map(p=>(p.nom||'').trim().toLowerCase()));
+  const date=(opts&&opts.ancien)?{_m:1}:{};
   let np=0;
   CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||vus.has(nom.toLowerCase()))return;
-    cible.produits.push({id:uid(),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0});
+    cible.produits.push({id:idCatalogue(nom),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0,...date});
     vus.add(nom.toLowerCase()); np++; });
   const vusF=new Set(cible.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
   let nf=0;
@@ -15835,7 +15866,8 @@ function fcAdd(i,btn){ const x=CATFOUR[i]; if(!x) return;
      à l'autre ; en afficher un relevé sur un site public, c'est se tromper pour tout le monde
      à la fois. Le champ reste, chaque entreprise y met le sien. (Le site d'ORCAD le dit
      lui-même en tête de page : « NOS TARIFS NE SONT PAS À JOUR ».) */
-  db.produits.push({id:uid(),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0});
+  if(db.produits.some(p=>produitCle(p)===produitCle({nom:x[0]}))){ toast('Déjà dans ton catalogue'); return; }
+  db.produits.push({id:idCatalogue(x[2]+' '+x[0],'four'),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0});
   logEvent('Produit ajouté (catalogue fournisseur)',x[0]+' — '+x[2],'crud'); save();
   if(btn) btn.outerHTML='<span style="color:var(--acc);font-weight:800;font-size:16px">✓</span>';
   toast('Ajouté : '+x[0]);
@@ -15852,7 +15884,7 @@ function fcAddAll(){ const idx=fcMatches(); if(!idx.length) return;
     if(!confirm('Ajouter '+neufs.length+' produits de '+quoi+' à ton catalogue ?\n\nIls s\'ajouteront à tes '+db.produits.length+' références actuelles. Tu pourras en supprimer ensuite, une par une ou en lot.')) return; }
   let n=0;
   neufs.forEach(i=>{ const x=CATFOUR[i];
-    db.produits.push({id:uid(),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0}); n++; });
+    db.produits.push({id:idCatalogue(x[2]+' '+x[0],'four'),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0}); n++; });
   logEvent('Import catalogue fournisseur',n+' produit(s) ajoutés'+(fcFour?' — '+fcFour:'')+(fcQ?' — recherche « '+fcQ+' »':''),'crud'); save();
   toast(n+' produit(s) ajoutés à ton catalogue',4200); renderFourCat();
 }
@@ -15876,7 +15908,7 @@ views.produits=function(){
   const _np=prixPoses();
   setHeader('Produits',`Catalogue · ${db.produits.length} références`,`<button class="btn ghost" onclick="openFourCat()">🏭 Fournisseurs</button> ${(_np&&currentUser&&currentUser.role==='admin')?`<button class="btn ghost" onclick="prixEffacer()" title="Retirer les tarifs venus du catalogue fournisseur">💶 Effacer les prix (${_np})</button> `:''}${catalogueEnPlace()?'<button class="btn ghost" onclick="restoreCatalogue()">↻ Catalogue OP</button> ':''}<button class="btn ghost" onclick="openScanner()">Scanner</button> <button class="btn ghost" onclick="formProduitsListe()">＋ Liste</button> <button class="btn" onclick="formProduit()">＋ Produit</button>`);
   const nbP=db.produits.filter(p=>p.perso).length;
-  $('content').innerHTML=`<div class="filters" style="margin:0 0 8px">${[['tous','Tous · '+db.produits.length],['perso','Mes produits · '+nbP],['catalogue','Catalogue 3D (nuisibles) · '+(db.produits.length-nbP)]].map(([k,l])=>`<div class="chip ${prdOnglet===k?'active':''}" onclick="prdOnglet='${k}';renderProduitsList()">${l}</div>`).join('')}</div>
+  $('content').innerHTML=produitsDoublonsBandeau()+`<div class="filters" style="margin:0 0 8px">${[['tous','Tous · '+db.produits.length],['perso','Mes produits · '+nbP],['catalogue','Catalogue 3D (nuisibles) · '+(db.produits.length-nbP)]].map(([k,l])=>`<div class="chip ${prdOnglet===k?'active':''}" onclick="prdOnglet='${k}';renderProduitsList()">${l}</div>`).join('')}</div>
     <input class="search-inp" id="prd-search" placeholder="Rechercher un produit, une référence, un fournisseur…" value="${esc(prdSearch)}" oninput="prdSearch=this.value;renderProduitsList()">
     <div id="prd-list"></div>`;
   renderProduitsList();
@@ -15921,6 +15953,70 @@ function plValider(){ if(!_plLignes.length){ toast('Colle d\'abord ta liste de p
   toast(n?n+' produit(s) ajoutés et rangés par catégorie':'Rien à ajouter (déjà existants)'); prdOnglet='perso'; views.produits();
 }
 function prdBoxCount(p){ return db.boxes.filter(b=>b.stock&&b.stock[p.id]).length; }
+/* ══ LES DOUBLONS ══ Deux fiches, un même nom : la base d'ELAN en portait 210 paires après que
+   deux appareils eurent semé le pack chacun de leur côté. La cure ne supprime rien à l'aveugle :
+   pour chaque paire, une fiche SURVIT — celle qui est déjà dans le plus de box, à égalité la plus
+   ancienne — et tout ce qui pointait vers les autres est redirigé vers elle. Le stock des box
+   s'ADDITIONNE (un carton d'un côté, deux unités de l'autre : rien ne tombe), les mouvements,
+   demandes, bons, lots en attente changent d'identifiant, les fiches perdantes disparaissent et
+   save() leur pose une pierre tombale : la fusion des appareils ne les ramènera pas. */
+function produitsDoublons(){
+  const g={};
+  (db.produits||[]).forEach(p=>{ if(!p||!p.id) return; const k=produitCle(p); if(!k) return; (g[k]=g[k]||[]).push(p); });
+  return Object.values(g).filter(l=>l.length>1);
+}
+function produitsFusionnerDoublons(){
+  const groupes=produitsDoublons(); if(!groupes.length) return {paires:0,fiches:0};
+  const nbBox=p=>(db.boxes||[]).filter(b=>b&&b.stock&&b.stock[p.id]).length;
+  const rang=p=>[nbBox(p),-(p._m||0),-(String(p.id).length)];   // le plus posé, puis le plus ancien
+  const vers={}; let fiches=0;
+  groupes.forEach(l=>{
+    const tri=l.slice().sort((a,b)=>{ const ra=rang(a), rb=rang(b); for(let i=0;i<ra.length;i++){ if(ra[i]!==rb[i]) return rb[i]-ra[i]; } return String(a.id)<String(b.id)?-1:1; });
+    const s=tri[0];
+    tri.slice(1).forEach(x=>{ vers[x.id]=s.id; fiches++;
+      /* la survivante récupère ce qui lui manque : fournisseurs, référence, catégorie, prix, seuil */
+      s.fournisseurs=[...new Set([].concat(s.fournisseurs||[],x.fournisseurs||[]))];
+      if(!s.ref&&x.ref) s.ref=x.ref; if(!s.categorie&&x.categorie) s.categorie=x.categorie;
+      if(!s.prix&&x.prix) s.prix=x.prix; if(!s.seuil&&x.seuil) s.seuil=x.seuil; if(!s.amm&&x.amm) s.amm=x.amm;
+      if(!s.qteCarton&&x.qteCarton) s.qteCarton=x.qteCarton; if(x.perso) s.perso=true; });
+  });
+  /* le stock des box : additionner, jamais écraser */
+  (db.boxes||[]).forEach(b=>{ if(!b||!b.stock) return;
+    Object.keys(b.stock).forEach(id=>{ const cible=vers[id]; if(!cible) return;
+      const src=b.stock[id]||{}, dst=b.stock[cible]||{ctn:0,u:0};
+      b.stock[cible]={...dst,ctn:(+dst.ctn||0)+(+src.ctn||0),u:(+dst.u||0)+(+src.u||0)}; delete b.stock[id]; }); });
+  /* tout le reste : chaque « produitId » qui pointait vers une perdante pointe vers la survivante */
+  const marche=v=>{ if(!v||typeof v!=='object') return;
+    if(Array.isArray(v)){ v.forEach(marche); return; }
+    if(v.produitId&&vers[v.produitId]) v.produitId=vers[v.produitId];
+    Object.keys(v).forEach(k=>{ if(k!=='stock'&&k!=='_tombes') marche(v[k]); }); };
+  /* les box aussi : elles portent leurs arrivages (b.arrivages[].lignes[].produitId), que
+     bonRecuCumul() compare aux bons — exclure la collection laissait un bon livré redevenir
+     « il manque encore… ». Le marcheur saute la clé « stock », traitée juste au-dessus. */
+  Object.keys(db).forEach(c=>{ if(c!=='produits'&&Array.isArray(db[c])) marche(db[c]); });
+  db.produits=(db.produits||[]).filter(p=>!vers[p.id]);
+  logEvent('Produits en double fusionnés',fiches+' fiche(s) fusionnée(s) en '+groupes.length+' produit(s)','crud');
+  save();
+  return {paires:groupes.length,fiches};
+}
+/* Le bandeau qui le dit, partout où l'on voit des produits : une base doublée ne doit pas
+   se taire, sinon on recommence « Tout ajouter » et on repart à 420. */
+function produitsDoublonsBandeau(){
+  const g=produitsDoublons(); if(!g.length) return '';
+  const n=g.reduce((a,l)=>a+l.length-1,0);
+  return `<div class="bandeau-doublons"><div><b>${g.length} produit${g.length>1?'s':''} en double</b> — ${n} fiche${n>1?'s':''} de trop, par exemple « ${esc(g[0][0].nom)} » ×${g[0].length}.<br>
+    <span>La fusion garde une fiche par produit, additionne le stock des box et redirige mouvements, demandes et bons. Rien n'est perdu.</span></div>
+    <button class="btn sm" onclick="produitsFusionnerDoublonsUI()">Fusionner</button></div>`;
+}
+function produitsFusionnerDoublonsUI(){
+  const g=produitsDoublons(); if(!g.length){ toast('Aucun doublon'); return; }
+  const n=g.reduce((a,l)=>a+l.length-1,0);
+  const liste=g.slice(0,8).map(l=>'• '+(l[0].nom||'')+' ×'+l.length).join('\n')+(g.length>8?'\n… et '+(g.length-8)+' autre(s)':'');
+  if(!confirm('Fusionner '+n+' fiche(s) en double en '+g.length+' produit(s) ?\n\n'+liste+'\n\nMême nom = même produit : si deux conditionnements portent le même nom, renomme-les d\'abord. Le stock des box s\'additionne, rien d\'autre n\'est supprimé. Ça se propage à toute l\'équipe.')) return;
+  const r=produitsFusionnerDoublons();
+  toast(r.fiches+' fiche(s) fusionnée(s) — '+db.produits.length+' produits maintenant',4200);
+  if(typeof boxView!=='undefined'&&boxView&&typeof renderBoxDetail==='function'&&$('box-prod-list')) renderBoxDetail(); else views.produits();
+}
 /* ⛔ « J'AI TOUJOURS PAS LES BÂCHES » — Justin, 9 septembre 2026, deux fois.
    Elles ÉTAIENT là : cinq bâches MABI, dans le catalogue fournisseur, trouvables en tapant
    « bache ». Mais dans le MAUVAIS écran. « Produits » cherche dans SA liste ; le catalogue
@@ -15961,9 +16057,11 @@ function prdCataloguePont(q,dejaVus){
 function prdPontAjouter(){
   const idx=prdCatalogueTrouve(norm(prdSearch)); if(!idx.length){ toast('Rien à ajouter'); return; }
   if(idx.length>60 && !confirm('Ajouter '+idx.length+' produits à ton catalogue ?\n\nCe sont les résultats de « '+prdSearch+' » dans les catalogues fournisseurs.')) return;
-  let n=0;
-  idx.forEach(i=>{ const x=CATFOUR[i];
-    db.produits.push({id:uid(),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0}); n++; });
+  let n=0; const deja=new Set(db.produits.map(produitCle));
+  /* ce pont posait TOUT le résultat de la recherche, y compris ce qu'on avait déjà : un
+     deuxième chemin vers les doublons, refermé */
+  idx.forEach(i=>{ const x=CATFOUR[i]; const k=produitCle({nom:x[0]}); if(deja.has(k)) return; deja.add(k);
+    db.produits.push({id:idCatalogue(x[2]+' '+x[0],'four'),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0}); n++; });
   logEvent('Produits ajoutés depuis le catalogue',n+' — recherche « '+prdSearch+' »','crud');
   save(); toast(n+' produit(s) ajoutés — ils sont dans ta liste',4200); views.produits();
 }
@@ -16799,7 +16897,8 @@ function renderBoxDetail(){
         return `<div class="bdt-row"><span class="bdt-ic">🌴</span><span class="bdt-lbl">Congés</span><span class="bdt-val" style="text-align:right;max-width:64%;color:var(--org,#e8a33d);font-weight:700">Vous voyez cette box pendant les congés de ${esc(fullName(abs))}${d&&d.au?`, jusqu'au ${fmtShort(d.au)}`:''}</span></div>`; })()}
       ${b.notes?`<div class="bdt-row" style="border-bottom:none"><span class="bdt-ic">📝</span><span class="bdt-lbl">Notes</span><span class="bdt-val" style="text-align:right;max-width:60%">${esc(b.notes)}</span></div>`:''}
     </div>
-    <div class="card-head" style="margin:14px 2px 6px"><h3>Produits (${nbProd})</h3><button class="btn sm" onclick="openAddBoxProd()">＋ Ajouter</button></div>
+    ${produitsDoublonsBandeau()}
+    <div class="card-head" style="margin:14px 2px 6px"><h3>Produits (${nbProd})</h3><span style="display:flex;gap:6px">${nbProd?`<button class="btn ghost sm" onclick="boxRetirerZeros()" title="Retire de la box ce qui est à zéro ; le stock reste">À zéro ✕</button>`:''}<button class="btn sm" onclick="openAddBoxProd()">＋ Ajouter</button></span></div>
     <!-- La liste en cours et le bandeau « en attente » vivent AU-DESSUS de la recherche :
          entre le champ et les produits, ils coupaient le geste — on cherche un produit, on
          tape, et on avait un pavé au milieu. Ils sont hors de #boxprod-list, donc dans leur
@@ -17131,6 +17230,23 @@ function boxBrouillon(boxId){
   var moi=currentUser&&currentUser.id;
   return (db.boxMvtAttente||[]).find(function(x){
     return x&&x.statut==='brouillon'&&x.type==='ajustementLot'&&x.boxId===boxId&&x.parId===moi; })||null;
+}
+/* Tout ce qui attend une validation DR sur CE produit de CETTE box, tous demandeurs confondus :
+   les lots envoyés ('enAttente', de n'importe qui) et mon brouillon. Rendu en unités. */
+/* Chaque fait s'affiche UNE fois sur la carte : mon brouillon → « +2 · restera 12 » sous le
+   stepper ; mon lot envoyé → le cadenas « 🔒 +2 en attente · retirer » sous le nom
+   (boxAttenteProduit, plus bas, ne regarde que MES lots) ; et ce que LES AUTRES attendent → cette
+   ligne orange sous le stepper. C'est elle que le DR voit sur la box d'un technicien. */
+function boxAttenteTous(boxId,pid){
+  var moi=currentUser&&currentUser.id, ajout=0, retrait=0;
+  (db.boxMvtAttente||[]).forEach(function(x){ if(!x||x.boxId!==boxId) return;
+    if(x.statut!=='enAttente'||x.parId===moi) return;
+    if(x.type==='arrivage'){ (x.lignes||[]).forEach(function(l){ if(l&&l.produitId===pid) ajout+=(+l.qte||0); }); return; }
+    var lignes=x.lignes||(x.produitId?[{produitId:x.produitId,du:x.du,dc:x.dc,quantite:x.quantite}]:[]);
+    lignes.forEach(function(l){ if(!l||l.produitId!==pid) return;
+      var n=(+l.du||0); if(!n&&l.quantite){ n=(x.type==='retrait'?-1:1)*(+l.quantite||0); }
+      if(n>0) ajout+=n; else if(n<0) retrait+=-n; }); });
+  return {ajout:ajout,retrait:retrait};
 }
 function boxBrouillonLigne(boxId,pid){
   var lot=boxBrouillon(boxId); if(!lot) return null;
@@ -17573,6 +17689,12 @@ function renderBoxProdList(){
         </div>
         ${(()=>{ const br=boxBrouillonLigne(b.id,pid), dq=br?((+br.du||0)+(+br.dc||0)):0;
           const reste=dq<0?Math.max(0,(s.u||0)+dq):((s.u||0)+dq);
+          /* Ce qui attend le DR, de QUI QUE CE SOIT — Justin, 10 septembre : « quand une
+             personne en ajoute ou en retire, tant que ce n'est pas validé par le DR, une ligne
+             en orange sous le −/0/+ : produit en attente d'ajout. Quand le DR aura validé, le
+             stock passera de 10 à 12 ». Le brouillon (à moi) et les lots envoyés (de tous)
+             comptent ; le chiffre affiché au milieu reste le stock RÉEL. */
+          const att=boxAttenteTous(b.id,pid);
           return `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap" onclick="event.stopPropagation()">
           <div style="display:flex;align-items:center;gap:9px">
             <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px" onclick="boxAdj('${pid}','u',-1)" aria-label="Retirer une unité">−</button>
@@ -17580,6 +17702,8 @@ function renderBoxProdList(){
             <button class="btn ghost sm" style="width:44px;height:44px;justify-content:center;font-size:17px;font-weight:800;padding:0;border-radius:12px;color:var(--acc)" onclick="boxAdj('${pid}','u',1)" aria-label="Ajouter une unité">＋</button>
           </div>
           ${dq?`<span class="bst-eff">${dq<0?'−':'+'}${Math.abs(dq)} · restera ${reste}</span>`:''}
+          ${att.ajout?`<span class="bst-att">⏳ +${att.ajout} en attente d’ajout</span>`:''}
+          ${att.retrait?`<span class="bst-att">⏳ −${att.retrait} en attente de retrait</span>`:''}
         </div>`; })()}
       </div>
       ${(fours||low)?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 14px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent)">${fours}<span style="flex:1"></span>${low?`<button style="cursor:pointer;min-height:44px;padding:0 14px;font-size:12px;font-weight:700;border-radius:10px;color:${e.c};background:color-mix(in srgb,${e.c} 15%,transparent);border:.5px solid color-mix(in srgb,${e.c} 40%,transparent)" onclick="event.stopPropagation();boxDemande('${b.id}','${pid}')">＋ Demande</button>`:''}</div>`:''}
@@ -17903,20 +18027,49 @@ function openAddBoxProd(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)retur
     <div id="abp-list"></div>`);
   renderAbpList();
 }
+/* Ce qui peut encore entrer dans la box : ni un identifiant déjà posé, ni un NOM déjà posé sous
+   un autre identifiant — et une seule fiche par nom dans la liste proposée. C'est la garde qui
+   manquait quand la base portait chaque produit en double : « Tout ajouter » posait les deux. */
+function abpDisponibles(b){ const dansBox=new Set(); (db.produits||[]).forEach(p=>{ if(b.stock[p.id]) dansBox.add(produitCle(p)); });
+  const vus=new Set(); return (db.produits||[]).filter(p=>{ if(b.stock[p.id]) return false; const k=produitCle(p); if(dansBox.has(k)||vus.has(k)) return false; vus.add(k); return true; }); }
 function renderAbpList(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; const el=$('abp-list'); if(!el)return;
   const q=norm($('abp-search')?$('abp-search').value:'');
-  const avail=db.produits.filter(p=>!b.stock[p.id]).filter(p=>!q||norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')).includes(q));
+  const tous=abpDisponibles(b);
+  const avail=tous.filter(p=>!q||norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')).includes(q));
   const c=$('abp-count'); if(c)c.textContent=abpSel.size;
-  if(!avail.length){ el.innerHTML='<div style="color:var(--t3);padding:14px;text-align:center">Tous les produits sont déjà dans la box.</div>'; return; }
-  el.innerHTML=avail.map(p=>{ const on=abpSel.has(p.id);
+  /* La modale DIT où on en est — Justin, 10 septembre : « quand de nouveaux produits arrivent,
+     ils refont Tout ajouter, ça dit ce qui est déjà là et ce qui est nouveau ». Le compte des
+     produits déjà posés, celui des nouveaux, et le bouton qui retire ce qui est à zéro. */
+  const deja=Object.keys(b.stock||{}).length, zeros=Object.keys(b.stock||{}).filter(id=>{ const st=b.stock[id]||{}; return !(+st.u||0)&&!(+st.ctn||0); }).length;
+  const etat=`<div class="abp-etat"><span><b>${deja}</b> déjà dans la box${zeros?` · <b>${zeros}</b> à zéro`:''}</span><span><b>${tous.length}</b> ${tous.length>1?'nouveaux à ajouter':'nouveau à ajouter'}</span>${zeros?`<button type="button" class="btn ghost sm" onclick="if(boxRetirerZeros())closeModal()">Retirer les ${zeros} à zéro</button>`:''}</div>`;
+  if(!avail.length){ el.innerHTML=etat+'<div style="color:var(--t3);padding:14px;text-align:center">'+(q?'Rien ne correspond à cette recherche.':'Tous les produits du catalogue sont déjà dans la box — rien de nouveau à ajouter.')+'</div>'; return; }
+  el.innerHTML=etat;
+  el.innerHTML+=avail.map(p=>{ const on=abpSel.has(p.id);
     return `<div class="pl-row" style="cursor:pointer" onclick="abpToggle('${p.id}')"><span style="font-size:20px;color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span>
       <div class="pl-info"><div class="pl-title">${esc(p.nom)}</div><div class="pl-meta">${esc(p.categorie||'')}${p.ref?' · '+esc(p.ref):''}</div></div></div>`;}).join('');
 }
 function abpToggle(pid){ if(abpSel.has(pid))abpSel.delete(pid); else abpSel.add(pid); renderAbpList(); }
-function abpToggleAll(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; const avail=db.produits.filter(p=>!b.stock[p.id]);
+function abpToggleAll(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; const avail=abpDisponibles(b);
   if(avail.every(p=>abpSel.has(p.id))) abpSel=new Set(); else avail.forEach(p=>abpSel.add(p.id)); renderAbpList(); }
 function addBoxProd(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; if(!abpSel.size){toast('Choisis au moins un produit');return;} b.stock=b.stock||{};
-  abpSel.forEach(pid=>{ b.stock[pid]={ctn:0,u:0}; }); save(); closeModal(); renderBoxDetail(); toast(abpSel.size+' produit(s) ajouté(s) — quantités à zéro, à toi de les régler'); }
+  /* même au moment de poser : jamais deux fois la même identité, et jamais par-dessus un stock existant */
+  const ok=new Set(abpDisponibles(b).map(p=>p.id)); let n=0;
+  abpSel.forEach(pid=>{ if(!ok.has(pid)||b.stock[pid]) return; b.stock[pid]={ctn:0,u:0}; n++; });
+  save(); closeModal(); renderBoxDetail(); toast(n+' produit(s) ajouté(s) — quantités à zéro, à toi de les régler'); }
+/* « Retirer les produits à zéro » — Justin, 10 septembre : vider la liste d'une box sans toucher
+   à ce qui a du stock. Une ligne qui a des unités, des cartons, ou une demande en attente reste. */
+function boxRetirerZeros(){ const b=db.boxes.find(x=>x.id===boxView); if(!b||!b.stock) return false;
+  const enAttente=new Set(); (db.boxMvtAttente||[]).forEach(x=>{ if(!x||x.boxId!==b.id||(x.statut!=='enAttente'&&x.statut!=='brouillon')) return;
+    if(x.produitId) enAttente.add(x.produitId); (x.lignes||[]).forEach(l=>{ if(l&&l.produitId) enAttente.add(l.produitId); }); });
+  const ids=Object.keys(b.stock); const zeros=ids.filter(id=>{ const st=b.stock[id]||{}; return !(+st.u||0)&&!(+st.ctn||0)&&!enAttente.has(id); });
+  const gardes=ids.length-zeros.length;
+  if(!zeros.length){ toast('Aucun produit à zéro : tout ce qui est là a du stock ou une demande en cours'); return false; }
+  if(!confirm('Retirer '+zeros.length+' produit(s) à zéro de cette box ?\n\n'+(gardes?gardes+' restent : ils ont du stock ou une demande en attente.':'La liste sera vide.')+'\n\nLes fiches produits ne sont pas supprimées, seulement retirées de cette box.')) return false;
+  zeros.forEach(id=>{ delete b.stock[id]; });
+  logEvent('Produits à zéro retirés de la box',zeros.length+' — '+(b.nom||b.numero||''),'stock');
+  save(); renderBoxDetail(); toast(zeros.length+' produit(s) retiré(s)'+(gardes?' · '+gardes+' gardé(s)':''));
+  /* vrai seulement si quelque chose a été retiré : la modale qui appelle ne se ferme que là */
+  return true; }
 /* Steppers ＋/− de la fiche box : un tap = le stock bouge, le mouvement est
    tracé (qui/quoi/où/quand) et le responsable reçoit la notification. */
 /* ══ SÉLECTION MULTIPLE ══ vrai pendant qu'une liste de produits s'applique d'un coup.
