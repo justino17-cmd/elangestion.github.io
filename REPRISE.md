@@ -127,6 +127,32 @@ produits effaçaient tout l'historique de l'entreprise en un passage. Et le filt
 dans `delItem` s'exécutait AVANT le `confirm()` : annuler la suppression d'une box perdait quand même
 ses écartés, que le premier `save()` propageait à toute l'équipe.
 
+### v636 — les nouveautés du pack arrivent avec une bulle, jamais en douce
+
+**L'idée est de Justin**, et elle est meilleure que la mienne. J'avais écrit la mise à jour du pack
+en automatique au chargement ; il a proposé « un bouton en plus ici qui reçoit une petite bulle de
+notifications quand il rajoute un produit dans produit, et là ça met synchroniser les nouveaux
+produits ». Trois raisons pour lesquelles c'est ça qui part :
+
+- **Rien ne s'écrit dans les données d'une entreprise sans qu'une personne l'ait décidé.** `migrate()`
+  ne touche plus au catalogue : `cataloguePackNeufs(d)` est une fonction PURE qui compte.
+- **Le compte se voit avant de toucher** : une bulle sur l'onglet « Ajouter », une bande en tête qui
+  nomme les cinq premières références. C'était le vrai défaut du bouton « ↻ Catalogue OP » tout seul —
+  personne ne touche un bouton dont il ignore qu'il a quelque chose de neuf.
+- **Ça referme le trou des 90 jours** que `relecteur` avait trouvé sur la version automatique : passé
+  `TOMBE_JOURS`, la pierre tombale d'une fiche supprimée exprès est purgée, et la version silencieuse
+  l'aurait recréée toute seule. Plus rien ne se recrée sans un tap.
+
+> **Deux étapes, deux bandes, à ne pas confondre** : « pas encore dans ton catalogue » (bordure pleine,
+> en tête) puis « ✨ nouveau dans cette box » (lavis vert). Les fondre ferait taper deux fois.
+
+La garde reste celle du bouton : au moins cinq fiches du pack déjà en place. Une entreprise qui n'a
+jamais eu le pack ne voit ni bulle ni bande.
+
+**Piège de spécificité, à connaître** : la refonte impose `min-height:38px` à tout `.btn.sm`. Un
+sélecteur simple ne la bat pas — il faut le co-sélecteur `html[data-refonte]`, sinon la cible tombe
+à 38 px, sous le plancher de 44. Mesuré au navigateur, pas supposé, et un test le surveille.
+
 ### L'identité d'un produit — v633 (fusion) puis v634 (création)
 
 Les 110 doublons vus chez ELAN le 10 septembre avaient DEUX causes, refermées l'une après l'autre.

@@ -129,6 +129,15 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   équipe a retiré à la main — et une pose multi-box efface en silence les décisions de trente équipes.
   Règle jumelle : **une décision « Pas dans cette box » ne se lève que sur la box qu'on a sous les
   yeux** (`boxPoserProduits(b,ids,{respecterEcartes})`).
+- **Rien ne s'écrit dans les données d'une entreprise au seul chargement de la page.** `migrate()`
+  range et complète des champs, il n'ajoute pas de contenu : proposer, compter, afficher une bulle —
+  mais l'écriture attend un tap. Deux raisons, l'une de principe et l'autre mesurée : une base est la
+  propriété du client, et une écriture silencieuse contourne les pierres tombales (purgées après
+  `TOMBE_JOURS`, 90 jours), donc ressuscite ce qu'une équipe avait supprimé exprès.
+- **Un `.btn.sm` neuf se rend à 38 px, pas 44.** La refonte impose `min-height:38px` à tout `.btn.sm`
+  (vers la ligne 3035) : un sélecteur simple ne bat pas sa spécificité, il faut le co-sélecteur
+  `html[data-refonte]`. Toujours mesurer la hauteur réelle au navigateur avant de dire qu'une cible
+  respecte le plancher tactile.
 - **Une ligne de journal par GESTE, jamais par box.** `db.journal` est plafonné à 500 entrées à chaque
   `save()` et re-tronqué à 500 à chaque fusion : douze box de cent produits effacent tout l'historique
   de l'entreprise en un passage. Compter et nommer les box, ne pas réciter les produits.
