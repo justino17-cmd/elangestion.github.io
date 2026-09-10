@@ -93,7 +93,11 @@ console.log('Retrait coché, revérifié, annulable');
   bac.setRet(['C']); bac.boxRetirerCoches(); v('rien retiré quand tout est gardé : message, pas de journal',/Rien retiré/.test(bac.toasts[bac.toasts.length-1]),true); }
 console.log('Le catalogue nourrit la box tout seul');
 { const db=base(); bac.poser(db,ADMIN); const b=db.boxes[0]; const n=bac.boxAutoNouveautes(b);
-  v('à l\'ouverture, H et Dn se posent à zéro',[n,b.stock.H,b.stock.Dn],[2,{ctn:0,u:0},{ctn:0,u:0}]); v('journal',/Nouveaux produits du catalogue posés dans la box · Box Nord : HOUSSE, DÉTECTEUR/.test(bac.journal.join(" | ")),true);
+  v('à l\'ouverture, H et Dn se posent à zéro',[n,b.stock.H,b.stock.Dn],[2,{ctn:0,u:0},{ctn:0,u:0}]); /* v635 : UNE ligne pour tout le geste, pas une par box — db.journal est plafonné à 500 et douze
+     box l'auraient effacé en un passage. Elle compte les fiches et nomme les box, sans réciter. */
+  v('journal : UNE ligne pour tout le geste, comptée, qui nomme les box',
+    bac.journal.filter(l=>/Nouveaux produits du catalogue/.test(l)),
+    ['Nouveaux produits du catalogue posés dans les box · 4 fiche(s) à zéro dans 2 box : Box Nord, Box Sud']);
   v('seconde ouverture : rien',bac.boxAutoNouveautes(b),0);
   bac.setRet(['H']); bac.boxRetirerCoches(); v('retiré ET écarté : il ne revient pas',[b.stock.H,bac.boxNouveautes(b).map(p=>p.id),bac.boxAutoNouveautes(b)],[undefined,[],0]);
   bac.boxRetirerAnnuler(); v('annuler le retrait lève l\'écart',[b.stock.H,Object.keys(bac.boxDecision(b).ecartes)],[{ctn:0,u:0},[]]);

@@ -18623,12 +18623,16 @@ function boxNouveautes(b,cands){ if(!b) return []; b.stock=b.stock||{}; const d=
 function boxAutoNouveautes(b){
   const cands=produitsRecents(); if(!cands.length) return 0;
   const boxes=visibleBoxes((db.boxes||[]).filter(x=>x&&x.actif!==false));
-  let total=0, touchees=0, ici=0;
+  let total=0, touchees=0, ici=0; const noms=[];
   boxes.forEach(bx=>{ const nv=boxNouveautes(bx,cands); if(!nv.length) return;
     const r=boxPoserProduits(bx,nv.map(p=>p.id)); if(!r.poses.length) return;
     total+=r.poses.length; touchees++; if(b&&bx.id===b.id) ici=r.poses.length;
-    logEvent('Nouveaux produits du catalogue posés dans la box',(bx.nom||bx.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock'); });
+    noms.push(bx.nom||bx.numero||''); });
   if(!total) return 0;
+  /* UNE ligne pour tout le geste, pas une par box. db.journal est plafonné à 500 entrées (save) et
+     re-tronqué à 500 à chaque fusion : douze box × cent produits auraient effacé tout l'historique
+     de l'entreprise en un passage. On compte, on nomme les box, on ne récite pas les produits. */
+  logEvent('Nouveaux produits du catalogue posés dans les box',total+' fiche(s) à zéro dans '+touchees+' box : '+noms.slice(0,6).join(', ')+(noms.length>6?' et '+(noms.length-6)+' autre(s)':''),'stock');
   save();
   toast(total+' produit'+(total>1?'s':'')+' du catalogue ajouté'+(total>1?'s':'')+' à zéro dans '+touchees+' box'+(touchees>1?'':''),4200);
   return ici||total; }
@@ -23605,8 +23609,11 @@ function delItem(coll,id){
     if(!confirm('Supprimer ce produit ?'+(nb?' Il est encore présent dans '+nb+' box — ses quantités seront retirées partout.':''))) return;
     db.boxes.forEach(b=>{ if(b.stock) delete b.stock[id]; });
   } else if(coll==='boxes'){ const b=db.boxes.find(x=>x.id===id)||{};
-    db.boxDecisions=(db.boxDecisions||[]).filter(d=>!d||d.id!==id);   // sa décision de nouveautés part avec elle (tombe par estampiller)
     if(!confirm('Supprimer la box « '+(b.nom||b.numero||'')+' » ? Son stock et son historique disparaîtront.')) return;
+    /* APRÈS le confirm, jamais avant : ce filtre s'exécutait même quand on répondait « Annuler », et
+       la box gardait alors une base sans ses écartés — le premier save() venu posait la tombe et la
+       synchro effaçait pour toute l'équipe des décisions que personne n'avait révoquées. */
+    db.boxDecisions=(db.boxDecisions||[]).filter(d=>!d||d.id!==id);   // sa décision de nouveautés part avec elle (tombe par estampiller)
     (db.bons||[]).forEach(x=>{ if(x.boxId===id) x.boxId=''; });          // les bons liés repartent sur le dépôt
     (db.demandes||[]).forEach(x=>{ if(x.boxId===id) x.boxId=''; });
   } else if(coll==='techniciens'){ const t=db.techniciens.find(x=>x.id===id)||{}; const lu=db.users.find(u=>u.techId===id);
