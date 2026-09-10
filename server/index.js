@@ -300,7 +300,7 @@ app.post('/api/checkcode', (req, res) => {
 });
 
 let lastRefus = null;   // dernier refus d'envoi d'e-mail (diagnostic) : { ts, raison }
-app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, annonce: ANNONCE.version, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), boiteAddr: (config.imap && config.imap.user) || '', stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus,
+app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, annonce: ANNONCE.version, uptime: Math.round(process.uptime()), subs: Object.keys(subs).length, email: !!mailer, atts: true, boite: !!(config.imap && config.imap.user), stripe: !!(config.stripe && config.stripe.secretKey), bugs1h: bugTimes.filter(t => t > Date.now() - 3600000).length, bugs24h: bugTimes.filter(t => t > Date.now() - 86400000).length, lastRefus,
   /* Quatre entiers agrégés : ils disent si la porte des routes mail peut se fermer,
      et ne disent rien de personne — ni adresse, ni espace, ni contenu. Sans eux,
      la suite se déciderait à l'aveugle : /api/mail/cles est protégée par une clé de
@@ -820,7 +820,8 @@ app.post('/api/sendmail', async (req, res) => {
     const connu = !!espaceParT(tEnv) || Object.values(subs).some(x => x.teamId === tEnv) || !!cnxData[tEnv];
     if (!connu) {
       /* Pas de teamId dans lastRefus : /health est publique, et un teamId est la seule clé
-         d'accès aux routes de messagerie. Le motif suffit au diagnostic. */
+         d'accès aux routes de messagerie. Le motif suffit au diagnostic. La règle vaut pour TOUS les
+         lastRefus, pas seulement celui-ci : ni identifiant, ni slug, ni adresse — un motif générique. */
       lastRefus = { ts: Date.now(), raison: 'sendmail : espace inconnu' };
       /* Le libellé évite les mots que l'application prend pour un problème d'identifiants —
          sinon on enverrait un client changer son mot de passe pour rien. */
@@ -881,7 +882,7 @@ app.post('/api/compte/identifiants', async (req, res) => {
   // que le serveur connaît (annuaire, ou appareils abonnés aux notifications), jamais pour un espace inventé.
   const esp = espaceParT(t);
   const espaceConnu = !!esp || Object.values(subs).some(s => s.teamId === t);
-  if (!espaceConnu) { lastRefus = { ts: Date.now(), raison: 'accès : espace inconnu ' + t.slice(0, 30) }; return res.status(403).json({ error: 'espace inconnu du serveur — transmets les accès toi-même' }); }
+  if (!espaceConnu) { lastRefus = { ts: Date.now(), raison: 'accès : espace inconnu' }; return res.status(403).json({ error: 'espace inconnu du serveur — transmets les accès toi-même' }); }
   const refus = mailQuotaRefus(req, t, 'acces:', 20);
   if (refus) return res.status(429).json({ error: refus });
   const net = (s, n) => String(s || '').replace(/[<>\r\n]/g, '').trim().slice(0, n);
@@ -1184,7 +1185,8 @@ function monApps(u) {   // u : entrée de monUsers, ou la session de repli du je
    un accès, c'est users/toggle, pas une liste sans rien. */
 function monAppsLire(v) {
   if (!Array.isArray(v)) return { error: 'apps : une liste d\'applications est attendue' };
-  const l = [...new Set(v.map(a => String(a)))];
+  if (v.some(a => typeof a !== 'string')) return { error: 'apps : des noms d\'application sont attendus' };   // String(['gestion']) vaut 'gestion' : sans ce test, [['gestion']] passait
+  const l = [...new Set(v)];
   const inconnue = l.find(a => !TOUR_APPS.includes(a));
   if (inconnue !== undefined) return { error: 'application inconnue : ' + monStr(inconnue, 20) };
   if (!l.length) return { error: 'au moins une application' };
@@ -1252,13 +1254,23 @@ app.post('/api/monitor/login', (req, res) => {
    (mail.js compris) ; en poser un par route, c'est autant d'occasions d'en oublier une, et l'oubli
    OUVRIRAIT. Ici l'oubli FERME, et se voit : le compte reçoit un 403 avec le champ app.
    ⚠ Une route /api/monitor nouvelle doit dire son application — ici, pas ailleurs. */
-const ROUTES_COMMUNES = /^\/api\/monitor\/(login|moi|users(\/.*)?|journal|issues(\/archive)?|status|expliquer|proposer|sante|support(\/.*)?|mail\/.*|entreprises)$/;   /* /mails (journal des e-mails d'OP GESTION, adresses des clientes) est GESTION, pas commune */
+/* Ce qui est COMMUN se limite à ce qu'un compte OP MESSAGES peut légitimement voir : sa session, l'équipe,
+   les incidents (filtrés), la santé, la liste des entreprises (projetée), et la LECTURE de la boîte support.
+   Tout le courrier (mail/*, 16 routes de mail.js) est GESTION : la boîte contient les liens de connexion
+   envoyés aux entreprises, et ses dossiers se lisent librement — une lecture de « Envoyés » y trouverait la
+   clé d'équipe de n'importe quelle cliente. Les écritures support (répondre, envoyer, retirer, marquer)
+   engagent l'adresse officielle : GESTION aussi. /mails (journal des e-mails, adresses des clientes) : GESTION. */
+const ROUTES_COMMUNES = /^\/api\/monitor\/(login|moi|users(\/.*)?|journal|issues(\/archive)?|status|expliquer|proposer|sante|support\/(box|mails|envoyes)|entreprises)$/;
 const ROUTES_MESSAGES = /^\/api\/monitor\/(espaces\/apps|messages(\/.*)?)$/;
 function monAppDeRoute(req) {
   /* Le chemin DÉCLARÉ de la route (req.route.path), pas l'URL reçue : Express accepte
      « /API/MONITOR/ESPACES/APPS/ » pour la même route, et une table qui lirait l'URL brute
      classerait cette variante en GESTION — ouvrant une route MESSAGES à un compte qui n'a que
-     GESTION. Repli sur l'URL normalisée si le garde était un jour monté hors d'une route. */
+     GESTION. Repli sur l'URL normalisée si le garde était un jour monté hors d'une route.
+     ⚠ mail.js déclare ses chemins EN ENTIER ('/api/monitor/mail/boites', monté sur app) : c'est ce qui
+     rend req.route.path complet ici. S'il devenait un express.Router() monté sur '/api/monitor/mail',
+     req.route.path vaudrait '/boites', la table ne le reconnaîtrait plus et tout tomberait en GESTION —
+     ça ferme, mais ça casserait la Tour sans un mot. */
   const p = String(req.route && typeof req.route.path === 'string' ? req.route.path : req.path).toLowerCase().replace(/\/+$/, '');
   return ROUTES_COMMUNES.test(p) ? null : (ROUTES_MESSAGES.test(p) ? 'messages' : 'gestion');
 }
@@ -2286,7 +2298,12 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
     bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
   });
   try {
-    await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: e.email,
+    /* confidentiel : ce courriel porte le lien de connexion (donc la clé qui déchiffre les données de
+       l'espace) ET le mot de passe provisoire. Sans ce drapeau, mailerEnvoi en gardait 2000 caractères
+       dans mails-envoyes.json et en glissait une copie dans la boîte support — deux endroits où la clé
+       d'une entreprise n'a rien à faire. Sa relance, plus bas, le disait déjà ; celui-ci l'avait oublié. */
+    await mailerEnvoi({ confidentiel: true, trace: 'lien de connexion + accès provisoires · espace ' + slug,
+      from: config.smtp.from || config.smtp.user, to: e.email,
       subject: '🔗 Votre lien de connexion — TEAM OP', text: texte, html });
     console.log('Tour :', req.tourUser.nom, 'a envoyé le lien de', slug, '→', masqueMail(e.email));
     // son « Mon espace » passe à Accès activé · OP GESTION active (+ abonnement si formule posée)
@@ -2973,7 +2990,7 @@ app.post('/api/monitor/messages/etat', monPatronStrict, (req, res) => {
   if (!enTravaux && !/^[a-z0-9][a-z0-9-]{3,79}$/.test(projet)) return res.status(400).json({ error: 'nom du projet requis (minuscules, chiffres, tirets) pour sortir des travaux' });
   const avant = opmsgLire();
   const etat = { enTravaux, depuis: avant.depuis, note: avant.note, projet: projet || (enTravaux ? monStr(avant.projet, 80) : ''), par: req.tourUser.nom, ts: Date.now() };
-  try { fs.writeFileSync(OPMSG_PATH, JSON.stringify(etat)); } catch (e) { return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' }); }
+  try { fs.writeFileSync(OPMSG_PATH + '.tmp', JSON.stringify(etat)); fs.renameSync(OPMSG_PATH + '.tmp', OPMSG_PATH); } catch (e) { return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' }); }
   console.log('Tour :', req.tourUser.nom, enTravaux ? 'remet OP MESSAGES en travaux' : 'déclare OP MESSAGES en service sur le projet ' + projet);
   res.json({ ok: true, enTravaux, projet: etat.projet, entreprisesOuvertes: opmsgOuvertes() });
 });
@@ -3139,7 +3156,7 @@ app.post('/api/espaces/lien', (req, res) => {
   if (!cleAnn) return refus();
   if (crypto.createHash('sha256').update(cleAnn).digest('hex') !== kh) {
     // l'appareil a une autre clé que l'annuaire : le code de l'annuaire est périmé → le site cesse de le servir
-    if (!espacesReg[e.slug].clePerimee) { espacesReg[e.slug].clePerimee = Date.now(); try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} lastRefus = { ts: Date.now(), raison: 'clé d\'équipe changée pour l\'espace ' + e.slug + ' — à réinscrire dans la Tour' }; console.warn('espace', e.slug, ': clé d\'équipe changée — lien de l\'annuaire périmé'); }
+    if (!espacesReg[e.slug].clePerimee) { espacesReg[e.slug].clePerimee = Date.now(); try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} lastRefus = { ts: Date.now(), raison: 'clé d\'équipe changée pour un espace inscrit — à réinscrire dans la Tour (le journal dit lequel)' }; console.warn('espace', e.slug, ': clé d\'équipe changée — lien de l\'annuaire périmé'); }
     return res.status(404).json({ error: 'la clé d\'équipe a changé depuis l\'inscription chez TEAM OP — l\'espace est à réinscrire dans la Tour', motif: 'cle_changee' });
   }
   if (espacesReg[e.slug].clePerimee) { delete espacesReg[e.slug].clePerimee; try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
@@ -3890,15 +3907,18 @@ const EXPLIQUE_SCHEMA = {
   additionalProperties: false
 };
 const EXPLIQUE_QUOTA_PATH = path.join(DATA_DIR, 'explique-quota.json');
-let expliqueQuota = { jour: '', n: 0 };
-try { expliqueQuota = JSON.parse(fs.readFileSync(EXPLIQUE_QUOTA_PATH, 'utf8')); } catch (e) {}
-function expliqueUtilises() {
+/* Un compteur PAR APPLICATION. /api/monitor/report est publique : n'importe qui peut fabriquer des incidents
+   étiquetés OP MESSAGES, et un compte messages les expliquer — avec un seul compteur, il aurait vidé le quota
+   du jour de la Tour gestion. L'ancien fichier { jour, n } se relit comme le compteur de gestion. */
+let expliqueQuota = { jour: '', n: {} };
+try { const q = JSON.parse(fs.readFileSync(EXPLIQUE_QUOTA_PATH, 'utf8')); expliqueQuota = { jour: q.jour || '', n: (q.n && typeof q.n === 'object') ? q.n : { gestion: +q.n || 0 } }; } catch (e) {}
+function expliqueUtilises(appli) {
   const auj = new Date().toISOString().slice(0, 10);
-  if (expliqueQuota.jour !== auj) expliqueQuota = { jour: auj, n: 0 };
-  return expliqueQuota.n;
+  if (expliqueQuota.jour !== auj) expliqueQuota = { jour: auj, n: {} };
+  return expliqueQuota.n[appli] || 0;
 }
-function expliqueCompte() { expliqueUtilises(); expliqueQuota.n++; try { fs.writeFileSync(EXPLIQUE_QUOTA_PATH, JSON.stringify(expliqueQuota)); } catch (e) {} }
-const EXPLIQUE_MAX = 40;
+function expliqueCompte(appli) { expliqueUtilises(appli); expliqueQuota.n[appli] = (expliqueQuota.n[appli] || 0) + 1; try { fs.writeFileSync(EXPLIQUE_QUOTA_PATH, JSON.stringify(expliqueQuota)); } catch (e) {} }
+const EXPLIQUE_MAX = 40;   // par application et par jour
 app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
   try {
     if (!devisActif()) return res.status(503).json({ error: 'Clé Claude non configurée sur le serveur (config.json → anthropic.cleApi)' });
@@ -3906,7 +3926,8 @@ app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
     if (!issue) return res.status(404).json({ error: 'incident introuvable' });
     if (monIssueRefuse(req, res, issue)) return;
     if (issue.explication && !(req.body || {}).refaire) return res.json({ ok: true, explication: issue.explication, deja: true });
-    if (expliqueUtilises() >= EXPLIQUE_MAX) return res.status(429).json({ error: 'Quota du jour atteint (' + EXPLIQUE_MAX + ' explications) — réessaie demain' });
+    const appliQ = monAppDeTag(issue.app);
+    if (expliqueUtilises(appliQ) >= EXPLIQUE_MAX) return res.status(429).json({ error: 'Quota du jour atteint (' + EXPLIQUE_MAX + ' explications) — réessaie demain' });
 
     const s = monSource(issue.src, issue.line);
     const sys = "Tu expliques la cause d'un incident survenu dans une application web de gestion d'interventions, à un artisan qui n'est pas développeur mais qui lit du code quand on le lui montre. Réponds en français, sobrement, sans jargon inutile.\n"
@@ -3932,7 +3953,7 @@ app.post('/api/monitor/expliquer', monAdmin, async (req, res) => {
     if (msg.stop_reason === 'refusal') return res.status(422).json({ error: 'Explication refusée' });
     const txt = (msg.content.find(b => b.type === 'text') || {}).text || '';
     let e; try { e = JSON.parse(txt); } catch (err) { return res.status(502).json({ error: 'Réponse illisible, réessaie' }); }
-    expliqueCompte();
+    expliqueCompte(appliQ);
     issue.explication = {
       cause: monStr(e.cause, 900), ou: monStr(e.ou, 200), verifier: monStr(e.verifier, 400),
       confiance: ['haute', 'moyenne', 'faible'].includes(e.confiance) ? e.confiance : 'faible',
