@@ -129,6 +129,19 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   équipe a retiré à la main — et une pose multi-box efface en silence les décisions de trente équipes.
   Règle jumelle : **une décision « Pas dans cette box » ne se lève que sur la box qu'on a sous les
   yeux** (`boxPoserProduits(b,ids,{respecterEcartes})`).
+- ⛔ **Rejoindre un espace doit retirer `elan_vierge_v1` en même temps que `STORE_KEY`.** Le vidage
+  des collections de démonstration n'a lieu QU'UNE FOIS DANS LA VIE DE L'APPAREIL. Sans ce retrait,
+  un appareil déjà utilisé qui rejoint un espace rejoue `seed()` sans vider : 160 produits, cinq
+  fournisseurs, deux devis, deux factures, deux contrats, et DEUX BOX DE DÉMONSTRATION (« Cuisine —
+  Restaurant Le Gourmet »…) entrent dans la base du client — puis la première synchro, qui est une
+  UNION, les répand dans toute l'entreprise. Mesuré le 10 septembre 2026 : 220 fiches deviennent 380
+  et 110 noms passent en TRIPLE. C'est le SEUL moment où retirer ce drapeau est sans danger, parce
+  qu'on vient de supprimer la base : le vidage vide le semis, jamais des données. `tests/test-637.js`
+  le surveille, et `scratchpad/sonde-rejoindre.js` l'exerce par le vrai `teamopJoin`.
+- ⛔ **`_m:1` posé juste avant un `save()` ne survit pas.** `estampiller()` date de MAINTENANT tout
+  enregistrement absent de l'ombre : un `_m:1` écrit puis sauvegardé est écrasé, et la fiche bat sa
+  pierre tombale. Il ne tient que là où `ombreRelever()` passe juste après — au chargement (`load()`)
+  et à l'import. Ailleurs, ne pas prétendre qu'il protège quoi que ce soit.
 - **Rien ne s'écrit dans les données d'une entreprise au seul chargement de la page.** `migrate()`
   range et complète des champs, il n'ajoute pas de contenu : proposer, compter, afficher une bulle —
   mais l'écriture attend un tap. Deux raisons, l'une de principe et l'autre mesurée : une base est la

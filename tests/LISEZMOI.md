@@ -38,6 +38,25 @@ partageaient déjà l'identifiant avant d'arriver au détecteur.
 libre. Les `idCatalogue` qui restent prennent tous leur nom de `CATALOGUE` ou de `CATFOUR`, deux
 constantes latines du fichier.
 
+## La sonde en navigateur qui vit ici
+
+`sonde-rejoindre.js` est la seule sonde versée au dépôt, et elle mérite son exception : elle exerce le
+VRAI `teamopJoin` sur `beta.html`, ce qu'aucune suite ne peut faire — `load()` lit `localStorage` et
+recharge la page, il n'est pas extractible.
+
+```bash
+# un serveur statique sur 8123 (commande dans CLAUDE.md), puis :
+node tests/sonde-rejoindre.js
+# playwright-core introuvable ? elle le dit et donne la commande :
+#   NODE_PATH=/opt/node22/lib/node_modules/playwright/node_modules node tests/sonde-rejoindre.js
+```
+
+Elle garde ceci : un appareil DÉJÀ UTILISÉ qui rejoint un espace ne doit RIEN apporter. Avant la
+correction du 10 septembre 2026, il déversait 160 produits, cinq fournisseurs, deux devis, deux
+factures et **deux box de démonstration** (« Cuisine — Restaurant Le Gourmet ») dans la base du
+client, que la première synchro répandait dans toute l'entreprise — 220 fiches devenaient 380 et
+110 noms passaient en triple. Elle doit afficher des zéros partout.
+
 ## Playwright
 
 Les sondes en navigateur (`sonde-*.js`) ne sont pas ici : elles demandent Chromium et un serveur

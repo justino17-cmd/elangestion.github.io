@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '636';
+const APP_VERSION = '637';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6022,11 +6022,18 @@ function cataloguePackNeufs(d){
 /* Le geste : synchroniser les nouveautés du pack dans le catalogue de l'entreprise. Elles y entrent
    datées de maintenant, donc elles deviennent des « nouveautés » — elles apparaissent aussitôt dans
    la liste « à ajouter » de la box, et le « +N » de la cloche les annonce à l'équipe.
-   _m=1 : datées d'avant tout pour la FUSION, donc une fiche qu'une équipe a supprimée exprès garde
-   sa pierre tombale et ne revient pas. */
+
+   ⚠️ PAS de {ancien:true} ici, et le commentaire d'avant mentait : je croyais qu'un _m=1 protégeait
+   une fiche supprimée exprès. Deux raisons pour lesquelles c'est faux, la seconde plus profonde que
+   la première. Un : estampiller() date de MAINTENANT tout enregistrement absent de l'ombre, donc le
+   save() qui suit écrasait le _m=1 — mesuré. Deux, et c'est ce qui tranche : même en le faisant
+   tenir, la fiche serait retirée à la fusion puis recomptée par cataloguePackNeufs au chargement
+   suivant. La bulle reproposerait éternellement les mêmes trois fiches, sans qu'on puisse jamais
+   s'en débarrasser. Ce qui légitime le retour d'une fiche écartée, ce n'est pas une date : c'est
+   que quelqu'un a LU le nombre et touché « Synchroniser ». */
 function cataloguePackSync(){
   const neufs=cataloguePackNeufs(); if(!neufs.length){ toast('Ton catalogue est déjà à jour'); return; }
-  const r=cataloguePoser(db,{ancien:true,naissance:Date.now()});
+  const r=cataloguePoser(db,{naissance:Date.now()});
   if(!r.produits){ toast('Ton catalogue est déjà à jour'); return; }
   logEvent('Nouveaux produits OP GESTION synchronisés',r.produits+' référence(s) ajoutée(s) au catalogue'+(r.fournisseurs?' · '+r.fournisseurs+' fournisseur(s)':''),'crud');
   save();
@@ -6738,6 +6745,18 @@ async function teamopLienCheck(){
   localStorage.setItem('elan_sync_secret',o.k);
   localStorage.setItem('elan_sync_on','1');
   try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); lienLisibleOublier(); }catch(e){}
+  /* ⛔ LE DRAPEAU DU VIDAGE PART AVEC LA BASE — sans ça, un appareil DÉJÀ UTILISÉ qui rejoint un
+     espace y déverse des données de démonstration. Mécanisme, reproduit en navigateur le
+     10 septembre 2026 : on retire STORE_KEY, on recharge, load() n'a plus rien à lire et rejoue
+     seed() — mais le vidage des collections de démonstration n'a lieu QU'UNE FOIS DANS LA VIE DE
+     L'APPAREIL (elan_vierge_v1). Le drapeau étant déjà posé, le semis survit : 160 produits, cinq
+     fournisseurs, deux devis, deux factures, deux contrats, et DEUX BOX DE DÉMONSTRATION nommées
+     « Cuisine — Restaurant Le Gourmet » et « Réserve — Boulangerie Au Bon Pain ». La première
+     synchro étant une UNION (fusionnerBases), tout ça entre dans la base du client et repart chez
+     toute l'équipe — mesuré : 220 fiches deviennent 380, et 110 noms se retrouvent en TRIPLE.
+     Retirer le drapeau ici est sans danger, et c'est le seul moment où ça l'est : on vient de
+     supprimer STORE_KEY, la base est donc vide — le vidage vide le semis, jamais des données. */
+  try{ localStorage.removeItem('elan_vierge_v1'); }catch(e){}
   try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.mh) localStorage.setItem('elan_admin_mdph',o.mh); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   try{ localStorage.setItem('elan_lien_ok','1'); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
@@ -6755,6 +6774,18 @@ function teamopJoin(code){
   localStorage.setItem('elan_sync_secret',o.k);
   localStorage.setItem('elan_sync_on','1');
   try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); lienLisibleOublier(); }catch(e){}   // repart propre → pas de fuite de données entre espaces
+  /* ⛔ LE DRAPEAU DU VIDAGE PART AVEC LA BASE — sans ça, un appareil DÉJÀ UTILISÉ qui rejoint un
+     espace y déverse des données de démonstration. Mécanisme, reproduit en navigateur le
+     10 septembre 2026 : on retire STORE_KEY, on recharge, load() n'a plus rien à lire et rejoue
+     seed() — mais le vidage des collections de démonstration n'a lieu QU'UNE FOIS DANS LA VIE DE
+     L'APPAREIL (elan_vierge_v1). Le drapeau étant déjà posé, le semis survit : 160 produits, cinq
+     fournisseurs, deux devis, deux factures, deux contrats, et DEUX BOX DE DÉMONSTRATION nommées
+     « Cuisine — Restaurant Le Gourmet » et « Réserve — Boulangerie Au Bon Pain ». La première
+     synchro étant une UNION (fusionnerBases), tout ça entre dans la base du client et repart chez
+     toute l'équipe — mesuré : 220 fiches deviennent 380, et 110 noms se retrouvent en TRIPLE.
+     Retirer le drapeau ici est sans danger, et c'est le seul moment où ça l'est : on vient de
+     supprimer STORE_KEY, la base est donc vide — le vidage vide le semis, jamais des données. */
+  try{ localStorage.removeItem('elan_vierge_v1'); }catch(e){}
   _ck={}; _syncTs=0;
   try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.mh) localStorage.setItem('elan_admin_mdph',o.mh); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
