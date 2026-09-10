@@ -52,8 +52,92 @@ cure, ligne orange « en attente »). **Puis v624 :** le DR corrige la quantité
 technicien voit ce qui a été accordé. **Puis v625 :** un seul bouton « Ajouter / retirer » sur la box,
 nouveautés, retrait sûr, doublons. **Puis v626 :** les catalogues fournisseurs dans la box, sans passer par
 l'administrateur. **Puis v627 :** ils deviennent un onglet, parce que la section était à 9 086 px du haut. **Puis v628-629 :**
-le catalogue se copie d'un espace pour se coller dans un autre. **Reste :** la bascule d'OP MESSAGES sur son projet — attend la
-configuration web du nouveau projet Firebase, que Justin doit créer.
+le catalogue se copie d'un espace pour se coller dans un autre. **Puis v630-632 :** trois corrections de mes
+propres régressions sur ce chantier — la fusion globale rendue au bandeau, le bandeau ramené à la seule box
+ouverte, l'action mise avant l'explication. **Puis v633 et v634 :** l'identité d'un produit, ci-dessous.
+**Reste :** la bascule d'OP MESSAGES sur son projet — attend la configuration web du nouveau projet Firebase,
+que Justin doit créer.
+
+### L'identité d'un produit — v633 (fusion) puis v634 (création)
+
+Les 110 doublons vus chez ELAN le 10 septembre avaient DEUX causes, refermées l'une après l'autre.
+
+**v633 — la fusion perdait du stock.** `produitsFusionnerDoublons()` supprimait les DEUX fiches quand
+elles partageaient un identifiant, au lieu d'en garder une : mesuré sur une base d'essai, 3 produits
+tombaient à 1 et 12 unités disparaissaient d'une box. Corrigé : les fiches de même identifiant se
+replient d'abord l'une sur l'autre (champs manquants complétés, fournisseurs unis), et la boucle de
+stock ignore une cible égale à la source. La base d'ELAN rejouée : 220 produits / 110 doublons /
+369 unités → 110 produits / 0 doublon / **369 unités**, aucune fiche perdue, 923 ms.
+Même version : le semis d'un espace neuf pose des identifiants déduits du nom (`idCatalogue`) au lieu
+d'`uid()` — c'était l'origine des 110 doublons, puisque le semis se rejoue à chaque ouverture d'espace,
+et qu'un lien de connexion suffit à en ouvrir un.
+
+**v634 — la création en fabriquait encore.** Quatre corrections, toutes mesurées :
+
+- Une référence fournisseur prenait `four_<fournisseur>-<nom>` alors que le pack officiel posait
+  `cat_<nom>`. **41 produits** du pack existent aussi dans une gamme ARMOSA/ENSYSTEX/SODIF/MABI/ORCAD :
+  selon le chemin d'ajout, deux appareils de la même entreprise leur donnaient deux identifiants, et la
+  synchro (qui unit par identifiant) en faisait deux fiches. L'identité est désormais le nom, partout.
+- Les gardes « déjà chez moi » de trois écrans comparaient avec `norm()` quand le détecteur de doublons
+  compare avec `produitCle()`. Alignées.
+- `t3dProdToStock` et `intToggleProd` comparaient les noms à la main (`.toLowerCase()===`) et créaient
+  avec `uid()`. Alignés eux aussi.
+- Le semis porte `cree:0` (rien de semé n'est « nouveau ») et `_m:1` (une fiche supprimée exprès ne
+  ressuscite pas chez tout le monde au prochain appareil neuf).
+- Un nom tapé à la main qui existe déjà pose la question AVANT, au lieu de laisser fusionner après.
+
+**Le résidu assumé, mesuré, écrit dans le code** : `idCatalogue` coupe le slug à 60 signes. Sur les
+2 919 noms du catalogue, six identifiants sont partagés — **cinq sont le même produit écrit autrement**
+(« TEENOX® EC » / « Teenox EC », « 3,80m » / « 3.80m », « (20g) » / « 20g ») et doivent bien se replier
+sur une fiche ; **une seule paire est vraiment deux produits** (raccord acier / raccord inox). Celle-là
+est départagée par une empreinte du nom entier ajoutée à l'identifiant. C'est le PREMIER arrivé qui
+garde l'identifiant nu : deux appareils qui créeraient cette paire dans l'ordre inverse avant de se
+synchroniser auraient un doublon — que le détecteur repère et fusionne sans perdre de stock. L'éviter
+demanderait de changer `idCatalogue` pour tous les noms longs, donc de renommer 62 fiches déjà posées
+chez les clients : **un déménagement de données, pas une correction.** À ne rouvrir que seul.
+
+**Trois pertes de données dans la fusion elle-même**, trouvées par l'audit et corrigées dans la même
+version :
+
+- **Le stock global `p.qte`** — celui qu'`intStockAjuste` décrémente à chaque intervention, sans
+  rapport avec `b.stock` — n'était pas repris de la fiche retirée : fusionner 30 et 12 en laissait 30.
+  Il s'additionne désormais, comme celui des box.
+- **Les décisions de box** (`db.boxDecisions[].ecartes`) sont rangées PAR IDENTIFIANT DE PRODUIT, en
+  clés d'objet. Le marcheur générique ne voit que les champs nommés `produitId` : il les manquait
+  toutes. Une fiche écartée exprès par l'équipe redevenait une nouveauté après une fusion, et
+  `boxAutoNouveautes` la reposait dans la box.
+- **Une déclaration « c'est normal, ce sont deux produits »** était emportée par un troisième homonyme
+  arrivé après coup, et effacée sans le dire. Nouvelle fonction `produitsFusionnables(l)` : la fusion,
+  l'aperçu chiffré et le compte du bouton en sortent tous les trois, donc le bouton ne promet plus ce
+  qu'il ne tient pas. Un groupe dont tout est déclaré distinct sauf un reste signalé — il mérite une
+  décision — mais « Tout fusionner » ne le compte plus.
+
+**Ce que `relecteur` a trouvé DEUX FOIS dans ce que je venais d'écrire, et qui est corrigé** : `idCatalogue`
+réduit un nom à `[a-z0-9]`. De la ponctuation seule, ou une écriture non latine, ne laisse rien et
+retombe sur le générique `cat_x`. Deux produits sans rapport saisis dans le champ « produit hors
+stock » d'une intervention prenaient alors le même identifiant — et la garde ci-dessus ne les
+départageait pas, puisqu'elle compare des slugs, donc deux chaînes vides. Le second se voyait rendre
+la fiche du premier, et son stock allait dessus, en silence. Ces noms-là gardent un identifiant unique
+(`idProduit`), et `produitCreer` porte la même ceinture (`produitMemeNom`) pour tout appelant futur.
+
+Le second passage a montré que j'avais raté le quatrième chemin — `plValider`, derrière « ⧉ Coller une
+liste de produits » — et surtout **pourquoi la ceinture de `produitCreer` ne suffit pas là** : deux
+appareils hors ligne collant chacun un tel nom créent leur fiche sans collision locale, puis
+`fusionnerBases` unit PAR IDENTIFIANT **sans jamais passer par `produitCreer`**. Une seule fiche
+survit, l'autre et son stock disparaissent — pas même signalés comme doublon, puisqu'ils partageaient
+déjà l'identifiant avant d'arriver au détecteur.
+
+> **La règle qui en sort, à tenir pour toute écriture future dans `db.produits`** : un identifiant est
+> soit unique par construction (`uid`), soit déduit d'un nom qui ne peut PAS sluguer à vide. Une garde
+> posée dans `produitCreer` ne protège que la création locale — la synchro, elle, ne la voit jamais.
+> Un test relit le fichier et vérifie qu'aucun appel ne construit plus un identifiant à partir d'un
+> nom libre ; les `idCatalogue` restants prennent tous leur nom de `CATALOGUE` ou de `CATFOUR`.
+
+Vérifié en navigateur sur la bêta, catalogue réel : semis 110 fiches toutes en `cat_*`, `cree:0`,
+`_m:1` ; les cinq gammes fournisseurs ajoutées d'affilée → 2 867 produits, **0 doublon, 0 identifiant
+`four_`, une seule empreinte ajoutée**, aucune erreur JavaScript ; la base d'ELAN rejouée →
+220 / 110 doublons / 369 unités devient 110 / 0 / **369**. 140 vérifications automatiques vertes
+(`test-625`, `test-pont`, `test-633`, `test-634`, `test-634b`, `test-version`).
 
 **Courrier de la Tour — « ça ne marche plus » (10 septembre au matin)** : les routes vont bien (401
 partout sur `api.teamop.fr`), le module `server/mail.js` se charge. Le serveur renvoie la cause
