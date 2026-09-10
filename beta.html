@@ -4832,7 +4832,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '631-beta';
+const APP_VERSION = '632-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -16125,7 +16125,7 @@ function produitsFusionnerDoublons(cles){
    fusionner (avec l'aperçu chiffré avant), c'est normal (déclaration d'équipe, tracée, réversible), ou
    plus tard (rien n'est décidé, le bandeau se tait jusqu'au prochain chargement). Une base doublée ne doit
    pas se taire, sinon on recommence « Tout ajouter » et on repart à 420. */
-let _doublonsPlusTard=false, _doublonsOuvert=false, _doublonsApercu='', _doublonsTri=[];
+let _doublonsPlusTard=false, _doublonsOuvert=false, _doublonsUnParUn=false, _doublonsApercu='', _doublonsTri=[];
 function produitsDoublonsRafraichir(){ if($('bxp-onglets')){ bxpRafraichir(); return; } if(typeof boxView!=='undefined'&&boxView&&$('boxprod-list')) renderBoxDetail(); else if(current==='produits') views.produits(); }
 function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) return ''; let g=produitsDoublons(); if(!g.length) return '';
   const bx=opts.boxId?(db.boxes||[]).find(x=>x.id===opts.boxId):null;
@@ -16148,11 +16148,24 @@ function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) ret
     return `<div class="dbl-g"><b>« ${esc(l[0].nom)} » ×${l.length}</b> — Est-ce normal, ou faut-il n'en garder qu'un et lier son stock à l'autre ?${l.map(fiche).join('')}${partiel?`<div class="dbl-f">${l.length} fiches, dont ${partiel} déjà déclarées distinctes.</div>`:''}
       <div class="dbl-btns"><button type="button" class="btn sm" onclick="doublonsApercu(${i})">Fusionner en un seul</button><button type="button" class="btn ghost sm" onclick="produitsDistinctsDeclarerUI(${i})">C'est normal, ${l.length===2?'deux produits':l.length+' produits'}</button></div>
       <div class="dbl-f">« C'est normal » : ils ne seront plus signalés. Pour s'y retrouver, mieux vaut ensuite les renommer (ex. « … 300 g » et « … 1 kg »).</div></div>`; };
-  const html=`<div class="bandeau-doublons dbl-ouvert"><div><b>${g.length} produit${g.length>1?'s':''} en double</b> — ${n} fiche${n>1?'s':''} de trop.
-    ${_doublonsTri.slice(0,3).map(groupe).join('')}${g.length>3?`<div class="dbl-f">… et ${g.length-3} autre${g.length-3>1?'s':''}, du même genre.</div>`:''}
-    ${g.length>1?`<div class="dbl-btns"><button type="button" class="btn sm" onclick="produitsFusionnerDoublonsUI(${bx?'boxView':''})">Tout fusionner (${g.length})</button></div>
-      <div class="dbl-f">Une fiche par nom, le stock des box additionné, mouvements, demandes et bons redirigés. Rien n'est perdu, et ça vaut pour toute l'équipe.</div>`:''}</div>
-    <button type="button" class="btn ghost sm" onclick="_doublonsPlusTard=true;produitsDoublonsRafraichir()">Plus tard</button></div>`;
+  /* ── L'ACTION D'ABORD, LE DÉTAIL ENSUITE ──
+     ELAN, 10 septembre, capture à l'appui : le bouton qui règle les 110 doublons était SOUS trois
+     groupes bavards — question, deux fiches, deux boutons, un paragraphe chacun — soit deux mille
+     pixels de défilement sur un téléphone avant de le voir. Même faute que la section fournisseurs
+     mesurée à 9 086 px : ce qu'on veut le plus doit être le plus haut.
+     Une paire, c'est une question qu'on tranche à la main ; cent dix, c'est un ménage à faire d'un
+     coup. Le bandeau change donc de forme selon le nombre : le geste unique en tête, les noms pour
+     reconnaître de quoi on parle, et le cas par cas replié pour qui veut vraiment juger. */
+  const detail=_doublonsTri.slice(0,3).map(groupe).join('')+(g.length>3?`<div class="dbl-f">… et ${g.length-3} autre${g.length-3>1?'s':''}, du même genre.</div>`:'');
+  const html=g.length===1
+    ? `<div class="bandeau-doublons dbl-ouvert"><div>${detail}</div>
+        <button type="button" class="btn ghost sm" onclick="_doublonsPlusTard=true;produitsDoublonsRafraichir()">Plus tard</button></div>`
+    : `<div class="bandeau-doublons dbl-ouvert"><div><b>${g.length} produit${g.length>1?'s':''}${bx?' de cette box':''} en double</b> — ${n} fiche${n>1?'s':''} de trop.
+        <div class="dbl-btns"><button type="button" class="btn sm" onclick="produitsFusionnerDoublonsUI(${bx?'boxView':''})">Tout fusionner (${g.length})</button></div>
+        <div class="dbl-f">Une fiche par nom, le stock des box additionné, mouvements, demandes et bons redirigés. Rien n'est perdu, et ça vaut pour toute l'équipe.</div>
+        <div class="dbl-f">${g.slice(0,6).map(l=>esc(l[0].nom||'')+' ×'+l.length).join(' · ')}${g.length>6?' · … et '+(g.length-6)+' autres':''}</div>
+        ${_doublonsUnParUn?detail:`<div class="dbl-btns"><button type="button" class="btn ghost sm" onclick="_doublonsUnParUn=true;produitsDoublonsRafraichir()">Les regarder un par un</button></div>`}</div>
+        <button type="button" class="btn ghost sm" onclick="_doublonsPlusTard=true;produitsDoublonsRafraichir()">Plus tard</button></div>`;
   if(_doublonsApercu) setTimeout(()=>{ const o=$('dbl-ok'); if(o) o.disabled=false; },500);   // gelé 500 ms, comme le retrait
   return html; }
 function doublonsApercu(i){ const l=_doublonsTri[i]; if(!l) return; _doublonsApercu=produitCle(l[0]); produitsDoublonsRafraichir(); }
@@ -16997,7 +17010,7 @@ let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
 /* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
 /* opts.sansAuto : ouverture par déduction (une ligne d'historique qui cite la box) — on regarde, on n'écrit pas */
-function openBox(id,opts){ boxView=id; boxProdSearch=''; _doublonsOuvert=false; if(!(opts&&opts.sansAuto)){ try{ boxAutoNouveautes(bxpBox()); }catch(e){} }   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
+function openBox(id,opts){ boxView=id; boxProdSearch=''; _doublonsOuvert=false; _doublonsUnParUn=false; if(!(opts&&opts.sansAuto)){ try{ boxAutoNouveautes(bxpBox()); }catch(e){} }   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
   /* Le destinataire vaut pour UNE visite : rouvrir la box, c'est un nouveau geste, souvent
      pour quelqu'un d'autre. Le garder d'une visite à l'autre attribuerait en silence des
      produits au technicien d'hier. */
@@ -18278,7 +18291,7 @@ function bxpBox(){ return (db.boxes||[]).find(x=>x.id===boxView)||null; }
    produitsDoublons() parcourt tout le catalogue, une recherche ne doit pas le relancer à chaque lettre. */
 function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b),dejaCles:new Set((db.produits||[]).map(produitCle))}; return bxpCache; }
 function openBoxProduits(){ const b=bxpBox(); if(!b) return;
-  abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpQ=''; bxpOnglet='ajouter'; bxpRetPhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
+  abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpQ=''; _doublonsUnParUn=false; bxpOnglet='ajouter'; bxpRetPhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
   bxpCalculer(b); bxpCache.nouv.forEach(p=>bxpNouvSel.add(p.id));   // les nouveautés arrivent cochées : le geste attendu, c'est de les poser
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm bxp-fermer" onclick="closeModal()">Fermer</button><h3 class="bxp-titre">Produits de la box<small>${esc(b.nom||b.numero||'')}</small></h3><span class="bxp-vide"></span></div>
     <div id="bxp-doublons"></div>
