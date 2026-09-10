@@ -113,7 +113,10 @@ const fin = (code) => { try { srv.kill(); } catch (e) {} try { fs.rmSync(dir, { 
   const d1 = await post('/api/espaces/comptes', { t: 'demo-t1', kh: sha(CLE['demo-t1']), comptes: [cMarc, cSophie] });
   dit('avec la clé d\'équipe, accepté', d1.statut === 200 && d1.n === 2, JSON.stringify(d1).slice(0, 90));
   dit('et écrit sur le disque', !!(annuaireDisque() || {})['demo-t1'] && Object.keys(annuaireDisque()['demo-t1'].c).length === 2);
-  dit('l\'annuaire ne garde QUE sel et vérificateur', Object.keys(annuaireDisque()['demo-t1'].c.marc).sort().join(',') === 'e,s');
+  /* Depuis v620 (« qui c'est »), l'annuaire garde aussi le NOM affiché du compte (n), pour que la
+     Tour dise qui est derrière un identifiant. Jamais le mot de passe, jamais son empreinte en clair :
+     sel, vérificateur, nom — rien d'autre. */
+  dit('l\'annuaire ne garde QUE sel, vérificateur et nom affiché', Object.keys(annuaireDisque()['demo-t1'].c.marc).sort().join(',') === 'e,n,s');
 
   console.log('\n── un annuaire vide n\'efface jamais un annuaire garni ──');
   const vide = await post('/api/espaces/comptes', { t: 'demo-t1', kh: sha(CLE['demo-t1']), comptes: [] });
