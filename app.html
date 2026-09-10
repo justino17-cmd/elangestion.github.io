@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '637';
+const APP_VERSION = '638';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5300,6 +5300,10 @@ const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':
 const eur = n => (Number(n)||0).toLocaleString('fr-FR') + ' €';
 const initials = name => (name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
 const todayISO = () => new Date().toLocaleDateString('sv-SE');
+/* Le jour d'un horodatage, DANS LE FUSEAU DE LA PERSONNE. new Date(ts).toISOString() range en
+   UTC : un arrivage saisi le 10/09 à 01h30 à Paris ressortait daté du 09/09. La fenêtre est
+   étroite (00h–02h l'été, 00h–01h l'hiver) mais elle tombe pile sur les tournées de nuit. */
+const jourDe = ts => new Date(ts||0).toLocaleDateString('sv-SE');
 function fmtDate(iso){ if(!iso) return '—'; return new Date(iso+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }
 function fmtShort(iso){ if(!iso) return '—'; return new Date(iso+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short'}); }
 function fmtJourCourt(iso){ if(!iso) return '—';
@@ -5825,7 +5829,12 @@ const APPAREIL_DEJA_VU = (function(){ try{
   const duSite = ['elan_savedLogin','elan_sync_on','elan_sync_secret','elan_sync_team'];
   let vu = false;
   for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
-    if(k && k.indexOf('elan')===0 && duSite.indexOf(k)<0){ vu = true; break; } }
+    /* ⚠️ Le préfixe se lit sur STORE_KEY, jamais écrit en dur. Avec « elan » SANS souligné,
+       les clés de la bêta (« elanB_… ») étaient comptées : un appareil qui avait servi à la
+       bêta ou à un aperçu et qui ouvrait l'application pour la PREMIÈRE fois était jugé
+       « déjà vu », donc rattaché à l'ESPACE DE REPLI PARTAGÉ avec la clé par défaut —
+       exactement ce que la fermeture du repli devait empêcher. Un caractère. */
+    if(k && k.indexOf(STORE_KEY.split('_')[0]+'_')===0 && duSite.indexOf(k)<0){ vu = true; break; } }
   localStorage.setItem('elan_repli_v1', vu ? '1' : '0');
   return vu;
 }catch(e){ return true; } })();
@@ -5850,6 +5859,21 @@ const APPAREIL_DEJA_VU = (function(){ try{
    récent qui gagne — mais les LIGNES de mouvement, elles, survivent toutes les deux. */
 const COLLS_HORS_FUSION=new Set(['users','usersSupprimes']);
 function collsFusion(d){ return Object.keys(d||{}).filter(k=>Array.isArray(d[k])&&!COLLS_HORS_FUSION.has(k)); }
+/* ⛔ TROIS COLLECTIONS NE SONT PAS DES LISTES, ET CE SONT DES DONNÉES DE TERRAIN.
+   `plansSite` est un dictionnaire {client: plan d'appâtage}, `planNotes` {jour: note},
+   `permissions` {rôle: droits}. Ne trouvant pas de tableau, la fusion les faisait suivre le
+   côté prioritaire EN ENTIER : à la réception, la carte locale était jetée ; à l'envoi,
+   celle du nuage. Mesuré — le technicien pose 24 postes chez un client, l'administrateur 18
+   chez un autre, aucun geste anormal : après trois échanges il reste 24 postes et UN plan.
+   Les `relevesPlan` des interventions pointent alors sur des postes qui n'existent plus, et
+   le PDF réglementaire sort vide, sans message ni pierre tombale.
+   Le commentaire ci-dessus justifiait ce choix par « ils changent rarement, et jamais à
+   deux » : vrai d'un réglage, faux d'un plan d'appâtage dessiné sur le terrain tous les
+   jours. On les réunit donc clé par clé — l'union des clients, chacun gardant son plan ; à
+   égalité sur la MÊME clé, le côté prioritaire, comme pour un enregistrement. */
+const COLLS_DICT=['plansSite','planNotes','permissions'];
+function dictFusion(prio,autre){ const out=Object.assign({},autre&&typeof autre==='object'?autre:{});
+  Object.keys(prio&&typeof prio==='object'?prio:{}).forEach(k=>{ out[k]=prio[k]; }); return out; }
 function recEmpreinte(r){ let h=2166136261; const t=JSON.stringify(r,(k,v)=>k==='_m'?undefined:v)||''; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
 let _ombre={};
 function ombreRelever(){ const o={}; collsFusion(db).forEach(c=>{ const m=new Map(); (db[c]||[]).forEach(r=>{ if(r&&r.id!=null) m.set(String(r.id),recEmpreinte(r)); }); o[c]=m; }); _ombre=o; }
@@ -5891,13 +5915,19 @@ function fusionnerBases(local,remote,prioriteLocale){
     P.forEach(prendre); A.forEach(prendre);
     out[c]=ordre.map(id=>m.get(id)).concat(sansId);
   });
+  COLLS_DICT.forEach(c=>{ const P=prio&&prio[c], A=autre&&autre[c];
+    if((P&&typeof P==='object'&&!Array.isArray(P))||(A&&typeof A==='object'&&!Array.isArray(A))) out[c]=dictFusion(P,A); });
   if(Array.isArray(out.journal)) out.journal=out.journal.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,500);
   if(Array.isArray(out.planJournal)) out.planJournal=out.planJournal.slice().sort((x,y)=>(x.ts||0)-(y.ts||0)).slice(-400);   // même plafond qu'en local, sinon il grossit à chaque fusion
   out._tombes=tombes;
   return out;
 }
 /* Ce qui dit si une fusion a changé quelque chose : ids et dates par collection, et les tombes. */
-function baseSignature(d){ return collsFusion(d).sort().map(c=>c+':'+(d[c]||[]).map(r=>(r&&r.id!=null)?(String(r.id)+'@'+(r._m||0)):'').sort().join(',')).join('|')+'#'+JSON.stringify(d._tombes||{}); }
+/* Les dictionnaires entrent aussi dans la signature : sans eux, une fusion qui ramène le plan
+   d'appâtage d'un collègue passait pour un non-événement, donc n'était jamais repoussée. */
+function baseSignature(d){ return collsFusion(d).sort().map(c=>c+':'+(d[c]||[]).map(r=>(r&&r.id!=null)?(String(r.id)+'@'+(r._m||0)):'').sort().join(',')).join('|')
+  +'§'+COLLS_DICT.map(c=>c+':'+Object.keys((d&&d[c])||{}).sort().join(',')).join('|')
+  +'#'+JSON.stringify(d._tombes||{}); }
 let db = load();
 try{ ombreRelever(); }catch(e){}   // l'ombre part de ce qui est chargé : rien n'est « modifié » tant qu'on n'a rien touché
 let currentUser = null;
@@ -6716,6 +6746,49 @@ function teamopLienActuel(){
 function teamopCopieLienSauve(t){ const s=teamopSpaces().find(x=>x.t===t); if(!s){ toast('Espace introuvable'); return; }
   const code=btoa(unescape(encodeURIComponent(JSON.stringify({t:s.t,k:s.k,n:s.name})))).replace(/=+$/,'');
   teamopCopy(teamopLien(code)); toast('Lien de connexion copié — envoie-le à l\'entreprise'); }
+/* ⛔ QUITTER UN ESPACE — LE SEUL CHEMIN, POUR LES QUATRE PORTES.
+   On quitte un espace de quatre façons : Code espace, lien de connexion, lien client
+   (espace.html) et fermeture par la Tour. Chacune doit faire EXACTEMENT la même chose, et
+   trois d'entre elles ne la faisaient pas encore le 10 septembre 2026 — d'où cette fonction
+   unique plutôt que quatre copies qui divergent. Ce qui doit partir, et pourquoi :
+
+   1. STORE_KEY — la base de l'entreprise qu'on quitte n'a rien à faire dans la suivante.
+   2. Le drapeau de vidage — SANS LUI, LE SEMIS DE DÉMONSTRATION ENTRE CHEZ LE CLIENT. Le
+      vidage des collections de démonstration n'a lieu QU'UNE FOIS DANS LA VIE DE L'APPAREIL :
+      le drapeau posé et la base absente, load() rejoue seed() SANS vider — 160 produits, cinq
+      fournisseurs, deux devis, deux factures, deux contrats, et DEUX BOX DE DÉMONSTRATION
+      (« Cuisine — Restaurant Le Gourmet », « Réserve — Boulangerie Au Bon Pain »). La première
+      synchro étant une UNION, tout ça part chez toute l'équipe : mesuré, 220 fiches deviennent
+      380 et 110 noms passent en TRIPLE. Le retirer ICI est sans danger, et c'est le seul moment
+      où ça l'est — on vient de supprimer la base, le vidage vide le semis, jamais des données.
+   3. Le drapeau « frais » — il dit à la synchro d'ADOPTER la base de l'espace au lieu d'en
+      faire l'union. Sans lui, ce qui traîne localement est poussé dans l'entreprise rejointe.
+   4. Les secrets et accès payants de l'entreprise qu'on quitte. La clé Anthropic reste
+      facturée à son propriétaire ; le code d'équipe de l'assistant devis est un service
+      facturé ; et un projet Firebase personnel réglé chez A enverrait les données de B dans le
+      nuage de A. Un projet personnel effacé se re-règle depuis Paramètres — une fuite entre
+      deux entreprises concurrentes, non.
+   5. L'administrateur déclaré. Il est écrit avec les six clés du lien lisible mais était le
+      seul à ne pas partir avec elles : adminAnnuaireRetablir() promet alors administrateur un
+      HOMONYME DANS L'ENTREPRISE SUIVANTE, et save() propage la promotion à toute l'équipe.
+   6. Les bases mises de côté (IndexedDB) — jusqu'à trois bases entières de l'entreprise
+      précédente, que Paramètres → « Bases mises de côté » réexporte à qui prend l'appareil.
+
+   Le préfixe se lit sur STORE_KEY plutôt que d'être écrit en dur : la bêta le remplace par le
+   sien, et une liste de clés figées raterait tout ce qui est construit à la volée. */
+function espaceQuitter(){
+  const P=STORE_KEY.split('_')[0]+'_';   // « elan_ » en production, « elanB_ » en bêta
+  try{
+    localStorage.removeItem(STORE_KEY);
+    localStorage.removeItem(P+'vierge_v1');
+    localStorage.setItem(P+'frais','1');
+    ['anthropic_key','devis_code','sync_cfg','annuaire_cache','mail_lus','mail_supp','usage','espace_admin']
+      .forEach(k=>{ try{ localStorage.removeItem(P+k); }catch(_){} });
+    localStorage.removeItem('op_devis_code');   // même code d'équipe, sous son autre nom
+    lienLisibleOublier();
+  }catch(e){}
+  try{ indexedDB.deleteDatabase(P+'cote'); }catch(e){}
+}
 async function teamopLienCheck(){
   let code='';
   try{ const m=(location.hash+' '+location.search).match(/entreprise=([A-Za-z0-9+/=_-]{8,})/); if(m) code=m[1]; }catch(e){}
@@ -6744,19 +6817,7 @@ async function teamopLienCheck(){
   localStorage.setItem('elan_sync_team',o.t);
   localStorage.setItem('elan_sync_secret',o.k);
   localStorage.setItem('elan_sync_on','1');
-  try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); lienLisibleOublier(); }catch(e){}
-  /* ⛔ LE DRAPEAU DU VIDAGE PART AVEC LA BASE — sans ça, un appareil DÉJÀ UTILISÉ qui rejoint un
-     espace y déverse des données de démonstration. Mécanisme, reproduit en navigateur le
-     10 septembre 2026 : on retire STORE_KEY, on recharge, load() n'a plus rien à lire et rejoue
-     seed() — mais le vidage des collections de démonstration n'a lieu QU'UNE FOIS DANS LA VIE DE
-     L'APPAREIL (elan_vierge_v1). Le drapeau étant déjà posé, le semis survit : 160 produits, cinq
-     fournisseurs, deux devis, deux factures, deux contrats, et DEUX BOX DE DÉMONSTRATION nommées
-     « Cuisine — Restaurant Le Gourmet » et « Réserve — Boulangerie Au Bon Pain ». La première
-     synchro étant une UNION (fusionnerBases), tout ça entre dans la base du client et repart chez
-     toute l'équipe — mesuré : 220 fiches deviennent 380, et 110 noms se retrouvent en TRIPLE.
-     Retirer le drapeau ici est sans danger, et c'est le seul moment où ça l'est : on vient de
-     supprimer STORE_KEY, la base est donc vide — le vidage vide le semis, jamais des données. */
-  try{ localStorage.removeItem('elan_vierge_v1'); }catch(e){}
+  espaceQuitter();
   try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.mh) localStorage.setItem('elan_admin_mdph',o.mh); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   try{ localStorage.setItem('elan_lien_ok','1'); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
@@ -6773,19 +6834,7 @@ function teamopJoin(code){
   localStorage.setItem('elan_sync_team',o.t);
   localStorage.setItem('elan_sync_secret',o.k);
   localStorage.setItem('elan_sync_on','1');
-  try{ localStorage.removeItem(STORE_KEY); localStorage.setItem('elan_frais','1'); lienLisibleOublier(); }catch(e){}   // repart propre → pas de fuite de données entre espaces
-  /* ⛔ LE DRAPEAU DU VIDAGE PART AVEC LA BASE — sans ça, un appareil DÉJÀ UTILISÉ qui rejoint un
-     espace y déverse des données de démonstration. Mécanisme, reproduit en navigateur le
-     10 septembre 2026 : on retire STORE_KEY, on recharge, load() n'a plus rien à lire et rejoue
-     seed() — mais le vidage des collections de démonstration n'a lieu QU'UNE FOIS DANS LA VIE DE
-     L'APPAREIL (elan_vierge_v1). Le drapeau étant déjà posé, le semis survit : 160 produits, cinq
-     fournisseurs, deux devis, deux factures, deux contrats, et DEUX BOX DE DÉMONSTRATION nommées
-     « Cuisine — Restaurant Le Gourmet » et « Réserve — Boulangerie Au Bon Pain ». La première
-     synchro étant une UNION (fusionnerBases), tout ça entre dans la base du client et repart chez
-     toute l'équipe — mesuré : 220 fiches deviennent 380, et 110 noms se retrouvent en TRIPLE.
-     Retirer le drapeau ici est sans danger, et c'est le seul moment où ça l'est : on vient de
-     supprimer STORE_KEY, la base est donc vide — le vidage vide le semis, jamais des données. */
-  try{ localStorage.removeItem('elan_vierge_v1'); }catch(e){}
+  espaceQuitter();   // repart propre → pas de fuite de données entre espaces
   _ck={}; _syncTs=0;
   try{ localStorage.setItem('elan_entreprise_nom',o.n||''); if(o.a) localStorage.setItem('elan_admin_login',o.a); if(o.m) localStorage.setItem('elan_admin_mdp',o.m); if(o.mh) localStorage.setItem('elan_admin_mdph',o.mh); if(o.e) localStorage.setItem('elan_admin_mail',o.e); }catch(e){}
   toast('Connexion à l\'espace « '+(o.n||o.t)+' »…');
@@ -7149,8 +7198,12 @@ async function forfaitServeurSync(silencieux){
     const r=await fetch(PUSH_API+'/api/espaces/etat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t})});
     const j=await r.json().catch(()=>({}));
     if(j&&j.ferme){
-      // l'entreprise a été fermée par TeamOP : cet appareil se vide et se déconnecte
-      try{ localStorage.removeItem(STORE_KEY); localStorage.removeItem('elan_sync_team'); localStorage.removeItem('elan_sync_secret'); localStorage.removeItem('elan_sync_on'); localStorage.removeItem('elan_entreprise_nom'); localStorage.removeItem('elan_session'); sessionStorage.removeItem('elan_session'); }catch(e){}
+      /* L'entreprise a été fermée par TeamOP : cet appareil se vide et se déconnecte.
+         Il retirait la base sans retirer le drapeau de vidage : au rechargement, le client à
+         qui on vient de couper l'accès se retrouvait devant les deux box de démonstration et
+         160 produits qui ne sont pas les siens — juste après un message disant l'inverse. */
+      espaceQuitter();
+      try{ localStorage.removeItem('elan_sync_team'); localStorage.removeItem('elan_sync_secret'); localStorage.removeItem('elan_sync_on'); localStorage.removeItem('elan_entreprise_nom'); localStorage.removeItem('elan_session'); sessionStorage.removeItem('elan_session'); }catch(e){}
       alert('Cet espace a été fermé par TEAM OP.\n\nPour toute question : contact@teamop.fr');
       location.reload(); return;
     }
@@ -7801,6 +7854,30 @@ function gsearch(q){ const box=$('gsrch-res'); if(!box) return; q=norm((q||'').t
   box.style.display='block'; }
 function gsrchGo(el){ const box=$('gsrch-res'); if(box){box.style.display='none';box.innerHTML='';} const inp=$('gsrch-in'); if(inp)inp.value=''; try{ eval(el.dataset.fn); }catch(e){} }
 document.addEventListener('click',()=>{ const box=$('gsrch-res'); if(box&&box.style.display==='block'){ box.style.display='none'; } });
+/* ⌨️ LA VIRGULE DÉCIMALE — mesuré sur Chromium en fr-FR, 10 septembre 2026.
+   Un <input type="number"> AVALE la virgule : « 33,50 » devient « 3350 », le champ reste
+   VALIDE, aucune alerte. Un prix unitaire de 33,50 € part donc à 3 350 € sur le devis du
+   client, et une TVA de 5,5 % devient 55 %. Le dépôt se croyait protégé par
+   parseFloat(String(v).replace(',','.')) — inutile ici : la virgule n'atteint jamais le JS.
+   Corrigé à la frappe, une fois pour toutes : dix-neuf champs décimaux sont concernés, et
+   il y en aura d'autres. execCommand respecte le curseur ET une sélection en cours, ce que
+   setRangeText refuse sur un champ numérique — d'où ce choix, déjà celui de fallbackCopy.
+   Vérifié : saisie simple, tout-sélectionner-puis-retaper, curseur ramené au milieu,
+   deuxième séparateur refusé, et les champs texte laissés intacts. */
+document.addEventListener('keydown',function(e){
+  if((e.key!==','&&e.key!=='Decimal')||e.ctrlKey||e.metaKey||e.altKey) return;
+  const el=e.target; if(!el||el.tagName!=='INPUT'||el.type!=='number'||el.readOnly||el.disabled) return;
+  e.preventDefault();
+  let ok=false; try{ ok=document.execCommand('insertText',false,'.'); }catch(_){ }
+  /* execCommand émet lui-même « input », et « change » tombe au blur comme pour une vraie
+     frappe : ne rien réémettre. Trois champs (matériel, produits utilisés, quantités du
+     questionnaire) re-dessinent leur bloc sur « change » — un envoi de trop arracherait le
+     champ des doigts de l'utilisateur en pleine saisie. Le repli, lui, écrit la valeur à la
+     main : là il faut prévenir, sinon la saisie ne serait jamais enregistrée. */
+  if(!ok){ el.value=(el.value||'')+'.';
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+    el.dispatchEvent(new Event('change',{bubbles:true})); }
+},true);
 /* Nom lisible d'une page, pour dire au bouton retour d'où l'on vient */
 function navLabel(k){ try{ const it=NAV.flatMap(s2=>s2.items).find(x=>x.k===k); return it?t(it.l):''; }catch(e){ return ''; } }
 /* Bouton « ← page précédente » : il n'apparaît que s'il y a vraiment où revenir */
@@ -13266,8 +13343,15 @@ function t3dProdDelta(intId,ix,d){ const i=db.interventions.find(x=>x.id===intId
   const l=(i.produitsUtilises||[])[ix]; if(!l) return; const av=+l.qte||0; l.qte=Math.max(0,av+d); intStockAjuste(i,l.produitId,l.qte-av,l.unite); save(); t3dRefresh(intId); }
 function t3dProdSet(intId,ix,v){ const i=db.interventions.find(x=>x.id===intId); if(!i) return;
   const l=(i.produitsUtilises||[])[ix]; if(!l) return; const av=+l.qte||0; l.qte=Math.max(0,parseFloat(String(v).replace(',','.'))||0); intStockAjuste(i,l.produitId,l.qte-av,l.unite); save(); t3dRefresh(intId); }
+/* Changer l'unité après avoir tapé la quantité déplaçait la ligne sans rien dire au stock :
+   « 250 » saisi en L puis corrigé en mL laissait 250 L déduits pour 0,25 L réellement
+   utilisés. On rend dans l'ancienne unité, on reprend dans la nouvelle — l'ordre inverse
+   (unité puis quantité) marchait déjà, d'où le caractère silencieux du défaut. */
 function t3dProdUnit(intId,ix,u){ const i=db.interventions.find(x=>x.id===intId); if(!i) return;
-  const l=(i.produitsUtilises||[])[ix]; if(!l) return; l.unite=u; save(); }
+  const l=(i.produitsUtilises||[])[ix]; if(!l) return;
+  const av=prodLineUnit(l), q=l.qte!=null?(+l.qte||0):1;
+  if(q&&av!==u){ intStockAjuste(i,l.produitId,-q,av); intStockAjuste(i,l.produitId,q,u); }
+  l.unite=u; save(); t3dRefresh(intId); }
 function t3dProdDel(intId,ix){ const i=db.interventions.find(x=>x.id===intId); if(!i) return;
   const l=(i.produitsUtilises||[])[ix]; if(l) intStockAjuste(i,l.produitId,-(+l.qte||0),l.unite);
   (i.produitsUtilises||[]).splice(ix,1); save(); t3dRefresh(intId); }
@@ -14168,13 +14252,22 @@ function papDossierSanitaire(cid){
     const notes=rel.filter(r=>r.note).map(r=>(posteName[r.posteId]||'?')+' : '+r.note).join(' · ');
     return `<tr><td>${new Date((x.date||todayISO())+'T00:00:00').toLocaleDateString('fr-FR')}</td><td>${esc(techNames(x))}</td><td style="text-align:center">${rel.length}</td><td>${esc(etats)}</td><td>${esc(notes||x.compteRendu||'—').slice(0,220)}</td></tr>`; }).join('');
   // 4. produits + AMM
-  const prodMap={};
+  /* L'unité était figée sur la PREMIÈRE ligne rencontrée et les suivantes s'ajoutaient
+     brutes : 250 mL puis 2 L donnaient « 252 mL » sur un dossier remis en contrôle. On
+     ramène chaque ligne à l'unité de la fiche quand c'est convertible ; ce qui ne l'est pas
+     (u contre cart.) garde sa propre ligne, plutôt que d'être noyé dans un total faux. */
+  const prodMap={}; const prodVus=new Set();
   ints.forEach(x=>(x.produitsUtilises||[]).forEach(l=>{
-    if(l.nomLibre){ const k2='libre:'+l.nomLibre; prodMap[k2]=prodMap[k2]||{p:{nom:l.nomLibre+' (hors stock)'},q:0,u:l.unite||''}; prodMap[k2].q+=(+l.qte||1); return; }
+    const qL=(l.qte!=null?(+l.qte||0):1);
+    if(l.nomLibre){ const uL=l.unite||''; const k2='libre:'+l.nomLibre+'|'+uL; prodMap[k2]=prodMap[k2]||{p:{nom:l.nomLibre+' (hors stock)'},q:0,u:uL}; prodMap[k2].q+=qL; return; }
     const p=db.produits.find(q=>q.id===l.produitId); if(!p) return;
-    prodMap[p.id]=prodMap[p.id]||{p,q:0,u:l.unite||p.unite||''}; prodMap[p.id].q+=(+l.qte||1); }));
-  plans.forEach(pl=>(pl.postes||[]).forEach(po=>{ const p=db.produits.find(q=>q.id===po.produitId); if(p&&!prodMap[p.id]) prodMap[p.id]={p,q:0,u:p.unite||''}; }));
-  const prodRows=Object.values(prodMap).map(x=>`<tr><td>${esc(x.p.nom)}</td><td>${esc(x.p.amm||'—')}</td><td>${esc(x.p.matiereActive||'—')}</td><td style="text-align:right">${x.q?x.q+' '+esc(x.u||''):'—'}</td></tr>`).join('');
+    prodVus.add(p.id);
+    const uP=p.unite||l.unite||'', uL=l.unite||uP, ok=uniteCompat(uL,uP);
+    const u=ok?uP:uL, k=p.id+'|'+u;
+    prodMap[k]=prodMap[k]||{p,q:0,u}; prodMap[k].q+=(ok?stockConv(qL,uL,uP):qL); }));
+  plans.forEach(pl=>(pl.postes||[]).forEach(po=>{ const p=db.produits.find(q=>q.id===po.produitId); if(p&&!prodVus.has(p.id)){ prodVus.add(p.id); prodMap[p.id+'|'+(p.unite||'')]={p,q:0,u:p.unite||''}; } }));
+  const prodRows=Object.values(prodMap).map(x=>{ const q=Math.round(x.q*10000)/10000;
+    return `<tr><td>${esc(x.p.nom)}</td><td>${esc(x.p.amm||'—')}</td><td>${esc(x.p.matiereActive||'—')}</td><td style="text-align:right">${q?String(q).replace('.',',')+' '+esc(x.u||''):'—'}</td></tr>`; }).join('');
   // 5. Certibiocide des techniciens intervenus
   const tids=new Set(); ints.forEach(x=>intTechIds(x).forEach(t=>tids.add(t)));
   const techs=[...tids].map(t=>db.techniciens.find(q=>q.id===t)).filter(Boolean);
@@ -14236,6 +14329,12 @@ function papDossierSanitaire(cid){
 function stockConv(q,de,vers){ if(!de||!vers||de===vers) return q;
   const k={'ml.l':.001,'l.ml':1000,'g.kg':.001,'kg.g':1000};
   const f=k[(de+'').toLowerCase()+'.'+(vers+'').toLowerCase()]; return f?q*f:q; }
+/* Deux unités s'additionnent-elles ? stockConv rend la quantité INCHANGÉE quand il ne sait
+   pas convertir — pratique pour déduire du stock, piégeux pour faire une somme : 2 cart. et
+   3 u devenaient 5. Là où l'on totalise, demander d'abord si l'addition a un sens. */
+function uniteCompat(de,vers){ if(!de||!vers) return true;
+  de=String(de).toLowerCase(); vers=String(vers).toLowerCase();
+  return de===vers || ['ml.l','l.ml','g.kg','kg.g'].indexOf(de+'.'+vers)>=0; }
 function intStockDeduire(i){ if(!i||i.stockDeduit) return; const lines=i.produitsUtilises||[];
   i.stockDeduit=true;                                  // posé quoi qu'il arrive : plus de « sera déduit » fantôme
   if(!lines.length) return;
@@ -14258,10 +14357,14 @@ function intStockDeduire(i){ if(!i||i.stockDeduit) return; const lines=i.produit
           db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'sortie',qte:pris,motif:'Intervention '+(i.num||i.titre||''),vehiculeId:'',boxId:b.id,unite:p.unite||'u',technicien:(currentUser&&fullName(currentUser))||''});
           try{ notifyDrBoxLow(b,p.id,prevU); notifyDrBoxMove(b,p.id,'sortie',pris,'u'); }catch(_){}
         } } }
-    if(restant>0){ const dispo=p.qte||0; const pris=Math.min(restant,dispo);
-      if(pris<restant) manques.push(p.nom+' (manque '+(restant-pris)+' '+(p.unite||'u')+')');
-      p.qte=Math.max(0,dispo-restant);
-      db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'sortie',qte:restant,motif:'Intervention '+(i.num||i.titre||''),vehiculeId:'',unite:p.unite||'u',technicien:(currentUser&&fullName(currentUser))||''}); }
+    if(restant>0){ const dispo=p.qte||0; const pris=Math.max(0,Math.min(restant,dispo));
+      if(pris<restant) manques.push(p.nom+' (manque '+(Math.round((restant-pris)*10000)/10000)+' '+(p.unite||'u')+')');
+      /* Le stock plafonne à zéro depuis toujours ; le mouvement, lui, écrivait la quantité
+         DEMANDÉE. Cinq unités déclarées sur un stock de deux inscrivaient une sortie de cinq
+         — trois unités qui n'ont jamais existé, dans l'historique et dans les indicateurs de
+         consommation. Le calcul de `pris` était déjà là, il n'était simplement pas utilisé. */
+      p.qte=Math.max(0,dispo-pris);
+      if(pris>0) db.mouvements.unshift({id:uid(),ts:Date.now(),produitId:p.id,type:'sortie',qte:pris,motif:'Intervention '+(i.num||i.titre||''),vehiculeId:'',unite:p.unite||'u',technicien:(currentUser&&fullName(currentUser))||''}); }
     n++; });
   if(n) intHisto(i,'Stock déduit à la clôture : '+n+' produit(s)'+(_intBoxAttente?' — dont '+_intBoxAttente+' pris en box, en attente de validation DR':''));
   if(_intBoxAttente){
@@ -15455,13 +15558,30 @@ function intDocDel(id,ix){ if(!confirm('Supprimer ce document ?')) return; const
 function intComAdd(id){ const inp=$('com-new'); const v=(inp&&inp.value||'').trim(); if(!v) return; const i=db.interventions.find(x=>x.id===id); if(!i) return;
   i.comments=i.comments||[]; i.comments.push({ts:Date.now(),par:(currentUser&&fullName(currentUser))||'',txt:v.slice(0,300)}); save(); renderIntDetail(id); }
 function intComDel(id,ix){ const i=db.interventions.find(x=>x.id===id); if(!i||!i.comments) return; i.comments.splice(ix,1); save(); renderIntDetail(id); }
-function intNum(){ const y=new Date().getFullYear(); const n=db.interventions.filter(x=>(x.num||'').indexOf('INT-'+y)===0).length+1; return 'INT-'+y+'-'+String(n).padStart(3,'0'); }
+/* Le numéro d'intervention se prenait en COMPTANT les interventions de l'année. Or supprimer
+   une intervention l'ARCHIVE (intArchive) : elle quitte db.interventions, le compte redescend,
+   et le numéro suivant réutilise un numéro DÉJÀ ÉMIS. Un seul appareil, aucune synchro, aucune
+   course : il suffit qu'un client annule un passage. Mesuré, dix interventions puis quatre
+   annulations : INT-2026-008 et INT-2026-010 émis en double, ce dernier trois fois.
+   On prend donc le plus grand numéro existant — archive comprise, puisque c'est là qu'ils
+   vont — comme le fait nextNum() pour les devis, les factures et les bons. */
+function intNum(){ const y=new Date().getFullYear(); const re=new RegExp('^INT-(\\d{4})-(\\d+)$');
+  const max=[].concat(db.interventions||[],db.interventionsArchive||[])
+    .reduce((m,x)=>{ const mm=re.exec((x&&x.num)||''); return (mm&&+mm[1]===y)?Math.max(m,+mm[2]):m; },0);
+  return 'INT-'+y+'-'+String(max+1).padStart(3,'0'); }
 function intDemarrerQuick(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return; i.statut='encours'; if(!i.debutReel)i.debutReel=Date.now(); intHisto(i,'Démarrée'); logEvent('Intervention démarrée',i.titre,'intervention'); save(); toast('▶ « '+(i.titre||'Intervention')+' » en cours'); go(current); }
 function intCkAdd(id){ const v=($('ck-new').value||'').trim(); if(!v) return; const i=db.interventions.find(x=>x.id===id); i.checklist=i.checklist||[]; i.checklist.push({t:v,done:false}); save(); renderIntDetail(id); }
 function intCkToggle(id,k){ const i=db.interventions.find(x=>x.id===id); if(!i||!i.checklist||!i.checklist[k]) return; i.checklist[k].done=!i.checklist[k].done; save(); renderIntDetail(id); }
 function intCkDel(id,k){ const i=db.interventions.find(x=>x.id===id); if(!i||!i.checklist) return; i.checklist.splice(k,1); save(); renderIntDetail(id); }
 function intGenererDoc(id,kind){ const i=db.interventions.find(x=>x.id===id); if(!i)return;
-  const lignes=(i.produitsUtilises||[]).map(l=>{ const p=produit(l.produitId); return {designation:p.nom||'Produit',qte:l.qte,pu:p.prix||0}; });
+  /* Le technicien saisit dans SON unité (250 mL) ; le prix de la fiche est par unité de
+     stock (48 €/L). Sans stockConv — que intStockDeduire applique déjà sur exactement la
+     même donnée — la facture partait chez le client à 12 000 € au lieu de 12 €. L'unité
+     figure dans la désignation : le client doit lire ce qu'on lui compte. */
+  const lignes=(i.produitsUtilises||[]).map(l=>{ const p=produit(l.produitId);
+    const uL=prodLineUnit(l), uP=p.unite||uL;
+    const q=Math.round(stockConv(l.qte!=null?(+l.qte||0):1,uL,uP)*10000)/10000;
+    return {designation:(p.nom||l.nomLibre||'Produit')+(uP?' ('+uP+')':''),qte:q,pu:p.prix||0}; });
   if(Number(i.montant)>0) lignes.unshift({designation:i.titre||'Prestation',qte:1,pu:Number(i.montant)||0});
   if(!lignes.length) lignes.push({designation:i.titre||'Prestation',qte:1,pu:0});
   const pref=kind==='devis'?'DEV':'FAC'; const num=docNum(kind);
@@ -15525,7 +15645,11 @@ function registreInts(cid){ return db.interventions.filter(i=>i.clientId===cid&&
 /* Lignes du registre biocides : chaque produit appliqué lors d'un passage (avec n° AMM du produit) */
 function registreBiocides(cid){ const out=[];
   registreInts(cid).forEach(i=>{ (i.produitsUtilises||[]).forEach(l=>{ const p=produit(l.produitId)||{};
-    out.push({date:i.date,heure:i.heure||'',tech:intTechIds(i).map(techName).filter(Boolean).join(', '),nom:p.nom||'Produit',amm:p.amm||'',ma:p.matiereActive||'',qte:l.qte||0,unite:p.unite||'unité',pid:p.id||'',intId:i.id}); }); });
+    /* L'unité de la LIGNE, jamais celle de la fiche : le technicien saisit 250 mL d'un
+       produit stocké au litre. Écrire « 250 L » sur un registre réglementaire, c'est un
+       facteur 1000 sur une quantité de biocide appliquée — le document qu'on présente en
+       contrôle. prodLineUnit() est déjà la règle partout ailleurs. */
+    out.push({date:i.date,heure:i.heure||'',tech:intTechIds(i).map(techName).filter(Boolean).join(', '),nom:p.nom||l.nomLibre||'Produit',amm:p.amm||'',ma:p.matiereActive||'',qte:l.qte||0,unite:prodLineUnit(l)||'unité',pid:p.id||'',intId:i.id}); }); });
   return out; }
 /* Évolution du niveau d'infestation sur les derniers passages (barres colorées) */
 function infestChartHtml(ints){
@@ -17327,13 +17451,13 @@ views.mouvements=function(){
     </div>`; };
   // ── bons de remise : mêmes colonnes que le journal, un clic ouvre le PDF ──
   const brs=(db.bonsRemise||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
-  const brLigne=r=>{ const tot=(r.lignes||[]).reduce((t,l)=>t+(l.qte||0),0);
+  const brLigne=r=>{ const tot=remiseTotTxt(r);
     const noms=(r.lignes||[]).map(l=>produit(l.produitId).nom||'—');
     const prodTxt=esc(noms[0]||'—')+(noms.length>1?' <span style="color:var(--t3);font-weight:600">+ '+(noms.length-1)+' autre'+(noms.length>2?'s':'')+'</span>':'');
     const donne=r.pourQui?`<span class="st" style="background:rgba(167,139,250,.16);color:var(--purple)" title="${r.pourQui===r.par?'Pris pour lui-même':'Produits remis à cette personne'}">👤 ${esc(r.pourQui)}</span>`:'<span style="color:var(--t3)">—</span>';
     return `<div style="${GRILLE2};padding:11px 16px;border-top:1px solid color-mix(in srgb,var(--brd) 60%,transparent);background:color-mix(in srgb,var(--purple) 5%,transparent)">
       <div style="min-width:0"><div class="strong" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${prodTxt}</div><div style="display:flex;align-items:center;gap:7px;margin-top:3px;min-width:0"><span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;background:rgba(167,139,250,.16);color:var(--purple);white-space:nowrap">📄 BON DE REMISE</span><span style="font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.num)}${r.parRole?' · '+esc(r.parRole):''}</span></div></div>
-      <span style="font-family:'Space Mono',monospace;font-weight:700;font-size:14.5px;color:var(--org)">−${tot} u</span>
+      <span style="font-family:'Space Mono',monospace;font-weight:700;font-size:14.5px;color:var(--org)">−${esc(tot)}</span>
       <div style="min-width:0">${pers(r.par,'var(--org)')}</div>
       <div style="min-width:0">${r.valideDr?`<span class="st st-green" title="Bon validé par le DR">✔ ${esc(r.valideDr)}</span>`:'<span style="color:var(--t3)">—</span>'}</div>
       <div style="min-width:0">${donne}</div>
@@ -17552,8 +17676,22 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
 let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
 /* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
-/* opts.sansAuto : ouverture par déduction (une ligne d'historique qui cite la box) — on regarde, on n'écrit pas */
-function openBox(id,opts){ boxView=id; boxProdSearch=''; _doublonsOuvert=false; _doublonsUnParUn=false; if(!(opts&&opts.sansAuto)){ try{ boxAutoNouveautes(bxpBox()); }catch(e){} }   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
+/* ⛔ OUVRIR UNE BOX N'ÉCRIT RIEN — retiré le 10 septembre 2026.
+   Jusqu'ici, ouvrir n'importe quelle box appelait boxAutoNouveautes(), qui posait les
+   nouveautés du catalogue dans TOUTES les box visibles. Écrire dans une box, c'est la
+   tamponner (_m = maintenant) : la vue qu'avait CET appareil de CHAQUE box gagnait alors la
+   fusion, parce qu'une box se fusionne en bloc. Mesuré, 12 box de 5 produits : un
+   administrateur qui ouvre UNE box à l'agence remet les 3 000 unités de départ, effaçant les
+   120 unités que quatre techniciens venaient de sortir sur le terrain — et les lignes de
+   mouvement, elles, survivent et disent le contraire. Le commentaire promettait « on ne perd
+   jamais de stock, ces produits arrivent à zéro » : vrai de la FICHE posée, faux de
+   l'enregistrement de box entier, qui est ce qui voyage réellement.
+   Ce que ça remplace existe déjà et c'est le geste que Justin a demandé : la pastille « +N »
+   sur la carte de la box et sur le bouton « Ajouter / retirer », puis un tap pour poser — sur
+   cette box seule, ou sur les box qu'on choisit. Une écriture attend un tap ; ouvrir un écran
+   n'en est pas un.
+   opts.sansAuto n'a plus d'objet mais reste accepté : ses appelants le passent encore. */
+function openBox(id,opts){ boxView=id; boxProdSearch=''; _doublonsOuvert=false; _doublonsUnParUn=false;   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
   /* Le destinataire vaut pour UNE visite : rouvrir la box, c'est un nouveau geste, souvent
      pour quelqu'un d'autre. Le garder d'une visite à l'autre attribuerait en silence des
      produits au technicien d'hier. */
@@ -17869,7 +18007,7 @@ function boxCommandes(boxId){
      d'un collègue. Justin : « toutes les livraisons qui ont été dans le même mois ». Les
      ranger ailleurs obligerait à chercher à deux endroits ce qui est arrivé un même mois. */
   const libres=(b.arrivages||[]).filter(a=>!a.bcId).map(a=>({_arr:a}));
-  const dateDe=o=>o._arr?new Date(o._arr.ts||0).toISOString().slice(0,10)
+  const dateDe=o=>o._arr?jourDe(o._arr.ts)
                         :String(o.dateReception||o.livreLe||o.date||'');
   const tout=bons.concat(libres).sort((x,y)=>dateDe(y).localeCompare(dateDe(x)));
   const mois={}; tout.forEach(x=>{ const k=dateDe(x).slice(0,7)||'—'; (mois[k]=mois[k]||[]).push(x); });
@@ -18665,31 +18803,37 @@ function boxMvtValider(id,statut,accords){ _resteApresValid='';
   } else if(m.type==='ajustementLot'){
     /* Toutes les lignes s'appliquent ensemble, ou aucune. C'est tout l'intérêt du lot :
        le DR juge un geste complet, pas trois fragments qu'il faudrait recoudre. */
+    /* Le stock plafonne à zéro, la trace doit dire la même chose. Entre la demande et
+       l'accord du DR, la box peut avoir baissé : valider −4 sur une box tombée à 1 sortait
+       1 unité et en inscrivait 4. On mesure donc le delta réellement appliqué. */
     (m.lignes||[]).forEach(l=>{ const cur=b.stock[l.produitId]||{ctn:0,u:0}; const du=mvAcc(l,'du'), dc=mvAcc(l,'dc');
       const corr=mvCorrigeTxt(l); const mot=(m.note||'Ajustement')+' (validé DR'+(corr?' — '+corr:'')+')';
-      if(du){ cur.u=Math.max(0,(cur.u||0)+du); traceBox(b,l.produitId,du,'u',mot,m.par,fullName(currentUser),du<0?m.pourQui:''); }
-      if(dc){ cur.ctn=Math.max(0,(cur.ctn||0)+dc); traceBox(b,l.produitId,dc,'ctn',mot,m.par,fullName(currentUser),dc<0?m.pourQui:''); }
+      let ru=0, rc=0;
+      if(du){ const av=cur.u||0; cur.u=Math.max(0,av+du); ru=cur.u-av; if(ru) traceBox(b,l.produitId,ru,'u',mot,m.par,fullName(currentUser),ru<0?m.pourQui:''); }
+      if(dc){ const av=cur.ctn||0; cur.ctn=Math.max(0,av+dc); rc=cur.ctn-av; if(rc) traceBox(b,l.produitId,rc,'ctn',mot,m.par,fullName(currentUser),rc<0?m.pourQui:''); }
       b.stock[l.produitId]=cur;
       /* Le bon de remise se tient par PRODUIT : remiseAjoute() lit m.produitId, qu'un lot
          n'a pas. Lui passer le lot tel quel aurait écrasé toutes les quantités sur une seule
          ligne sans produit. On l'appelle donc ligne à ligne, ce qui donne au passage un bon
          de remise détaillé plutôt qu'un total opaque. */
-      const d=du+dc;
-      if(m.pourQui&&d<0) remiseAjoute(Object.assign({},m,{produitId:l.produitId}),Math.abs(d)); });
+      if(m.pourQui&&ru<0) remiseAjoute(Object.assign({},m,{produitId:l.produitId}),-ru,'u');
+      if(m.pourQui&&rc<0) remiseAjoute(Object.assign({},m,{produitId:l.produitId}),-rc,'ctn'); });
   } else if(m.type==='retrait'){
     const s=(b.stock||{})[m.produitId]||{ctn:0,u:0};
-    const totR=(s.u||0)+(s.ctn||0);
     if(s.u) traceBox(b,m.produitId,-s.u,'u','Retiré de la box (validé DR)',m.par,fullName(currentUser),m.pourQui);
     if(s.ctn) traceBox(b,m.produitId,-s.ctn,'ctn','Retiré de la box (validé DR)',m.par,fullName(currentUser),m.pourQui);
     delete b.stock[m.produitId]; boxDecider(b,[m.produitId]);   // idem : un retrait validé est une décision
-    if(m.pourQui&&totR) remiseAjoute(m,totR);
+    if(m.pourQui&&s.u) remiseAjoute(m,s.u,'u');
+    if(m.pourQui&&s.ctn) remiseAjoute(m,s.ctn,'ctn');
   } else {
     const cur=b.stock[m.produitId]||{ctn:0,u:0}; const du=mvAcc(m,'du'), dc=mvAcc(m,'dc');
     const corr=mvCorrigeTxt(m); const mot=(m.note||'Ajustement')+' (validé DR'+(corr?' — '+corr:'')+')';
-    if(du){ cur.u=Math.max(0,(cur.u||0)+du); traceBox(b,m.produitId,du,'u',mot,m.par,fullName(currentUser),du<0?m.pourQui:''); }
-    if(dc){ cur.ctn=Math.max(0,(cur.ctn||0)+dc); traceBox(b,m.produitId,dc,'ctn',mot,m.par,fullName(currentUser),dc<0?m.pourQui:''); }
+    let ru=0, rc=0;   // même règle que le lot : on trace ce qui bouge vraiment
+    if(du){ const av=cur.u||0; cur.u=Math.max(0,av+du); ru=cur.u-av; if(ru) traceBox(b,m.produitId,ru,'u',mot,m.par,fullName(currentUser),ru<0?m.pourQui:''); }
+    if(dc){ const av=cur.ctn||0; cur.ctn=Math.max(0,av+dc); rc=cur.ctn-av; if(rc) traceBox(b,m.produitId,rc,'ctn',mot,m.par,fullName(currentUser),rc<0?m.pourQui:''); }
     b.stock[m.produitId]=cur;
-    if(m.pourQui&&(du+dc)<0) remiseAjoute(m,Math.abs(du+dc));
+    if(m.pourQui&&ru<0) remiseAjoute(m,-ru,'u');
+    if(m.pourQui&&rc<0) remiseAjoute(m,-rc,'ctn');
   }
   m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
   delegationTracer(m,'Mouvement de stock validé — '+boxMvtLibelle(m));
@@ -18763,7 +18907,18 @@ function remiseDestSave(mid){
   m.pourQui=autre?nom:fullName(currentUser);
   save(); closeModal(); toast('👤 Destinataire noté — en attente du DR');
 }
-function remiseAjoute(m,qte){
+/* Total d'un bon de remise, unité par unité : « 5 u · 3 cart. ». Les additionner donnait un
+   nombre qui ne veut rien dire sur une pièce signée. Les bons d'avant ce correctif n'ont pas
+   d'unité sur leurs lignes : ils comptaient déjà en unités, d'où le repli sur « u ». */
+function remiseTotTxt(r){ const t={};
+  ((r&&r.lignes)||[]).forEach(l=>{ const u=l.unite||'u'; t[u]=(t[u]||0)+(+l.qte||0); });
+  const k=Object.keys(t); return k.length?k.map(u=>(Math.round(t[u]*100)/100)+' '+u).join(' · '):'0 u'; }
+/* Un bon de remise distingue les unités et les cartons. Ils étaient additionnés — « 2 u et
+   3 cartons » sortait « 5 u » sur le document signé, et « 3 u sortis, 3 cartons reposés »
+   ne produisait AUCUN bon (leur somme faisait zéro). C'est la pièce qui dit qui a reçu quoi :
+   deux unités différentes ne se totalisent pas. */
+function remiseAjoute(m,qte,unite){
+  const uR=unite==='ctn'?'cart.':(unite||'u');
   if(db.bonsRemiseOff) return;   // coupé dans Paramètres : rien n'est écrit, rien n'est demandé
   try{
     db.bonsRemise=db.bonsRemise||[];
@@ -18774,8 +18929,8 @@ function remiseAjoute(m,qte){
       br={id:uid(),num:nextNum('bonsRemise','BR','num'),date:jour,ts:Date.now(),boxId:m.boxId,boxNomTxt:(bxR.nom||bxR.numero||''),
         par:m.par||'',parRole:(typeof ROLE!=='undefined'&&roleLbl(uPar.role))||'',pourQui:m.pourQui||'',valideDr:fullName(currentUser),lignes:[]};
       db.bonsRemise.push(br); }
-    const l=br.lignes.find(x=>x.produitId===m.produitId);
-    if(l) l.qte+=qte; else br.lignes.push({produitId:m.produitId,qte:qte});
+    const l=br.lignes.find(x=>x.produitId===m.produitId&&(x.unite||'u')===uR);
+    if(l) l.qte+=qte; else br.lignes.push({produitId:m.produitId,qte:qte,unite:uR});
     logEvent('Bon de remise',br.num+' — '+br.par+' → '+br.pourQui,'stock');
   }catch(e){}
 }
@@ -18797,9 +18952,9 @@ async function remisePdf(id){
   y+=8; doc.setDrawColor(22,128,60); doc.setLineWidth(1.2); doc.line(40,y,555,y); y+=18;
   doc.setFont('helvetica','bold'); doc.setTextColor(30,31,40); doc.text('Produit',40,y); doc.text('Quantite',480,y); y+=8;
   doc.setDrawColor(220); doc.setLineWidth(.5); doc.line(40,y,555,y); y+=15; doc.setFont('helvetica','normal');
-  let tot=0; (r.lignes||[]).forEach(l=>{ const p=produit(l.produitId); if(y>790){ doc.addPage(); y=50; }
-    doc.text(String(p.nom||'Produit').slice(0,60),40,y); doc.text(String(l.qte)+' u',480,y); tot+=l.qte; y+=15; });
-  y+=10; doc.setFont('helvetica','bold'); doc.text('TOTAL : '+(r.lignes||[]).length+' produit(s) · '+tot+' unite(s)',40,y);
+  (r.lignes||[]).forEach(l=>{ const p=produit(l.produitId); if(y>790){ doc.addPage(); y=50; }
+    doc.text(String(p.nom||'Produit').slice(0,60),40,y); doc.text(String(l.qte)+' '+(l.unite||'u'),480,y); y+=15; });
+  y+=10; doc.setFont('helvetica','bold'); doc.text('TOTAL : '+(r.lignes||[]).length+' ligne(s) · '+remiseTotTxt(r),40,y);
   doc.setFontSize(9); doc.setTextColor(150); doc.text('OP GESTION — genere le '+new Date().toLocaleDateString('fr-FR'),40,820);
   doc.save((r.num||'bon-remise')+'.pdf');
 }
@@ -19154,22 +19309,11 @@ function boxNouveautes(b,cands){ if(!b) return []; b.stock=b.stock||{}; const d=
    collègue modifie une quantité au même instant sur une autre box, sa version peut l'emporter et
    les produits qu'on vient d'y poser repartiront — ils reviendront à l'ouverture suivante. On ne
    perd jamais de stock : ces produits arrivent à zéro, et une quantité écrite gagne toujours. */
-function boxAutoNouveautes(b){
-  const cands=produitsRecents(); if(!cands.length) return 0;
-  const boxes=visibleBoxes((db.boxes||[]).filter(x=>x&&x.actif!==false));
-  let total=0, touchees=0, ici=0; const noms=[];
-  boxes.forEach(bx=>{ const nv=boxNouveautes(bx,cands); if(!nv.length) return;
-    const r=boxPoserProduits(bx,nv.map(p=>p.id)); if(!r.poses.length) return;
-    total+=r.poses.length; touchees++; if(b&&bx.id===b.id) ici=r.poses.length;
-    noms.push(bx.nom||bx.numero||''); });
-  if(!total) return 0;
-  /* UNE ligne pour tout le geste, pas une par box. db.journal est plafonné à 500 entrées (save) et
-     re-tronqué à 500 à chaque fusion : douze box × cent produits auraient effacé tout l'historique
-     de l'entreprise en un passage. On compte, on nomme les box, on ne récite pas les produits. */
-  logEvent('Nouveaux produits du catalogue posés dans les box',total+' fiche(s) à zéro dans '+touchees+' box : '+noms.slice(0,6).join(', ')+(noms.length>6?' et '+(noms.length-6)+' autre(s)':''),'stock');
-  save();
-  toast(total+' produit'+(total>1?'s':'')+' du catalogue ajouté'+(total>1?'s':'')+' à zéro dans '+touchees+' box'+(touchees>1?'':''),4200);
-  return ici||total; }
+/* boxAutoNouveautes() a été SUPPRIMÉE le 10 septembre 2026 — voir openBox(), son seul
+   appelant. Elle posait les nouveautés dans toutes les box visibles depuis un appareil, ce
+   qui les tamponnait toutes et faisait gagner à cet appareil la fusion de chacune. La pose
+   passe désormais par la feuille « Ajouter / retirer » et boxPoserProduits(), sur les box
+   qu'on choisit, après un tap.  ⛔ Ne pas la faire revenir sur un chemin d'affichage. */
 function boxDecider(b,ids){ db.boxDecisions=db.boxDecisions||[]; let d=boxDecision(b); if(!d){ d={id:b.id,ecartes:{}}; db.boxDecisions.push(d); } d.ecartes=d.ecartes||{}; const now=Date.now();
   ids.forEach(pid=>{ d.ecartes[pid]=now; }); d.par=fullName(currentUser); d.parId=currentUser&&currentUser.id; d.ts=now; }
 function boxDecisionAnnuler(b,pid){ const d=boxDecision(b); if(!d||!d.ecartes) return; delete d.ecartes[pid]; d.ts=Date.now(); }
@@ -19254,13 +19398,18 @@ function boxAdj(pid,field,delta){ const b=db.boxes.find(x=>x.id===boxView); if(!
   if(delta<0 && !db.bonsRemiseOff && !boxDonneNom(b.id)){
     setTimeout(function(){ boxDonneModal(b.id,function(){ boxAdj(pid,field,delta); }); },80);
     return; }
-  b.stock[pid][field]=Math.max(0,(b.stock[pid][field]||0)+delta);
-  const pour=delta<0?boxDonneNom(b.id):'';
-  traceBox(b,pid,delta,field,delta<0?'Sortie box':'Entrée box',fullName(currentUser),'',pour);
+  /* Le stock plafonne à zéro : retirer 5 d'une box qui en a 3 en sort 3. La trace et le bon
+     de remise doivent dire 3, pas 5 — sinon l'historique invente deux unités. */
+  const avAdj=b.stock[pid][field]||0;
+  b.stock[pid][field]=Math.max(0,avAdj+delta);
+  const reel=b.stock[pid][field]-avAdj;
+  if(!reel){ if(!_boxLotSilence) toast('Déjà à 0'); return; }
+  const pour=reel<0?boxDonneNom(b.id):'';
+  traceBox(b,pid,reel,field,reel<0?'Sortie box':'Entrée box',fullName(currentUser),'',pour);
   /* Le bon de remise se tient de la même façon des deux côtés : même acte, même trace. */
-  if(pour) remiseAjoute({boxId:b.id,par:fullName(currentUser),parId:currentUser&&currentUser.id,pourQui:pour,produitId:pid},Math.abs(delta));
+  if(pour) remiseAjoute({boxId:b.id,par:fullName(currentUser),parId:currentUser&&currentUser.id,pourQui:pour,produitId:pid},Math.abs(reel),field);
   if(field==='u') notifyDrBoxLow(b,pid,prevU);
-  notifyDrBoxMove(b,pid,delta<0?'sortie':'entree',Math.abs(delta),field);
+  notifyDrBoxMove(b,pid,reel<0?'sortie':'entree',Math.abs(reel),field);
   save(); if(!_boxLotSilence) renderBoxProdList(); }
 function boxDemande(boxId,pid){ const b=db.boxes.find(x=>x.id===boxId), p=produit(pid); if(!b||!p.id)return;
   const s=(b.stock&&b.stock[pid])||{ctn:0,u:0};
@@ -19303,7 +19452,8 @@ function formBox(id){ const b=id?db.boxes.find(x=>x.id===id):{};
      des fiches pendant que le formulaire restait ouvert (une pose multi-box faite par un collègue,
      par exemple), et les compter comme « retirées » les écarterait définitivement sans que personne
      ne l'ait décidé. Signalé par `relecteur` le 10 septembre 2026. */
-  boxFormStockDepart = Object.keys(boxFormStock);
+  boxFormStockDepart = JSON.parse(JSON.stringify(boxFormStock));   // valeurs, pas seulement les clés : saveBox compare les quantités
+  boxFormId = id||'';
   boxFormCatOpen=false; boxLat=(b.lat!=null?b.lat:null); boxLng=(b.lng!=null?b.lng:null); boxAddrResults=[]; boxPhoto=b.photo||'';
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>${id?'Modifier la box':'Nouvelle box'}</h3><button type="submit" form="boxform" class="btn sm">${id?'Enregistrer':'Créer'}</button></div>
     <form id="boxform" onsubmit="saveBox(event,'${id||''}')">
@@ -19370,7 +19520,7 @@ function formBox(id){ const b=id?db.boxes.find(x=>x.id===id):{};
   renderBoxCodes(); renderBoxTechs(); renderBoxFormProds(); renderBoxPhoto();
 }
 let drRattaches=new Set();
-let boxFormStock={}, boxFormStockDepart=[];
+let boxFormStock={}, boxFormStockDepart={}, boxFormId='';
 function renderBoxFormProds(){ const el=$('box-form-prods'); if(!el)return;
   const ids=Object.keys(boxFormStock).filter(pid=>produit(pid).id);
   const c=$('box-prod-count'); if(c)c.textContent=ids.length;
@@ -19378,7 +19528,7 @@ function renderBoxFormProds(){ const el=$('box-form-prods'); if(!el)return;
   el.innerHTML=ids.map(pid=>{ const p=produit(pid); const s=boxFormStock[pid];
     return `<div class="frow"><div style="flex:1;min-width:0"><div style="font-size:14px;color:var(--t1)">${esc(p.nom)}</div><div style="font-size:11px;color:var(--t3)">${esc(p.categorie||'')}</div></div>
       <div class="frow-val"><input type="number" min="0" value="${s.u||0}" title="unités" style="width:56px;text-align:center" oninput="boxFormStock['${pid}'].u=parseInt(this.value)||0"><span style="font-size:11px;color:var(--t3)">u</span>
-      <button type="button" class="btn danger sm" onclick="delete boxFormStock['${pid}'];renderBoxFormProds()">✕</button></div></div>`;}).join('');
+      <button type="button" class="btn danger sm" onclick="bfcRetirerUn('${pid}')">✕</button></div></div>`;}).join('');
 }
 let boxFormCatOpen=false;
 function toggleBoxFormCat(){ boxFormCatOpen=!boxFormCatOpen; renderBoxFormCat(); }
@@ -19392,7 +19542,10 @@ function renderBoxFormCat(){ const el=$('box-form-cat'); if(!el)return;
   renderBfcList();
 }
 function bfcToggleAll(){ const allOn=db.produits.length>0&&db.produits.every(p=>boxFormStock[p.id]);
-  if(allOn){ db.produits.forEach(p=>delete boxFormStock[p.id]); }
+  if(allOn){ let bloques=0; db.produits.forEach(p=>{ const b=boxFormId?db.boxes.find(x=>x.id===boxFormId):null; const st=(b&&b.stock&&b.stock[p.id])||{};
+      if((+st.u||0)||(+st.ctn||0)){ bloques++; return; }                 // même règle que la croix : ce qui a du stock reste
+      delete boxFormStock[p.id]; });
+    if(bloques) toast(bloques+' produit'+(bloques>1?'s':'')+' gardé'+(bloques>1?'s':'')+' : il y reste du stock. Passe par « Produits → Retirer ».',5000); }
   else { db.produits.forEach(p=>{ if(!boxFormStock[p.id]) boxFormStock[p.id]={ctn:0,u:0}; }); }
   renderBoxFormCat(); renderBoxFormProds();
 }
@@ -19402,7 +19555,21 @@ function renderBfcList(){ const el=$('bfc-list'); if(!el)return; const q=norm($(
     return `<div class="frow" style="cursor:pointer" onclick="toggleBfc('${p.id}')"><span style="font-size:20px;color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span>
       <div style="flex:1;min-width:0"><div style="font-size:14px;color:var(--t1)">${esc(p.nom)}</div><div style="font-size:11px;color:var(--t3)">${esc(p.categorie||'')}${p.ref?' · '+esc(p.ref):''}</div></div></div>`;}).join('')||'<div class="frow" style="color:var(--t3)">Aucun produit.</div>';
 }
-function toggleBfc(pid){ if(boxFormStock[pid]) delete boxFormStock[pid]; else boxFormStock[pid]={ctn:0,u:0}; renderBfcList(); renderBoxFormProds(); }
+/* ⛔ DÉCOCHER, C'EST RETIRER DE LA BOX — et un produit qui a du stock ne se retire pas ici.
+   La feuille « Produits → Retirer » applique cette règle depuis la v625 (boxRetirable) et
+   refuse tout ce qui n'est pas à zéro. La croix ✕ de cette fenêtre, elle, effaçait la fiche
+   ET sa quantité : sans confirmation, sans mouvement, sans ligne de journal, et en posant un
+   écart qui empêchait le catalogue de la reposer. Deux chemins, le même geste, des règles
+   opposées — mesuré sur une box à 40 u et 2 cartons, disparus en un tap et propagés à toute
+   l'équipe en moins de deux secondes. On refuse ici, et on dit où aller. */
+function bfcRetirable(pid){ const b=boxFormId?db.boxes.find(x=>x.id===boxFormId):null;
+  const s=(b&&b.stock&&b.stock[pid])||{}; const u=+s.u||0, c=+s.ctn||0;
+  if(!u&&!c) return true;
+  const q=[u?u+' u':'',c?c+' carton'+(c>1?'s':''):''].filter(Boolean).join(' et ');
+  toast('« '+(produit(pid).nom||'Ce produit')+' » a encore '+q+' dans cette box. On le retire depuis « Produits → Retirer », quand la quantité revient à zéro.',5200);
+  return false; }
+function toggleBfc(pid){ if(boxFormStock[pid]){ if(!bfcRetirable(pid)) return; delete boxFormStock[pid]; } else boxFormStock[pid]={ctn:0,u:0}; renderBfcList(); renderBoxFormProds(); }
+function bfcRetirerUn(pid){ if(!bfcRetirable(pid)) return; delete boxFormStock[pid]; renderBoxFormProds(); }
 function renderBoxTechs(){ const el=$('box-techs'); if(!el)return;
   const hint=$('box-vt-hint'); if(hint) hint.textContent = boxVisibleTous ? 'Ce box est visible par toute l\'équipe.' : (boxTechSel.size? '' : 'Aucun technicien coché : seuls les administrateurs et responsables verront ce box.');
   el.style.opacity = boxVisibleTous ? .4 : 1; el.style.pointerEvents = boxVisibleTous ? 'none' : 'auto';
@@ -19463,16 +19630,33 @@ function saveBox(e,id){ e.preventDefault(); if(!permGarde('stock',id?'modifier':
      Seule la feuille « Retirer » (v625) le faisait. Conséquence, mesurée sur la conception de la pose
      multi-box : les box taillées avant la v625 se seraient re-remplies au premier geste, et c'est
      exactement ce que Justin refuse (« on le retire du box et on veut pas le voir »).
-     Ici la comparaison se fait sur l'AVANT : ce qui était dans la box et n'y est plus a été décoché. */
-  if(id){ const bx=db.boxes.find(x=>x.id===id); const frais=(bx||{}).stock||{};
+     Ici la comparaison se fait sur l'AVANT : ce qui était dans la box et n'y est plus a été décoché.
+
+     ⛔ ET ON N'ÉCRIT PLUS LE STOCK EN BLOC. boxFormStock est l'instantané pris à l'OUVERTURE de la
+     fenêtre ; l'appliquer tel quel REMBOBINAIT la box à cette minute-là. Mesuré, la fenêtre restée
+     ouverte deux minutes pendant qu'un technicien consommait : 12 u et 0 u sont revenus à 40 u et
+     12 u — avec un _m tout neuf, donc gagnants sur TOUS les appareils, pendant que les lignes de
+     mouvement continuaient de dire l'inverse. Le rattrapage de la v635 ne récupérait que les fiches
+     ARRIVÉES pendant ce temps, jamais les quantités des fiches déjà là.
+     La règle, désormais : on part du stock VIVANT, et on n'applique par-dessus que ce que la fenêtre
+     exprime vraiment — une fiche ajoutée, ou une quantité que la personne a elle-même retapée. Tout
+     le reste suit le stock vivant, c'est-à-dire le travail des collègues. */
+  if(id){ const bx=db.boxes.find(x=>x.id===id); const vivant=(bx&&bx.stock)||{};
+    const stock={}; Object.keys(vivant).forEach(pid=>{ stock[pid]=vivant[pid]; });
+    Object.keys(boxFormStock).forEach(pid=>{ const av=boxFormStockDepart[pid], ap=boxFormStock[pid];
+      if(!av||(av.u||0)!==(ap.u||0)||(av.ctn||0)!==(ap.ctn||0)) stock[pid]=ap; });
     /* Ce que la personne a décoché : présent à l'OUVERTURE, absent du formulaire. Une fiche arrivée
-       entre-temps par la synchro n'est dans aucun des deux, elle n'est donc pas « retirée »… */
-    const partis=boxFormStockDepart.filter(pid=>!boxFormStock[pid]);
-    /* …mais le formulaire, lui, allait quand même l'écraser : obj.stock remplace le stock en bloc
-       par un instantané périmé. On la remet, avec sa quantité — le travail d'un collègue ne se perd
-       pas parce qu'on avait une fenêtre ouverte. */
-    Object.keys(frais).forEach(pid=>{ if(!boxFormStock[pid]&&boxFormStockDepart.indexOf(pid)<0) obj.stock[pid]=frais[pid]; });
-    if(partis.length&&bx) boxDecider(bx,partis); }
+       entre-temps par la synchro n'est dans aucun des deux, elle n'est donc pas « retirée ».
+       Deuxième garde, après celle de la croix ✕ : entre l'ouverture de la fenêtre et l'enregistrement,
+       la synchro a pu remplir une fiche qui était à zéro. Ce qui a du stock ne part pas. */
+    const partis=[], gardes=[];
+    Object.keys(boxFormStockDepart).forEach(pid=>{ if(boxFormStock[pid]) return;
+      const s=vivant[pid]||{};
+      if((+s.u||0)>0||(+s.ctn||0)>0){ gardes.push(produit(pid).nom||pid); return; }
+      delete stock[pid]; partis.push(pid); });
+    obj.stock=stock;
+    if(partis.length&&bx) boxDecider(bx,partis);
+    if(gardes.length) toast(gardes.slice(0,3).join(', ')+(gardes.length>3?' et '+(gardes.length-3)+' autre(s)':'')+' : gardé'+(gardes.length>1?'s':'')+' dans la box, il y reste du stock.',5200); }
   if(boxLat!=null){ obj.lat=boxLat; obj.lng=boxLng; } else { obj.lat=null; obj.lng=null; }   // adresse modifiée → on re-géolocalise
   let bid=id;
   if(id){ const ix=db.boxes.findIndex(x=>x.id===id); db.boxes[ix]={...db.boxes[ix],...obj}; toast('Box mise à jour'); }
@@ -20004,7 +20188,7 @@ function bonEcartHtml(bon,mvt){
      endroit, pour toujours. */
   const bl=(mvt&&mvt.photo)?`<div class="ec-bl">
       <img src="${mvt.photo}" alt="Bon de livraison photographié à la réception" onclick="window.open(this.src)">
-      <div><b>Bon de livraison</b><span>Photographié${mvt.par?' par '+esc(mvt.par):''}${mvt.ts?' le '+fmtShort(new Date(mvt.ts).toISOString().slice(0,10)):''} — toucher pour agrandir</span></div>
+      <div><b>Bon de livraison</b><span>Photographié${mvt.par?' par '+esc(mvt.par):''}${mvt.ts?' le '+fmtShort(jourDe(mvt.ts)):''} — toucher pour agrandir</span></div>
     </div>`:`<div class="ec-bl ec-bl-non"><span>📄 Aucune photo du bon de livraison n\'a été prise à la réception.</span></div>`;
   return `<div class="ec">
     <div class="ec-h">📋 <b>${esc(bonNum(bon))}</b> — commandé ${tot.c} u · reçu ${tot.r} u${ecarts?` · <span class="ec-alerte">${ecarts} écart${ecarts>1?'s':''}</span>`:' · <span class="ec-ok">tout y est</span>'}</div>
@@ -21260,7 +21444,13 @@ function devisLogoJpeg(src){
 }
 function devisPdfStr(d,logo){
   const cli=db.clients.find(x=>x.id===d.clientId)||{};
-  const soc={societe:d.rapportModele||''};
+  /* « Modèle générique » n'est pas une société : c'est le choix par défaut quand
+     l'entreprise n'en a déclaré aucune — donc la valeur de TOUS ses devis. bcEntete ne
+     retombe sur l'en-tête réglé puis sur le nom de l'entreprise que si la chaîne est vide ;
+     ces deux mots s'imprimaient donc en tête du devis reçu par le client. L'e-mail et
+     l'impression le traduisaient déjà par rapportSociete() — seul le PDF mentait. */
+  const socNom=/g[ée]n[ée]rique|aucune/i.test(String(d.rapportModele||''))?'':String(d.rapportModele||'');
+  const soc={societe:socNom};
   const ent=bcEntete(soc);
   const hx=bcCouleur(soc), rgb=[1,3,5].map(i=>parseInt(hx.slice(i,i+2),16)/255);
   const GREEN=rgb.map(v=>v.toFixed(3)).join(' '), GREENLT=rgb.map(v=>(0.93+v*0.07).toFixed(3)).join(' ');
@@ -21310,7 +21500,7 @@ function devisPdfStr(d,logo){
   let totHT=0;
   (d.lignes||[]).forEach((l,i)=>{
     if(y<150) newPage();
-    const q=Number(l.qte)||0, pu=Number(l.pu)||0, tot=q*pu; totHT+=tot;
+    const q=Number(l.qte)||0, pu=Number(l.pu)||0, tot=ligTotLigne(l); totHT+=tot;   // même arrondi que l'écran et l'e-mail
     if(i%2===1) R(M,y-6,W-2*M,17,'0.962 0.97 0.976');
     T(M+8,y,9.2,cut(l.designation||'',48),0,DARK);
     TR(RGT-232,y,9.2,String(q).replace('.',','),0,DARK);
@@ -22816,7 +23006,7 @@ function profilsGerer(){
     '<p style="color:var(--t2);font-size:13px;line-height:1.65;margin-bottom:14px">Un profil est une <b>photo des droits</b> qu\'on pose d\'un geste sur un nouveau compte, au lieu de cocher 79 interrupteurs à chaque fois.<br><span style="color:var(--t3)">Pour en créer un : ouvre la ligne de quelqu\'un qui a déjà les bons droits, puis « Enregistrer comme profil ». Les <b>box</b> n\'en font pas partie — elles dépendent du secteur de la personne, pas de son métier.</span></p>'+
     (l.length?l.map(function(pr){ return '<div class="pl-row" style="align-items:center">'+
         '<div class="pl-info"><div class="pl-title">🎛 '+esc(pr.nom)+'</div>'+
-        '<div class="pl-meta">'+profilCompte(pr)+(pr.par?' · par '+esc(pr.par):'')+(pr.ts?' · '+fmtShort(new Date(pr.ts).toISOString().slice(0,10)):'')+'</div></div>'+
+        '<div class="pl-meta">'+profilCompte(pr)+(pr.par?' · par '+esc(pr.par):'')+(pr.ts?' · '+fmtShort(jourDe(pr.ts)):'')+'</div></div>'+
         (admin?'<span style="display:flex;gap:6px"><button type="button" class="btn ghost sm" onclick="profilNouveau(\''+pr.id+'\')" title="Modifier les droits de ce profil">✎</button><button type="button" class="btn danger sm" onclick="profilSupprimer(\''+pr.id+'\')">🗑</button></span>':'')+
       '</div>'; }).join('')
      : '<div class="card" style="text-align:center;color:var(--t3);font-size:13px;padding:20px">Aucun profil pour l\'instant.<br><span style="font-size:12px">Règle les droits de quelqu\'un, puis « Enregistrer comme profil » sur sa ligne.</span></div>'));
@@ -23014,7 +23204,12 @@ function mdpProvisoire(){ const A='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwx
 function lienLisible(){ try{ const t=localStorage.getItem('elan_sync_team'); const l=localStorage.getItem('elan_lien_lisible')||''; return (t&&l&&localStorage.getItem('elan_lien_lisible_t')===t)?l:''; }catch(e){ return ''; } }
 /* le nom que l'écran de connexion affichera quand on arrive par le lien lisible (celui de l'annuaire TeamOP) */
 function lienLisibleNom(){ return lienLisible()?(localStorage.getItem('elan_lien_lisible_nom')||''):''; }
-function lienLisibleOublier(){ try{ ['elan_lien_lisible','elan_lien_lisible_t','elan_lien_lisible_ts','elan_lien_lisible_kh','elan_lien_lisible_nom','elan_lien_lisible_motif'].forEach(k=>localStorage.removeItem(k)); }catch(e){} }
+/* Les SEPT clés sont écrites ensemble par lienLisibleCharger : elles partent ensemble.
+   elan_espace_admin manquait, et adminAnnuaireRetablir() — rejouée à chaque chargement —
+   promouvait alors administrateur un homonyme DANS L'ENTREPRISE SUIVANTE, puis save()
+   propageait la promotion à toute l'équipe. Mesuré : « jean » technicien chez B ressorti
+   administrateur, avec la ligne de journal qui l'annonce. */
+function lienLisibleOublier(){ try{ ['elan_lien_lisible','elan_lien_lisible_t','elan_lien_lisible_ts','elan_lien_lisible_kh','elan_lien_lisible_nom','elan_lien_lisible_motif','elan_espace_admin'].forEach(k=>localStorage.removeItem(k)); }catch(e){} }
 async function lienLisibleCharger(force){ try{
   const t=localStorage.getItem('elan_sync_team'), k=localStorage.getItem('elan_sync_secret'); if(!t||!k) return '';
   const kh=await sha256(k);
@@ -24132,6 +24327,11 @@ async function resetProdGo(){ const code=(($('rp-code')||{}).value||'').trim(); 
 function resetProdWord(){ const w=(($('rp-word')||{}).value||'').trim(); if(w!=='EFFACER'){ toast('Tape exactement EFFACER (en majuscules)'); return; } closeModal(); resetProdWipe(); }
 function resetProdWipe(){
   try{ exportData(); }catch(e){}
+  /* Sans cette annonce, la synchro voit l'amputation, croit l'appareil en retard, REMET la
+     base de l'équipe et affiche « Cet appareil était en retard » : l'effacement demandé n'a
+     tout simplement pas lieu. L'utilisateur, lui, a vu défiler un export et tapé un code à
+     six chiffres — il croit avoir effacé. razAppliquer() le fait déjà ; celle-ci l'oubliait. */
+  syncRetraitVoulu();
   ['clients','interventions','boxes','enveloppes','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages','messages','groupes','conducteurs','produitsDonnes','brouillons','telecollectes','taches','absences','chantiers','fournisseurs','registres'].forEach(k=>{ db[k]=[]; });
   delete db.foursSeededV; delete db.foursSeeded; delete db.foursEmailsV2;   // le pack fournisseurs du métier se re-remplit après la remise à zéro
   db.produits=(db.produits||[]).map(p=>({...p,qte:0}));   // catalogue conservé, quantités remises à zéro
@@ -24147,7 +24347,15 @@ function importData(e){ const f=e.target.files[0]; if(!f)return; const r=new Fil
          créé depuis la sauvegarde. Avec l'ombre relevée, un import REMET ce qu'il contient et ne retire
          rien : c'est le sens qu'il doit avoir sur un espace synchronisé. */
       try{ ombreRelever(); }catch(e){} save(); renderNav(); toast('Importé'); go('dashboard'); }catch(err){ toast('Fichier invalide'); } }; r.readAsText(f); }
-function resetData(){ if(!confirm('Réinitialiser TOUTES les données ?'))return; localStorage.removeItem(STORE_KEY); localStorage.removeItem('elan_session'); location.reload(); }
+/* resetData() a été SUPPRIMÉE le 10 septembre 2026. Elle n'avait aucun appelant — et c'était
+   la seule raison pour laquelle elle n'avait encore rien cassé. Elle retirait la base sans
+   retirer le drapeau de vidage NI détacher l'appareil de son espace : au rechargement,
+   load() rejouait le semis de démonstration (160 produits, deux box « Restaurant Le
+   Gourmet »…) et la synchro, toujours branchée sur l'entreprise, en faisait l'union puis le
+   poussait chez tout le monde. C'est la panne v637, par une autre porte, à un bouton près.
+   Ce que le bouton « Réinitialiser » doit faire vit dans razAppliquer() (choix de ce qu'on
+   efface, code à six chiffres, syncRetraitVoulu) et dans resetProdWipe(). Quitter un espace
+   vit dans espaceQuitter(). Il n'y a pas de troisième cas.  ⛔ Ne pas la faire revenir. */
 
 /* ═══════════════ GÉNÉRIQUES ═══════════════ */
 function saveSimple(e,coll,id,numFields){ e.preventDefault(); const d=Object.fromEntries(new FormData(e.target)); (numFields||[]).forEach(f=>{ if(d[f]!==undefined) d[f]=parseFloat(d[f])||0; });
@@ -24315,7 +24523,17 @@ function boxScanApply(){ const b=db.boxes.find(x=>x.id===boxScan.boxId); if(!b){
 const DEVIS_ST={brouillon:{l:'Brouillon',c:'st-grey'},envoye:{l:'Envoyé',c:'st-blue'},accepte:{l:'Accepté',c:'st-green'},refuse:{l:'Refusé',c:'st-red'}};
 const FACT_ST={brouillon:{l:'En attente',c:'st-grey'},envoyee:{l:'Envoyée',c:'st-blue'},payee:{l:'Payée',c:'st-green'},retard:{l:'En retard',c:'st-red'}};
 const DOC={ devis:{coll:'devis',titre:'Devis',un:'devis',prefix:'DEV',st:DEVIS_ST}, factures:{coll:'factures',titre:'Facture',un:'facture',prefix:'FAC',st:FACT_ST} };
-const ligHT=ls=>(ls||[]).reduce((s,l)=>s+((+l.qte||0)*(+l.pu||0)),0);
+/* Le total HT est la somme des lignes ARRONDIES AU CENTIME, pas la somme des valeurs exactes.
+   Trois lignes de 1,5 × 33,33 s'affichaient « 49,99 » chacune sous un Total HT de 149,98 : le
+   client qui additionne trouve 149,97, et il appelle. On arrondit là où il lit — c'est aussi
+   la règle comptable, ligne par ligne. */
+/* ⚠️ toFixed(2), et pas Math.round(x*100)/100 : les deux ne donnent PAS le même centime.
+   1,5 × 33,33 vaut 49,995 ; toFixed rend « 49.99 », Math.round rend 50. Comme c'est toFixed
+   qui IMPRIME la ligne sur le PDF, c'est lui qui doit arrondir le total — sinon le client
+   lit trois fois 49,99 sous un total de 150,00, et on a déplacé l'écart au lieu de le
+   fermer. On arrondit avec la fonction qui affiche, jamais avec une autre. */
+const ligTotLigne=l=>Number((((+l.qte||0)*(+l.pu||0))||0).toFixed(2));
+const ligHT=ls=>Number(((ls||[]).reduce((s,l)=>s+ligTotLigne(l),0)).toFixed(2));
 /* ⛔ `d` PEUT être introuvable, et ça arrive vraiment : la synchro efface un devis sur un
    appareil pendant qu'un autre l'affiche encore, ou un lien pointe sur un document supprimé.
    `d.lignes` sur undefined jetait « Cannot read properties of undefined (reading 'lignes') »
@@ -24732,6 +24950,16 @@ async function aiGenDevisXylo(e){ e.preventDefault(); const f=Object.fromEntries
   db.devis.push({id,num:docNum('devis'),clientId:f.clientId,rapportModele:f.rapportModele||'',date:todayISO(),statut:'brouillon',tva:(result&&result.tva?+result.tva:20),notes,lignes,xylo:true,humidite:f.humidite||'',photos:xyloPhotos.slice()});
   logEvent('Devis xylophage',clientName(f.clientId),'commercial'); save(); closeModal(); toast('Devis généré — relis et ajuste les prix'); formDoc('devis',id);
 }
+/* Deux appareils qui émettent une facture avant de s'être vus tirent le MÊME numéro : chacun
+   lit le plus grand numéro qu'il connaît, et la fusion garde les deux (leurs identifiants
+   diffèrent). Aucun code côté appareil ne peut l'empêcher — il faudrait un compteur partagé.
+   Ce qu'on peut, et ce qui manquait : ne pas le laisser invisible. Pour une facture, la
+   numérotation continue est une obligation comptable ; la découvrir au contrôle coûte cher,
+   la découvrir le jour même se corrige en deux minutes. */
+function docNumsDoubles(coll){ const vus={}, dbl=[];
+  ((db&&db[coll])||[]).forEach(d=>{ const n=(d&&d.num||'').trim(); if(!n) return;
+    if(vus[n]){ if(dbl.indexOf(n)<0) dbl.push(n); } else vus[n]=1; });
+  return dbl; }
 function docListView(kind,xyloOnly){
   const cfg=DOC[kind]; let list=[...visibleDocs(db[cfg.coll])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   if(kind==='devis') list = xyloOnly ? list.filter(d=>d.xylo) : list.filter(d=>!d.xylo);
@@ -24753,7 +24981,11 @@ function docListView(kind,xyloOnly){
   const empty = xyloOnly ? `<div class="card">${emptyState('🪵','Aucun devis xylophage.','Générer (IA)','formDevisXylo()')}</div>`
     : kind==='devis' ? `<div class="card"><div class="empty"><div class="e-ico">💰</div><p>Aucun devis.</p><div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button class="btn" onclick="formDoc('devis')">＋ Créer un devis</button>${can('devisIA')?`<button class="btn ghost" onclick="devisIAModal()">✨ Devis IA</button>`:''}</div></div></div>`
     : `<div class="card">${emptyState('🧾','Aucun '+cfg.un+'.','Créer','formDoc(\''+kind+'\')')}</div>`;
-  $('content').innerHTML=list.length? tableCard(['N°','Client','Date','TTC','Statut',''],rows):empty;
+  const dbl=docNumsDoubles(cfg.coll);
+  const bandeau=dbl.length?`<div class="card" style="border:1px solid var(--org);background:color-mix(in srgb,var(--org) 9%,transparent);padding:12px 14px;margin-bottom:12px">
+    <div style="font-weight:800;color:var(--org);font-size:13.5px">⚠️ ${dbl.length} numéro${dbl.length>1?'s':''} en double</div>
+    <div style="font-size:12.5px;color:var(--t2);margin-top:4px;line-height:1.55"><span class="mono">${dbl.slice(0,6).map(esc).join(', ')}</span>${dbl.length>6?' et '+(dbl.length-6)+' autre(s)':''} — deux appareils ont émis le même numéro sans s'être vus. Ouvre le plus récent (✎) et donne-lui le numéro suivant : la numérotation doit rester continue.</div></div>`:'';
+  $('content').innerHTML=bandeau+(list.length? tableCard(['N°','Client','Date','TTC','Statut',''],rows):empty);
 }
 views.devis=()=>docListView('devis',false);
 views.devisXylo=()=>docListView('devis',true);
@@ -27343,7 +27575,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
     if(rest>=0&&rest<=7){ const fEss=db.forfaitEssai.formule, formuleVisee=(fEss==='gratuit')?'pro':fEss;
       out.push({id:'essai:'+db.forfaitEssai.finLe,ic:'🎁',txt:`Ton essai <b>${(PLANS[fEss]||{}).l||''}</b> se termine ${rest===0?"<b>aujourd'hui</b>":'dans <b>'+rest+' jour(s)</b>'} — aucune carte n'est enregistrée : pense à prendre l'abonnement pour continuer sans coupure.`,act:"window.open('https://teamop.fr/recap-abonnement.html?formule="+formuleVisee+"&utilisateurs='+db.users.length,'_blank')"}); } }
   // Décisions du DR sur MES mouvements / MES demandes : seule la personne concernée est prévenue (validé ✅ / refusé 🚫, par qui, motif)
-  { const me=currentUser.id, depuis=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+  { const me=currentUser.id, depuis=jourDe(Date.now()-7*86400000);
     (db.boxMvtAttente||[]).filter(m=>m.parId===me&&m.statut!=='enAttente'&&!notifMoi(m.drNom)&&m.dateValidation&&m.dateValidation>=depuis).forEach(m=>{ const ok=m.statut==='valide';
       /* L'heure RÉELLE de la décision, pas midi. dateValidation ne porte qu'une date : toutes
          les décisions d'une même journée recevaient donc le même horodatage, et le tri

@@ -1,11 +1,11 @@
 const fs=require('fs'); const APP=fs.readFileSync('/home/user/teamop/app.html','utf8');
 function dec(h){ const d=APP.indexOf(h); if(d<0) throw new Error(h); for(let i=d;i<d+12000;i++){ if(APP[i]!=='}'&&APP[i]!==';') continue; const b=APP.slice(d,i+1); try{ new Function(b); return b; }catch(e){} } throw new Error('fin '+h); }
-const code=['const norm = s =>','function idCatalogue(nom,prefixe){','function produitCle(p){','function uidTs(id){','function produitCree(p){','function produitsDistinctIds(cle){','function produitDistinct(p){','function produitsDistinctsAnnuler(cle){','function produitsDoublons(){','function produitsFusionnables(l){','function produitsDoublonSurvivante(l){','function produitsFusionnerDoublons(cles){','function produitsRecents(){','function boxDecision(b){','function boxVuTs(b){','function boxNouveautes(b,cands){','function boxDecisionAnnuler(b,pid){','function boxPoserProduits(b,ids,opts){','function abpDisponibles(b){','function boxAutoNouveautes(b){','const BOX_NOUVEAUTES_DEPUIS='].map(dec).join('\n');
+const code=['const norm = s =>','function idCatalogue(nom,prefixe){','function produitCle(p){','function uidTs(id){','function produitCree(p){','function produitsDistinctIds(cle){','function produitDistinct(p){','function produitsDistinctsAnnuler(cle){','function produitsDoublons(){','function produitsFusionnables(l){','function produitsDoublonSurvivante(l){','function produitsFusionnerDoublons(cles){','function produitsRecents(){','function boxDecision(b){','function boxVuTs(b){','function boxNouveautes(b,cands){','function boxDecisionAnnuler(b,pid){','function boxPoserProduits(b,ids,opts){','function abpDisponibles(b){','const BOX_NOUVEAUTES_DEPUIS='].map(dec).join('\n');
 const bac=new Function('etat',`let db=etat.db, journal=[], toasts=[];
   const logEvent=(a,b)=>journal.push(a+' · '+b); const save=()=>{etat.saves++;}; const toast=t=>toasts.push(t);
   const produit=id=>(db.produits||[]).find(p=>p.id===id)||{}; const visibleBoxes=l=>l; const currentUser={id:'u'}; const fullName=()=>'Justin';
   ${code}
-  return { produitsFusionnerDoublons, produitsDoublons, boxAutoNouveautes, boxNouveautes, produitsRecents, idCatalogue, journal, toasts };`);
+  return { produitsFusionnerDoublons, produitsDoublons, boxPoserProduits, boxNouveautes, produitsRecents, idCatalogue, journal, toasts };`);
 let ok=0,ko=0; const v=(t,a,b)=>{ if(JSON.stringify(a)===JSON.stringify(b)){ok++;console.log('  ✓ '+t);} else {ko++;console.log('  ✗ '+t+'\n      attendu : '+JSON.stringify(b)+'\n      obtenu  : '+JSON.stringify(a));} };
 
 console.log('Deux fiches sous le même identifiant : plus de perte');
@@ -25,16 +25,22 @@ console.log('Les deux défauts ensemble : même identifiant ET même nom sous de
   v('une seule fiche',db.produits.length,1); v('stock additionné sur la fiche à identifiant déduit du nom',db.boxes[0].stock,{cat_a:{u:10,ctn:0}});
   v('c\'est bien celle-là qui survit',db.produits[0].id,'cat_a'); }
 
-console.log('Le catalogue se pose dans TOUTES les box visibles');
+console.log('Le catalogue se pose dans les box choisies — au tap, jamais à l\'ouverture');
 { const D=Date.parse('2026-09-10T10:00:00Z');
   const db={produits:[{id:'p1',nom:'NEUF UN',cree:D+1000},{id:'p2',nom:'NEUF DEUX',cree:D+2000},{id:'p0',nom:'ANCIEN',cree:0}],
     boxes:[{id:'b1',nom:'Nord',stock:{}},{id:'b2',nom:'Sud',stock:{p0:{u:5,ctn:0}}},{id:'b3',nom:'Fermée',actif:false,stock:{}}],
     boxDecisions:[],produitsDistincts:[],mouvements:[],boxMvtAttente:[]};
-  const g=bac({db,saves:0}); const n=g.boxAutoNouveautes(db.boxes[0]);
+  const g=bac({db,saves:0});
+  /* v638 : boxAutoNouveautes a disparu. Ouvrir une box n'écrit plus rien — c'est cette
+     écriture qui tamponnait toutes les box et faisait gagner à cet appareil la fusion de
+     chacune. La pose passe par la feuille « Ajouter / retirer », donc par boxPoserProduits,
+     sur les box qu'on choisit. Le comportement de POSE, lui, doit rester exactement le même. */
+  const poserPartout=()=>db.boxes.filter(x=>x.actif!==false)
+    .reduce((n,bx)=>n+g.boxPoserProduits(bx,g.boxNouveautes(bx).map(p=>p.id)).poses.length,0);
+  const n=poserPartout();
   v('les deux box actives reçoivent les deux nouveautés',[Object.keys(db.boxes[0].stock).sort(),Object.keys(db.boxes[1].stock).sort()],[['p1','p2'],['p0','p1','p2']]);
   v('la box inactive est laissée tranquille',Object.keys(db.boxes[2].stock),[]);
   v('le stock existant n\'est pas touché',db.boxes[1].stock.p0,{u:5,ctn:0});
-  v('le message dit combien et dans combien de box',/4 produits du catalogue ajoutés à zéro dans 2 box/.test(g.toasts[g.toasts.length-1]),true);
-  v('rendu pour la box ouverte',n,2);
-  v('rien à reposer au passage suivant',g.boxAutoNouveautes(db.boxes[0]),0); }
+  v('quatre fiches posées, deux par box',n,4);
+  v('rien à reposer au passage suivant',poserPartout(),0); }
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);

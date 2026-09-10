@@ -45,12 +45,18 @@ cd server && npm audit --omit=dev  # failles dans les dépendances de production
 node --check server/index.js       # contrôle de syntaxe, depuis la racine
 ```
 
-**Six suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
+**Onze suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
 réelles d'`app.html` et les exécute — elles testent donc le fichier livré.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 145 vérifications, ~2 s
+for f in tests/test-*.js; do node "$f"; done   # 310 vérifications, ~3 s
 ```
+
+Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
+le DOM), elle lit le texte du fichier réel — et la preuve fonctionnelle vit alors dans une sonde
+navigateur du scratchpad, citée en commentaire. **Ne jamais reconstruire un ordre de déclaration
+pour faire passer un test** : c'est ce qui avait masqué une zone morte temporelle le 10 septembre
+au matin, rendant tout le rangement de catégories silencieusement inopérant.
 
 Lire `tests/LISEZMOI.md` avant d'écrire dans `db.produits` : il porte l'invariant sur les
 identifiants de fiches, et `test-634.js` le fait respecter mécaniquement.
@@ -129,15 +135,60 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   équipe a retiré à la main — et une pose multi-box efface en silence les décisions de trente équipes.
   Règle jumelle : **une décision « Pas dans cette box » ne se lève que sur la box qu'on a sous les
   yeux** (`boxPoserProduits(b,ids,{respecterEcartes})`).
-- ⛔ **Rejoindre un espace doit retirer `elan_vierge_v1` en même temps que `STORE_KEY`.** Le vidage
-  des collections de démonstration n'a lieu QU'UNE FOIS DANS LA VIE DE L'APPAREIL. Sans ce retrait,
-  un appareil déjà utilisé qui rejoint un espace rejoue `seed()` sans vider : 160 produits, cinq
-  fournisseurs, deux devis, deux factures, deux contrats, et DEUX BOX DE DÉMONSTRATION (« Cuisine —
-  Restaurant Le Gourmet »…) entrent dans la base du client — puis la première synchro, qui est une
-  UNION, les répand dans toute l'entreprise. Mesuré le 10 septembre 2026 : 220 fiches deviennent 380
-  et 110 noms passent en TRIPLE. C'est le SEUL moment où retirer ce drapeau est sans danger, parce
-  qu'on vient de supprimer la base : le vidage vide le semis, jamais des données. `tests/test-637.js`
-  le surveille, et `scratchpad/sonde-rejoindre.js` l'exerce par le vrai `teamopJoin`.
+- ⛔ **Quitter un espace passe par `espaceQuitter()`, jamais à la main.** Il y a QUATRE portes —
+  Code espace, lien de connexion, lien client (`espace.html`) et fermeture par la Tour — et le
+  10 septembre 2026 trois d'entre elles avaient le même défaut. La fonction retire `STORE_KEY`, le
+  drapeau de vidage, pose `elan_frais`, emporte les secrets de l'entreprise quittée (clé Anthropic,
+  code d'équipe devis, projet Firebase personnel, annuaire, marques de lecture, compteurs d'usage,
+  administrateur déclaré) et efface les bases mises de côté en IndexedDB. Le préfixe se lit sur
+  `STORE_KEY`, jamais écrit en dur — la bêta a le sien, et une liste figée raterait tout ce qui est
+  construit à la volée. `espace.html` refait la même chose en clair : elle ne partage aucun code
+  avec l'application, donc toute modification ici doit s'y répercuter.
+  **Le drapeau de vidage est le point qui coûte** : le vidage des collections de démonstration n'a
+  lieu QU'UNE FOIS DANS LA VIE DE L'APPAREIL. Sans son retrait, un appareil déjà utilisé rejoue
+  `seed()` sans vider : 160 produits, cinq fournisseurs, deux devis, deux factures, deux contrats
+  et DEUX BOX DE DÉMONSTRATION (« Cuisine — Restaurant Le Gourmet »…) entrent dans la base du
+  client, puis la première synchro — une UNION — les répand dans toute l'entreprise. Mesuré :
+  220 fiches deviennent 380 et 110 noms passent en TRIPLE. C'est le SEUL moment où retirer ce
+  drapeau est sans danger, parce qu'on vient de supprimer la base. `tests/test-637.js` surveille les
+  quatre portes, `scratchpad/sonde-rejoindre.js` l'exerce par le vrai `teamopJoin`.
+- ⛔ **Un `<input type="number">` AVALE la virgule décimale, et le champ reste VALIDE.** Mesuré sur
+  Chromium en `fr-FR` : « 33,50 » devient « 3350 », « 5,5 » de TVA devient « 55 ». `replace(',','.')`
+  n'y peut rien — la virgule n'atteint jamais le JavaScript. Un seul écouteur `keydown` (vers la
+  ligne 7803 d'`app.html`) la remplace par un point via `document.execCommand('insertText')`, qui est
+  le seul à respecter le curseur ET une sélection en cours sur un champ numérique. Ne pas le
+  supprimer, ne pas le remplacer par `setRangeText` (refusé sur `type=number`), ne pas basculer le
+  type en texte (le curseur est perdu : « 33,50 » devient « .5033 »), et **ne rien réémettre quand
+  `execCommand` réussit** — il émet déjà `input`, et un `change` de trop re-dessine les blocs sous
+  les doigts de l'utilisateur.
+- **Une quantité de ligne s'exprime dans l'unité DE LA LIGNE, pas de la fiche.** Le technicien saisit
+  250 mL d'un produit stocké au litre. `prodLineUnit(l)` donne l'unité juste, `stockConv(q,de,vers)`
+  convertit, `uniteCompat(de,vers)` dit si deux unités s'ADDITIONNENT — parce que `stockConv` rend la
+  quantité inchangée quand il ne sait pas convertir, ce qui est pratique pour déduire du stock et
+  piégeux pour faire une somme. Trois documents partaient faux d'un facteur 1000 : la facture générée
+  depuis une intervention, le registre biocide et le dossier sanitaire.
+- **Une trace de mouvement dit ce qui a BOUGÉ, jamais ce qui était demandé.** Le stock plafonne à
+  zéro ; la ligne de `db.mouvements` ou de `traceBox` doit plafonner sur le même nombre. Valider −4
+  sur une box tombée à 1 sort une unité : le mouvement en dit une, pas quatre. Même règle dans
+  `intStockDeduire`, `boxMvtValider` (lot ET mouvement isolé) et `boxAdj`. Et un bon de remise ne
+  totalise pas des unités avec des cartons : `remiseAjoute(m,qte,unite)`, une ligne par unité.
+- ⛔ **Le stock d'une box ne se réécrit JAMAIS en bloc.** Un formulaire porte l'instantané pris à son
+  ouverture ; l'appliquer tel quel rembobine la box à cette minute-là, avec un `_m` neuf donc
+  gagnant sur tous les appareils. `saveBox` part du stock VIVANT et n'applique par-dessus que ce que
+  la fenêtre exprime : une fiche ajoutée, ou une quantité que la personne a elle-même retapée.
+  Mesuré avant correction : 12 u revenus à 40 u chez toute l'équipe, pendant que les lignes de
+  mouvement disaient l'inverse.
+- ⛔ **Ouvrir un écran n'écrit pas.** `boxAutoNouveautes` a été supprimée le 10 septembre 2026 :
+  ouvrir une box posait les nouveautés dans TOUTES les box visibles, donc les tamponnait toutes,
+  donc faisait gagner à cet appareil la fusion de chacune — 120 unités sorties par quatre
+  techniciens ressuscitées en un seul geste d'affichage. On prévient avec la pastille « +N », on
+  écrit après un tap. C'est aussi la règle « rien ne s'écrit au seul chargement », appliquée aux
+  écrans profonds.
+- **Les collections qui ne sont pas des listes se fusionnent clé par clé.** `plansSite`, `planNotes`
+  et `permissions` sont des dictionnaires : `COLLS_DICT` + `dictFusion` les réunissent, et
+  `baseSignature` les regarde — sinon une fusion qui ramène le plan d'appâtage d'un collègue passe
+  pour un non-événement et n'est jamais repoussée. Avant : le plan de 24 postes d'un client écrasait
+  celui de 18 postes d'un autre, en entier, sans pierre tombale.
 - ⛔ **`_m:1` posé juste avant un `save()` ne survit pas.** `estampiller()` date de MAINTENANT tout
   enregistrement absent de l'ombre : un `_m:1` écrit puis sauvegardé est écrasé, et la fiche bat sa
   pierre tombale. Il ne tient que là où `ombreRelever()` passe juste après — au chargement (`load()`)

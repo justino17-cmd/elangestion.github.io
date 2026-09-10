@@ -1,4 +1,5 @@
 const fs=require('fs'); const APP=fs.readFileSync(__dirname+'/../app.html','utf8');
+const ESP=fs.readFileSync(__dirname+'/../espace.html','utf8');
 let ok=0,ko=0; const v=(t,a,b)=>{ if(JSON.stringify(a)===JSON.stringify(b)){ok++;console.log('  ✓ '+t);} else {ko++;console.log('  ✗ '+t+'\n      attendu : '+JSON.stringify(b)+'\n      obtenu  : '+JSON.stringify(a));} };
 
 /* ⛔ CE QUE CE FICHIER GARDE, et pourquoi il est écrit comme une lecture du texte et non comme une
@@ -10,16 +11,33 @@ let ok=0,ko=0; const v=(t,a,b)=>{ if(JSON.stringify(a)===JSON.stringify(b)){ok++
              220 fiches deviennent 380 et 110 noms passent en TRIPLE
      après → 0 partout ; la base du client reste à 220, aucun triplet. */
 
-console.log('Rejoindre un espace remet l\'appareil VRAIMENT à neuf');
-{ /* les deux portes : le lien de connexion et le Code espace */
-  const portes=APP.split("localStorage.setItem('elan_frais','1')").length-1;
-  v('deux chemins de rejointe',portes,2);
-  const gardes=APP.split("localStorage.removeItem('elan_vierge_v1')").length-1;
-  v('les deux retirent le drapeau du vidage unique',gardes,2);
-  /* et ils le font APRÈS avoir retiré la base, jamais ailleurs dans le fichier */
-  const bloc=/removeItem\(STORE_KEY\);[\s\S]{0,120}elan_frais[\s\S]{0,1600}?removeItem\('elan_vierge_v1'\)/g;
-  v('chaque garde suit bien le retrait de la base',(APP.match(bloc)||[]).length,2);
-  v('la raison est écrite à côté',/Restaurant Le Gourmet/.test(APP),true); }
+console.log('Quitter un espace remet l\'appareil VRAIMENT à neuf — les QUATRE portes');
+{ /* v638 : le v637 ne couvrait que deux portes sur quatre. Le lien client (espace.html) et la
+     fermeture par la Tour avaient exactement le même défaut, non corrigé. Les trois portes
+     d'app.html passent désormais par UN SEUL chemin, espaceQuitter(), et espace.html — qui ne
+     partage aucun code avec l'application — refait la même chose en clair. */
+  v('espaceQuitter existe',/function espaceQuitter\(\)\{/.test(APP),true);
+  v('elle lit le préfixe sur STORE_KEY, jamais écrit en dur',
+    /const P=STORE_KEY\.split\('_'\)\[0\]\+'_';/.test(APP),true);
+  const q=(APP.match(/function espaceQuitter\(\)\{[\s\S]{0,1400}?\n\}/)||[''])[0];
+  v('elle retire la base',/removeItem\(STORE_KEY\)/.test(q),true);
+  v('elle retire le drapeau du vidage unique',/removeItem\(P\+'vierge_v1'\)/.test(q),true);
+  v('elle pose le drapeau « frais » — sinon la synchro fait l\'union et POUSSE',/setItem\(P\+'frais','1'\)/.test(q),true);
+  v('elle emporte les secrets et accès payants de l\'entreprise quittée',
+    ['anthropic_key','devis_code','sync_cfg','espace_admin'].every(k=>q.indexOf("'"+k+"'")>=0),true);
+  v('et les bases mises de côté',/deleteDatabase\(P\+'cote'\)/.test(q),true);
+  const appels=APP.split(/\bespaceQuitter\(\);/).length-1;
+  v('les trois portes d\'app.html y passent',appels,3);
+  v('plus une seule sortie d\'espace qui retire la base à la main',
+    (APP.match(/removeItem\(STORE_KEY\)/g)||[]).length,1);
+  v('resetData() a disparu — elle rejouait le semis sur un appareil resté rattaché',
+    /function resetData\(\)/.test(APP),false);
+  /* La quatrième porte : le lien d'activation d'un client. C'est sa PREMIÈRE minute. */
+  v('espace.html retire la base',/removeItem\('elan_gestion_v2'\)/.test(ESP),true);
+  v('espace.html retire le drapeau du vidage unique',/removeItem\('elan_vierge_v1'\)/.test(ESP),true);
+  v('espace.html pose le drapeau « frais »',/setItem\('elan_frais','1'\)/.test(ESP),true);
+  v('la raison est écrite à côté, dans les deux fichiers',
+    [/Restaurant Le Gourmet/.test(APP),/Restaurant Le Gourmet/.test(ESP)],[true,true]); }
 
 console.log('Le semis porte bien ce qu\'on refuse de déverser chez un client');
 { /* si ces données disparaissaient du semis, la garde perdrait son objet — le test le dirait */
