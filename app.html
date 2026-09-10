@@ -4769,7 +4769,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '621';
+const APP_VERSION = '622';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6919,7 +6919,14 @@ function visibleInts(list){
   const tid=myTechId(); return (list||[]).filter(i=>intTechIds(i).includes(tid)); }
 /* Box visibles selon le rôle : tout (admin/chef/DR/commercial/compta = « voir tout »), ou seulement
    les box assignés au technicien connecté. Même logique que les interventions → séparation par technicien. */
-function visibleBoxes(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const tid=myTechId(), me=currentUser.id;
+/* ⛔ LE PÉRIMÈTRE S'APPLIQUE AUSSI À QUI A « TOUT VOIR » — décision de Justin, 10 septembre 2026 :
+   « ils doivent voir que les box qui leur sont assignées, pareil pour le reste ». L'audit de
+   cloisonnement avait trouvé que quatre filtres sur huit (box, véhicules, mouvements, journal)
+   ignoraient le périmètre d'un DR : il voyait toute l'entreprise. Même règle désormais que pour
+   les interventions : « tout voir » SANS périmètre (admin, ou chef/DR sans équipe rattachée) rend
+   tout l'espace, comme avant ; AVEC un périmètre, un DR voit ses box — cochées pour lui, dont il
+   est responsable, visibles par tous, celles de ses équipes — et celles d'un absent qu'il remplace. */
+function visibleBoxes(list){ const p=can('voirTout')?perimetreTechIds():null; if(can('voirTout')&&!p) return list||[]; if(!currentUser) return []; const tid=myTechId(), me=currentUser.id;
   // sans « Tout voir » : les box visibles par tous, celles où sa fiche technicien est cochée, celles dont il est responsable,
   // et celles choisies pour lui (fiche utilisateur / Permissions / « Autres personnes autorisées » de la box) — DR compris
   /* Pendant les congés d'un DR, son remplaçant VOIT ses box. Sans ça, la délégation
@@ -6931,6 +6938,7 @@ function visibleBoxes(list){ if(can('voirTout')) return list||[]; if(!currentUse
   /* L'exception passe AVANT toutes les portes, y compris la délégation : une box qu'on a
      retirée à quelqu'un ne doit pas lui revenir parce qu'un collègue part en congés. */
   return (list||[]).filter(b=>!boxExclu(b,me) && (b.visibleTous || (tid&&(b.techIds||[]).includes(tid)) || (me&&b.respUserId===me) || (me&&(b.userIds||[]).includes(me))
+    || (p&&(b.techIds||[]).some(t=>p.has(t)))   // les box de ses équipes
     || abs.some(a=>b.respUserId===a.id || (b.userIds||[]).includes(a.id) || (a.techId&&(b.techIds||[]).includes(a.techId))))); }
 /* Cette box m'est-elle ouverte PARCE QUE quelqu'un est en congés ? Renvoie l'absent, pour
    l'écrire sur la fiche : un accès qu'on ne s'explique pas est un accès qui inquiète. */
@@ -6995,7 +7003,15 @@ function visibleBoxMvts(list){ if(!currentUser) return []; if(currentUser.role==
     return (list||[]).filter(m=>m.parId===me||p.has(m.parId)||(m.boxId&&mesBox.has(m.boxId))); }
   if(can('voirTout')) return list||[];
   return (list||[]).filter(m=>m.parId===me); }
-function visibleMouvements(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const ids=mesBoxIds(), me=fullName(currentUser); return (list||[]).filter(m=>(m.boxId&&ids.has(m.boxId))||(m.technicien&&m.technicien===me)); }
+function visibleMouvements(list){ const p=can('voirTout')?perimetreTechIds():null; if(can('voirTout')&&!p) return list||[]; if(!currentUser) return [];
+  const ids=mesBoxIds(), me=fullName(currentUser);
+  /* un mouvement porte le NOM de qui l'a fait — fullName(currentUser), pas un id : on traduit le
+     périmètre en noms, ceux des utilisateurs de ses équipes d'abord (c'est ce qui est écrit sur la
+     ligne), ceux de leurs fiches technicien ensuite (lignes de démo ou d'import) */
+  const noms=new Set(); if(p){ const pu=perimetreUserIds()||new Set(), nom=x=>fullName(x).toLowerCase().trim();
+    (db.users||[]).forEach(u=>{ if(u&&pu.has(u.id)) noms.add(nom(u)); });
+    (db.techniciens||[]).forEach(t=>{ if(t&&p.has(t.id)) noms.add(nom(t)); }); }
+  return (list||[]).filter(m=>(m.boxId&&ids.has(m.boxId))||(m.technicien&&(m.technicien===me||noms.has(String(m.technicien).toLowerCase().trim())))); }
 /* ══════════ LES VÉHICULES SE DÉSIGNENT, COMME LES BOX ═══════════════════════════════════
    Justin, 9 septembre 2026 : « pour les box il sélectionne le box, pour les véhicules il
    sélectionne le véhicule qui lui est assigné. En gros, pour toutes les catégories où ça
@@ -7017,9 +7033,10 @@ function userVehiculeVoit(userId,vehId,on){
   else  { if(auto) v.userIdsExclus.push(userId); }
 }
 function userVehiculeVoitIl(v,u){ return !vehExclu(v,u&&u.id)&&(vehiculeAuto(v,u)||((v.userIds||[]).includes(u&&u.id))); }
-function visibleVehicules(list){ if(can('voirTout')) return list||[]; if(!currentUser) return [];
-  return (list||[]).filter(v=>userVehiculeVoitIl(v,currentUser)); }
-function visibleJournal(list){ if(can('voirTout')) return list||[]; if(!currentUser) return []; const me=currentUser.id; return (list||[]).filter(j=>j.userId===me||(j.cibleUserId&&j.cibleUserId===me)); }
+function visibleVehicules(list){ const p=can('voirTout')?perimetreTechIds():null; if(can('voirTout')&&!p) return list||[]; if(!currentUser) return [];
+  return (list||[]).filter(v=>userVehiculeVoitIl(v,currentUser) || (p&&!vehExclu(v,currentUser.id)&&((v.techId&&p.has(v.techId))||(v.conducteurTechnicienId&&p.has(v.conducteurTechnicienId))))); }
+function visibleJournal(list){ const p=can('voirTout')?perimetreUserIds():null; if(can('voirTout')&&!p) return list||[]; if(!currentUser) return []; const me=currentUser.id;
+  return (list||[]).filter(j=>j.userId===me||(j.cibleUserId&&j.cibleUserId===me)||(p&&(p.has(j.userId)||(j.cibleUserId&&p.has(j.cibleUserId))))); }
 /* ── Les rubriques qui n'avaient AUCUN filtre ──────────────────────────────────────────
    Un technicien ne voit déjà que ses interventions — mais il voyait TOUS les clients de
    l'entreprise, tous les devis, toutes les factures, tous les contrats. Le fil qui relie
@@ -16637,8 +16654,8 @@ const boxPersonnes=b=>{ const l=boxTechs(b).slice(); (b.userIds||[]).forEach(id=
 /* Liste des boxes — groupée, façon ELAN */
 let boxListSearch='';
 views.boxes=function(){
-  const mine=visibleBoxes(db.boxes);
-  setHeader('Boxes',`${mine.length} box${can('voirTout')?'':' (mes box)'}`,`<button class="btn ghost" onclick="go('carteBox')">🗺️ Carte</button> <button class="btn ghost" onclick="openAjoutProduitBoxes()">Ajouter produit</button> ${can('supprimer')?'<button class="btn" onclick="formBox()">＋ Box</button>':''}`);
+  const mine=visibleBoxes(db.boxes), perim=can('voirTout')&&perimetreTechIds();   // « tout voir » mais rattaché à des équipes (v622) : la liste est réduite, l'en-tête doit le dire
+  setHeader('Boxes',`${mine.length} box${can('voirTout')?(perim?' (mon équipe)':''):' (mes box)'}`,`<button class="btn ghost" onclick="go('carteBox')">🗺️ Carte</button> <button class="btn ghost" onclick="openAjoutProduitBoxes()">Ajouter produit</button> ${can('supprimer')?'<button class="btn" onclick="formBox()">＋ Box</button>':''}`);
   $('content').innerHTML=`<div class="filters" style="margin:0 0 8px"><div class="chip active">📋 Liste</div><div class="chip" onclick="go('carteBox')">🗺️ Carte des box</div></div>
     <input class="search-inp" id="box-search" placeholder="Numéro, nom, ville…" value="${esc(boxListSearch)}" oninput="boxListSearch=this.value;renderBoxesList()"><div id="boxes-list"></div>`;
   renderBoxesList();
@@ -19251,7 +19268,11 @@ function formBon(id){ if(!peutCommander()){ refusCommander(); return; } const b=
              d'office comme avant — on peut juste en ajouter une autre depuis le bon. */
           return `<div class="frow"><span class="frow-lbl">Société (en-tête)</span><div class="frow-val"><select name="societe" onchange="bonSocietePick(this)"><option value="">${esc(bcEntete())} — en-tête par défaut</option>${socs.map(s=>`<option value="${esc(s)}" ${cur===s?'selected':''}>${esc(s)}</option>`).join('')}<option value="__creer">＋ Nouvelle société…</option></select></div></div>`; })()}
         <div class="frow"><span class="frow-lbl">Fournisseur</span><div class="frow-val" style="display:flex;gap:6px;align-items:center"><select name="fournisseurId" style="flex:1;min-width:0" onchange="bonTotRefresh()"><option value="">— Auto (selon les produits) —</option>${db.fournisseurs.map(f=>`<option value="${f.id}" ${f.id===b.fournisseurId?'selected':''}>${esc(f.nom)}</option>`).join('')}</select><button type="button" class="btn ghost sm" title="Modifier les infos du fournisseur (e-mail…)" onclick="bonFourEdit()">✎</button><button type="button" class="btn ghost sm" title="Créer un nouveau fournisseur" onclick="bonFourNew()">＋</button></div></div>
-        <div class="frow"><span class="frow-lbl">Box concernée</span><div class="frow-val"><select name="boxId" onchange="bonBoxPick(this.value)"><option value="">— Aucune —</option>${visibleBoxes(db.boxes).filter(x=>x.actif!==false).map(x=>`<option value="${x.id}" ${x.id===b.boxId?'selected':''}>${esc(x.numero||'')}${x.numero&&x.nom?' — ':''}${esc(x.nom||'')}</option>`).join('')}</select></div></div>
+        <div class="frow"><span class="frow-lbl">Box concernée</span><div class="frow-val"><select name="boxId" onchange="bonBoxPick(this.value)"><option value="">— Aucune —</option>${(()=>{
+          /* la box déjà liée reste proposée même hors de mon périmètre (v622) ou désactivée : sinon le
+             sélecteur retombe sur « Aucune » et la première sauvegarde, même d'une simple note, détache la box en silence */
+          const opts=visibleBoxes(db.boxes).filter(x=>x.actif!==false); const liee=b.boxId&&!opts.some(x=>x.id===b.boxId)?(db.boxes||[]).find(x=>x.id===b.boxId):null; if(liee) opts.unshift(liee);
+          return opts.map(x=>`<option value="${x.id}" ${x.id===b.boxId?'selected':''}>${esc(x.numero||'')}${x.numero&&x.nom?' — ':''}${esc(x.nom||'')}${x===liee?(x.actif===false?' (désactivée)':' (hors de mon périmètre)'):''}</option>`).join(''); })()}</select></div></div>
         <div class="frow"><span class="frow-lbl">Statut</span><div class="frow-val"><select name="statut">${Object.entries(STATBC).map(([k,v])=>`<option value="${k}" ${(b.statut||'prete')===k?'selected':''}>${v.l}</option>`).join('')}</select></div></div>
       </div>
       <div class="form-sec" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Articles (<span id="bon-lignes-count"></span>)<span style="flex:1"></span><button type="button" class="btn ghost sm" onclick="bonQtyOpen()">📋 Tableau</button><button type="button" class="btn sm" onclick="bonCatOpen()">📖 Catalogue</button></div>
@@ -20295,8 +20316,8 @@ const vConducteur=v=>[v.conducteurPrenom,v.conducteurNom].filter(Boolean).join('
 function assurEtat(v){ if(!v.dateEcheanceAssurance) return '<span class="st st-grey">—</span>'; const days=Math.ceil((new Date(v.dateEcheanceAssurance)-new Date())/86400000);
   if(days<0) return '<span class="st st-red">Expirée</span>'; if(days<=30) return `<span class="st st-org">${days} j</span>`; return '<span class="st st-green">À jour</span>'; }
 views.vehicules=function(){
-  const toutVoir=can('voirTout'), vs=visibleVehicules(db.vehicules);   // un technicien ne voit que SON véhicule
-  setHeader('Véhicules',toutVoir?'Flotte — fiches véhicules':'Mon véhicule',toutVoir||canCat('equipe','ajouter')?`<button class="btn" onclick="formVehicule()">＋ Véhicule</button>`:'');
+  const toutVoir=can('voirTout'), perim=toutVoir&&perimetreTechIds(), vs=visibleVehicules(db.vehicules);   // un technicien ne voit que SON véhicule ; un DR rattaché, ceux de son équipe (v622)
+  setHeader('Véhicules',toutVoir?(perim?'Véhicules de mon équipe':'Flotte — fiches véhicules'):'Mon véhicule',toutVoir||canCat('equipe','ajouter')?`<button class="btn" onclick="formVehicule()">＋ Véhicule</button>`:'');
   const rows=vs.map(v=>`<div class="pl-row" onclick="ficheVehicule('${v.id}')">
       <span style="width:44px;height:44px;border-radius:11px;background:color-mix(in srgb,var(--acc) 16%,transparent);color:var(--acc);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🚐</span>
       <div class="pl-info"><div class="pl-title mono">${esc(vPlaque(v))}</div>
