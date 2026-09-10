@@ -3826,6 +3826,11 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .bxp-four-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px} .bxp-four-chips .chip,html[data-refonte] .bxp-four-chips .chip{min-height:40px;display:inline-flex;align-items:center} .bxp-valider{width:100%;justify-content:center;min-height:48px;font-size:15px} .bxp-valider:disabled{opacity:.5;cursor:default}
 .bxp-recap{font-size:13.5px;color:var(--t2);line-height:1.55;padding:12px 14px;border-radius:12px;background:var(--card2);border:1px solid var(--brd);margin-bottom:10px} .bxp-recap b{color:var(--t1)} .bxp-recap ul{margin:6px 0 8px 18px;padding:0} .bxp-recap p{margin:6px 0 0}
 .bxp-2btn{display:flex;gap:8px} .bxp-2btn .btn{flex:1;justify-content:center;min-height:48px} .bxp-2btn .btn:disabled{opacity:.5}
+/* « Dans : cette box · Changer » — la ligne qui porte le second axe de la feuille. Elle se replie
+   au lieu de déborder à 390 px, et « Changer » garde ses 44 px de cible même dans un pied serré. */
+.bxp-cibles-l{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:8px} .bxp-cibles-l b{color:var(--t1)}
+.bxp-cibles-l .btn{min-height:44px;padding-inline:14px}
+.bxp-cible-dit{font-size:12px;font-weight:800;color:var(--t3);flex-shrink:0;margin-left:8px;text-align:right;font-variant-numeric:tabular-nums}
 .dbl-g{margin-top:10px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--org,#e8a33d) 30%,transparent)} .dbl-f{font-size:12px;color:var(--t3);line-height:1.5;margin-top:2px}
 .dbl-btns{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px} .dbl-btns .btn,html[data-refonte] .dbl-btns .btn.sm{min-height:44px}
 .dbl-distincts{font-size:12.5px;color:var(--t3);display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 2px 10px} .dbl-distincts>span{flex:1;min-width:200px} .dbl-distincts .btn,html[data-refonte] .dbl-distincts .btn.sm{min-height:44px}
@@ -4832,7 +4837,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '634';
+const APP_VERSION = '635';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6608,11 +6613,13 @@ function logEvent(action, detail, type='general', cibleUserId){
 /* ── Toast / Modal ── */
 function toast(msg,ms){ const t=$('toast'); if(!t) return; t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),ms||2200); }
 /* message avec une action : sert au « ↩︎ Annuler » d'un changement de technicien */
-function toastAnnuler(msg,appel){
+function toastAnnuler(msg,appel,ms){
   const t=$('toast'); if(!t){ toast(msg); return; }
   t.innerHTML=esc(msg)+' <span class="tst-an" onclick="'+appel+';(function(){var z=document.getElementById(\'toast\');if(z)z.classList.remove(\'show\')})()">↩︎ Annuler</span>';
   t.classList.add('show'); clearTimeout(t._t);
-  t._t=setTimeout(()=>{ t.classList.remove('show'); t.innerHTML=''; },7000);
+  /* 7 s par défaut — assez pour se dédire d'un geste sur une box. Une pose sur douze box passe 20 s :
+     le temps de comprendre ce qui vient d'arriver avant que le seul moyen de revenir en arrière parte. */
+  t._t=setTimeout(()=>{ t.classList.remove('show'); t.innerHTML=''; },ms||7000);
 }
 function openModal(html,taille){ const m=$('modal');
   if(taille==='carte'){ m.className='modal carte'; $('overlay').classList.remove('full'); $('overlay').classList.add('centre'); }
@@ -18562,7 +18569,7 @@ function boxMvtValider(id,statut,accords){ _resteApresValid='';
     const totR=(s.u||0)+(s.ctn||0);
     if(s.u) traceBox(b,m.produitId,-s.u,'u','Retiré de la box (validé DR)',m.par,fullName(currentUser),m.pourQui);
     if(s.ctn) traceBox(b,m.produitId,-s.ctn,'ctn','Retiré de la box (validé DR)',m.par,fullName(currentUser),m.pourQui);
-    delete b.stock[m.produitId];
+    delete b.stock[m.produitId]; boxDecider(b,[m.produitId]);   // idem : un retrait validé est une décision
     if(m.pourQui&&totR) remiseAjoute(m,totR);
   } else {
     const cur=b.stock[m.produitId]||{ctn:0,u:0}; const du=mvAcc(m,'du'), dc=mvAcc(m,'dc');
@@ -18695,7 +18702,8 @@ function removeBoxProd(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)ret
   if(!confirm('Retirer « '+(p.nom||'ce produit')+' » de la box ?'+((s.u||s.ctn)?' La quantité restante ('+((s.u||0)+(s.ctn||0))+' u) sera sortie du stock.':''))) return;
   if(s.u){ traceBox(b,pid,-s.u,'u','Retiré de la box'); notifyDrBoxMove(b,pid,'sortie',s.u,'u'); }
   if(s.ctn){ traceBox(b,pid,-s.ctn,'ctn','Retiré de la box'); notifyDrBoxMove(b,pid,'sortie',s.ctn,'ctn'); }
-  delete b.stock[pid]; logEvent('Produit retiré d\'une box',(p.nom||'')+' — '+(b.nom||b.numero||''),'stock');
+  delete b.stock[pid]; boxDecider(b,[pid]);   // écarté : le catalogue ne le reposera pas tout seul
+  logEvent('Produit retiré d\'une box',(p.nom||'')+' — '+(b.nom||b.numero||''),'stock');
   save(); closeModal(); renderBoxDetail(); toast('Produit retiré de la box'); }
 /* Ajouter un produit du catalogue à cette box */
 /* ══════════ LA FEUILLE « PRODUITS DE LA BOX » (v625) ══════════
@@ -18710,13 +18718,23 @@ function removeBoxProd(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)ret
    aucune quantité — un produit qui a du stock ne se retire que par sa fiche, avec la validation DR. */
 let abpSel=new Set();
 let bxpOnglet='ajouter', bxpNouvSel=new Set(), bxpRetSel=new Set(), bxpRetPhase=0, bxpCache=null, bxpGardesVoir=false, bxpEcartesVoir=false, _dernierRetrait=null, bxpFourSel=new Set(), bxpFour='', bxpQ='';
+/* ── DANS QUELLES BOX ? ── Justin, 10 septembre 2026 : « il faut les pousser dans les box déjà créé ».
+   Il ne manquait pas un mécanisme, il manquait un AXE. Cette feuille sait déjà cocher cent produits
+   d'un coup, mais n'écrit que dans la box ouverte ; l'écran Boxes sait écrire dans N box, mais un
+   produit à la fois. Les deux axes ne se croisaient nulle part — c'est tout le trou.
+   Par défaut : la box ouverte et elle seule, donc rien ne change pour qui ne touche à rien. */
+let bxpCiblesSel=new Set(), bxpPosePhase=0, _dernierePose=null;
 function bxpBox(){ return (db.boxes||[]).find(x=>x.id===boxView)||null; }
 /* Les trois listes se calculent UNE fois à l'ouverture et après chaque écriture — jamais à la frappe :
    produitsDoublons() parcourt tout le catalogue, une recherche ne doit pas le relancer à chaque lettre. */
 function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b),dejaCles:new Set((db.produits||[]).map(produitCle))}; return bxpCache; }
 function openBoxProduits(){ const b=bxpBox(); if(!b) return;
-  abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpQ=''; _doublonsUnParUn=false; bxpOnglet='ajouter'; bxpRetPhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
+  abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpQ=''; _doublonsUnParUn=false; bxpOnglet='ajouter'; bxpRetPhase=0; bxpCiblesSel=new Set([b.id]); bxpPosePhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
   bxpCalculer(b); bxpCache.nouv.forEach(p=>bxpNouvSel.add(p.id));   // les nouveautés arrivent cochées : le geste attendu, c'est de les poser
+  bxpFeuille(); }
+/* La feuille elle-même, sans remise à zéro : le choix des box passe par une seconde fenêtre, et en
+   revenir ne doit rien décocher — on a coché cent produits AVANT de dire où les poser. */
+function bxpFeuille(){ const b=bxpBox(); if(!b) return;
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm bxp-fermer" onclick="closeModal()">Fermer</button><h3 class="bxp-titre">Produits de la box<small>${esc(b.nom||b.numero||'')}</small></h3><span class="bxp-vide"></span></div>
     <div id="bxp-doublons"></div>
     <div class="filters bxp-onglets" id="bxp-onglets"></div>
@@ -18742,7 +18760,7 @@ function bxpRendreAjout(b,c){ const el=$('bxp-corps'); const nouv=c.nouv; const 
   el.innerHTML=groupe+`<div class="abp-etat"><span><b>${deja}</b> déjà dans la box</span><span><b>${c.dispo.length}</b> à ajouter</span></div>
     <div class="bxp-rech"><input class="search-inp" id="abp-search" placeholder="Rechercher un produit…" value="${esc(bxpQ)}" oninput="bxpQ=this.value;renderAbpList()" autocomplete="off"><button type="button" class="btn ghost sm" id="abp-tout" onclick="abpToggleAll()">Tout cocher</button></div>
     <div id="abp-list"></div>${ecartesHtml}
-    <div class="bl-pied bxp-pied"><div class="bxp-pied-note" id="abp-note" hidden></div><button type="button" class="btn bxp-valider" id="abp-valider" onclick="addBoxProd()" disabled>Ajouter (0)</button></div>`;
+    <div class="bl-pied bxp-pied" id="bxp-pose-pied"></div>`;
   renderAbpList(); }
 /* ── L'onglet Fournisseurs ── Justin, 10 septembre, chez ELAN : « j'ai toujours pas tous les produits
    qu'on a rajoutés, VULCANO et tout ça ». Ils n'étaient pas au catalogue de l'entreprise : ils vivent
@@ -18753,11 +18771,36 @@ function bxpRendreFour(b){ const el=$('bxp-corps');
     <div class="bxp-four-chips">${['','ARMOSA','ENSYSTEX','SODIF','MABI','ORCAD'].map(f=>`<div class="chip ${bxpFour===f?'active':''}" onclick="bxpFourChoisir('${f}')">${f||'Tous'}</div>`).join('')}</div>
     <div class="bxp-rech"><input class="search-inp" id="bxpf-search" placeholder="Rechercher chez les fournisseurs…" value="${esc(bxpQ)}" oninput="bxpQ=this.value;renderBxpFour()" autocomplete="off"></div>
     <div id="bxp-four-list"></div>
-    <div class="bl-pied bxp-pied"><div class="bxp-pied-note" id="abp-note" hidden></div><button type="button" class="btn bxp-valider" id="abp-valider" onclick="addBoxProd()" disabled>Ajouter (0)</button></div>`;
+    <div class="bl-pied bxp-pied" id="bxp-pose-pied"></div>`;
   renderBxpFour(); }
 /* Le pied est le même dans les deux onglets : il compte les deux sélections ensemble. */
-function bxpMajPied(){ const total=abpSel.size+bxpFourSel.size; const v=$('abp-valider'); if(v){ v.textContent='Ajouter ('+total+')'; v.disabled=!total; }
-  const note=$('abp-note'); if(note){ note.hidden=!bxpFourSel.size; note.textContent=bxpFourSel.size+' référence'+(bxpFourSel.size>1?'s':'')+' fournisseur '+(bxpFourSel.size>1?'entreront':'entrera')+' aussi au catalogue de l\'entreprise'; } }
+/* Le pied était écrit deux fois à l'identique (onglet Ajouter, onglet Fournisseurs). Un seul endroit
+   désormais, et il porte une ligne de plus : dans quelles box ça se pose. */
+function bxpMajPied(){ const el=$('bxp-pose-pied'); if(!el) return; const b=bxpBox(); if(!b) return;
+  const total=abpSel.size+bxpFourSel.size; const nb=bxpCiblesSel.size;
+  if(bxpPosePhase===1){ bxpPosePied(); return; }
+  const note=bxpFourSel.size?`<div class="bxp-pied-note">${bxpFourSel.size} référence${bxpFourSel.size>1?'s':''} fournisseur ${bxpFourSel.size>1?'entreront':'entrera'} aussi au catalogue de l'entreprise</div>`:'';
+  const dispo=bxpCibles().length;
+  const cible=dispo>1?`<div class="bxp-pied-note bxp-cibles-l">Dans : <b>${nb>1?nb+' box':'cette box'}</b> <button type="button" class="btn ghost sm" onclick="bxpCiblesModal()">Changer</button></div>`:'';
+  el.innerHTML=cible+note+`<button type="button" class="btn bxp-valider" id="abp-valider" onclick="addBoxProd()" ${total?'':'disabled'}>Ajouter (${total})${nb>1?' dans '+nb+' box':''}</button>`; }
+/* Le choix des box. Chaque ligne annonce ce qu'elle RECEVRAIT vraiment — c'est le plan à blanc,
+   box par box, pas une promesse. « complète » et « N écartés gardés » se lisent avant de cocher. */
+function bxpCiblesModal(){ const b=bxpBox(); if(!b) return; const ids=bxpIdsChoisis();
+  const lignes=bxpCibles().map(bx=>{ const on=bxpCiblesSel.has(bx.id); const meme=bx.id===b.id;
+    const ok=new Set(abpDisponibles(bx).map(p=>p.id)); const ec=meme?null:((boxDecision(bx)||{}).ecartes||null);
+    let pris=0, sautes=0; ids.forEach(pid=>{ if(!ok.has(pid)||(bx.stock||{})[pid]) return; if(ec&&ec[pid]){ sautes++; return; } pris++; });
+    const dit=pris?('+'+pris+(sautes?' · '+sautes+' écarté'+(sautes>1?'s':'')+' gardé'+(sautes>1?'s':''):'')):'complète';
+    return `<div class="pl-row bxp-l" onclick="bxpCibleToggle('${bx.id}')"><span class="bxp-coche" style="color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span><div class="pl-info"><div class="pl-title">${esc(bx.nom||bx.numero||'box')}</div><div class="pl-meta">${esc(bx.ville||bx.numero||'')}</div></div><span class="bxp-cible-dit">${dit}</span></div>`; }).join('');
+  openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal();openBoxProduitsRetour()">Retour</button><h3 class="bxp-titre">Dans quelles box ?<small>${ids.length} produit${ids.length>1?'s':''} choisi${ids.length>1?'s':''}</small></h3><span class="bxp-vide"></span></div>
+    <div class="bxp-rech"><button type="button" class="btn ghost sm" onclick="bxpCiblesRaccourci('une')">Cette box</button><button type="button" class="btn ghost sm" onclick="bxpCiblesRaccourci('toutes')">Les ${bxpCibles().length} box que je vois</button></div>
+    <div id="bxp-cibles-list">${lignes}</div>`); }
+function bxpCibleToggle(id){ if(bxpCiblesSel.has(id)) bxpCiblesSel.delete(id); else bxpCiblesSel.add(id); if(!bxpCiblesSel.size){ const b=bxpBox(); if(b) bxpCiblesSel.add(b.id); } bxpCiblesModal(); }
+function bxpCiblesRaccourci(q){ const b=bxpBox(); if(!b) return; bxpCiblesSel=q==='toutes'?new Set(bxpCibles().map(x=>x.id)):new Set([b.id]); bxpCiblesModal(); }
+function openBoxProduitsRetour(){ bxpFeuille(); }
+/* Les identifiants réellement choisis, y compris les références fournisseur qui n'existent pas encore
+   au catalogue : elles n'ont pas d'identifiant tant qu'on n'a pas validé, donc le plan les compte à
+   part. Ici on ne rend que ce qui EXISTE — le plan ajoute les créations au moment de poser. */
+function bxpIdsChoisis(){ return [...abpSel]; }
 /* ── Les catalogues fournisseurs, DANS la box ── Justin, 10 septembre : « quand le technicien, le chef
    d'équipe ou le DR appuie sur ajouter les produits, ils doivent avoir tous les produits de la gamme
    qu'ils ont dans Produits, sans passer par l'administrateur ». Ce qui est coché ici et n'existe pas
@@ -18798,20 +18841,93 @@ function abpToggle(pid){ if(abpSel.has(pid)) abpSel.delete(pid); else abpSel.add
 function abpToggleAll(){ const avail=abpVisibles(); if(!avail.length) return; if(avail.every(p=>abpSel.has(p.id))) avail.forEach(p=>abpSel.delete(p.id)); else avail.forEach(p=>abpSel.add(p.id)); renderAbpList(); }
 /* Poser à zéro : jamais par-dessus un stock, jamais deux fois la même identité — même au moment de poser,
    parce que la synchro a pu changer la box entre l'ouverture de la feuille et le tap. */
-function boxPoserProduits(b,ids){ b.stock=b.stock||{}; const ok=new Set(abpDisponibles(b).map(p=>p.id)); const poses=[], deja=[];
-  ids.forEach(pid=>{ if(!ok.has(pid)||b.stock[pid]){ deja.push(pid); return; } b.stock[pid]={ctn:0,u:0}; poses.push(pid); boxDecisionAnnuler(b,pid); }); return {poses,deja}; }
+/* opts.respecterEcartes : LA règle de la pose multi-box, et la seule à retenir —
+   **une décision « Pas dans cette box » ne se lève que sur la box qu'on a sous les yeux.**
+   Sur la box ouverte, l'encart « N produits écartés » et « Proposer à nouveau » sont à l'écran :
+   reposer y est un acte informé, le comportement ne change pas. Sur les autres, on ne voit rien —
+   sans ce drapeau, une pose sur trente box effacerait en silence les décisions de trente équipes,
+   exactement ce que Justin tient à préserver (« on le retire du box et on veut pas le voir »).
+   C'est aussi ce qui rend le geste répétable : la seconde exécution ne défait pas la première. */
+function boxPoserProduits(b,ids,opts){ b.stock=b.stock||{}; const ok=new Set(abpDisponibles(b).map(p=>p.id)); const poses=[], deja=[], ecartsLeves=[];
+  const ec=((opts&&opts.respecterEcartes)&&(boxDecision(b)||{}).ecartes)||null;
+  ids.forEach(pid=>{ if(!ok.has(pid)||b.stock[pid]||(ec&&ec[pid])){ deja.push(pid); return; }
+    b.stock[pid]={ctn:0,u:0}; poses.push(pid); if(((boxDecision(b)||{}).ecartes||{})[pid]) ecartsLeves.push(pid); boxDecisionAnnuler(b,pid); });
+  return {poses,deja,ecartsLeves}; }
+/* Les box qu'on peut viser : le MÊME filtre que la pose automatique, jamais db.boxes brut — une box
+   inactive ou hors du périmètre de la personne n'est pas une cible. La limite est déjà portée par
+   visibleBoxes, elle n'a pas à être réécrite ici. */
+function bxpCibles(){ return visibleBoxes((db.boxes||[]).filter(x=>x&&x.actif!==false)); }
+/* L'essai à blanc : ce qui entrerait VRAIMENT dans chaque box visée, après la garde d'identité et
+   les écartés. Fonction pure — aucune écriture, aucun save. Les chiffres annoncés au récapitulatif
+   ne sont donc jamais une estimation, et c'est le même calcul qui est rejoué à l'écriture. */
+function bxpPosePlan(ids){ const ouverte=bxpBox(); const parBox=[]; let total=0, completes=0, ecartesGardes=0;
+  bxpCibles().forEach(bx=>{ if(!bxpCiblesSel.has(bx.id)) return;
+    const meme=!!ouverte&&bx.id===ouverte.id;
+    const ok=new Set(abpDisponibles(bx).map(p=>p.id));
+    const ec=meme?null:((boxDecision(bx)||{}).ecartes||null);
+    const pris=[], sautes=[];
+    ids.forEach(pid=>{ if(!ok.has(pid)||(bx.stock||{})[pid]) return; if(ec&&ec[pid]){ sautes.push(pid); return; } pris.push(pid); });
+    if(sautes.length) ecartesGardes+=sautes.length;
+    if(!pris.length){ completes++; return; }
+    total+=pris.length; parBox.push({b:bx,ids:pris,sautes}); });
+  return {parBox,total,completes,ecartesGardes,boxes:bxpCiblesSel.size}; }
+/* Le récapitulatif — jumeau de bxpRetPied : deux boutons distincts, l'action à gauche, gelée 500 ms
+   contre la double touche gantée. Il NOMME et COMPTE avant d'écrire, à partir du plan à blanc. */
+function bxpPosePied(){ const el=$('bxp-pose-pied'); if(!el) return;
+  const plan=bxpPosePlan(bxpIdsChoisis()); const nf=bxpFourSel.size;
+  const total=plan.total+nf*plan.boxes;   // les références fournisseur se poseront dans chaque box visée
+  el.innerHTML=`<div class="bxp-recap"><b>Poser ${abpSel.size+nf} produit${(abpSel.size+nf)>1?'s':''} dans ${plan.boxes} box ?</b>
+    <p>${total} fiche${total>1?'s':''} posée${total>1?'s':''} à zéro au total — ${plan.parBox.length+(nf?plan.boxes-plan.parBox.length:0)} box en recevront${plan.completes?', '+plan.completes+' ${plan.completes>1?"sont":"est"} déjà complète'+(plan.completes>1?'s':''):''}.</p>
+    ${plan.ecartesGardes?`<p><b>${plan.ecartesGardes} produit${plan.ecartesGardes>1?'s':''} écarté${plan.ecartesGardes>1?'s':''}</b> dans d'autres box : ${plan.ecartesGardes>1?'ils ne seront pas reposés':'il ne sera pas reposé'}. Une décision « Pas dans cette box » ne se lève que sur la box qu'on a sous les yeux.</p>`:''}
+    ${nf?`<p>${nf} référence${nf>1?'s':''} fournisseur ${nf>1?'entreront':'entrera'} aussi au catalogue de l'entreprise.</p>`:''}
+    <p>Rien ne sort d'aucun stock. Aucune fiche n'est supprimée du catalogue.</p></div>
+    <div class="bxp-2btn"><button type="button" class="btn" id="bxp-pose-oui" disabled onclick="bxpPoseEcrire()">Oui, poser</button><button type="button" class="btn ghost" onclick="bxpPosePhase=0;bxpRendre()">Non, revenir</button></div>`;
+  setTimeout(()=>{ const o=$('bxp-pose-oui'); if(o) o.disabled=false; },500); }
 function addBoxProd(){ const b=bxpBox(); if(!b) return; if(!abpSel.size&&!bxpFourSel.size){ toast('Choisis au moins un produit'); return; }
+  /* Plus d'une box : le bouton ne pose rien, il ouvre le récapitulatif. Une seule box : le geste
+     d'aujourd'hui, un tap, aucune friction ajoutée au cas courant. Un seuil booléen, rien à régler. */
+  if(bxpCiblesSel.size>1&&bxpPosePhase!==1){ bxpPosePhase=1; bxpRendre(); return; }
+  return bxpPoseEcrire(); }
+function bxpPoseEcrire(){ const b=bxpBox(); if(!b) return; bxpPosePhase=0;
   const fourIdx=[...bxpFourSel].filter(i=>CATFOUR[i]);
-  if(fourIdx.length>60&&!confirm('Ajouter '+fourIdx.length+' références fournisseur au catalogue de l\'entreprise et à cette box ?\n\nElles se poseront aussi dans les autres box, à zéro, à leur prochaine ouverture.')) return;
+  if(bxpCiblesSel.size<=1&&fourIdx.length>60&&!confirm('Ajouter '+fourIdx.length+' références fournisseur au catalogue de l\'entreprise et à cette box ?\n\nElles se poseront aussi dans les autres box, à zéro, à leur prochaine ouverture.')) return;
   /* les références fournisseur entrent d'abord au catalogue (une fois par nom), puis tout se pose ensemble */
   const crees=[]; const parCle=new Map((db.produits||[]).map(p=>[produitCle(p),p])); const ids=[...abpSel];
   fourIdx.forEach(i=>{ const x=CATFOUR[i]; const k=produitCle({nom:x[0]}); let p=parCle.get(k);
     if(!p){ p=produitCreer({id:idCatalogue(x[0]),ref:'',nom:x[0],categorie:rangerCatFour(x[1],x[0]),fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0},{push:true}); parCle.set(k,p); crees.push(p); }
     ids.push(p.id); });
-  const r=boxPoserProduits(b,[...new Set(ids)]); if(!r.poses.length&&!crees.length){ toast('Rien à ajouter : ces produits sont déjà dans la box'); abpSel=new Set(); bxpFourSel=new Set(); bxpRafraichir(); return; }
+  /* L'écriture, box par box, TOUJOURS par boxPoserProduits — jamais un b.stock[pid]= direct : c'est
+     lui qui porte la garde d'identité par nom, recalculée à l'instant du geste. Les box qu'on ne
+     regarde pas gardent leurs écartés (respecterEcartes), celle qu'on a sous les yeux non. */
+  const uniq=[...new Set(ids)]; const paires=[]; let poses=0, touchees=0, ici=0, deja=0; const noms=[];
+  bxpCibles().forEach(bx=>{ if(!bxpCiblesSel.has(bx.id)) return;
+    const r=boxPoserProduits(bx,uniq,{respecterEcartes:bx.id!==b.id});
+    deja+=r.deja.length; if(!r.poses.length) return;
+    poses+=r.poses.length; touchees++; noms.push(bx.nom||bx.numero||'');
+    if(bx.id===b.id) ici=r.poses.length;
+    paires.push({boxId:bx.id,ids:r.poses,ecartsLeves:r.ecartsLeves}); });
+  if(!poses&&!crees.length){ toast('Rien à ajouter : ces produits sont déjà dans '+(bxpCiblesSel.size>1?'ces box':'la box')); abpSel=new Set(); bxpFourSel=new Set(); bxpRafraichir(); return; }
   if(crees.length) logEvent('Produits ajoutés au catalogue depuis la box',(b.nom||b.numero||'')+' : '+crees.map(p=>p.nom).join(', '),'crud');
-  if(r.poses.length) logEvent('Produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock');
-  save(); closeModal(); renderBoxDetail(); toast(r.poses.length+' produit'+(r.poses.length>1?'s':'')+' ajouté'+(r.poses.length>1?'s':'')+' à la box, quantités à zéro'+(crees.length?' · '+crees.length+' nouveau'+(crees.length>1?'x':'')+' au catalogue':'')+(r.deja.length?' · '+r.deja.length+' déjà posé'+(r.deja.length>1?'s':'')+' entre-temps':''),4200); }
+  /* UNE ligne de journal pour tout le geste : db.journal est plafonné à 500 entrées et re-tronqué à
+     chaque fusion — trente box de cent produits l'effaceraient d'un coup. */
+  if(poses) logEvent('Produits ajoutés aux box',poses+' fiche(s) à zéro dans '+touchees+' box : '+noms.slice(0,6).join(', ')+(noms.length>6?' et '+(noms.length-6)+' autre(s)':''),'stock');
+  _dernierePose={ts:Date.now(),paires}; abpSel=new Set(); bxpFourSel=new Set();
+  save(); closeModal(); renderBoxDetail();
+  const msg=(touchees>1?poses+' fiche'+(poses>1?'s':'')+' posée'+(poses>1?'s':'')+' à zéro dans '+touchees+' box':ici+' produit'+(ici>1?'s':'')+' ajouté'+(ici>1?'s':'')+' à la box, quantités à zéro')
+    +(crees.length?' · '+crees.length+' nouveau'+(crees.length>1?'x':'')+' au catalogue':'')+(deja&&touchees<=1?' · '+deja+' déjà posé'+(deja>1?'s':'')+' entre-temps':'');
+  /* 7 s suffisent pour se dédire d'un geste sur une box, pas d'un geste sur douze. */
+  toastAnnuler(msg,'bxpPoseAnnuler()',touchees>1?20000:7000); }
+/* Défaire la dernière pose. Une entrée n'est retirée que si elle est ENCORE à zéro : une quantité
+   arrivée entre-temps (arrivage, synchro) gagne toujours — même règle qu'à l'annulation d'un retrait.
+   Et les écarts qu'on avait levés sur la box ouverte sont remis : annuler, c'est revenir en arrière
+   pour de bon, pas à moitié. */
+function bxpPoseAnnuler(){ const d=_dernierePose; if(!d) return; let n=0, gardes=0;
+  d.paires.forEach(pr=>{ const b=(db.boxes||[]).find(x=>x.id===pr.boxId); if(!b||!b.stock) return;
+    pr.ids.forEach(pid=>{ const s=b.stock[pid]; if(!s) return; if((+s.u||0)||(+s.ctn||0)){ gardes++; return; } delete b.stock[pid]; n++; });
+    if(pr.ecartsLeves&&pr.ecartsLeves.length) boxDecider(b,pr.ecartsLeves); });
+  _dernierePose=null;
+  logEvent('Pose de produits annulée',n+' fiche(s) retirée(s) de '+d.paires.length+' box'+(gardes?' · '+gardes+' gardée(s) : du stock est arrivé entre-temps':''),'stock');
+  save(); renderBoxDetail(); toast('Pose annulée — '+n+' fiche'+(n>1?'s':'')+' retirée'+(n>1?'s':'')+(gardes?' · '+gardes+' gardée'+(gardes>1?'s':'')+' : du stock est arrivé entre-temps':''),4200); }
 function bxpNouvToggle(pid){ if(bxpNouvSel.has(pid)) bxpNouvSel.delete(pid); else bxpNouvSel.add(pid); bxpRendre(); }
 function bxpNouvAjouter(){ const b=bxpBox(); if(!b||!bxpNouvSel.size) return; const r=boxPoserProduits(b,[...bxpNouvSel]);
   if(r.poses.length){ logEvent('Nouveaux produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock'); save(); }
@@ -19204,6 +19320,16 @@ function boxAddrPick(k){ const r=boxAddrResults[k]; if(!r)return; const a=r.addr
 function saveBox(e,id){ e.preventDefault(); if(!permGarde('stock',id?'modifier':'ajouter','une box')) return; const f=e.target; const data=Object.fromEntries(new FormData(f));
   const techIds=[...boxTechSel];
   const obj={numero:data.numero,reference:data.reference,nom:data.nom,adresse:data.adresse,codePostal:data.codePostal,ville:data.ville,tel:(data.tel||'').trim(),etage:data.etage,categorie:data.categorie||'',groupe:(data.groupe||'').trim()||'Sans groupe',secteur:(data.secteur||'').trim(),respUserId:data.respUserId||'',userIds:[...boxUserSel],notes:data.notes||'',frequence:data.frequence||'Aucune',prochaineVisite:data.prochaineVisite||'',photo:boxPhoto||'',dateInstallation:data.dateInstallation,techIds,visibleTous:boxVisibleTous,actif:f.actif.checked,codesAcces:boxCodes.filter(c=>c.valeur),stock:boxFormStock};
+  /* ⛔ LA TRACE D'UN ALLÈGEMENT — les quatre chemins de retrait doivent l'écrire, sinon le catalogue
+     repose tout seul ce qu'une équipe a retiré à la main. Trois d'entre eux ne l'écrivaient pas :
+     la croix ✕ de ce formulaire, le retrait direct de la fiche box, et le retrait validé par le DR.
+     Seule la feuille « Retirer » (v625) le faisait. Conséquence, mesurée sur la conception de la pose
+     multi-box : les box taillées avant la v625 se seraient re-remplies au premier geste, et c'est
+     exactement ce que Justin refuse (« on le retire du box et on veut pas le voir »).
+     Ici la comparaison se fait sur l'AVANT : ce qui était dans la box et n'y est plus a été décoché. */
+  if(id){ const av=(db.boxes.find(x=>x.id===id)||{}).stock||{};
+    const partis=Object.keys(av).filter(pid=>!boxFormStock[pid]);
+    if(partis.length){ const bx=db.boxes.find(x=>x.id===id); if(bx) boxDecider(bx,partis); } }
   if(boxLat!=null){ obj.lat=boxLat; obj.lng=boxLng; } else { obj.lat=null; obj.lng=null; }   // adresse modifiée → on re-géolocalise
   let bid=id;
   if(id){ const ix=db.boxes.findIndex(x=>x.id===id); db.boxes[ix]={...db.boxes[ix],...obj}; toast('Box mise à jour'); }

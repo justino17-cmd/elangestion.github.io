@@ -4,7 +4,7 @@ function decoupe(entete){ const deb=APP.indexOf(entete); if(deb<0) throw new Err
   throw new Error('fin introuvable : '+entete); }
 const morceaux=['const norm = s =>','function produitCle(p){','function boxStock(b,pid){','function produitsDistinctIds(cle){','function produitDistinct(p){','function produitsDistinctsDeclarer(cle,ids,nom){','function produitsDistinctsAnnuler(cle){',
   'function produitsDoublons(){','function produitsFusionnables(l){','function produitsDoublonSurvivante(l){','function produitsFusionApercu(l){','function produitsFusionnerDoublons(cles){',
-  'let bxpOnglet=','function bxpBox(){','function abpDisponibles(b){','function boxPoserProduits(b,ids){','function boxRetirable(b,pid){','function boxRetirerCoches(){','function boxRetirerAnnuler(){',
+  'let bxpOnglet=','function bxpBox(){','function abpDisponibles(b){','function boxPoserProduits(b,ids,opts){','function boxRetirable(b,pid){','function boxRetirerCoches(){','function boxRetirerAnnuler(){',
   'const BOX_NOUVEAUTES_DEPUIS=','function uidTs(id){','function produitCree(p){','function boxDecision(b){','function boxVuTs(b){','function produitsRecents(){','function boxNouveautes(b,cands){','function boxAutoNouveautes(b){','function boxDecider(b,ids){','function boxDecisionAnnuler(b,pid){',
   'let _pushProduitLot=','function produitCreer(fiche,opts){','function produitCreePrevenir(p){'].map(decoupe).join('\n');
 const bac=new Function('etat',`let db=etat.db, currentUser=etat.currentUser, journal=[], toasts=[], pushes=[], timers=[], boxView='bx', current='boxes', rendus=0;
