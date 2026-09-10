@@ -18808,7 +18808,11 @@ let bxpCiblesSel=new Set(), bxpPosePhase=0, _dernierePose=null;
 function bxpBox(){ return (db.boxes||[]).find(x=>x.id===boxView)||null; }
 /* Les trois listes se calculent UNE fois à l'ouverture et après chaque écriture — jamais à la frappe :
    produitsDoublons() parcourt tout le catalogue, une recherche ne doit pas le relancer à chaque lettre. */
-function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b),dejaCles:new Set((db.produits||[]).map(produitCle))}; return bxpCache; }
+/* pack : calculé ICI et pas au rendu. cataloguePackNeufs normalise chaque nom du catalogue (NFD +
+   regex), soit quelques millisecondes sur 2 800 fiches — et bxpRendre est rappelée à CHAQUE tap +/−
+   dans la box. La bulle et la bande lisent donc le même calcul, fait une fois par ouverture ou
+   rafraîchissement, comme dispo et nouv juste à côté. Relevé par `relecteur`. */
+function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b),pack:cataloguePackNeufs(),dejaCles:new Set((db.produits||[]).map(produitCle))}; return bxpCache; }
 function openBoxProduits(){ const b=bxpBox(); if(!b) return;
   abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpQ=''; _doublonsUnParUn=false; bxpOnglet='ajouter'; bxpRetPhase=0; bxpCiblesSel=new Set([b.id]); bxpPosePhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
   bxpCalculer(b); bxpCache.nouv.forEach(p=>bxpNouvSel.add(p.id));   // les nouveautés arrivent cochées : le geste attendu, c'est de les poser
@@ -18825,7 +18829,7 @@ function bxpRafraichir(){ const b=bxpBox(); if(!b||!$('bxp-corps')) return; bxpC
 function bxpRendre(){ const b=bxpBox(); if(!b||!$('bxp-corps')) return; const c=bxpCache||bxpCalculer(b);
   const d=$('bxp-doublons'); if(d) d.innerHTML=produitsDoublonsBandeau({boxId:b.id,replie:true});
   const ret=Object.keys(b.stock).filter(pid=>boxRetirable(b,pid).ok).length;
-  const nPack=cataloguePackNeufs().length;
+  const nPack=(c.pack||[]).length;
   $('bxp-onglets').innerHTML=`<div class="chip ${bxpOnglet==='ajouter'?'active':''}" onclick="bxpOngletChoisir('ajouter')">Ajouter (${c.dispo.length})${nPack?`<span class="bxp-bulle">${nPack}</span>`:''}</div><div class="chip ${bxpOnglet==='four'?'active':''}" onclick="bxpOngletChoisir('four')">Fournisseurs</div><div class="chip ${bxpOnglet==='retirer'?'active':''}" onclick="bxpOngletChoisir('retirer')">Retirer (${ret})</div>`;
   if(bxpOnglet==='ajouter') bxpRendreAjout(b,c); else if(bxpOnglet==='four') bxpRendreFour(b); else bxpRendreRetrait(b); }
 function bxpOngletChoisir(o){ bxpOnglet=o; bxpRetPhase=0; bxpRendre(); }
@@ -18840,7 +18844,7 @@ function bxpRendreAjout(b,c){ const el=$('bxp-corps'); const nouv=c.nouv; const 
      seule au bout des 90 jours de la pierre tombale. La bande est EN TÊTE parce que ces
      références-là ne sont pas encore au catalogue : sans elle, on ne peut pas savoir qu'elles
      existent — et personne ne touche un bouton dont il ignore qu'il a du neuf. */
-  const pk=cataloguePackNeufs();
+  const pk=c.pack||[];
   const bandePack=pk.length?`<div class="bxp-nouv bxp-pack"><div class="bxp-nouv-t">🔄 ${pk.length} nouveau${pk.length>1?'x':''} produit${pk.length>1?'s':''} OP GESTION</div>
       <div class="bxp-nouv-s">${pk.length>1?'Ils ne sont pas encore':'Il n\'est pas encore'} dans ton catalogue. ${pk.length>1?'Les synchroniser les ajoute':'Le synchroniser l\'ajoute'} à ta liste de produits, et ${pk.length>1?'ils apparaissent':'il apparaît'} aussitôt ci-dessous.</div>
       <div class="bxp-nouv-s bxp-pack-l">${pk.slice(0,5).map(x=>esc(x[0])).join(' · ')}${pk.length>5?' · … et '+(pk.length-5)+' autre'+(pk.length-5>1?'s':''):''}</div>
