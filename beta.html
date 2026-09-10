@@ -4832,7 +4832,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '627-beta';
+const APP_VERSION = '629-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -15046,7 +15046,10 @@ function intGenererDoc(id,kind){ const i=db.interventions.find(x=>x.id===id); if
 }
 function dureeTrajet(min){ min=Math.max(1,Math.round(min)); const h=Math.floor(min/60), m=min%60; if(h&&m) return h+'h'+String(m).padStart(2,'0'); if(h) return h+'h'; return m+' min'; }
 /* Copier l'adresse (si le GPS/itinéraire ne trouve pas) → à coller dans n'importe quelle appli GPS */
-function fallbackCopy(text,done){ try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done&&done(); }catch(e){ prompt('Copie cette adresse :',text); } }
+/* quoi : ce qu'on copie, pour le dernier recours. execCommand rend FAUX sans lever quand le
+   navigateur refuse : sans ce test, on annonçait « copié » alors que rien ne l'était. */
+function fallbackCopy(text,done,quoi){ try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); const ok=document.execCommand('copy'); document.body.removeChild(ta); if(ok){ done&&done(); return; } }catch(e){}
+  prompt('Copie '+(quoi||'cette adresse')+' :',text); }
 function copierAdresse(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return; const c=db.clients.find(x=>x.id===i.clientId)||{};
   const adr=[i.adresse||c.adresse||c.adresseComplete||'', ((c.codePostal||'')+' '+(c.ville||'')).trim()].filter(Boolean).join(', ');
   if(!adr){ toast('Aucune adresse à copier'); return; }
@@ -15980,7 +15983,7 @@ function prixEffacer(){
 let prdOnglet='tous';   // tous | perso | catalogue
 views.produits=function(){
   const _np=prixPoses();
-  setHeader('Produits',`Catalogue · ${db.produits.length} références`,`<button class="btn ghost" onclick="openFourCat()">🏭 Fournisseurs</button> ${(_np&&currentUser&&currentUser.role==='admin')?`<button class="btn ghost" onclick="prixEffacer()" title="Retirer les tarifs venus du catalogue fournisseur">💶 Effacer les prix (${_np})</button> `:''}${catalogueEnPlace()?'<button class="btn ghost" onclick="restoreCatalogue()">↻ Catalogue OP</button> ':''}<button class="btn ghost" onclick="openScanner()">Scanner</button> <button class="btn ghost" onclick="formProduitsListe()">＋ Liste</button> <button class="btn" onclick="formProduit()">＋ Produit</button>`);
+  setHeader('Produits',`Catalogue · ${db.produits.length} références`,`<button class="btn ghost" onclick="openFourCat()">🏭 Fournisseurs</button> ${(_np&&currentUser&&currentUser.role==='admin')?`<button class="btn ghost" onclick="prixEffacer()" title="Retirer les tarifs venus du catalogue fournisseur">💶 Effacer les prix (${_np})</button> `:''}${catalogueEnPlace()?'<button class="btn ghost" onclick="restoreCatalogue()">↻ Catalogue OP</button> ':''}<button class="btn ghost" onclick="openScanner()">Scanner</button> <button class="btn ghost" onclick="produitsCopier()" title="Copier la liste affichée, pour la coller dans un autre espace avec « ＋ Liste »">⧉ Copier la liste</button> <button class="btn ghost" onclick="formProduitsListe()">＋ Liste</button> <button class="btn" onclick="formProduit()">＋ Produit</button>`);
   const nbP=db.produits.filter(p=>p.perso).length;
   $('content').innerHTML=produitsDoublonsBandeau()+produitsDistinctsLigne()+`<div class="filters" style="margin:0 0 8px">${[['tous','Tous · '+db.produits.length],['perso','Mes produits · '+nbP],['catalogue','Catalogue 3D (nuisibles) · '+(db.produits.length-nbP)]].map(([k,l])=>`<div class="chip ${prdOnglet===k?'active':''}" onclick="prdOnglet='${k}';renderProduitsList()">${l}</div>`).join('')}</div>
     <input class="search-inp" id="prd-search" placeholder="Rechercher un produit, une référence, un fournisseur…" value="${esc(prdSearch)}" oninput="prdSearch=this.value;renderProduitsList()">
@@ -16004,16 +16007,33 @@ let _plLignes=[];
 function formProduitsListe(){
   _plLignes=[];
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm" onclick="closeModal()">Annuler</button><h3>Ajouter une liste</h3><button type="button" class="btn sm" onclick="plValider()">Tout ajouter (<span id="pl-count">0</span>)</button></div>
-    <p style="font-size:13px;color:var(--t2);line-height:1.6;margin-bottom:10px">Colle ta liste : <b>un produit par ligne</b>. Tu peux préciser le fournisseur et le prix avec des points-virgules — <span class="mono" style="font-size:12px">Nom ; Fournisseur ; Prix</span>. La catégorie est trouvée toute seule d'après le nom, et tu peux la corriger avant de valider.</p>
+    <p style="font-size:13px;color:var(--t2);line-height:1.6;margin-bottom:10px">Colle ta liste : <b>un produit par ligne</b>. Tu peux préciser fournisseur, prix, référence et catégorie avec des points-virgules — <span class="mono" style="font-size:12px">Nom ; Fournisseur ; Prix</span>. La catégorie est trouvée toute seule d'après le nom, et tu peux la corriger avant de valider.</p>
     <textarea id="pl-texte" rows="6" placeholder="Gel blattes Maxforce ; MABI ; 24,90&#10;MUSKIL bloc 10 kg ; SODIF&#10;Gants nitrile taille 9" style="width:100%;background:var(--card2);border:1px solid var(--brd2);border-radius:12px;padding:12px;color:var(--t1);font-family:inherit;font-size:14px" oninput="plAnalyse()"></textarea>
     <div id="pl-apercu" style="margin-top:12px"></div>`);
 }
 function plAnalyse(){ const t=($('pl-texte')||{}).value||'';
+  /* Nom ; Fournisseur ; Prix ; Référence ; Catégorie — les trois premières colonnes sont celles
+     d'origine, les deux suivantes viennent de « Copier la liste » et restent facultatives : une
+     liste tapée à la main comme avant continue de passer. */
   _plLignes=t.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{ const parts=l.split(';').map(x=>x.trim());
-    return {nom:parts[0]||'',fournisseur:parts[1]||'',prix:parseFloat((parts[2]||'').replace(',','.'))||0,categorie:devineCat(parts[0])}; }).filter(x=>x.nom);
+    const cat=parts[4]||''; 
+    return {nom:parts[0]||'',fournisseur:parts[1]||'',prix:parseFloat((parts[2]||'').replace(',','.'))||0,ref:parts[3]||'',categorie:CAT_LIST.includes(cat)?cat:devineCat(parts[0])}; }).filter(x=>x.nom);
   const c=$('pl-count'); if(c)c.textContent=_plLignes.length;
   const el=$('pl-apercu'); if(!el)return;
   const cats=[...CAT_LIST,'Sans catégorie'];
+  /* Au-delà de deux cents lignes, l'aperçu détaillé coûte plus qu'il ne rapporte : un menu de
+     catégories PAR LIGNE, c'est deux mégaoctets de HTML posés d'un coup et l'écran qui se fige —
+     mesuré à 770 ms pour 2 800 produits sur une machine rapide, bien pire sur un téléphone de
+     terrain. Et personne ne relit deux mille huit cents menus. On résume : combien, par catégorie,
+     et les premiers noms pour reconnaître sa liste. Les catégories restent celles devinées ou
+     lues dans la colonne, elles se corrigent ensuite fiche par fiche. */
+  if(_plLignes.length>200){
+    const parCat={}; _plLignes.forEach(x=>{ const k=x.categorie||'Sans catégorie'; parCat[k]=(parCat[k]||0)+1; });
+    el.innerHTML=`<div class="form-sec">Aperçu — ${_plLignes.length} produits</div>
+      <div style="font-size:13px;color:var(--t2);line-height:1.7">${Object.keys(parCat).sort((a,b)=>parCat[b]-parCat[a]).map(k=>`<b style="color:${k==='Sans catégorie'?'var(--t3)':catColor(k)}">${parCat[k]}</b> ${esc(k)}`).join(' · ')}</div>
+      <div style="font-size:12.5px;color:var(--t3);line-height:1.6;margin-top:8px">${_plLignes.slice(0,6).map(x=>esc(x.nom)).join(' · ')}${_plLignes.length>6?' … et '+(_plLignes.length-6)+' autres':''}</div>
+      <div style="font-size:12px;color:var(--t3);line-height:1.6;margin-top:8px">Trop de lignes pour vérifier les catégories une par une : elles se corrigent ensuite depuis la fiche d'un produit. Les produits déjà au catalogue seront ignorés.</div>`;
+    return; }
   el.innerHTML=_plLignes.length?`<div class="form-sec">Aperçu — vérifie les catégories</div>`+_plLignes.map((x,k)=>`<div class="frow" style="gap:8px">
     <div style="flex:1;min-width:0"><div style="font-size:14px;color:var(--t1)">${esc(x.nom)}</div>${x.fournisseur?`<div style="font-size:11px;color:var(--t3)">${esc(x.fournisseur)}${x.prix?' · '+x.prix.toFixed(2)+' €':''}</div>`:(x.prix?`<div style="font-size:11px;color:var(--t3)">${x.prix.toFixed(2)} €</div>`:'')}</div>
     <select onchange="_plLignes[${k}].categorie=this.value==='Sans catégorie'?'':this.value" style="width:150px;background:var(--card2);border:1px solid var(--brd2);border-radius:9px;padding:7px 8px;color:${x.categorie?catColor(x.categorie):'var(--t3)'};font-size:12px;font-weight:700">${cats.map(cc=>`<option ${((x.categorie||'Sans catégorie')===cc)?'selected':''}>${esc(cc)}</option>`).join('')}</select>
@@ -16021,8 +16041,12 @@ function plAnalyse(){ const t=($('pl-texte')||{}).value||'';
 }
 function plValider(){ if(!_plLignes.length){ toast('Colle d\'abord ta liste de produits'); return; }
   let n=0;
-  _plLignes.forEach(x=>{ if(db.produits.some(p=>norm(p.nom)===norm(x.nom))) return;   // pas de doublon
-    produitCreer({nom:x.nom,categorie:x.categorie||'',fournisseurs:x.fournisseur?[x.fournisseur.toUpperCase()]:[],prix:x.prix||0,unite:'unité',qte:0,seuil:0,perso:true},{push:true}); n++; });
+  /* Les noms déjà connus, UNE fois — et la liste collée peut elle-même porter deux fois le même nom.
+     Relire tout le catalogue à chaque ligne coûtait cinq secondes d'écran figé pour 2 800 produits :
+     le geste que « ⧉ Copier la liste » rend justement facile. Même défaut que fcAddAll, même remède. */
+  const deja=new Set((db.produits||[]).map(p=>norm(p.nom)));
+  _plLignes.forEach(x=>{ const k=norm(x.nom); if(deja.has(k)) return; deja.add(k);
+    produitCreer({nom:x.nom,categorie:x.categorie||'',ref:x.ref||'',fournisseurs:x.fournisseur?[x.fournisseur.toUpperCase()]:[],prix:x.prix||0,unite:'unité',qte:0,seuil:0,perso:true},{push:true}); n++; });
   logEvent('Produits ajoutés en liste',n+' produit(s)','crud'); save(); closeModal();
   toast(n?n+' produit(s) ajoutés et rangés par catégorie':'Rien à ajouter (déjà existants)'); prdOnglet='perso'; views.produits();
 }
@@ -16191,11 +16215,38 @@ function prdPontAjouter(){
   logEvent('Produits ajoutés depuis le catalogue',n+' — recherche « '+prdSearch+' »','crud');
   save(); toast(n+' produit(s) ajoutés — ils sont dans ta liste',4200); views.produits();
 }
+/* Ce que l'écran montre à l'instant : l'onglet choisi et la recherche. La copie s'appuie dessus —
+   ce qu'on voit est ce qu'on copie, jamais un ensemble différent de celui qu'on a sous les yeux. */
+function produitsVisibles(){
+  const q=norm(prdSearch);
+  return db.produits.filter(p=> prdOnglet==='tous' || (prdOnglet==='perso'?!!p.perso:!p.perso))
+    .filter(p=> !q || norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+(p.fournisseurs||[]).join(' ')).includes(q));
+}
+/* ══ FAIRE PASSER UN CATALOGUE D'UN ESPACE À UN AUTRE ══
+   Justin, 10 septembre : « sur la bêta il y a tous les produits qui leur manquent ». La bêta est
+   isolée par construction — c'est voulu — donc le travail fait là-bas ne descend jamais tout seul
+   chez une entreprise. Il fallait un pont, et il en existait déjà la moitié : « ＋ Liste » sait
+   LIRE une liste collée. On écrit donc l'autre moitié — la copier — dans le format exact que ce
+   lecteur attend, en gardant la référence et la catégorie, que devineCat aurait sinon rejouées de
+   travers. Le même pont sert à démarrer une nouvelle entreprise depuis une autre. */
+function catalogueLignes(list){
+  /* Le point-virgule sépare les colonnes : il ne peut pas vivre dans une valeur. On le remplace par
+     une espace, puis on ressert les espaces — sinon « Piège ; à glu » revient « Piège   à glu ». */
+  const net=v=>String(v||'').replace(/[;\n\r]+/g,' ').replace(/\s+/g,' ').trim();
+  return (list||[]).map(p=>[net(p.nom),net((p.fournisseurs||[])[0]||''),(+p.prix||0)?String(+p.prix).replace('.',','):'',net(p.ref),net(p.categorie)]
+    .join(' ; ').replace(/(\s*;\s*)+$/,'')).filter(Boolean);
+}
+function produitsCopier(){
+  const list=produitsVisibles(); if(!list.length){ toast('Rien à copier dans cette liste'); return; }
+  const txt=catalogueLignes(list).join('\n');
+  const fini=()=>toast(list.length+' produit'+(list.length>1?'s':'')+' copié'+(list.length>1?'s':'')+' — colle-les dans l\'autre espace avec « ＋ Liste »',4600);
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(fini,()=>fallbackCopy(txt,fini)); return; } }catch(e){}
+  fallbackCopy(txt,fini,'la liste');
+}
 function renderProduitsList(){
   const el=$('prd-list'); if(!el) return;
   const q=norm(prdSearch);
-  let list=db.produits.filter(p=> prdOnglet==='tous' || (prdOnglet==='perso'?!!p.perso:!p.perso));
-  list=list.filter(p=> !q || norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+(p.fournisseurs||[]).join(' ')).includes(q));
+  let list=produitsVisibles();
   if(!list.length){ el.innerHTML=prdCataloguePont(q,false)+`<div class="card">${emptyState('📦',prdOnglet==='perso'?'Aucun produit à toi pour l\'instant — ajoute-les un par un (＋ Produit) ou colle ta liste entière (＋ Liste).':'Aucun produit trouvé.','Ajouter','formProduit()')}</div>`; return; }
   // Regroupé par catégorie, dans l'ordre officiel ELAN puis les autres
   const groups={}; list.forEach(p=>{ const c=p.categorie||'Sans catégorie'; (groups[c]=groups[c]||[]).push(p); });
