@@ -4832,7 +4832,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '632';
+const APP_VERSION = '633';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6410,7 +6410,10 @@ function seed(){
   const today=new Date(); const d=o=>{const x=new Date(today);x.setDate(x.getDate()+o);return x.toLocaleDateString('sv-SE');};
   const adminId=uid();
   // Catalogue produits officiel OP GESTION (110 réf.)
-  const produits = CATALOGUE.map((c,i)=>({id:uid(),ref:c[3]||'',nom:c[0],categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte: i<15?(6+(i*7)%38):0, seuil: i<15?10:0}));
+  /* Identifiant déduit du nom, jamais uid() : ce semis est rejoué à CHAQUE ouverture d'un espace
+     neuf — un lien de connexion suffit — et deux semis avec des identifiants aléatoires donnent deux
+     jeux de 110 fiches que la synchro garde tous les deux. C'est l'origine des 110 doublons d'ELAN. */
+  const produits = CATALOGUE.map((c,i)=>({id:idCatalogue(c[0]),ref:c[3]||'',nom:c[0],categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte: i<15?(6+(i*7)%38):0, seuil: i<15?10:0}));
   const p1=produits[0].id,p2=produits[1].id,p3=produits[2].id,p4=produits[3].id,p5=produits[4].id;
   return {
     fournisseurs:[
@@ -15851,12 +15854,16 @@ function produitCreePrevenir(p){ _pushProduitLot.push(p.nom||'produit'); clearTi
       pushNotify(lot.length>1?lot.length+' nouveaux produits au catalogue':'Nouveau produit au catalogue',(lot.length>1?lot.slice(0,3).map(x=>'« '+x+' »').join(', ')+(lot.length>3?'…':''):'« '+lot[0]+' »')+' — ajouté'+(lot.length>1?'s':'')+(qui?' par '+qui:'')+'. Dans vos box dès leur prochaine ouverture.','/app.html#v=boxes',dest); }catch(e){} },800); }
 function cataloguePoser(cible,opts){
   cible.produits=cible.produits||[]; cible.fournisseurs=cible.fournisseurs||[];
-  const vus=new Set(cible.produits.map(p=>(p.nom||'').trim().toLowerCase()));
+  /* produitCle, la clé de TOUT le reste : « AÉROSOL » et « AEROSOL » sont le même produit pour
+     idCatalogue (qui replie les accents), ils doivent l'être aussi pour la garde — sinon on pose une
+     seconde fiche sous un identifiant DÉJÀ pris, et la fusion ne savait plus les départager. */
+  const vus=new Set(cible.produits.map(produitCle));
+  const ids=new Set(cible.produits.map(p=>p&&p.id));
   const date=(opts&&opts.ancien)?{_m:1}:{};
   let np=0;
-  CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); if(!nom||vus.has(nom.toLowerCase()))return;
+  CATALOGUE.forEach(c=>{ const nom=(c[0]||'').trim(); const cle=produitCle({nom}); const id=idCatalogue(nom); if(!nom||vus.has(cle)||ids.has(id))return;
     cible.produits.push({id:idCatalogue(nom),ref:c[3]||'',nom:nom,categorie:c[1],fournisseurs:c[2],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0,cree:0,...date});
-    vus.add(nom.toLowerCase()); np++; });
+    vus.add(cle); ids.add(id); np++; });
   const vusF=new Set(cible.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
   let nf=0;
   FOURNISSEURS_3D.forEach(f=>{ if(vusF.has(f.nom.toUpperCase()))return; cible.fournisseurs.push({id:uid(),...f}); vusF.add(f.nom.toUpperCase()); nf++; });
@@ -16073,11 +16080,17 @@ function produitsDoublons(){
   (db.produits||[]).forEach(p=>{ if(!p||!p.id) return; const k=produitCle(p); if(!k) return; (g[k]=g[k]||[]).push(p); });
   return Object.keys(g).filter(k=>g[k].length>1).map(k=>g[k]).filter(l=>{ const d=produitsDistinctIds(produitCle(l[0])); return l.some(p=>!d.has(p.id)); });
 }
-/* La survivante d'un groupe : la plus posée dans les box, puis la plus ancienne, puis l'identifiant le
-   plus court, puis l'ordre alphabétique — la MÊME décision sur tous les appareils. */
+/* La survivante d'un groupe, dans cet ordre : celle dont l'identifiant est DÉDUIT DU NOM (cat_…,
+   four_…), puis la plus posée dans les box, puis la plus ancienne, puis l'identifiant le plus court,
+   puis l'ordre alphabétique — la MÊME décision sur tous les appareils.
+   L'identifiant déterministe passe devant tout le reste, et c'est nouveau : garder une fiche à
+   identifiant aléatoire, c'est reconstruire le catalogue autour d'une clé qu'aucun autre chemin ne
+   sait retrouver — le prochain semis, le prochain import, le prochain collage repose alors une
+   seconde fiche, et le doublon revient. */
 function produitsDoublonSurvivante(l){
   const nbBox=p=>(db.boxes||[]).filter(b=>b&&b.stock&&b.stock[p.id]).length;
-  const rang=p=>[nbBox(p),-(p._m||0),-(String(p.id).length)];
+  const deduit=p=>/^(cat|four)_/.test(String(p.id||''))?1:0;
+  const rang=p=>[deduit(p),nbBox(p),-(p._m||0),-(String(p.id).length)];
   return l.slice().sort((a,b)=>{ const ra=rang(a), rb=rang(b); for(let i=0;i<ra.length;i++){ if(ra[i]!==rb[i]) return rb[i]-ra[i]; } return String(a.id)<String(b.id)?-1:1; })[0];
 }
 /* Ce que ferait la fusion, sans la faire : la fiche gardée, celles retirées, et box par box l'addition. */
@@ -16087,11 +16100,25 @@ function produitsFusionApercu(l){ const s=produitsDoublonSurvivante(l); const pe
 /* cles : un Set de noms normalisés pour ne fusionner QUE ces groupes (la feuille en règle un à la fois) ;
    sans lui, tout (le bouton de l'écran Produits). */
 function produitsFusionnerDoublons(cles){
-  const groupes=produitsDoublons().filter(l=>!cles||cles.has(produitCle(l[0]))); if(!groupes.length) return {paires:0,fiches:0};
-  const vers={}; let fiches=0;
+  /* ⛔ D'ABORD : deux enregistrements qui portent le MÊME identifiant. Ça arrive quand un semis a
+     posé deux fois la même fiche (cataloguePoser, dont la garde ignorait les accents que
+     idCatalogue replie). Sans ce repli, la suite les traitait comme une paire à fusionner, écrivait
+     vers[perdante.id]=survivante.id — le MÊME identifiant — puis supprimait « tout ce qui pointe
+     vers » : les DEUX fiches disparaissaient, et le stock de la box avec. Mesuré le 10 septembre :
+     trois produits, un doublon, un seul produit restant, 12 unités effacées. On garde donc une
+     fiche par identifiant, en lui donnant ce qui manque à l'autre, avant toute autre chose. */
+  const parId=new Map(); const gardes=[];
+  (db.produits||[]).forEach(p=>{ if(!p||!p.id) return; const d=parId.get(p.id);
+    if(!d){ parId.set(p.id,p); gardes.push(p); return; }
+    ['ref','categorie','amm','qteCarton','seuil','prix','nom'].forEach(k=>{ if(!d[k]&&p[k]) d[k]=p[k]; });
+    d.fournisseurs=[...new Set([].concat(d.fournisseurs||[],p.fournisseurs||[]))]; if(p.perso) d.perso=true; });
+  const doublesId=(db.produits||[]).length-gardes.length;
+  if(doublesId) db.produits=gardes;
+  const groupes=produitsDoublons().filter(l=>!cles||cles.has(produitCle(l[0]))); if(!groupes.length&&!doublesId) return {paires:0,fiches:0};
+  const vers={}; let fiches=doublesId;
   groupes.forEach(l=>{
     const s=produitsDoublonSurvivante(l);
-    l.filter(x=>x!==s).forEach(x=>{ vers[x.id]=s.id; fiches++;
+    l.filter(x=>x!==s&&x.id!==s.id).forEach(x=>{ vers[x.id]=s.id; fiches++;
       /* la survivante récupère ce qui lui manque : fournisseurs, référence, catégorie, prix, seuil */
       s.fournisseurs=[...new Set([].concat(s.fournisseurs||[],x.fournisseurs||[]))];
       if(!s.ref&&x.ref) s.ref=x.ref; if(!s.categorie&&x.categorie) s.categorie=x.categorie;
@@ -16102,7 +16129,7 @@ function produitsFusionnerDoublons(cles){
   });
   /* le stock des box : additionner, jamais écraser */
   (db.boxes||[]).forEach(b=>{ if(!b||!b.stock) return;
-    Object.keys(b.stock).forEach(id=>{ const cible=vers[id]; if(!cible) return;
+    Object.keys(b.stock).forEach(id=>{ const cible=vers[id]; if(!cible||cible===id) return;
       const src=b.stock[id]||{}, dst=b.stock[cible]||{ctn:0,u:0};
       b.stock[cible]={...dst,ctn:(+dst.ctn||0)+(+src.ctn||0),u:(+dst.u||0)+(+src.u||0)}; delete b.stock[id]; }); });
   /* tout le reste : chaque « produitId » qui pointait vers une perdante pointe vers la survivante */
@@ -16115,7 +16142,7 @@ function produitsFusionnerDoublons(cles){
      « il manque encore… ». Le marcheur saute la clé « stock », traitée juste au-dessus. */
   Object.keys(db).forEach(c=>{ if(c!=='produits'&&c!=='produitsDistincts'&&Array.isArray(db[c])) marche(db[c]); });
   db.produits=(db.produits||[]).filter(p=>!vers[p.id]);
-  logEvent('Produits en double fusionnés',fiches+' fiche(s) fusionnée(s) en '+groupes.length+' produit(s)','crud');
+  logEvent('Produits en double fusionnés',fiches+' fiche(s) fusionnée(s) en '+(groupes.length||doublesId)+' produit(s)','crud');
   save();
   return {paires:groupes.length,fiches};
 }
@@ -18473,9 +18500,28 @@ function boxNouveautes(b,cands){ if(!b) return []; b.stock=b.stock||{}; const d=
    Seule CETTE box s'écrit, par la personne qui l'ouvre — jamais toutes les box d'un coup depuis un
    appareil : la fusion en bloc écraserait les quantités ajustées ailleurs. Un produit retiré à zéro
    est écarté, il ne revient pas au passage suivant ; l'ajouter à nouveau lève l'écart. */
-function boxAutoNouveautes(b){ if(!b) return 0; const nv=boxNouveautes(b); if(!nv.length) return 0; const r=boxPoserProduits(b,nv.map(p=>p.id)); if(!r.poses.length) return 0;
-  logEvent('Nouveaux produits du catalogue posés dans la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock'); save();
-  toast(r.poses.length+' nouveau'+(r.poses.length>1?'x':'')+' produit'+(r.poses.length>1?'s':'')+' du catalogue ajouté'+(r.poses.length>1?'s':'')+' à la box, à zéro',3500); return r.poses.length; }
+/* ── LE CATALOGUE NOURRIT TOUTES LES BOX, PAS SEULEMENT CELLE QU'ON OUVRE ──
+   Justin, 10 septembre : « il faut tout envoyer et qu'on voie automatiquement les 174 dans tous les
+   box ». La première version ne posait que dans la box ouverte : les box se remplissaient au fur et
+   à mesure qu'on les ouvrait, donc jamais toutes, et jamais en même temps — « ça et là avec des box
+   différentes ». Désormais, le premier qui ouvre N'IMPORTE QUELLE box pose les nouveautés dans
+   TOUTES celles qu'il voit.
+   Ce que ça coûte, et pourquoi c'est acceptable : la synchro fusionne une box en bloc, donc si un
+   collègue modifie une quantité au même instant sur une autre box, sa version peut l'emporter et
+   les produits qu'on vient d'y poser repartiront — ils reviendront à l'ouverture suivante. On ne
+   perd jamais de stock : ces produits arrivent à zéro, et une quantité écrite gagne toujours. */
+function boxAutoNouveautes(b){
+  const cands=produitsRecents(); if(!cands.length) return 0;
+  const boxes=visibleBoxes((db.boxes||[]).filter(x=>x&&x.actif!==false));
+  let total=0, touchees=0, ici=0;
+  boxes.forEach(bx=>{ const nv=boxNouveautes(bx,cands); if(!nv.length) return;
+    const r=boxPoserProduits(bx,nv.map(p=>p.id)); if(!r.poses.length) return;
+    total+=r.poses.length; touchees++; if(b&&bx.id===b.id) ici=r.poses.length;
+    logEvent('Nouveaux produits du catalogue posés dans la box',(bx.nom||bx.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock'); });
+  if(!total) return 0;
+  save();
+  toast(total+' produit'+(total>1?'s':'')+' du catalogue ajouté'+(total>1?'s':'')+' à zéro dans '+touchees+' box'+(touchees>1?'':''),4200);
+  return ici||total; }
 function boxDecider(b,ids){ db.boxDecisions=db.boxDecisions||[]; let d=boxDecision(b); if(!d){ d={id:b.id,ecartes:{}}; db.boxDecisions.push(d); } d.ecartes=d.ecartes||{}; const now=Date.now();
   ids.forEach(pid=>{ d.ecartes[pid]=now; }); d.par=fullName(currentUser); d.parId=currentUser&&currentUser.id; d.ts=now; }
 function boxDecisionAnnuler(b,pid){ const d=boxDecision(b); if(!d||!d.ecartes) return; delete d.ecartes[pid]; d.ts=Date.now(); }
