@@ -18041,7 +18041,7 @@ function renderAbpList(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return
      ils refont Tout ajouter, ça dit ce qui est déjà là et ce qui est nouveau ». Le compte des
      produits déjà posés, celui des nouveaux, et le bouton qui retire ce qui est à zéro. */
   const deja=Object.keys(b.stock||{}).length, zeros=Object.keys(b.stock||{}).filter(id=>{ const st=b.stock[id]||{}; return !(+st.u||0)&&!(+st.ctn||0); }).length;
-  const etat=`<div class="abp-etat"><span><b>${deja}</b> déjà dans la box${zeros?` · <b>${zeros}</b> à zéro`:''}</span><span><b>${tous.length}</b> ${tous.length>1?'nouveaux à ajouter':'nouveau à ajouter'}</span>${zeros?`<button type="button" class="btn ghost sm" onclick="boxRetirerZeros();closeModal()">Retirer les ${zeros} à zéro</button>`:''}</div>`;
+  const etat=`<div class="abp-etat"><span><b>${deja}</b> déjà dans la box${zeros?` · <b>${zeros}</b> à zéro`:''}</span><span><b>${tous.length}</b> ${tous.length>1?'nouveaux à ajouter':'nouveau à ajouter'}</span>${zeros?`<button type="button" class="btn ghost sm" onclick="if(boxRetirerZeros())closeModal()">Retirer les ${zeros} à zéro</button>`:''}</div>`;
   if(!avail.length){ el.innerHTML=etat+'<div style="color:var(--t3);padding:14px;text-align:center">'+(q?'Rien ne correspond à cette recherche.':'Tous les produits du catalogue sont déjà dans la box — rien de nouveau à ajouter.')+'</div>'; return; }
   el.innerHTML=etat;
   el.innerHTML+=avail.map(p=>{ const on=abpSel.has(p.id);
@@ -18058,16 +18058,18 @@ function addBoxProd(){ const b=db.boxes.find(x=>x.id===boxView); if(!b)return; i
   save(); closeModal(); renderBoxDetail(); toast(n+' produit(s) ajouté(s) — quantités à zéro, à toi de les régler'); }
 /* « Retirer les produits à zéro » — Justin, 10 septembre : vider la liste d'une box sans toucher
    à ce qui a du stock. Une ligne qui a des unités, des cartons, ou une demande en attente reste. */
-function boxRetirerZeros(){ const b=db.boxes.find(x=>x.id===boxView); if(!b||!b.stock) return;
+function boxRetirerZeros(){ const b=db.boxes.find(x=>x.id===boxView); if(!b||!b.stock) return false;
   const enAttente=new Set(); (db.boxMvtAttente||[]).forEach(x=>{ if(!x||x.boxId!==b.id||(x.statut!=='enAttente'&&x.statut!=='brouillon')) return;
     if(x.produitId) enAttente.add(x.produitId); (x.lignes||[]).forEach(l=>{ if(l&&l.produitId) enAttente.add(l.produitId); }); });
   const ids=Object.keys(b.stock); const zeros=ids.filter(id=>{ const st=b.stock[id]||{}; return !(+st.u||0)&&!(+st.ctn||0)&&!enAttente.has(id); });
   const gardes=ids.length-zeros.length;
-  if(!zeros.length){ toast('Aucun produit à zéro : tout ce qui est là a du stock ou une demande en cours'); return; }
-  if(!confirm('Retirer '+zeros.length+' produit(s) à zéro de cette box ?\n\n'+(gardes?gardes+' restent : ils ont du stock ou une demande en attente.':'La liste sera vide.')+'\n\nLes fiches produits ne sont pas supprimées, seulement retirées de cette box.')) return;
+  if(!zeros.length){ toast('Aucun produit à zéro : tout ce qui est là a du stock ou une demande en cours'); return false; }
+  if(!confirm('Retirer '+zeros.length+' produit(s) à zéro de cette box ?\n\n'+(gardes?gardes+' restent : ils ont du stock ou une demande en attente.':'La liste sera vide.')+'\n\nLes fiches produits ne sont pas supprimées, seulement retirées de cette box.')) return false;
   zeros.forEach(id=>{ delete b.stock[id]; });
   logEvent('Produits à zéro retirés de la box',zeros.length+' — '+(b.nom||b.numero||''),'stock');
-  save(); renderBoxDetail(); toast(zeros.length+' produit(s) retiré(s)'+(gardes?' · '+gardes+' gardé(s)':'')); }
+  save(); renderBoxDetail(); toast(zeros.length+' produit(s) retiré(s)'+(gardes?' · '+gardes+' gardé(s)':''));
+  /* vrai seulement si quelque chose a été retiré : la modale qui appelle ne se ferme que là */
+  return true; }
 /* Steppers ＋/− de la fiche box : un tap = le stock bouge, le mouvement est
    tracé (qui/quoi/où/quand) et le responsable reçoit la notification. */
 /* ══ SÉLECTION MULTIPLE ══ vrai pendant qu'une liste de produits s'applique d'un coup.
