@@ -15844,7 +15844,7 @@ function produitCreePrevenir(p){ _pushProduitLot.push(p.nom||'produit'); clearTi
     if(Date.now()-_pushProduitTs<600000) return;
     try{ const dest=(db.users||[]).filter(u=>u&&u.actif!==false&&(!currentUser||u.id!==currentUser.id)&&userSeesModule(u,'boxes')).map(u=>u.id); if(!dest.length) return;
       _pushProduitTs=Date.now(); const qui=(currentUser&&fullName(currentUser))||'';
-      pushNotify(lot.length>1?lot.length+' nouveaux produits au catalogue':'Nouveau produit au catalogue',(lot.length>1?lot.slice(0,3).map(x=>'« '+x+' »').join(', ')+(lot.length>3?'…':''):'« '+lot[0]+' »')+' — ajouté'+(lot.length>1?'s':'')+(qui?' par '+qui:'')+'. À poser dans vos box ?','/app.html#v=boxes',dest); }catch(e){} },800); }
+      pushNotify(lot.length>1?lot.length+' nouveaux produits au catalogue':'Nouveau produit au catalogue',(lot.length>1?lot.slice(0,3).map(x=>'« '+x+' »').join(', ')+(lot.length>3?'…':''):'« '+lot[0]+' »')+' — ajouté'+(lot.length>1?'s':'')+(qui?' par '+qui:'')+'. Dans vos box dès leur prochaine ouverture.','/app.html#v=boxes',dest); }catch(e){} },800); }
 function cataloguePoser(cible,opts){
   cible.produits=cible.produits||[]; cible.fournisseurs=cible.fournisseurs||[];
   const vus=new Set(cible.produits.map(p=>(p.nom||'').trim().toLowerCase()));
@@ -16935,7 +16935,7 @@ function applyAjoutProduitBoxes(){ const pid=$('apb-prod').value; if(!pid){toast
 let boxView=null, boxProdSearch='';
 function boxStock(b,pid){ return (b.stock&&b.stock[pid]) || {ctn:0,u:0}; }
 /* Même règle que la fiche intervention : seule l'ouverture bouge, pas les rafraîchissements. */
-function openBox(id){ boxView=id; boxProdSearch=''; _doublonsOuvert=false;   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
+function openBox(id){ boxView=id; boxProdSearch=''; _doublonsOuvert=false; try{ boxAutoNouveautes(bxpBox()); }catch(e){}   // le bandeau doublons se rouvre par « Voir », jamais d'office sur une autre box
   /* Le destinataire vaut pour UNE visite : rouvrir la box, c'est un nouveau geste, souvent
      pour quelqu'un d'autre. Le garder d'une visite à l'autre attribuerait en silence des
      produits au technicien d'hier. */
@@ -18233,7 +18233,7 @@ function bxpOngletChoisir(o){ bxpOnglet=o; bxpRetPhase=0; bxpRendre(); }
 /* ── Onglet Ajouter ── */
 function bxpRendreAjout(b,c){ const el=$('bxp-corps'); const nouv=c.nouv; const deja=Object.keys(b.stock).length; const nDec=nouv.length-bxpNouvSel.size;
   const ecartes=Object.keys(((boxDecision(b)||{}).ecartes)||{}).filter(pid=>produit(pid).id&&!b.stock[pid]);
-  const groupe=nouv.length?`<div class="bxp-nouv" id="bxp-nouv"><div class="bxp-nouv-t">✨ ${nouv.length} nouveau${nouv.length>1?'x':''} produit${nouv.length>1?'s':''} au catalogue</div><div class="bxp-nouv-s">Créé${nouv.length>1?'s':''} depuis la dernière décision sur cette box — à ajouter à la liste ?</div>
+  const groupe=nouv.length?`<div class="bxp-nouv" id="bxp-nouv"><div class="bxp-nouv-t">✨ ${nouv.length} nouveau${nouv.length>1?'x':''} produit${nouv.length>1?'s':''} au catalogue</div><div class="bxp-nouv-s">Arrivé${nouv.length>1?'s':''} au catalogue — ${nouv.length>1?'ils se posent':'il se pose'} dans la box, sauf si tu dis non.</div>
       ${nouv.map(p=>{ const on=bxpNouvSel.has(p.id); const qui=p.creePar?userName(p.creePar):''; const c0=produitCree(p);
         return `<div class="pl-row bxp-l" onclick="bxpNouvToggle('${p.id}')"><span class="bxp-coche" style="color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span><div class="pl-info"><div class="pl-title">${esc(p.nom)}</div><div class="pl-meta">${esc(p.categorie||'')}${p.ref?' · '+esc(p.ref):''}${(p.fournisseurs||[]).length?' · '+esc((p.fournisseurs||[]).join(', ')):''}${qui&&qui!=='—'?' · par '+esc(qui):''}${c0?' · le '+new Date(c0).toLocaleDateString('fr-FR'):''}</div></div></div>`; }).join('')}
       ${nDec>0?`<div class="bxp-nouv-s">${nDec} décoché${nDec>1?'s':''} : ${nDec>1?'ils resteront proposés':'il restera proposé'} la prochaine fois.</div>`:''}
@@ -18292,10 +18292,10 @@ function abpToggleAll(){ const avail=abpVisibles(); if(!avail.length) return; if
 /* Poser à zéro : jamais par-dessus un stock, jamais deux fois la même identité — même au moment de poser,
    parce que la synchro a pu changer la box entre l'ouverture de la feuille et le tap. */
 function boxPoserProduits(b,ids){ b.stock=b.stock||{}; const ok=new Set(abpDisponibles(b).map(p=>p.id)); const poses=[], deja=[];
-  ids.forEach(pid=>{ if(!ok.has(pid)||b.stock[pid]){ deja.push(pid); return; } b.stock[pid]={ctn:0,u:0}; poses.push(pid); }); return {poses,deja}; }
+  ids.forEach(pid=>{ if(!ok.has(pid)||b.stock[pid]){ deja.push(pid); return; } b.stock[pid]={ctn:0,u:0}; poses.push(pid); boxDecisionAnnuler(b,pid); }); return {poses,deja}; }
 function addBoxProd(){ const b=bxpBox(); if(!b) return; if(!abpSel.size&&!bxpFourSel.size){ toast('Choisis au moins un produit'); return; }
   const fourIdx=[...bxpFourSel].filter(i=>CATFOUR[i]);
-  if(fourIdx.length>60&&!confirm('Ajouter '+fourIdx.length+' références fournisseur au catalogue de l\'entreprise et à cette box ?\n\nElles seront proposées sur les autres box comme nouveautés.')) return;
+  if(fourIdx.length>60&&!confirm('Ajouter '+fourIdx.length+' références fournisseur au catalogue de l\'entreprise et à cette box ?\n\nElles se poseront aussi dans les autres box, à zéro, à leur prochaine ouverture.')) return;
   /* les références fournisseur entrent d'abord au catalogue (une fois par nom), puis tout se pose ensemble */
   const crees=[]; const parCle=new Map((db.produits||[]).map(p=>[produitCle(p),p])); const ids=[...abpSel];
   fourIdx.forEach(i=>{ const x=CATFOUR[i]; const k=produitCle({nom:x[0]}); let p=parCle.get(k);
@@ -18352,12 +18352,13 @@ function bxpRetPied(b){ const el=$('bxp-ret-pied'); if(!el) return; const n=bxpR
    entre la coche et le « Oui » le garde. Le journal porte les noms, et le retrait s'annule 7 s. */
 function boxRetirerCoches(){ const b=bxpBox(); if(!b||!b.stock) return; const retires=[], gardes=[];
   [...bxpRetSel].forEach(pid=>{ if(boxRetirable(b,pid).ok){ delete b.stock[pid]; retires.push(pid); } else gardes.push(pid); });
+  if(retires.length) boxDecider(b,retires);   // écartés : le catalogue ne les reposera pas tout seul
   if(!retires.length){ toast('Rien retiré : du stock ou une demande est arrivé entre-temps'); bxpRetSel=new Set(); bxpRetPhase=0; bxpRafraichir(); return; }
   logEvent('Produits retirés de la box',(b.nom||b.numero||'')+' : '+retires.map(pid=>produit(pid).nom||pid).join(', '),'stock');
   _dernierRetrait={boxId:b.id,ids:retires,ts:Date.now()}; save(); closeModal(); renderBoxDetail();
   toastAnnuler(retires.length+' produit'+(retires.length>1?'s':'')+' retiré'+(retires.length>1?'s':'')+(gardes.length?' · '+gardes.length+' gardé'+(gardes.length>1?'s':'')+' : du stock ou une demande est arrivé entre-temps':''),'boxRetirerAnnuler()'); }
 function boxRetirerAnnuler(){ const d=_dernierRetrait; if(!d) return; const b=(db.boxes||[]).find(x=>x.id===d.boxId); if(!b) return; b.stock=b.stock||{}; let n=0;
-  d.ids.forEach(pid=>{ if(!b.stock[pid]){ b.stock[pid]={ctn:0,u:0}; n++; } }); _dernierRetrait=null;   // un produit déjà reposé (arrivage, synchro) garde sa quantité
+  d.ids.forEach(pid=>{ boxDecisionAnnuler(b,pid); if(!b.stock[pid]){ b.stock[pid]={ctn:0,u:0}; n++; } }); _dernierRetrait=null;   // un produit déjà reposé (arrivage, synchro) garde sa quantité
   logEvent('Retrait de produits annulé',(b.nom||b.numero||'')+' : '+n+' produit(s) remis à zéro dans la box','stock'); save(); if(boxView===b.id&&$('boxprod-list')) renderBoxDetail(); toast('Retrait annulé'); }
 /* ── Nouveautés : ce que le catalogue a reçu depuis que cette box a décidé ── */
 /* « Nouveau » pour une box = créé au catalogue après le plancher de la box, absent de la box, et pas
@@ -18382,6 +18383,16 @@ function boxNouveautes(b,cands){ if(!b) return []; b.stock=b.stock||{}; const d=
   const vus=new Set(); return liste.filter(p=>{ if(produitDistinct(p)) return true; const k=produitCle(p); if(dansBox.has(k)||vus.has(k)) return false; vus.add(k); return true; }).sort((x,y)=>produitCree(y)-produitCree(x)); }
 /* Les décisions vivent dans leur propre collection, fusionnée par enregistrement : écrites sur la box,
    elles lui poseraient un _m neuf et la fusion en bloc écraserait le stock ajusté sur un autre appareil. */
+/* ── Le catalogue nourrit chaque box tout seul ── Justin, 10 septembre : « relier le catalogue des
+   produits de chaque entreprise automatiquement à l'ajout des nouveaux produits dans chaque box,
+   comme ça c'est beaucoup plus simple ». À l'ouverture d'une box, ce que le catalogue a reçu de
+   nouveau (boxNouveautes : créé après le plancher, absent, pas écarté) se pose à zéro, sans question.
+   Seule CETTE box s'écrit, par la personne qui l'ouvre — jamais toutes les box d'un coup depuis un
+   appareil : la fusion en bloc écraserait les quantités ajustées ailleurs. Un produit retiré à zéro
+   est écarté, il ne revient pas au passage suivant ; l'ajouter à nouveau lève l'écart. */
+function boxAutoNouveautes(b){ if(!b) return 0; const nv=boxNouveautes(b); if(!nv.length) return 0; const r=boxPoserProduits(b,nv.map(p=>p.id)); if(!r.poses.length) return 0;
+  logEvent('Nouveaux produits du catalogue posés dans la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock'); save();
+  toast(r.poses.length+' nouveau'+(r.poses.length>1?'x':'')+' produit'+(r.poses.length>1?'s':'')+' du catalogue ajouté'+(r.poses.length>1?'s':'')+' à la box, à zéro',3500); return r.poses.length; }
 function boxDecider(b,ids){ db.boxDecisions=db.boxDecisions||[]; let d=boxDecision(b); if(!d){ d={id:b.id,ecartes:{}}; db.boxDecisions.push(d); } d.ecartes=d.ecartes||{}; const now=Date.now();
   ids.forEach(pid=>{ d.ecartes[pid]=now; }); d.par=fullName(currentUser); d.parId=currentUser&&currentUser.id; d.ts=now; }
 function boxDecisionAnnuler(b,pid){ const d=boxDecision(b); if(!d||!d.ecartes) return; delete d.ecartes[pid]; d.ts=Date.now(); }
@@ -26414,7 +26425,7 @@ function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser)
        est décidé (ajouté ou écarté). Le créateur la voit aussi : c'est lui qui doit poser le produit. */
     { const cands=produitsRecents(); const bxs=cands.length?db.boxes.filter(notifBoxConcerne).filter(b=>b.actif!==false).map(b=>({b,n:boxNouveautes(b,cands)})).filter(x=>x.n.length):[];
       if(bxs.length){ const tous={}; bxs.forEach(x=>x.n.forEach(p=>{ tous[p.id]=p; })); const liste=Object.values(tous).sort((a,b)=>produitCree(b)-produitCree(a)); const maxC=produitCree(liste[0]);
-        out.push({id:'prdnew:'+maxC+':'+liste.length,ts:maxC,ic:'✨',txt:`<b>${liste.length} nouveau${liste.length>1?'x':''} produit${liste.length>1?'s':''}</b> au catalogue — ${liste.slice(0,3).map(p=>'« '+esc(p.nom)+' »').join(', ')}${liste.length>3?'…':''} — les ajouter à vos box ?${bxs.length>1?' · '+bxs.length+' box concernées':''}`,
+        out.push({id:'prdnew:'+maxC+':'+liste.length,ts:maxC,ic:'✨',txt:`<b>${liste.length} nouveau${liste.length>1?'x':''} produit${liste.length>1?'s':''}</b> au catalogue — ${liste.slice(0,3).map(p=>'« '+esc(p.nom)+' »').join(', ')}${liste.length>3?'…':''} — dans vos box dès leur prochaine ouverture${bxs.length>1?' · '+bxs.length+' box concernées':''}`,
           act:bxs.length===1?("openBox('"+bxs[0].b.id+"');setTimeout(openBoxProduits,450)"):"go('boxes')"}); } }
   if(vStock) db.produits.filter(p=>(p.seuil||0)>0&&(p.qte||0)<=p.seuil).forEach(p=>out.push({id:'stock:'+p.id,ic:'📦',txt:`Stock bas : <b>${esc(p.nom)}</b> (${p.qte}/${p.seuil})`,act:"go('stock');cible('pid','"+p.id+"','retrait')"}));
   const estDir=!!(currentUser && (currentUser.role==='admin'||currentUser.role==='dr'));
