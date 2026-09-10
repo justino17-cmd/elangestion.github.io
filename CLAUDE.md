@@ -45,11 +45,11 @@ cd server && npm audit --omit=dev  # failles dans les dépendances de production
 node --check server/index.js       # contrôle de syntaxe, depuis la racine
 ```
 
-**Onze suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
+**Douze suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
 réelles d'`app.html` et les exécute — elles testent donc le fichier livré.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 310 vérifications, ~3 s
+for f in tests/test-*.js; do node "$f"; done   # 337 vérifications, ~4 s
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -184,6 +184,28 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   techniciens ressuscitées en un seul geste d'affichage. On prévient avec la pastille « +N », on
   écrit après un tap. C'est aussi la règle « rien ne s'écrit au seul chargement », appliquée aux
   écrans profonds.
+- ⛔ **Une box se fusionne PRODUIT PAR PRODUIT, pas en bloc.** C'est le seul enregistrement que
+  plusieurs personnes modifient en même temps sans se marcher dessus : chacune sur un produit
+  différent. Chaque ligne de stock porte sa date dans `b._ms[produit]`, retraits compris, et
+  `boxFusionFine` recompose le stock ligne à ligne. Trois règles à ne pas casser :
+  1. **`_ms` doit rester hors de `recEmpreinte`** (comme `_m`). S'il y entrait, chaque `save()`
+     re-tamponnerait la box, qui battrait sa propre pierre tombale et gagnerait toutes les
+     fusions sans que personne n'ait rien fait. Le signe que ça va : trois `save()` sans
+     changement ne posent aucun `_m` (`tests/test-639.js`).
+  2. **Les marques des produits EN STOCK ne s'élaguent jamais** — ce sont elles qui protègent le
+     travail de chacun. Seules celles des produits retirés s'effacent, au rythme des tombes.
+  3. **`boxFusionFine` rend `null` tant que les deux côtés ne datent pas leurs lignes**, et
+     l'ancienne règle reprend. C'est ce qui rend le déploiement sûr — et ce qui fait qu'exiger la
+     version depuis la Tour est ce qui active vraiment la maille fine.
+  Partout ailleurs, deux personnes sur le même champ du même enregistrement est un VRAI conflit :
+  le plus récent gagne, et c'est juste.
+- ⛔ **Un numéro de document ne se réutilise jamais, et les deux sources sont amnésiques.**
+  Supprimer une intervention l'ARCHIVE, et l'archive est plafonnée à 500 : lire « le plus grand
+  numéro existant » ne suffit pas, ce qui sort de la mémoire revient. `db.numMax` est un plafond
+  qui **ne redescend jamais**, relevé par `numPlafondRelever()` à chaque `save()` sur ce que la
+  base contient vraiment, et réuni par le **MAXIMUM** (`numMaxUnion`) à la fusion — jamais par
+  « le plus récent gagne », qui laisserait un appareil en retard rendre un numéro déjà émis.
+  `intNum()` et `nextNum()` s'en servent comme plancher.
 - **Les collections qui ne sont pas des listes se fusionnent clé par clé.** `plansSite`, `planNotes`
   et `permissions` sont des dictionnaires : `COLLS_DICT` + `dictFusion` les réunissent, et
   `baseSignature` les regarde — sinon une fusion qui ramène le plan d'appâtage d'un collègue passe

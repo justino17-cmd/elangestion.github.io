@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '638';
+const APP_VERSION = '639';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5874,9 +5874,23 @@ function collsFusion(d){ return Object.keys(d||{}).filter(k=>Array.isArray(d[k])
 const COLLS_DICT=['plansSite','planNotes','permissions'];
 function dictFusion(prio,autre){ const out=Object.assign({},autre&&typeof autre==='object'?autre:{});
   Object.keys(prio&&typeof prio==='object'?prio:{}).forEach(k=>{ out[k]=prio[k]; }); return out; }
-function recEmpreinte(r){ let h=2166136261; const t=JSON.stringify(r,(k,v)=>k==='_m'?undefined:v)||''; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
-let _ombre={};
-function ombreRelever(){ const o={}; collsFusion(db).forEach(c=>{ const m=new Map(); (db[c]||[]).forEach(r=>{ if(r&&r.id!=null) m.set(String(r.id),recEmpreinte(r)); }); o[c]=m; }); _ombre=o; }
+function recEmpreinte(r){ let h=2166136261; const t=JSON.stringify(r,(k,v)=>(k==='_m'||k==='_ms')?undefined:v)||''; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
+/* ⛔ LA MAILLE DE LA FUSION : UNE BOX EST UN ENREGISTREMENT, MAIS DEUX PERSONNES Y TRAVAILLENT.
+   Demande de Justin, 10 septembre 2026 : « il faut que personne n'écrase rien ». Le défaut est
+   là et pas ailleurs — Alexis change le stock de l'ADVION, Justin celui du DEBUSK, dans la MÊME
+   box, à la même minute. Les deux appareils tamponnent la box ENTIÈRE (`_m`), et à la fusion le
+   plus récent l'emporte en bloc : le travail de l'autre disparaît, sans message, sans tombe.
+   On descend donc d'un cran : chaque LIGNE de stock porte sa date (`_ms[produit]`), retraits
+   compris, et la fusion recompose le stock ligne à ligne. C'est exactement le couple
+   `_m` / pierre tombale, appliqué à l'intérieur d'une box.
+   Réservé aux box : partout ailleurs, deux personnes qui touchent le même champ du même
+   enregistrement est un vrai conflit, et le plus récent gagne — c'est le modèle et il est juste. */
+const stockEmpreinte=v=>((+((v||{}).u)||0)+'/'+(+((v||{}).ctn)||0));
+const MS_MAX=600;   // marques de produits RETIRÉS gardées par box ; celles en stock ne s'élaguent jamais
+let _ombre={}, _ombreStock={};
+function ombreRelever(){ const o={}; collsFusion(db).forEach(c=>{ const m=new Map(); (db[c]||[]).forEach(r=>{ if(r&&r.id!=null) m.set(String(r.id),recEmpreinte(r)); }); o[c]=m; }); _ombre=o;
+  const os={}; (db.boxes||[]).forEach(b=>{ if(!b||b.id==null) return; const m=new Map();
+    Object.keys(b.stock||{}).forEach(pid=>m.set(pid,stockEmpreinte(b.stock[pid]))); os[String(b.id)]=m; }); _ombreStock=os; }
 const TOMBE_JOURS=90, TOMBE_MAX=3000, TOMBE_TOTAL=6000;
 function estampiller(){
   if(typeof syncEnabled==='function'&&!syncEnabled()) return;   // sans espace d'équipe, rien à réconcilier
@@ -5885,9 +5899,56 @@ function estampiller(){
     (db[c]||[]).forEach(r=>{ if(!r||r.id==null) return; const id=String(r.id); vus.add(id); if(om.get(id)!==recEmpreinte(r)) r._m=now; });
     om.forEach((h,id)=>{ if(!vus.has(id)){ (db._tombes[c]=db._tombes[c]||{})[id]=now; } });
   });
+  /* Les marques de lignes, après les tampons d'enregistrement : recEmpreinte ignore `_ms`,
+     donc en poser une ne fait jamais repartir `_m` — sinon chaque enregistrement rebattrait
+     sa propre pierre tombale à l'infini. */
+  (db.boxes||[]).forEach(b=>{ if(!b||b.id==null) return;
+    const st=b.stock||{}; const om=_ombreStock[String(b.id)];
+    let ms=(b._ms&&typeof b._ms==='object'&&!Array.isArray(b._ms))?b._ms:null;
+    if(!ms){ /* Première rencontre : on date les lignes de la dernière modification CONNUE de la
+                box, pas de maintenant. Sinon toutes les lignes de l'appareil qui enregistre en
+                second seraient « plus récentes » et on retomberait sur l'ancienne règle. */
+      ms={}; const base=+b._m||0; Object.keys(st).forEach(pid=>{ ms[pid]=base; }); }
+    if(om){ Object.keys(st).forEach(pid=>{ if(om.get(pid)!==stockEmpreinte(st[pid])) ms[pid]=now; });
+      om.forEach((h,pid)=>{ if(!(pid in st)) ms[pid]=now; });   // retiré : la marque date le RETRAIT
+    }
+    b._ms=msElaguer(ms,st,now); });
   tombesElaguer(db._tombes,now);
   ombreRelever();
 }
+/* Les marques des produits encore en stock ne s'élaguent JAMAIS — ce sont elles qui protègent
+   le travail de chacun. Seules celles des produits retirés s'effacent, au même rythme que les
+   pierres tombales : passé TOMBE_JOURS, plus personne ne peut remonter une version d'avant. */
+function msElaguer(ms,st,now){ const lim=now-TOMBE_JOURS*86400000; const out={};
+  Object.keys(ms||{}).forEach(pid=>{ if((pid in st)||(+ms[pid]||0)>=lim) out[pid]=+ms[pid]||0; });
+  const partis=Object.keys(out).filter(pid=>!(pid in st));
+  if(partis.length>MS_MAX) partis.sort((a,b)=>out[b]-out[a]).slice(MS_MAX).forEach(pid=>{ delete out[pid]; });
+  return out; }
+/* Recompose le stock de deux versions d'une MÊME box, ligne à ligne.
+   Rend null tant que les deux côtés ne datent pas leurs lignes : pendant le déploiement, un
+   appareil resté en v638 n'a pas de marques, et sa version ne dit rien sur ce qu'il a changé —
+   on garde alors l'ancienne règle plutôt que de deviner. Une fois la v639 exigée depuis la
+   Tour, les deux côtés en ont toujours et la maille fine est partout. */
+function boxFusionFine(gagnante,perdante){
+  const mA=gagnante&&gagnante._ms, mB=perdante&&perdante._ms;
+  if(!mA||!mB||typeof mA!=='object'||typeof mB!=='object') return null;
+  const A=(gagnante.stock)||{}, B=(perdante.stock)||{};
+  const st={}, ms={};
+  new Set([].concat(Object.keys(A),Object.keys(B),Object.keys(mA),Object.keys(mB))).forEach(pid=>{
+    const tA=+mA[pid]||0, tB=+mB[pid]||0;
+    const cote=(tA>=tB)?A:B;                 // à égalité, la box gagnante — comme pour un enregistrement
+    if(pid in cote) st[pid]=cote[pid];       // absent du côté qui gagne = retiré : il ne revient pas
+    const t=Math.max(tA,tB); if(t) ms[pid]=t;
+  });
+  /* Les listes internes s'ajoutent au lieu de s'écraser : deux arrivages validés le même jour
+     sur deux appareils, c'est deux arrivages. Union par identifiant, plafond conservé. */
+  const parId=(x,y,cap)=>{ const m=new Map();
+    [].concat(Array.isArray(y)?y:[],Array.isArray(x)?x:[]).forEach(r=>{ if(r&&r.id!=null&&!m.has(String(r.id))) m.set(String(r.id),r); });
+    const l=[...m.values()].sort((a,b)=>(b.ts||0)-(a.ts||0)); return cap?l.slice(0,cap):l; };
+  const out=Object.assign({},gagnante,{stock:st,_ms:ms});
+  if(Array.isArray(gagnante.arrivages)||Array.isArray(perdante.arrivages)) out.arrivages=parId(gagnante.arrivages,perdante.arrivages,40);
+  if(Array.isArray(gagnante.passages)||Array.isArray(perdante.passages)) out.passages=parId(gagnante.passages,perdante.passages,200);
+  return out; }
 function tombesElaguer(t,now){ if(!t) return; const lim=now-TOMBE_JOURS*86400000;
   Object.keys(t).forEach(c=>{ const o=t[c]||{}; let ids=Object.keys(o).filter(id=>(o[id]||0)>=lim);
     if(ids.length>TOMBE_MAX) ids=ids.sort((a,b)=>o[b]-o[a]).slice(0,TOMBE_MAX);
@@ -5904,15 +5965,19 @@ function fusionnerBases(local,remote,prioriteLocale){
   const tombes=tombesUnion(local&&local._tombes,remote&&remote._tombes);
   new Set([].concat(collsFusion(local),collsFusion(remote))).forEach(c=>{
     const P=Array.isArray(prio&&prio[c])?prio[c]:[], A=Array.isArray(autre&&autre[c])?autre[c]:[];
-    const tb=tombes[c]||{}; const m=new Map(), ordre=[], sansId=[], vusSans=new Set();
+    const tb=tombes[c]||{}; const m=new Map(), ordre=[], sansId=[], vusSans=new Set(), perdants=new Map();
     const prendre=r=>{
       if(!r) return;
       if(r.id==null){ const k=JSON.stringify(r); if(!vusSans.has(k)){ vusSans.add(k); sansId.push(r); } return; }   // sans id (journal de planning) : union par contenu
       const id=String(r.id); const t=tb[id]||0; if(t&&t>=(r._m||0)) return;   // supprimé après sa dernière modification
       const ex=m.get(id); if(!ex){ m.set(id,r); ordre.push(id); return; }
-      if((r._m||0)>(ex._m||0)) m.set(id,r);   // le plus récent gagne ; à égalité, le côté prioritaire, déjà en place
+      /* Le perdant n'est plus jeté : pour une box, c'est lui qui porte le travail de l'autre
+         personne, et boxFusionFine le récupère ligne à ligne. */
+      if((r._m||0)>(ex._m||0)){ m.set(id,r); perdants.set(id,ex); } else perdants.set(id,r);   // le plus récent gagne ; à égalité, le côté prioritaire, déjà en place
     };
     P.forEach(prendre); A.forEach(prendre);
+    if(c==='boxes') ordre.forEach(id=>{ const p2=perdants.get(id); if(!p2) return;
+      const f=boxFusionFine(m.get(id),p2); if(f) m.set(id,f); });
     out[c]=ordre.map(id=>m.get(id)).concat(sansId);
   });
   COLLS_DICT.forEach(c=>{ const P=prio&&prio[c], A=autre&&autre[c];
@@ -5920,6 +5985,7 @@ function fusionnerBases(local,remote,prioriteLocale){
   if(Array.isArray(out.journal)) out.journal=out.journal.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,500);
   if(Array.isArray(out.planJournal)) out.planJournal=out.planJournal.slice().sort((x,y)=>(x.ts||0)-(y.ts||0)).slice(-400);   // même plafond qu'en local, sinon il grossit à chaque fusion
   out._tombes=tombes;
+  out.numMax=numMaxUnion(local&&local.numMax,remote&&remote.numMax);   // par le MAXIMUM, jamais par le plus récent
   return out;
 }
 /* Ce qui dit si une fusion a changé quelque chose : ids et dates par collection, et les tombes. */
@@ -6070,7 +6136,30 @@ function cataloguePackSync(){
   toast(r.produits+' produit'+(r.produits>1?'s':'')+' ajouté'+(r.produits>1?'s':'')+' à ton catalogue — ils sont dans la liste à ajouter',4600);
   if($('bxp-onglets')) bxpRafraichir(); else if(current==='produits') views.produits();
 }
-function save(){ try{ estampiller(); }catch(e){} try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catch(e){ try{ toast('Stockage plein — réduis le nombre/poids des photos'); }catch(_){} } refreshBadges(); updateBell(); if(typeof syncPush==='function') syncPush(); if(typeof annuaireVeille==='function') annuaireVeille(); }
+/* ⛔ LE PLAFOND DES NUMÉROS NE REDESCEND JAMAIS.
+   Un numéro de facture ou d'intervention ne se réutilise pas : c'est une pièce qui a une
+   portée comptable. Or les deux sources qu'on interrogeait sont amnésiques — supprimer une
+   intervention l'ARCHIVE, et `intArchive` ne gardait même pas son numéro ; l'archive est en
+   plus plafonnée à 500. Lire « le plus grand numéro existant » ne suffit donc pas : ce qui
+   est sorti de la mémoire revient. On tient donc un plafond, relevé à chaque enregistrement
+   sur ce que la base contient VRAIMENT, et qui ne fait que monter.
+   Deux bases se réunissent par le MAXIMUM (`numMaxUnion`), jamais par « le plus récent
+   gagne » : sinon un appareil en retard ferait redescendre le compteur et rendrait un numéro
+   déjà utilisé. Signalé par `relecteur` le 10 septembre 2026 — mon premier correctif lisait
+   une archive qui ne portait pas le champ, et mon test le masquait en simulant l'archivage
+   au lieu d'appeler le vrai `intArchive`. */
+const NUM_RE=/^([A-Z]+)-(\d{4})-(\d+)$/;
+function numPlafondRelever(){ if(!db) return; db.numMax=(db.numMax&&typeof db.numMax==='object'&&!Array.isArray(db.numMax))?db.numMax:{};
+  const voir=(l,champ)=>{ (l||[]).forEach(r=>{ const m=NUM_RE.exec((r&&r[champ])||''); if(!m) return;
+    const k=m[1]+'-'+m[2], n=+m[3]; if(n>(db.numMax[k]||0)) db.numMax[k]=n; }); };
+  voir(db.interventions,'num'); voir(db.interventionsArchive,'num');
+  voir(db.devis,'num'); voir(db.factures,'num'); voir(db.demandes,'num'); voir(db.bonsRemise,'num');
+  voir(db.bons,'numero'); }
+function numMaxUnion(a,b){ const o={};
+  new Set([].concat(Object.keys(a||{}),Object.keys(b||{}))).forEach(k=>{ o[k]=Math.max(+((a||{})[k])||0,+((b||{})[k])||0); });
+  return o; }
+function numPlafond(prefixe,annee){ return +((db&&db.numMax)||{})[prefixe+'-'+annee]||0; }
+function save(){ try{ numPlafondRelever(); }catch(e){} try{ estampiller(); }catch(e){} try{ localStorage.setItem(STORE_KEY, JSON.stringify(db)); }catch(e){ try{ toast('Stockage plein — réduis le nombre/poids des photos'); }catch(_){} } refreshBadges(); updateBell(); if(typeof syncPush==='function') syncPush(); if(typeof annuaireVeille==='function') annuaireVeille(); }
 
 /* ════════ SYNCHRONISATION TEMPS RÉEL (équipe) — Firebase Firestore, gratuit ════════
    Dormant tant qu'aucune config n'est saisie (Paramètres). Document d'équipe unique
@@ -11507,7 +11596,10 @@ function openPlanJournal(){ const J=(db.planJournal||[]).slice().reverse();
 const DEL_MOTIFS=['Client a annulé','Doublon','Erreur de saisie'];
 function motifChipsHtml(inputId){ return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-6px 0 12px">${DEL_MOTIFS.map(m=>`<div class="chip" onclick="document.getElementById('${inputId}').value='${m}'">${m}</div>`).join('')}</div>`; }
 function intArchive(i,motif){ if(!i) return; db.interventionsArchive=db.interventionsArchive||[];
-  db.interventionsArchive.unshift({id:i.id,titre:i.titre||'',clientId:i.clientId||'',nomClient:clientName(i.clientId)||'',
+  /* Le numéro part avec : sans lui, intNum() ne peut pas savoir qu'il a été émis, et le
+     réattribue à l'intervention suivante. Le plafond (db.numMax) protège aussi les archives
+     écrites AVANT ce correctif, et celles que le plafond de 500 finira par évincer. */
+  db.interventionsArchive.unshift({id:i.id,num:i.num||'',titre:i.titre||'',clientId:i.clientId||'',nomClient:clientName(i.clientId)||'',
     date:i.date||'',heure:i.heure||'',techNames:techNames(i)||'',statut:i.statut||'',
     passageNum:i.passageNum||0,passageTotal:i.passageTotal||0,motif:String(motif||'').slice(0,140),
     par:(currentUser&&fullName(currentUser))||'',ts:Date.now()});
@@ -15567,7 +15659,7 @@ function intComDel(id,ix){ const i=db.interventions.find(x=>x.id===id); if(!i||!
    vont — comme le fait nextNum() pour les devis, les factures et les bons. */
 function intNum(){ const y=new Date().getFullYear(); const re=new RegExp('^INT-(\\d{4})-(\\d+)$');
   const max=[].concat(db.interventions||[],db.interventionsArchive||[])
-    .reduce((m,x)=>{ const mm=re.exec((x&&x.num)||''); return (mm&&+mm[1]===y)?Math.max(m,+mm[2]):m; },0);
+    .reduce((m,x)=>{ const mm=re.exec((x&&x.num)||''); return (mm&&+mm[1]===y)?Math.max(m,+mm[2]):m; },numPlafond('INT',y));
   return 'INT-'+y+'-'+String(max+1).padStart(3,'0'); }
 function intDemarrerQuick(id){ const i=db.interventions.find(x=>x.id===id); if(!i)return; i.statut='encours'; if(!i.debutReel)i.debutReel=Date.now(); intHisto(i,'Démarrée'); logEvent('Intervention démarrée',i.titre,'intervention'); save(); toast('▶ « '+(i.titre||'Intervention')+' » en cours'); go(current); }
 function intCkAdd(id){ const v=($('ck-new').value||'').trim(); if(!v) return; const i=db.interventions.find(x=>x.id===id); i.checklist=i.checklist||[]; i.checklist.push({t:v,done:false}); save(); renderIntDetail(id); }
@@ -17609,7 +17701,9 @@ function notifyDrBoxMove(b,pid,type,qte,unit){ try{
    créent plus de doublons). */
 function nextNum(coll,prefix,champ){ const y=new Date().getFullYear();
   const re=new RegExp('^'+prefix+'-(\\d{4})-(\\d+)$');
-  const max=(db[coll]||[]).reduce((m,x)=>{ const mm=re.exec(x[champ]||''); return (mm&&+mm[1]===y)?Math.max(m,+mm[2]):m; },0);
+  /* Le plafond sert de plancher : une facture supprimée ne rend pas son numéro, et un appareil
+     qui n'a pas encore reçu celle d'un collègue ne le réattribue pas. */
+  const max=(db[coll]||[]).reduce((m,x)=>{ const mm=re.exec(x[champ]||''); return (mm&&+mm[1]===y)?Math.max(m,+mm[2]):m; },numPlafond(prefix,y));
   return prefix+'-'+y+'-'+String(max+1).padStart(3,'0'); }
 const CODE_TYPES=['Code entrée','Code box','Clé'];
 function boxCatTag(c){ return c?`<span class="${c==='TP14 — Rodenticide'?'tag hot':'tag'}">${esc(c)}</span>`:'—'; }

@@ -10,9 +10,17 @@ const fs=require('fs'); const APP=fs.readFileSync(__dirname+'/../app.html','utf8
 let ok=0,ko=0;
 const v=(t,a,b)=>{ if(JSON.stringify(a)===JSON.stringify(b)){ok++;console.log('  ✓ '+t);}
   else {ko++;console.log('  ✗ '+t+'\n      attendu : '+JSON.stringify(b)+'\n      obtenu  : '+JSON.stringify(a));} };
-function decoupe(entete,max){ const deb=APP.indexOf(entete); if(deb<0) throw new Error('introuvable : '+entete);
-  for(let i=deb;i<deb+(max||40000);i++){ if(APP[i]!=='}'&&APP[i]!==';') continue; const bout=APP.slice(deb,i+1);
-    try{ new Function(bout); return bout; }catch(e){} }
+/* Extraction bornée à la DÉCLARATION SUIVANTE de premier niveau, puis plus long bloc valide.
+   L'ancienne version rendait le plus COURT préfixe qui compile — elle amputait les fonctions
+   dont une ligne tardive se referme proprement, et la sonde testait alors du code partiel.
+   Voir tests/LISEZMOI.md. */
+function decoupe(entete){ const deb=APP.indexOf(entete); if(deb<0) throw new Error('introuvable : '+entete);
+  const suite=/\n(?=(?:function |const |let |var |class |async function |\/\* |views\.|document\.|window\.|try\{))/g;
+  suite.lastIndex=deb+entete.length;
+  const m=suite.exec(APP); let bout=APP.slice(deb,m?m.index:Math.min(APP.length,deb+80000));
+  for(;;){ const k=Math.max(bout.lastIndexOf('}'),bout.lastIndexOf(';')); if(k<0) break;
+    const t=bout.slice(0,k+1);
+    try{ new Function(t); return t; }catch(e){ bout=bout.slice(0,k); } }
   throw new Error('fin introuvable : '+entete); }
 
 /* ─────────────────────────────────────────────────────────────────────────────────────── */
@@ -140,7 +148,8 @@ console.log('\nOuvrir un écran n\'écrit jamais dans les données de l\'entrepr
 
 console.log('\nLe plan d\'appâtage ne se perd plus à la synchro');
 { const code=['const COLLS_HORS_FUSION=','function collsFusion(d){','const COLLS_DICT=','function dictFusion(prio,autre){',
-    'function tombesUnion(','function fusionnerBases(local,remote,prioriteLocale){','function baseSignature(d){'].map(d=>decoupe(d)).join('\n');
+    'function tombesUnion(','function numMaxUnion(a,b){','function boxFusionFine(gagnante,perdante){',
+    'function fusionnerBases(local,remote,prioriteLocale){','function baseSignature(d){'].map(d=>decoupe(d)).join('\n');
   const bac=new Function('',`${code}; return {fusionnerBases,baseSignature};`)();
   const A={clients:[{id:'c1',nom:'A'}],plansSite:{c1:{postes:new Array(24).fill(0).map((_,i)=>({id:'po'+i}))}},planNotes:{'2026-09-10':'note A'},_tombes:{}};
   const B={clients:[{id:'c2',nom:'B'}],plansSite:{c2:{postes:new Array(18).fill(0).map((_,i)=>({id:'pb'+i}))}},planNotes:{'2026-09-11':'note B'},_tombes:{}};
@@ -156,15 +165,42 @@ console.log('\nLe plan d\'appâtage ne se perd plus à la synchro');
 }
 
 console.log('\nUn numéro de document ne se réutilise pas');
-{ const bac=new Function('db',`${decoupe('function intNum(){')}\nreturn intNum;`);
+{ /* ⛔ CE BLOC A DÉJÀ MENTI UNE FOIS. Sa première version simulait l'archivage par
+     `interventionsArchive.push(interventions.pop())` — donc en gardant le `num` intact, ce que
+     le VRAI `intArchive` ne faisait pas : il reconstruit l'objet à la main, sans le numéro. Le
+     test était vert et le bug entier. Signalé par `relecteur`. On appelle donc la vraie
+     fonction, et rien d'autre. La leçon vaut au-delà de ce cas : ne jamais tester un
+     substitut de ce que le code produit. */
+  const code=['const NUM_RE=','function numPlafondRelever(){','function numMaxUnion(a,b){',
+    'function numPlafond(prefixe,annee){','function intArchive(i,motif){','function intNum(){'].map(h=>decoupe(h)).join('\n');
+  const bac=new Function('etat',`let db=etat.db;
+    const clientName=()=>'C'; const techNames=()=>''; const currentUser={id:'u'}; const fullName=()=>'Justin';
+    ${code}
+    return {intArchive,intNum,numPlafondRelever,numMaxUnion,numPlafond,getDb:()=>db};`);
   const an=new Date().getFullYear();
   const n=i=>'INT-'+an+'-'+String(i).padStart(3,'0');
-  const db={interventions:[1,2,3].map(i=>({num:n(i)})),interventionsArchive:[]};
-  v('le numéro suit le plus grand émis',bac(db)(),n(4));
-  db.interventionsArchive.push(db.interventions.pop());          // une annulation archive
-  v('une intervention annulée ne libère pas son numéro',bac(db)(),n(4));
-  db.interventionsArchive.push(db.interventions.pop(),db.interventions.pop());
-  v('trois annulations non plus',bac(db)(),n(4));
+  const db={interventions:[],interventionsArchive:[],devis:[],factures:[],demandes:[],bonsRemise:[],bons:[]};
+  const g=bac({db});
+  const sauver=()=>g.numPlafondRelever();                       // ce que save() fait désormais
+  for(let i=1;i<=10;i++){ db.interventions.push({id:'i'+i,num:g.intNum(),titre:'T'+i}); sauver(); }
+  v('dix interventions, dix numéros',db.interventions.map(x=>x.num).slice(-1),[n(10)]);
+  /* Le scénario exact du relecteur : quatre annulations, par le vrai chemin de suppression. */
+  [8,9,10,7].forEach(k=>{ const ix=db.interventions.findIndex(x=>x.id==='i'+k);
+    g.intArchive(db.interventions[ix],'Client a annulé'); db.interventions.splice(ix,1); sauver(); });
+  v('l\'archive garde bien le numéro',db.interventionsArchive.map(x=>x.num).sort(),[n(10),n(7),n(8),n(9)].sort());
+  v('quatre annulations ne rendent AUCUN numéro',g.intNum(),n(11));
+
+  /* Une archive d'AVANT ce correctif n'a pas de numéro — c'est le plafond qui protège. */
+  const db2={interventions:[],interventionsArchive:[{id:'x',titre:'sans numéro'}],
+    devis:[],factures:[],demandes:[],bonsRemise:[],bons:[],numMax:{}}; db2.numMax['INT-'+an]=10;
+  v('et un plafond hérité tient même quand toute trace du numéro a disparu',bac({db:db2}).intNum(),n(11));
+
+  v('deux bases se réunissent par le MAXIMUM, jamais par le plus récent',
+    g.numMaxUnion({'FAC-2026':14,'INT-2026':3},{'FAC-2026':9,'BC-2026':2}),{'FAC-2026':14,'INT-2026':3,'BC-2026':2});
+  v('la fusion l\'applique',/out\.numMax=numMaxUnion\(local&&local\.numMax,remote&&remote\.numMax\);/.test(APP),true);
+  v('et save\(\) relève le plafond avant d\'estampiller',
+    /function save\(\)\{ try\{ numPlafondRelever\(\); \}catch\(e\)\{\} try\{ estampiller\(\);/.test(APP),true);
+
   v('un numéro en double ne reste pas invisible',/function docNumsDoubles\(coll\)\{/.test(APP),true);
   const dbl=new Function('db',`${decoupe('function docNumsDoubles(coll){')}\nreturn docNumsDoubles;`);
   v('il est nommé sur l\'écran des factures',

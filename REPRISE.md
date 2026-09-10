@@ -13,6 +13,73 @@ de ligne du tout.
 
 ---
 
+## v639 — « il faut que personne n'écrase rien »
+
+Demande de Justin, 10 septembre au soir, après avoir vu le bandeau des doublons persister sur
+le compte ELAN : « je pense qu'il faudrait une synchronisation par utilisateur pour garantir
+une utilisation à 100 % sans qu'une personne écrase ou casse quoi que ce soit ».
+
+Le diagnostic est le sien et il est juste. **Une box est UN enregistrement pour la synchro.**
+Alexis change le stock de l'ADVION, Justin celui du DEBUSK, dans la MÊME box : les deux
+appareils tamponnent la box entière (`_m`), et à la fusion le plus récent l'emporte **en bloc**.
+Le travail de l'autre disparaît, sans message, sans pierre tombale — rien ne le détecte, jamais.
+Les correctifs de la v638 avaient supprimé les deux chemins qui rendaient ça *fréquent* (ouvrir
+une box écrivait partout, le formulaire rembobinait) ; la maille elle-même restait trop grosse.
+
+**La cure : descendre d'un cran.** Chaque LIGNE de stock porte sa date (`_ms[produit]`), retraits
+compris, et la fusion recompose le stock ligne à ligne. C'est exactement le couple `_m` / pierre
+tombale, appliqué à l'intérieur d'une box. Les listes internes (`arrivages`, `passages`)
+s'ajoutent par identifiant au lieu de s'écraser.
+
+Mesuré au navigateur sur le fichier bâti, deux appareils, la même box :
+
+| | ADVION | DEBUSK | ALTA |
+|---|---|---|---|
+| appareil A seul (sort 10 ADVION) | **30** | 12 | 5 |
+| appareil B seul (sort 10 DEBUSK) | 40 | **2** | 5 |
+| après fusion, chez A | **30** | **2** | 5 |
+| après fusion, chez B | **30** | **2** | 5 |
+
+Réservé aux box, et c'est délibéré : partout ailleurs, deux personnes qui touchent le même champ
+du même enregistrement est un **vrai** conflit, et le plus récent gagne — c'est le modèle, il est
+juste. Pendant le déploiement, un appareil resté en v638 n'a pas de marques : `boxFusionFine` se
+retire alors proprement et l'ancienne règle s'applique, plutôt que de deviner. **Exiger la v639
+depuis la Tour est donc ce qui rend la maille fine active partout.**
+
+### Les numéros de documents — un correctif qui n'en était pas un
+
+`relecteur` a bloqué la v638 sur ce point, et il avait raison. `intNum()` cherchait le plus grand
+numéro « archive comprise » — mais `intArchive()` reconstruit l'objet à la main et **ne gardait
+pas `num`**. Le bug mesuré (INT-2026-010 émis trois fois après des annulations) était entier, et
+**mon test le déclarait vert** parce qu'il simulait l'archivage en gardant le champ.
+
+Deux leçons versées dans `tests/LISEZMOI.md`, parce qu'elles se reproduiront :
+
+1. **Ne jamais tester un substitut de ce que le code produit.** Un état de départ se fabrique
+   avec la fonction réelle qui le fabrique en production, jamais à la main.
+2. **Extraire une fonction ENTIÈRE, pas son premier morceau qui compile.** L'extracteur des
+   suites rendait le plus COURT préfixe qui passe `new Function` : sur `ombreRelever`, il coupait
+   avant la ligne qui construit l'ombre des lignes de stock, et six vérifications échouaient sur
+   du code pourtant juste. Audit fait sur les douze suites : **seule la nouvelle était touchée.**
+
+Le correctif, lui, va plus loin que ce que le relecteur demandait : l'archive est **aussi
+plafonnée à 500**, donc même avec le numéro conservé, un numéro ancien finit par sortir de la
+mémoire. Il y a désormais un **plafond qui ne redescend jamais** (`db.numMax`), relevé à chaque
+enregistrement sur ce que la base contient vraiment, et **réuni par le MAXIMUM** à la fusion —
+jamais par « le plus récent gagne », qui laisserait un appareil en retard rendre un numéro déjà
+utilisé.
+
+### La suite possible, si Justin la veut
+
+La maille fine règle le cas mesuré. Le cran d'après serait **un document Firestore par appareil**
+plutôt qu'un seul par entreprise : personne ne pourrait alors structurellement écrire par-dessus
+personne, puisque chaque appareil n'écrirait que le sien, et la lecture serait leur union. C'est
+la lecture littérale de « synchronisation par utilisateur ». Ça change la disposition des données
+dans le nuage (migration de toutes les entreprises) et demande de nouvelles règles Firestore —
+donc ça se conçoit, se teste et se publie **seul**. À décider, pas fait.
+
+---
+
 ## v638 — le soir du 10 septembre : quatre audits, vingt-cinq corrections
 
 Justin : « Tout et corriger pas de bug ou des problèmes qui pourrait causer des gros dégâts »,
