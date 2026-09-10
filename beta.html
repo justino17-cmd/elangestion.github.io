@@ -3822,7 +3822,8 @@ html[data-refonte] .rf-tabs button:focus-visible{box-shadow:var(--anneau);border
 .bxp-nouv-t{font-size:15px;font-weight:800;color:var(--t1)} .bxp-nouv-s{font-size:12.5px;color:var(--t3);margin:2px 0 8px;line-height:1.5}
 .bxp-nouv .bxp-l{background:var(--bg1)} .bxp-nouv-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px} .bxp-nouv-btns .btn,html[data-refonte] .bxp-nouv-btns .btn.sm{min-height:44px}
 .bxp-ecartes{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--t3);padding:10px 2px} .bxp-ecartes>span{flex:1} .bxp-ecartes .pl-row{flex:1 0 100%} .bxp-ecartes .btn,html[data-refonte] .bxp-ecartes .btn.sm{min-height:44px}
-.bxp-pied{background:linear-gradient(to bottom,transparent,var(--bg1) 26%)} .bxp-valider{width:100%;justify-content:center;min-height:48px;font-size:15px} .bxp-valider:disabled{opacity:.5;cursor:default}
+.bxp-pied{background:linear-gradient(to bottom,transparent,var(--bg1) 26%)} .bxp-pied-note{font-size:12px;color:var(--t3);text-align:center;margin-bottom:6px}
+.bxp-four{margin-top:14px;padding-top:6px;border-top:1px solid var(--brd)} .bxp-four-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px} .bxp-four-chips .chip,html[data-refonte] .bxp-four-chips .chip{min-height:40px;display:inline-flex;align-items:center} .bxp-valider{width:100%;justify-content:center;min-height:48px;font-size:15px} .bxp-valider:disabled{opacity:.5;cursor:default}
 .bxp-recap{font-size:13.5px;color:var(--t2);line-height:1.55;padding:12px 14px;border-radius:12px;background:var(--card2);border:1px solid var(--brd);margin-bottom:10px} .bxp-recap b{color:var(--t1)} .bxp-recap ul{margin:6px 0 8px 18px;padding:0} .bxp-recap p{margin:6px 0 0}
 .bxp-2btn{display:flex;gap:8px} .bxp-2btn .btn{flex:1;justify-content:center;min-height:48px} .bxp-2btn .btn:disabled{opacity:.5}
 .dbl-g{margin-top:10px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--org,#e8a33d) 30%,transparent)} .dbl-f{font-size:12px;color:var(--t3);line-height:1.5;margin-top:2px}
@@ -4831,7 +4832,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '625-beta';
+const APP_VERSION = '626-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -18209,13 +18210,13 @@ function removeBoxProd(pid){ const b=db.boxes.find(x=>x.id===boxView); if(!b)ret
    geste qui coûte sans le dire avant : la feuille ne supprime aucune fiche produit et ne touche à
    aucune quantité — un produit qui a du stock ne se retire que par sa fiche, avec la validation DR. */
 let abpSel=new Set();
-let bxpOnglet='ajouter', bxpNouvSel=new Set(), bxpRetSel=new Set(), bxpRetPhase=0, bxpCache=null, bxpGardesVoir=false, bxpEcartesVoir=false, _dernierRetrait=null;
+let bxpOnglet='ajouter', bxpNouvSel=new Set(), bxpRetSel=new Set(), bxpRetPhase=0, bxpCache=null, bxpGardesVoir=false, bxpEcartesVoir=false, _dernierRetrait=null, bxpFourSel=new Set(), bxpFour='';
 function bxpBox(){ return (db.boxes||[]).find(x=>x.id===boxView)||null; }
 /* Les trois listes se calculent UNE fois à l'ouverture et après chaque écriture — jamais à la frappe :
    produitsDoublons() parcourt tout le catalogue, une recherche ne doit pas le relancer à chaque lettre. */
 function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b)}; return bxpCache; }
 function openBoxProduits(){ const b=bxpBox(); if(!b) return;
-  abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpOnglet='ajouter'; bxpRetPhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
+  abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpOnglet='ajouter'; bxpRetPhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
   bxpCalculer(b); bxpCache.nouv.forEach(p=>bxpNouvSel.add(p.id));   // les nouveautés arrivent cochées : le geste attendu, c'est de les poser
   openModal(`<div class="modal-head sheet-head"><button type="button" class="btn ghost sm bxp-fermer" onclick="closeModal()">Fermer</button><h3 class="bxp-titre">Produits de la box<small>${esc(b.nom||b.numero||'')}</small></h3><span class="bxp-vide"></span></div>
     <div id="bxp-doublons"></div>
@@ -18242,8 +18243,34 @@ function bxpRendreAjout(b,c){ const el=$('bxp-corps'); const nouv=c.nouv; const 
   el.innerHTML=groupe+`<div class="abp-etat"><span><b>${deja}</b> déjà dans la box</span><span><b>${c.dispo.length}</b> à ajouter</span></div>
     <div class="bxp-rech"><input class="search-inp" id="abp-search" placeholder="Rechercher un produit…" oninput="renderAbpList()" autocomplete="off"><button type="button" class="btn ghost sm" id="abp-tout" onclick="abpToggleAll()">Tout cocher</button></div>
     <div id="abp-list"></div>${ecartesHtml}
-    <div class="bl-pied bxp-pied"><button type="button" class="btn bxp-valider" id="abp-valider" onclick="addBoxProd()" disabled>Ajouter (0)</button></div>`;
+    <div class="bxp-four" id="bxp-four"><div class="bxp-sous">Catalogues fournisseurs · ${CATFOUR.length} références</div>
+      <div class="bxp-four-chips">${['','ARMOSA','ENSYSTEX','SODIF','MABI','ORCAD'].map(f=>`<div class="chip ${bxpFour===f?'active':''}" onclick="bxpFourChoisir('${f}')">${f||'Tous'}</div>`).join('')}</div>
+      <div id="bxp-four-list"></div></div>
+    <div class="bl-pied bxp-pied"><div class="bxp-pied-note" id="abp-note" hidden></div><button type="button" class="btn bxp-valider" id="abp-valider" onclick="addBoxProd()" disabled>Ajouter (0)</button></div>`;
   renderAbpList(); }
+/* ── Les catalogues fournisseurs, DANS la box ── Justin, 10 septembre : « quand le technicien, le chef
+   d'équipe ou le DR appuie sur ajouter les produits, ils doivent avoir tous les produits de la gamme
+   qu'ils ont dans Produits, sans passer par l'administrateur ». Ce qui est coché ici et n'existe pas
+   encore au catalogue de l'entreprise y entre au moment d'ajouter (produitCreer, donc daté, donc
+   « nouveau » sur les autres box), puis se pose dans cette box à zéro. Pas de garde de permission :
+   c'est la demande, et poser un produit dans sa box est le geste de qui tient la box. */
+let CATFOUR_N=null;
+function bxpFourMatches(){ if(!CATFOUR_N) CATFOUR_N=CATFOUR.map(x=>norm(x[0]+' '+(x[1]||''))); const q=norm(($('abp-search')||{}).value||'');
+  if(!q&&!bxpFour) return [];   // sans recherche ni fournisseur choisi, on ne déroule pas 2 809 lignes
+  const deja=new Set((db.produits||[]).map(produitCle)); const out=[];
+  for(let i=0;i<CATFOUR.length;i++){ const x=CATFOUR[i]; if(bxpFour&&x[2]!==bxpFour) continue; if(q&&!CATFOUR_N[i].includes(q)) continue; if(deja.has(produitCle({nom:x[0]}))) continue; out.push(i); }
+  return out; }
+function bxpFourChoisir(f){ bxpFour=(bxpFour===f)?'':f; const el=$('bxp-four'); if(!el) return;
+  el.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c.textContent===(bxpFour||'Tous'))); renderAbpList(); }
+function bxpFourToggle(i){ if(bxpFourSel.has(i)) bxpFourSel.delete(i); else bxpFourSel.add(i); renderAbpList(); }
+function bxpFourToutCocher(){ const m=bxpFourMatches(); if(!m.length) return; if(m.every(i=>bxpFourSel.has(i))) m.forEach(i=>bxpFourSel.delete(i)); else m.forEach(i=>bxpFourSel.add(i)); renderAbpList(); }
+function renderBxpFour(){ const el=$('bxp-four-list'); if(!el) return; const q=(($('abp-search')||{}).value||'').trim(); const m=bxpFourMatches();
+  if(!q&&!bxpFour){ el.innerHTML='<div class="bxp-vide-txt">Tape un nom ci-dessus, ou choisis un fournisseur pour parcourir sa gamme. Ce que tu coches entre au catalogue de l\'entreprise et dans cette box.</div>'; return; }
+  if(!m.length){ el.innerHTML='<div class="bxp-vide-txt">'+(q?'Rien de plus chez les fournisseurs pour cette recherche.':'Toute la gamme est déjà dans ton catalogue.')+'</div>'; return; }
+  const tous=m.every(i=>bxpFourSel.has(i)); const MAX=120;
+  el.innerHTML=`<div class="bxp-rech"><span class="bxp-compte"><b>${m.length}</b> référence${m.length>1?'s':''}${bxpFour?' '+esc(bxpFour):''} pas encore au catalogue</span><button type="button" class="btn ghost sm" onclick="bxpFourToutCocher()">${tous?'Tout décocher':'Tout cocher ('+m.length+')'}</button></div>`
+    +m.slice(0,MAX).map(i=>{ const x=CATFOUR[i]; const on=bxpFourSel.has(i); return `<div class="pl-row bxp-l" onclick="bxpFourToggle(${i})"><span class="bxp-coche" style="color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span><div class="pl-info"><div class="pl-title">${esc(x[0])}</div><div class="pl-meta">${esc(x[1]||'')}${x[1]?' · ':''}${esc(x[2])}</div></div></div>`; }).join('')
+    +(m.length>MAX?`<div class="bxp-vide-txt">… et ${m.length-MAX} autres — affine la recherche, ou « Tout cocher » les prend toutes.</div>`:''); }
 /* Ce qui peut encore entrer dans la box : ni un identifiant déjà posé, ni un NOM déjà posé sous un
    autre identifiant — sauf pour une paire déclarée « distincts » (§ doublons), où l'identité redevient
    l'identifiant : deux fiches de même nom peuvent alors vivre dans la même box, chacune son stock. */
@@ -18253,9 +18280,11 @@ function abpVisibles(){ const c=bxpCache; if(!c) return []; const q=norm($('abp-
   return c.dispo.filter(p=>!nouv.has(p.id)).filter(p=>!q||norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+((p.fournisseurs||[]).join(' '))).includes(q)).sort((a,b)=>(a.nom||'').localeCompare(b.nom||'','fr',{sensitivity:'base'})); }
 /* Ne réécrit QUE la liste : le champ de recherche reste en place, le clavier reste ouvert. */
 function renderAbpList(){ const el=$('abp-list'); if(!el||!bxpCache) return; const avail=abpVisibles(); const q=($('abp-search')||{}).value||'';
-  const v=$('abp-valider'); if(v){ v.textContent='Ajouter ('+abpSel.size+')'; v.disabled=!abpSel.size; }
+  const total=abpSel.size+bxpFourSel.size; const v=$('abp-valider'); if(v){ v.textContent='Ajouter ('+total+')'; v.disabled=!total; }
+  const note=$('abp-note'); if(note){ note.hidden=!bxpFourSel.size; note.textContent=bxpFourSel.size+' référence'+(bxpFourSel.size>1?'s':'')+' fournisseur '+(bxpFourSel.size>1?'entreront':'entrera')+' aussi au catalogue de l\'entreprise'; }
+  renderBxpFour();
   const t=$('abp-tout'); if(t){ const tous=avail.length>0&&avail.every(p=>abpSel.has(p.id)); t.textContent=tous?'Tout décocher':('Tout cocher'+(avail.length?' ('+avail.length+')':'')); t.disabled=!avail.length; }
-  if(!avail.length){ el.innerHTML='<div class="bxp-vide-txt">'+(q?'Rien ne correspond à cette recherche.':'Tous les produits du catalogue sont déjà dans la box — rien à ajouter.')+'</div>'; return; }
+  if(!avail.length){ el.innerHTML='<div class="bxp-vide-txt">'+(q?'Rien de plus dans le catalogue de l\'entreprise pour cette recherche.':'Tous les produits du catalogue de l\'entreprise sont déjà dans la box. Les catalogues fournisseurs sont juste en dessous.')+'</div>'; return; }
   el.innerHTML=avail.map(p=>{ const on=abpSel.has(p.id); return `<div class="pl-row bxp-l" onclick="abpToggle('${p.id}')"><span class="bxp-coche" style="color:${on?'var(--acc)':'var(--t3)'}">${on?'☑':'☐'}</span><div class="pl-info"><div class="pl-title">${esc(p.nom)}</div><div class="pl-meta">${esc(p.categorie||'')}${p.ref?' · '+esc(p.ref):''}</div></div></div>`; }).join(''); }
 function abpToggle(pid){ if(abpSel.has(pid)) abpSel.delete(pid); else abpSel.add(pid); renderAbpList(); }
 /* « Tout cocher » ne coche que ce qui est VISIBLE après la recherche, et le second tap décoche les mêmes. */
@@ -18264,10 +18293,18 @@ function abpToggleAll(){ const avail=abpVisibles(); if(!avail.length) return; if
    parce que la synchro a pu changer la box entre l'ouverture de la feuille et le tap. */
 function boxPoserProduits(b,ids){ b.stock=b.stock||{}; const ok=new Set(abpDisponibles(b).map(p=>p.id)); const poses=[], deja=[];
   ids.forEach(pid=>{ if(!ok.has(pid)||b.stock[pid]){ deja.push(pid); return; } b.stock[pid]={ctn:0,u:0}; poses.push(pid); }); return {poses,deja}; }
-function addBoxProd(){ const b=bxpBox(); if(!b) return; if(!abpSel.size){ toast('Choisis au moins un produit'); return; }
-  const r=boxPoserProduits(b,[...abpSel]); if(!r.poses.length){ toast('Rien à ajouter : ces produits sont déjà dans la box'); abpSel=new Set(); bxpRafraichir(); return; }
-  logEvent('Produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock');
-  save(); closeModal(); renderBoxDetail(); toast(r.poses.length+' produit'+(r.poses.length>1?'s':'')+' ajouté'+(r.poses.length>1?'s':'')+' à la box, quantités à zéro'+(r.deja.length?' · '+r.deja.length+' déjà posé'+(r.deja.length>1?'s':'')+' entre-temps':''),3500); }
+function addBoxProd(){ const b=bxpBox(); if(!b) return; if(!abpSel.size&&!bxpFourSel.size){ toast('Choisis au moins un produit'); return; }
+  const fourIdx=[...bxpFourSel].filter(i=>CATFOUR[i]);
+  if(fourIdx.length>60&&!confirm('Ajouter '+fourIdx.length+' références fournisseur au catalogue de l\'entreprise et à cette box ?\n\nElles seront proposées sur les autres box comme nouveautés.')) return;
+  /* les références fournisseur entrent d'abord au catalogue (une fois par nom), puis tout se pose ensemble */
+  const crees=[]; const parCle=new Map((db.produits||[]).map(p=>[produitCle(p),p])); const ids=[...abpSel];
+  fourIdx.forEach(i=>{ const x=CATFOUR[i]; const k=produitCle({nom:x[0]}); let p=parCle.get(k);
+    if(!p){ p=produitCreer({id:idCatalogue(x[2]+' '+x[0],'four'),ref:'',nom:x[0],categorie:x[1]||'',fournisseurs:[x[2]],unite:'unité',prix:0,qteCarton:0,qte:0,seuil:0},{push:true}); parCle.set(k,p); crees.push(p); }
+    ids.push(p.id); });
+  const r=boxPoserProduits(b,ids); if(!r.poses.length&&!crees.length){ toast('Rien à ajouter : ces produits sont déjà dans la box'); abpSel=new Set(); bxpFourSel=new Set(); bxpRafraichir(); return; }
+  if(crees.length) logEvent('Produits ajoutés au catalogue depuis la box',(b.nom||b.numero||'')+' : '+crees.map(p=>p.nom).join(', '),'crud');
+  if(r.poses.length) logEvent('Produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock');
+  save(); closeModal(); renderBoxDetail(); toast(r.poses.length+' produit'+(r.poses.length>1?'s':'')+' ajouté'+(r.poses.length>1?'s':'')+' à la box, quantités à zéro'+(crees.length?' · '+crees.length+' nouveau'+(crees.length>1?'x':'')+' au catalogue':'')+(r.deja.length?' · '+r.deja.length+' déjà posé'+(r.deja.length>1?'s':'')+' entre-temps':''),4200); }
 function bxpNouvToggle(pid){ if(bxpNouvSel.has(pid)) bxpNouvSel.delete(pid); else bxpNouvSel.add(pid); bxpRendre(); }
 function bxpNouvAjouter(){ const b=bxpBox(); if(!b||!bxpNouvSel.size) return; const r=boxPoserProduits(b,[...bxpNouvSel]);
   if(r.poses.length){ logEvent('Nouveaux produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock'); save(); }
