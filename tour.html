@@ -235,7 +235,10 @@ input[type=number].inp{font-variant-numeric:tabular-nums}
 .kpi{background:var(--surface);border:0;border-radius:var(--r-4);padding:18px 20px;box-shadow:var(--ombre-1);transition:background-color var(--d-1) var(--e-sortie),box-shadow var(--d-1) var(--e-sortie),transform var(--d-3) var(--ressort-vif)}
 .kpi .n{font-size:30px;font-weight:700;letter-spacing:-.025em;line-height:1.05;font-variant-numeric:tabular-nums}
 .kpi .l{font-family:var(--fs);font-size:12.5px;font-weight:500;color:var(--muted);letter-spacing:0;text-transform:none;margin-top:6px}
-.grille-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+/* Le seuil est réglable par écran (--kpi-min) : Entreprises en a SIX, et à 190 px la sixième
+   tombait seule sur une deuxième rangée — une tuile orpheline qui casse la lecture d'un coup
+   d'œil. Le défaut reste 190 px : les autres écrans ne changent pas. */
+.grille-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--kpi-min,190px),1fr));gap:14px}
 .kpi.clic{cursor:pointer}
 .kpi.clic:hover{background:var(--hover);box-shadow:var(--ombre-2)}
 .kpi.clic:active{transform:scale(.985);transition-duration:var(--d-0)}
@@ -412,11 +415,34 @@ input.inp,select.sel-f{display:block;line-height:normal}
    tap, c'est la préférence de Justin qui décide, plus la mienne. */
 /* min-height suffit à garantir la cible de 44 px : un padding en plus rallongerait chaque
    titre sur les écrans où rien ne se replie, et là le pliage coûterait sans rien rapporter. */
-.reg-tete{cursor:pointer;-webkit-tap-highlight-color:transparent;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;min-height:44px}
+.reg-tete{cursor:pointer;-webkit-tap-highlight-color:transparent;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;min-height:44px;
+  align-content:center;position:relative;padding-right:26px}
 .reg-tete .reg-nom,.reg-tete .reg-n{margin-right:0}
-.reg-chev{margin-left:auto;flex-shrink:0;font-size:12px;color:var(--dim);transition:transform .22s cubic-bezier(.2,0,0,1);align-self:center}
-.reg-g.plie .reg-chev{transform:rotate(-90deg)}
-.reg-g.plie>*:not(.reg-tete){display:none}
+/* align-content : sans lui, la ligne du titre se calait en HAUT de la boîte de 44 px et laissait
+   22 px d'air mort sous chaque titre — mesuré sur les sept groupes de l'Accueil. Un groupe replié
+   coûtait alors 66 px pour afficher 21 px de texte.
+   Le chevron sort du flux : dans un conteneur qui enveloppe, il repartait à la ligne dès que la
+   phrase du groupe remplissait la première — une tête de 73 px sur bureau, 97 px au téléphone,
+   avec un chevron seul au milieu de nulle part. Posé en absolu à droite, il reste sur la ligne du
+   titre quoi qu'il arrive, et le padding-right lui garde sa place. */
+.reg-chev{position:absolute;right:0;top:0;height:44px;display:flex;align-items:center;
+  flex-shrink:0;font-size:12px;color:var(--dim);transition:transform var(--d-2) var(--e-sortie)}
+/* Un seul glyphe, « › », qui tourne — au lieu d'un glyphe échangé PENDANT qu'il tourne, deux
+   mouvements qui se contredisaient. Fermé il pointe à droite (« il y a autre chose là-dessous »),
+   ouvert il pointe vers le contenu. C'est le sens de <details>, d'iOS et de Material ; l'ancien
+   rotate(-90deg) sur « › » le faisait pointer vers le HAUT une fois replié. */
+.reg-tete .reg-chev{transform:rotate(90deg)}
+.reg-g.plie .reg-tete .reg-chev{transform:none}
+.reg-g.plie .reg-tete{margin-bottom:0}
+.reg-g.plie>*:not(.reg-tete):not(.ac-tete){display:none}
+/* Un en-tête ENVELOPPÉ (.ac-tete, qui pose le titre et son bouton d'action côte à côte) est
+   l'enfant direct, pas .reg-tete : la règle ci-dessus l'emportait avec le corps, titre compris.
+   L'onglet Accès y perdait sa seconde porte — « Accès à la version publique », repliée par la
+   règle des 300 px — en entier : plus de titre, plus de compteur, plus de chevron, donc plus
+   rien à cliquer pour la rouvrir. Mesuré au banc : hauteur 0, en-tête invisible, groupe
+   inatteignable. Un groupe garde TOUJOURS son titre ; seul son bouton d'action part avec le corps. */
+.reg-g.plie>.ac-tete{margin-bottom:0}
+.reg-g.plie>.ac-tete>*:not(.reg-tete){display:none}
 .reg-g.plie .reg-sous{display:none}
 @media (prefers-reduced-motion:reduce){ .reg-chev{transition:none} }
 
@@ -2953,7 +2979,7 @@ function regBascule(cle,el){
   var g=el.closest('.reg-g'); if(!g) return;
   var plie=g.classList.toggle('plie');
   var o=plisLus(); o[cle]=plie?1:0; plisEcrire(o);
-  var c=g.querySelector('.reg-chev'); if(c) c.textContent=plie?'\u203A':'\u2304';
+  /* le glyphe ne change plus : c'est la rotation qui dit ouvert ou fermé */
   el.setAttribute('aria-expanded',plie?'false':'true');
 }
 function regPliage(){
@@ -2970,13 +2996,16 @@ function regPliage(){
        lire, un tap de plus) que ça ne fait gagner. Un résumé court comme « En un coup d'œil »
        reste donc ouvert, une liste de quinze incidents se replie.
        Dès que Justin touche un titre, son choix est enregistré et prime sur cette règle. */
-    var auto=(i>0) && g.scrollHeight>300;
+    /* Deux exceptions possibles : un groupe marqué reg-g-fixe ne se replie jamais tout seul.
+       L'onglet Accès s'en sert pour ses DEUX portes — la bêta et la version publique, qui crée
+       de vrais espaces d'entreprise : elles doivent se voir ensemble pour ne pas se confondre. */
+    var auto=(i>0) && g.scrollHeight>300 && !g.classList.contains('reg-g-fixe');
     var plie=(o[cle]===undefined)?auto:(o[cle]===1);
     if(plie) g.classList.add('plie');
     tete.dataset.pli='1'; tete.setAttribute('role','button'); tete.setAttribute('tabindex','0');
     tete.setAttribute('aria-expanded',plie?'false':'true');
     var chev=document.createElement('span'); chev.className='reg-chev'; chev.setAttribute('aria-hidden','true');
-    chev.textContent=plie?'\u203A':'\u2304'; tete.appendChild(chev);
+    chev.textContent='\u203A'; tete.appendChild(chev);
     tete.addEventListener('click',function(ev){ if(ev.target.closest('button,a,input,select,label')) return; regBascule(cle,tete); });
     tete.addEventListener('keydown',function(ev){ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); regBascule(cle,tete); } });
     i++;
@@ -4374,7 +4403,7 @@ function vueEntreprises(){
   /* On ne compte QUE les espaces d'annuaire : un espace hors annuaire n'a pas de code, donc
      pas de clé connue — le compter « à migrer » ferait un chiffre qui ne descend jamais. */
   var aMigrer=(ENT.liste||[]).filter(function(x){ return x.dansAnnuaire && !x.cleePropre; }).length;
-  var kpi='<div class="grille-kpi simple" style="margin-bottom:20px">'+
+  var kpi='<div class="grille-kpi simple" style="--kpi-min:170px;margin-bottom:20px">'+
     compteur(st.total||0,'entreprises connues','','')+
     compteur(st.avecErreurs||0,'erreurs signalées','--redText','erreurs')+
     compteur(st.avecEchecs||0,'échecs de connexion','--amber','echecs')+
@@ -4418,9 +4447,13 @@ function vueEntreprises(){
     var al=[];
     if(o.erreurs) al.push('<span class="past p-rouge" title="'+o.erreurs+' erreur(s) signalée(s)">🐛 '+o.erreurs+'</span>');
     if(o.echecs24) al.push('<span class="past p-ambre" title="échecs de connexion sur 24 h">🔑 '+o.echecs24+'</span>');
-    if(eV.retard) al.push('<span class="past p-ambre" title="Version en ligne : v'+refV+'">⬇ v'+eV.haute+'</span>');
-    if(o.suspendu) al.push('<span class="past p-rouge" title="Espace suspendu">⏸</span>');
-    if(o.promo&&o.promo.actif) al.push('<span class="past p-vert" title="Formule offerte jusqu’au '+esc(o.promo.finLe)+'">🎁</span>');
+    if(eV.retard) al.push('<span class="past p-ambre" title="Version en ligne : v'+refV+'">⬇ v'+eV.haute+' en retard</span>');
+    /* Ces deux-là ne portaient qu'un pictogramme : « ⏸ » pour un espace suspendu — le fait le
+       plus grave qu'une fiche puisse porter — et « 🎁 » pour une formule offerte. En niveaux de
+       gris, ou pour qui ne distingue pas le rouge du vert, ils ne disaient rien. Le socle est
+       clair : la couleur ne parle jamais seule, toute pastille porte un mot ou un chiffre. */
+    if(o.suspendu) al.push('<span class="past p-rouge" title="Espace suspendu">⏸ Suspendue</span>');
+    if(o.promo&&o.promo.actif) al.push('<span class="past p-vert" title="Formule offerte jusqu’au '+esc(o.promo.finLe)+'">🎁 Offerte</span>');
     var alertes=al.slice(0,2).join('')+(al.length>2?'<span class="reg-plus">+'+(al.length-2)+'</span>':'');
 
     /* Un fait absent DISPARAÎT : pas de « — » de remplissage, et les séparateurs ne sont
@@ -4502,25 +4535,35 @@ function vueEntreprises(){
     tech.map(function(o){ return '<button type="button" class="reg-tech-l" onclick="entSel(\''+jsq(o.t)+'\')">'+esc(o.t)+'</button>'; }).join('')+
     '</div></div>' : '';
 
+  /* Deux vides différents, deux phrases différentes : « rien ne correspond » suppose une
+     recherche ou un filtre. Sans l'un ni l'autre, c'est qu'aucune entreprise n'est encore
+     connue — et là il faut dire d'où elles viennent, pas laisser croire à un filtre. */
   var liste=(groupes||pave)? '<div class="reg">'+groupes+'</div>'+pave
-    : '<div class="vide">Aucune entreprise ne correspond.</div>';
+    : (ENT.q||ENT.filtre)
+      ? '<div class="vide">Aucune entreprise ne correspond à cette recherche.'+
+        (ENT.filtre?' <button class="btn-fant" onclick="entFiltre(\''+ENT.filtre+'\')">Retirer le filtre</button>':'')+'</div>'
+      : '<div class="vide">Aucune entreprise connue pour l’instant.<br>Elles apparaissent dès qu’une s’inscrit sur le site, qu’un espace est ouvert depuis la Tour, ou qu’un appareil s’y connecte.</div>';
   /* Une entreprise ouverte prend toute la page : ni liste, ni compteurs. Les compteurs
      parlent de l'ensemble des entreprises — les garder à côté d'une fiche, c'est occuper
      un quart de l'écran avec autre chose que ce qu'on est venu lire. */
   if(ENT.sel) return tete+ficheEntreprise();
+  /* PLEINE LARGEUR, et non plus liste à gauche + colonne de détail à droite. Depuis que la
+     fiche s'ouvre en pleine page (le `return` juste au-dessus), cette colonne de détail ne
+     pouvait plus rendre QUE son texte d'attente — « Choisissez une entreprise dans la liste » —
+     tout en prenant la moitié de l'écran. Mesuré à 1440 px : 468 px pour la liste, 619 pour
+     l'attente, et vingt chaînes tronquées faute de place, dont l'adresse e-mail de CHAQUE
+     cliente et le nombre d'appareils, coupé pour dix-sept pixels. Le commentaire qui suivait
+     promettait déjà « elle n'occupe plus la moitié de l'écran pour rien » : c'est fait. */
   return tete+kpi+
-    '<div class="deux md"><div class="col-liste">'+
-      '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
-      '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
-        '<span>'+l.length+' sur '+(ENT.liste||[]).length+'</span>'+
-        (ENT.filtre?'<button class="btn-fant" style="padding:2px 10px;font-size:11.5px" onclick="entFiltre(\''+ENT.filtre+'\')">'+
-          esc({erreurs:'avec des erreurs',echecs:'avec des échecs de connexion',retard:'sans la dernière mise à jour',horsAnnuaire:'hors annuaire'}[ENT.filtre]||'')+' ✕</button>':'')+
-      '</div>'+
-      liste+'</div>'+
-    '<div class="col-detail"><div class="col-detail-sticky">'+ficheEntreprise()+'</div></div></div>';
+    '<div class="rech" style="margin-bottom:12px">'+svg('loupe',16)+'<input placeholder="Rechercher (nom, adresse, identifiant d’espace)…" value="'+esc(ENT.q)+'" oninput="entQ(this.value)"></div>'+
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+      '<span>'+l.length+' sur '+(ENT.liste||[]).length+'</span>'+
+      (ENT.filtre?'<button class="btn-fant" style="padding:2px 10px;font-size:11.5px" onclick="entFiltre(\''+ENT.filtre+'\')">'+
+        esc({erreurs:'avec des erreurs',echecs:'avec des échecs de connexion',retard:'sans la dernière mise à jour',
+             horsAnnuaire:'hors annuaire',migrer:'à migrer (clé partagée)'}[ENT.filtre]||'')+' ✕</button>':'')+
+    '</div>'+
+    liste;
 }
-/* Ce que la fiche montre quand personne n'est choisi ne sert plus qu'à un cas : la liste
-   vide. On la garde donc, mais elle n'occupe plus la moitié de l'écran pour rien. */
 
 /* LA FICHE D'UNE ENTREPRISE — tout ce qui la concerne, et rien d'autre. Avant, l'onglet
    empilait sous la liste les espaces de TOUT LE MONDE puis les comptes de TOUT LE MONDE :
@@ -5654,13 +5697,13 @@ function vueEssais(){
   var pubTour=(PBL.liste||[]).filter(function(e){ return e.origine!=='site'; });
   var susp=pubTour.filter(function(e){ return e.suspendu; }).length;
 
-  var gBeta='<div class="reg-g"><div class="ac-tete"><div class="reg-tete">'+
+  var gBeta='<div class="reg-g reg-g-fixe"><div class="ac-tete"><div class="reg-tete">'+
     '<span class="reg-nom">Accès à la bêta</span>'+
     (BT.loaded&&!BT.err?'<span class="reg-n">'+nBeta+(coupes?' · '+coupes+' coupé'+(coupes>1?'s':''):'')+'</span>':'')+
     '<div class="reg-sous">N’ouvrent que teamop.fr/beta.html — jamais les données d’une entreprise. Champ Entreprise vide, puis l’identifiant et le mot de passe donnés ici.</div>'+
     '</div><button type="button" class="ac-act" onclick="accAllerForm(\'ac-f-beta\')">Ouvrir un accès bêta</button></div>'+
     accBlocBeta()+'</div>';
-  var gPub='<div class="reg-g"><div class="ac-tete"><div class="reg-tete">'+
+  var gPub='<div class="reg-g reg-g-fixe"><div class="ac-tete"><div class="reg-tete">'+
     '<span class="reg-nom">Accès à la version publique</span>'+
     (PBL.loaded&&!PBL.err?'<span class="reg-n">'+pubTour.length+(susp?' · '+susp+' suspendu'+(susp>1?'s':''):'')+'</span>':'')+
     '<div class="reg-sous">De vrais espaces sur teamop.fr/app.html, avec de vraies données qui se synchronisent. L’adresse e-mail est la clé : la réutiliser rouvre le même espace.</div>'+
