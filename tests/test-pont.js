@@ -2,7 +2,9 @@
 const fs=require('fs'); const APP=fs.readFileSync('/home/user/teamop/app.html','utf8');
 function dec(h){ const d=APP.indexOf(h); if(d<0) throw new Error('introuvable : '+h);
   for(let i=d;i<d+9000;i++){ if(APP[i]!=='}'&&APP[i]!==';') continue; const b=APP.slice(d,i+1); try{ new Function(b); return b; }catch(e){} } throw new Error('fin : '+h); }
-const morceaux=['const norm = s =>','const CAT_LIST=','function devineCat(nom){','function catalogueLignes(list){','function produitsVisibles(){','function plAnalyse(){'].map(dec).join('\n');
+function cst(n){ const i=APP.indexOf('const '+n+'='); const fin=APP.indexOf('];',i); return APP.slice(i,fin+2); }
+const morceaux=['const norm = s =>','const CAT_LIST=','function catFourNorm(s){','function devineCat(nom){','function rangerCatFour(catFournisseur,nomProduit){','function catalogueLignes(list){','function produitsVisibles(){','function plAnalyse(){'].map(dec)
+  .concat([cst('CAT_FOUR_REJET'),cst('CAT_FOUR_NOM'),cst('CAT_FOUR_NOM_FAIBLE'),cst('CAT_FOUR_MAP')]).join('\n');
 const bac=new Function('etat',`let db=etat.db, prdOnglet=etat.onglet, prdSearch=etat.q, _plLignes=[], champ='';
   const CAT_DEVINE=[]; const $=id=>id==='pl-texte'?{value:champ}:null;
   ${morceaux}
@@ -32,8 +34,11 @@ v('le prix français revient en nombre',relu[1].prix,24.9);
 v('la catégorie est reprise, pas devinée',relu[2].categorie,'EPI');
 
 console.log('L\'ancien format continue de passer');
-v('deux colonnes',bac.lire('MUSKIL bloc 10 kg ; SODIF')[0],{nom:'MUSKIL bloc 10 kg',fournisseur:'SODIF',prix:0,ref:'',categorie:''});
-v('une seule colonne',bac.lire('Gants')[0],{nom:'Gants',fournisseur:'',prix:0,ref:'',categorie:''});
+/* v635 : une ligne tapée à la main SANS colonne catégorie est maintenant rangée par le nom seul
+   (rangerCatFour puis devineCat). C'est le point du correctif : avant, 64 % des produits collés
+   arrivaient sans catégorie et se retrouvaient en vrac dans l'écran Produits. */
+v('deux colonnes : la catégorie se déduit du nom',bac.lire('MUSKIL bloc 10 kg ; SODIF')[0],{nom:'MUSKIL bloc 10 kg',fournisseur:'SODIF',prix:0,ref:'',categorie:'TP14 — Rodenticide'});
+v('une seule colonne : idem',bac.lire('Gants')[0],{nom:'Gants',fournisseur:'',prix:0,ref:'',categorie:'EPI'});
 v('une catégorie inventée est ignorée',bac.lire('X ; Y ; 1 ; R ; Bidule')[0].categorie,'');
 v('les lignes vides sautent',bac.lire('A\n\n  \nB').length,2);
 

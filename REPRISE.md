@@ -21,11 +21,15 @@ règles publiées, fichiers servis) :
 - **Version minimale exigée : v622**, réglée depuis la Tour par Justin le 10 septembre au matin
   (vérifié : `/api/version` → `min: 622`), portée par `versions.json` et par
   `teamop_config/version`. Google refuse toute écriture d'un appareil sous v622.
-  **v623 (doublons de produits) à exiger dès sa publication** : un appareil en v622 qui
-  s'ouvre pour la première fois sème encore le pack avec des identifiants aléatoires.
-  **v624 (le DR corrige la quantité) : à exiger aussi, sans urgence** — un appareil en v623 lit
-  un lot corrigé sans voir la correction : son historique dirait « −5 » là où −4 a été appliqué.
-  Le stock, lui, est juste partout : il n'est écrit qu'une fois, par l'appareil qui valide.
+  **10 septembre, 21 h : le minimum exigé est v633** (`/api/version` → `min: 633`), et **v634 est
+  publiée et servie** (sha256 vérifié identique au dépôt).
+
+  ⚠️ **v634 est à exiger dès que possible, et c'est la plus importante de la série.** Tant qu'un
+  appareil de l'entreprise reste sous v634, il continue de fabriquer des identifiants de produit que
+  les autres ne savent pas retrouver — donc de nouveaux doublons, y compris juste après une fusion.
+  Un appareil sous v634 qui colle une liste ou saisit un produit hors stock au nom non latin peut même
+  faire disparaître une fiche et son stock à la synchro (voir plus bas). La cure ne tient que si tout
+  le monde est passé.
 - **Règles Firestore publiées dans `elan-gestion` = `firestore.rules`** : OP GESTION + espace
   client, **sans la messagerie**. `op_companies` répond 403 — voulu. OP MESSAGES aura son projet
   (`firestore-opmessages.rules`) ; `messages.html` est hors d'usage jusqu'à sa bascule.
@@ -57,6 +61,71 @@ propres régressions sur ce chantier — la fusion globale rendue au bandeau, le
 ouverte, l'action mise avant l'explication. **Puis v633 et v634 :** l'identité d'un produit, ci-dessous.
 **Reste :** la bascule d'OP MESSAGES sur son projet — attend la configuration web du nouveau projet Firebase,
 que Justin doit créer.
+
+### v635 — le catalogue de Justin, le rangement, et la pose dans les box déjà créées
+
+**Le pack 3D passe de 110 à 160 références.** Justin a copié la liste de sa bêta le 10 septembre
+(184 lignes : 110 déjà au pack, 24 fiches « (démo) » écartées, **50 vraies nouvelles**) — la gamme
+VULCANO d'ORCAD et cinq bâches MABI, toutes présentes dans les catalogues fournisseurs publics
+embarqués. Aucune donnée d'un client : c'est un pack métier, comme les 110 d'origine.
+
+**Le pack appartient désormais au MÉTIER** (`METIERS['3d'].catalogue` et `.fournisseurs`, lus par
+`metierPackDe`). Un métier sans pack — plomberie, nettoyage — n'a plus ni bouton « ↻ Catalogue OP »
+ni fiches à poser. C'est la décision de Justin du 8 septembre (« la liste 3D servie à un plombier »),
+enfin écrite là où elle se lit. Sans métier réglé, c'est la 3D : le métier de toutes les entreprises
+d'avant le choix.
+
+**Le rangement des catégories — « ça là c'est mal rangé ».** L'écran Produits de Justin affichait
+19 catégories : les huit de l'application plus onze rayons bruts de fournisseurs. Deux chemins
+traitaient la catégorie de façon opposée et tous deux fautifs — l'onglet 🏭 Fournisseurs RECOPIAIT
+l'étiquette (171 valeurs, 2 655 références sur 2 809 hors de `CAT_LIST`), le collage la JETAIT et
+devinait d'après le nom, muet sur 64 %. `rangerCatFour(étiquette, nom)` traduit désormais vers l'une
+des huit, ou rend la chaîne vide.
+
+> **L'ordre de cette table est un raisonnement, et il est l'inverse de celui qu'on écrit d'instinct :
+> LE NOM PASSE AVANT L'ÉTIQUETTE.** Un rayon nomme une CIBLE (« Insectes », « Rongeurs »,
+> « Volatiles »), le nom nomme l'OBJET — et c'est l'objet qu'on range dans une box. Sans cet ordre,
+> un thermomètre laser devient un insecticide parce qu'il dort sous « Insectes ».
+>
+> **Deux garde-fous que la mesure a imposés.** Un : aucune étiquette qui nomme une cible ne se replie
+> sur TP14 ni TP18 — ce ne sont pas deux étagères parmi huit, ce sont les types du règlement biocide
+> qu'une entreprise trace ; une clé de poste qui y atterrit, c'est un registre qui ne veut plus rien
+> dire. Deux : **plutôt vide que faux** — une fiche sans catégorie se voit et se corrige en deux
+> clics, une fiche mal rangée se découvre le jour où elle manque en intervention.
+
+Mesuré : 98 % des 2 809 références rangées depuis l'onglet Fournisseurs, aucune sortie hors des huit ;
+sur le collage, les muettes tombent de 64 % à 20 %. Zéro outil rangé dans un type biocide, zéro
+matière active rodenticide rangée ailleurs que TP14. Une passe de `migrate()` range les fiches DÉJÀ
+posées, **uniquement** celles dont la catégorie est une étiquette reconnue de `CATFOUR` ou vide — le
+formulaire « ＋ Produit » étant un `select`, personne ne peut avoir inventé une catégorie, on ne
+réécrit donc que ce qu'on avait soi-même mal écrit. En navigateur : 30 catégories deviennent 8.
+
+**Poser le catalogue dans les box déjà créées.** Il ne manquait pas un mécanisme, il manquait un AXE :
+la feuille « Produits de la box » savait cocher cent produits mais n'écrivait que dans la box ouverte ;
+l'écran Boxes savait écrire dans N box mais un produit à la fois. Le pied gagne une ligne — « Dans :
+cette box · Changer » — et par défaut rien ne change.
+
+> **LA RÈGLE, la seule à retenir : une décision « Pas dans cette box » ne se lève que sur la box qu'on
+> a sous les yeux.** Sur la box ouverte, l'encart « N produits écartés » est à l'écran, reposer y est
+> un acte informé. Sur les autres, on ne voit rien — sans cette règle, une pose sur trente box
+> effacerait en silence les décisions de trente équipes. C'est aussi ce qui rend le geste répétable.
+
+Le plan est calculé **à blanc** avant d'écrire (fonction pure, aucun `save`) : chaque ligne du
+sélecteur annonce ce qu'elle recevrait vraiment (« +158 · 2 écartés gardés »), et le récapitulatif
+donne le total exact, jamais une estimation. Au-delà d'une box, le bouton ne pose rien : il ouvre le
+récapitulatif, gelé 500 ms. La pose s'annule 20 s au lieu de 7.
+
+> ⛔ **LA TRACE D'UN ALLÈGEMENT — le préalable sans lequel tout le reste se retournait contre Justin.**
+> Quatre chemins retirent un produit d'une box ; **un seul écrivait l'écart**. La croix ✕ du formulaire
+> « Modifier la box », le retrait direct de la fiche et le retrait validé par le DR n'en écrivaient
+> aucun. Les box d'ELAN sont exactement la population taillée par ces chemins-là : au premier geste,
+> elles se seraient re-remplies. Les quatre écrivent désormais la même trace.
+
+**Deux bugs voisins corrigés au passage**, dont un que j'avais introduit en v633 : `boxAutoNouveautes`
+écrivait une ligne de journal PAR BOX et `db.journal` est plafonné à 500 entrées — douze box de cent
+produits effaçaient tout l'historique de l'entreprise en un passage. Et le filtre de `db.boxDecisions`
+dans `delItem` s'exécutait AVANT le `confirm()` : annuler la suppression d'une box perdait quand même
+ses écartés, que le premier `save()` propageait à toute l'équipe.
 
 ### L'identité d'un produit — v633 (fusion) puis v634 (création)
 
