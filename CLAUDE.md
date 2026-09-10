@@ -45,8 +45,18 @@ cd server && npm audit --omit=dev  # failles dans les dépendances de production
 node --check server/index.js       # contrôle de syntaxe, depuis la racine
 ```
 
-**Aucun test sur cette branche.** La suite existante — 17 tests `node --test`
-avec `supertest` — vit sur `audit/plan-action` ; voir la dernière section.
+**Six suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
+réelles d'`app.html` et les exécute — elles testent donc le fichier livré.
+
+```bash
+for f in tests/test-*.js; do node "$f"; done   # 145 vérifications, ~2 s
+```
+
+Lire `tests/LISEZMOI.md` avant d'écrire dans `db.produits` : il porte l'invariant sur les
+identifiants de fiches, et `test-634.js` le fait respecter mécaniquement.
+
+L'autre suite — 17 tests `node --test` avec `supertest`, côté serveur — vit sur
+`audit/plan-action` ; voir la dernière section.
 
 ### Essayer le serveur en local
 
@@ -96,7 +106,15 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
 - **Ne jamais faire `db.produits.push(…)`** : une fiche produit naît par `produitCreer(fiche,{semis,push})`
   (`app.html`), qui pose `cree`/`creePar` — c'est ce qui fait apparaître le « +N » sur les box et la cloche.
   Un semis (catalogue, démo, bêta) passe `semis:true` (vaut 0, jamais « nouveau »). Une seule LIGNE DE CODE
-  doit appeler `db.produits.push` — `grep -c` en compte deux, la seconde étant le commentaire qui le dit. Même esprit : les décisions d'une box (`db.boxDecisions`) et les paires déclarées
+  doit appeler `db.produits.push` — `grep -c` en compte deux, la seconde étant le commentaire qui le dit.
+- **L'identifiant d'une fiche produit est soit unique par construction (`uid`), soit déduit d'un nom qui
+  ne peut PAS sluguer à vide.** `idCatalogue` réduit un nom à `[a-z0-9]` : de la ponctuation seule ou une
+  écriture non latine ne laisse rien et retombe sur le générique `cat_x`. Pour tout nom **libre** (champ
+  de saisie, texte collé), passer par `idProduit(nom)`, qui rend `uid()` dans ce cas. Ne pas se reposer
+  sur la garde de `produitCreer` : elle ne protège que la création LOCALE — `fusionnerBases` unit par
+  identifiant et ne la voit jamais, donc deux appareils hors ligne perdraient une fiche et son stock à
+  la synchro, sans même être signalés comme doublon. `tests/test-634.js` relit le fichier et bloque
+  tout nouvel appel qui construirait un identifiant à partir d'un nom libre. Même esprit : les décisions d'une box (`db.boxDecisions`) et les paires déclarées
   distinctes (`db.produitsDistincts`) sont des collections à part, fusionnées par enregistrement — ne pas
   les ranger sur la box ni sur la fiche produit, la fusion en bloc écraserait le stock ajusté ailleurs.
 - **Ne jamais piloter `app.html` avec Chrome DevTools MCP** — voir la section suivante

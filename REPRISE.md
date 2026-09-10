@@ -112,13 +112,26 @@ version :
   qu'il ne tient pas. Un groupe dont tout est déclaré distinct sauf un reste signalé — il mérite une
   décision — mais « Tout fusionner » ne le compte plus.
 
-**Ce que `relecteur` a trouvé dans ce que je venais d'écrire, et qui est corrigé** : `idCatalogue`
+**Ce que `relecteur` a trouvé DEUX FOIS dans ce que je venais d'écrire, et qui est corrigé** : `idCatalogue`
 réduit un nom à `[a-z0-9]`. De la ponctuation seule, ou une écriture non latine, ne laisse rien et
 retombe sur le générique `cat_x`. Deux produits sans rapport saisis dans le champ « produit hors
 stock » d'une intervention prenaient alors le même identifiant — et la garde ci-dessus ne les
 départageait pas, puisqu'elle compare des slugs, donc deux chaînes vides. Le second se voyait rendre
 la fiche du premier, et son stock allait dessus, en silence. Ces noms-là gardent un identifiant unique
 (`idProduit`), et `produitCreer` porte la même ceinture (`produitMemeNom`) pour tout appelant futur.
+
+Le second passage a montré que j'avais raté le quatrième chemin — `plValider`, derrière « ⧉ Coller une
+liste de produits » — et surtout **pourquoi la ceinture de `produitCreer` ne suffit pas là** : deux
+appareils hors ligne collant chacun un tel nom créent leur fiche sans collision locale, puis
+`fusionnerBases` unit PAR IDENTIFIANT **sans jamais passer par `produitCreer`**. Une seule fiche
+survit, l'autre et son stock disparaissent — pas même signalés comme doublon, puisqu'ils partageaient
+déjà l'identifiant avant d'arriver au détecteur.
+
+> **La règle qui en sort, à tenir pour toute écriture future dans `db.produits`** : un identifiant est
+> soit unique par construction (`uid`), soit déduit d'un nom qui ne peut PAS sluguer à vide. Une garde
+> posée dans `produitCreer` ne protège que la création locale — la synchro, elle, ne la voit jamais.
+> Un test relit le fichier et vérifie qu'aucun appel ne construit plus un identifiant à partir d'un
+> nom libre ; les `idCatalogue` restants prennent tous leur nom de `CATALOGUE` ou de `CATFOUR`.
 
 Vérifié en navigateur sur la bêta, catalogue réel : semis 110 fiches toutes en `cat_*`, `cree:0`,
 `_m:1` ; les cinq gammes fournisseurs ajoutées d'affilée → 2 867 produits, **0 doublon, 0 identifiant
