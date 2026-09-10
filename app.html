@@ -4832,7 +4832,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '630';
+const APP_VERSION = '631';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -16127,10 +16127,13 @@ function produitsFusionnerDoublons(cles){
    pas se taire, sinon on recommence « Tout ajouter » et on repart à 420. */
 let _doublonsPlusTard=false, _doublonsOuvert=false, _doublonsApercu='', _doublonsTri=[];
 function produitsDoublonsRafraichir(){ if($('bxp-onglets')){ bxpRafraichir(); return; } if(typeof boxView!=='undefined'&&boxView&&$('boxprod-list')) renderBoxDetail(); else if(current==='produits') views.produits(); }
-function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) return ''; const g=produitsDoublons(); if(!g.length) return '';
+function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) return ''; let g=produitsDoublons(); if(!g.length) return '';
+  const bx=opts.boxId?(db.boxes||[]).find(x=>x.id===opts.boxId):null;
+  if(bx){ g=g.filter(l=>bx.stock&&l.some(p=>bx.stock[p.id])); if(!g.length) return ''; }
+  const cles=bx?new Set(g.map(l=>produitCle(l[0]))):null;   // sur une box, « Tout fusionner » ne touche que ses produits
   const n=g.reduce((a,l)=>a+l.length-1,0);
-  if(opts.replie&&!_doublonsOuvert) return `<div class="bandeau-doublons dbl-replie"><div><b>⚠ ${g.length} produit${g.length>1?'s':''} en double au catalogue</b></div><button type="button" class="btn ghost sm" onclick="_doublonsOuvert=true;produitsDoublonsRafraichir()">Voir</button></div>`;
-  const touche=l=>{ const b=opts.boxId?(db.boxes||[]).find(x=>x.id===opts.boxId):null; return !!b&&!!b.stock&&l.some(p=>b.stock[p.id]); };
+  if(opts.replie&&!_doublonsOuvert) return `<div class="bandeau-doublons dbl-replie"><div><b>⚠ ${g.length} produit${g.length>1?'s':''} de cette box ${g.length>1?'sont':'est'} en double au catalogue</b></div><button type="button" class="btn ghost sm" onclick="_doublonsOuvert=true;produitsDoublonsRafraichir()">Voir</button></div>`;
+  const touche=l=>!!bx&&!!bx.stock&&l.some(p=>bx.stock[p.id]);
   _doublonsTri=g.slice().sort((a,b)=>(touche(b)?1:0)-(touche(a)?1:0));
   const fiche=p=>{ const nb=(db.boxes||[]).filter(b=>b&&b.stock&&b.stock[p.id]).length; const u=(db.boxes||[]).reduce((t,b)=>t+((b&&b.stock&&b.stock[p.id])?(+b.stock[p.id].u||0):0),0);
     return `<div class="dbl-f">réf. ${esc(p.ref||'—')} · ${esc((p.fournisseurs||[]).join(', ')||'—')} · dans ${nb} box · ${u} u au total</div>`; };
@@ -16147,7 +16150,7 @@ function produitsDoublonsBandeau(opts){ opts=opts||{}; if(_doublonsPlusTard) ret
       <div class="dbl-f">« C'est normal » : ils ne seront plus signalés. Pour s'y retrouver, mieux vaut ensuite les renommer (ex. « … 300 g » et « … 1 kg »).</div></div>`; };
   const html=`<div class="bandeau-doublons dbl-ouvert"><div><b>${g.length} produit${g.length>1?'s':''} en double</b> — ${n} fiche${n>1?'s':''} de trop.
     ${_doublonsTri.slice(0,3).map(groupe).join('')}${g.length>3?`<div class="dbl-f">… et ${g.length-3} autre${g.length-3>1?'s':''}, du même genre.</div>`:''}
-    ${g.length>1?`<div class="dbl-btns"><button type="button" class="btn sm" onclick="produitsFusionnerDoublonsUI()">Tout fusionner (${g.length})</button></div>
+    ${g.length>1?`<div class="dbl-btns"><button type="button" class="btn sm" onclick="produitsFusionnerDoublonsUI(${bx?'boxView':''})">Tout fusionner (${g.length})</button></div>
       <div class="dbl-f">Une fiche par nom, le stock des box additionné, mouvements, demandes et bons redirigés. Rien n'est perdu, et ça vaut pour toute l'équipe.</div>`:''}</div>
     <button type="button" class="btn ghost sm" onclick="_doublonsPlusTard=true;produitsDoublonsRafraichir()">Plus tard</button></div>`;
   if(_doublonsApercu) setTimeout(()=>{ const o=$('dbl-ok'); if(o) o.disabled=false; },500);   // gelé 500 ms, comme le retrait
@@ -16162,12 +16165,15 @@ function produitsDistinctsLigne(){ const L=(db.produitsDistincts||[]).filter(d=>
   return `<div class="dbl-distincts"><span>${L.length} paire${L.length>1?'s':''} acceptée${L.length>1?'s':''} comme distincte${L.length>1?'s':''} : ${L.slice(0,4).map(d=>'« '+esc(d.nom||d.id)+' »').join(', ')}${L.length>4?'…':''}</span><button type="button" class="btn ghost sm" onclick="produitsDistinctsRevoir()">Revoir</button></div>`; }
 function produitsDistinctsRevoir(){ const L=(db.produitsDistincts||[]); if(!L.length) return; if(!confirm('Annuler '+L.length+' déclaration(s) « c\'est normal » ?\n\nLes doublons seront signalés à nouveau ; rien d\'autre ne change.')) return;
   db.produitsDistincts=[]; logEvent('Déclarations de doublons annulées',L.length+' paire(s)','stock'); save(); views.produits(); }
-function produitsFusionnerDoublonsUI(){
-  const g=produitsDoublons(); if(!g.length){ toast('Aucun doublon'); return; }
+function produitsFusionnerDoublonsUI(boxId){
+  const bx=boxId?(db.boxes||[]).find(x=>x.id===boxId):null;
+  let g=produitsDoublons(); if(bx) g=g.filter(l=>bx.stock&&l.some(p=>bx.stock[p.id]));
+  if(!g.length){ toast('Aucun doublon'); return; }
+  const cles=bx?new Set(g.map(l=>produitCle(l[0]))):null;
   const n=g.reduce((a,l)=>a+l.length-1,0);
   const liste=g.slice(0,8).map(l=>'• '+(l[0].nom||'')+' ×'+l.length).join('\n')+(g.length>8?'\n… et '+(g.length-8)+' autre(s)':'');
   if(!confirm('Fusionner '+n+' fiche(s) en double en '+g.length+' produit(s) ?\n\n'+liste+'\n\nMême nom = même produit : si ce sont deux produits différents, touche plutôt « C\'est normal ». Le stock des box s\'additionne, rien d\'autre n\'est supprimé. Ça se propage à toute l\'équipe.')) return;
-  const r=produitsFusionnerDoublons();
+  const r=produitsFusionnerDoublons(cles);
   toast(r.fiches+' fiche(s) fusionnée(s) — '+db.produits.length+' produits maintenant',4200);
   produitsDoublonsRafraichir();
 }
