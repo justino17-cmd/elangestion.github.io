@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '645';
+const APP_VERSION = '646';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6667,41 +6667,53 @@ function usersTombesFusion(a,b){
    repartirait) et on le dit. `tests/test-645.js` éprouve les deux fonctions. */
 /* 680 Kio de texte clair → `enc` (base64 d'AES-GCM, ×4/3) ≈ 906 Ko, plus les petits champs :
    le document reste sous la limite dure de 1 Mio de Firestore avec ~120 Ko de marge. */
-const NUAGE_BUDGET=680*1024;
+const NUAGE_BUDGET=620*1024;
 function syncAlleger(base, budget){
-  const B=budget||(typeof NUAGE_BUDGET!=='undefined'?NUAGE_BUDGET:737280);
+  const B=budget||(typeof NUAGE_BUDGET!=='undefined'?NUAGE_BUDGET:696320);
   const taille=s=>{ try{ return new TextEncoder().encode(s).length; }catch(e){ return s.length; } };
-  let t=0; try{ t=taille(JSON.stringify(base)); }catch(e){ return {copie:base,retirees:0,taille:0,impossible:false}; }
-  if(t<=B) return {copie:base,retirees:0,taille:t,impossible:false};
-  const its=Array.isArray(base.interventions)?base.interventions:[];
+  let t=0; try{ t=taille(JSON.stringify(base)); }catch(e){ return {copie:base,retirees:0,taille:0,impossible:false,gros:[]}; }
+  if(t<=B) return {copie:base,retirees:0,taille:t,impossible:false,gros:[]};
+  /* TOUTES les collections, pas seulement les interventions : le poids peut être une signature
+     de rapport, une photo de télécollecte, un logo — s'en tenir aux interventions laissait
+     l'écriture trop grosse et la boucle repartait (mesuré chez ELAN le 11 septembre 2026). */
+  const colls=Object.keys(base).filter(k=>Array.isArray(base[k]));
   const pieces=[];
-  its.forEach((i,ix)=>{ if(!i) return;
-    (Array.isArray(i.docs)?i.docs:[]).forEach((d,k)=>{ const n=(d&&d.data||'').length; if(n) pieces.push({ix,k,type:'doc',n}); });
-    (Array.isArray(i.photos)?i.photos:[]).forEach((p,k)=>{ const n=(typeof p==='string'?p:'').length; if(n) pieces.push({ix,k,type:'photo',n}); }); });
+  colls.forEach(c=>{ base[c].forEach((r,ix)=>{ if(!r||typeof r!=='object') return;
+    (Array.isArray(r.docs)?r.docs:[]).forEach((d,k)=>{ const n=(d&&typeof d.data==='string'?d.data:'').length; if(n>1024) pieces.push({c,ix,k,type:'doc',n}); });
+    (Array.isArray(r.photos)?r.photos:[]).forEach((ph,k)=>{ const n=(typeof ph==='string'?ph:'').length; if(n>1024) pieces.push({c,ix,k,type:'photo',n}); });
+    ['signature','signatureTech','signatureCli','apercu','image','logo'].forEach(f=>{ const n=(typeof r[f]==='string'?r[f]:'').length; if(n>1024) pieces.push({c,ix,f,type:'champ',n}); });
+  }); });
   pieces.sort((a,b)=>b.n-a.n);   // les plus lourdes d'abord : le moins de pièces retirées pour rentrer
-  const copie=Object.assign({},base); copie.interventions=its.slice();
-  const clones=new Map();
-  const cl=ix=>{ let c=clones.get(ix); if(!c){ const o=its[ix]; c=Object.assign({},o);
-    if(Array.isArray(o.docs)) c.docs=o.docs.map(d=>d&&typeof d==='object'?Object.assign({},d):d);
-    if(Array.isArray(o.photos)) c.photos=o.photos.slice();
-    clones.set(ix,c); copie.interventions[ix]=c; } return c; };
+  const gros=pieces.slice(0,6).map(p=>p.c+'.'+(p.f||p.type)+' '+Math.round(p.n/1024)+' Ko');   // de quoi SAVOIR ce qui pèse
+  const copie=Object.assign({},base);
+  const clones=new Map();   // clé « coll:index » → copie de l'enregistrement (la base locale n'est jamais touchée)
+  const cl=(c,ix)=>{ const k=c+':'+ix; let x=clones.get(k);
+    if(!x){ if(!copie[c]||copie[c]===base[c]) copie[c]=base[c].slice();
+      const o=base[c][ix]; x=Object.assign({},o);
+      if(Array.isArray(o.docs)) x.docs=o.docs.map(d=>d&&typeof d==='object'?Object.assign({},d):d);
+      if(Array.isArray(o.photos)) x.photos=o.photos.slice();
+      clones.set(k,x); copie[c][ix]=x; }
+    return x; };
   let excedent=t-B, n=0;
-  for(const p of pieces){ if(excedent<=0) break; const c=cl(p.ix);
-    if(p.type==='doc'){ const d=c.docs[p.k]; if(!d||!d.data) continue; excedent-=d.data.length; d.data=''; d.horsNuage=true; }
-    else { c.photos[p.k]=null; c.photosHorsNuage=(c.photosHorsNuage||0)+1; excedent-=p.n; }
+  for(const p of pieces){ if(excedent<=0) break; const x=cl(p.c,p.ix);
+    if(p.type==='doc'){ const d=x.docs[p.k]; if(!d||!d.data) continue; excedent-=d.data.length; d.data=''; d.horsNuage=true; }
+    else if(p.type==='photo'){ if(x.photos[p.k]==null) continue; excedent-=p.n; x.photos[p.k]=null; x.photosHorsNuage=(x.photosHorsNuage||0)+1; }
+    else { if(!x[p.f]) continue; excedent-=p.n; x[p.f]=''; x.champsHorsNuage=(x.champsHorsNuage||[]).concat([p.f]); }
     n++; }
-  clones.forEach(c=>{ if(Array.isArray(c.photos)&&c.photos.some(x=>x===null)) c.photos=c.photos.filter(x=>x!==null); });
+  clones.forEach(x=>{ if(Array.isArray(x.photos)&&x.photos.some(v=>v===null)) x.photos=x.photos.filter(v=>v!==null); });
   let t2=t; try{ t2=taille(JSON.stringify(copie)); }catch(e){}
-  return {copie,retirees:n,taille:t2,impossible:t2>B};
+  return {copie,retirees:n,taille:t2,impossible:t2>B,gros};
 }
 function syncRegreffer(local, fusion){ try{
-  const L=new Map(); ((local&&local.interventions)||[]).forEach(i=>{ if(i&&i.id!=null) L.set(String(i.id),i); });
   let n=0;
-  ((fusion&&fusion.interventions)||[]).forEach(r=>{ if(!r||r.id==null) return; const l=L.get(String(r.id)); if(!l||l===r) return;
-    if(r.photosHorsNuage>0 && Array.isArray(l.photos) && l.photos.length>((r.photos&&r.photos.length)||0)){ r.photos=l.photos.slice(); n++; }
-    if(Array.isArray(r.docs)&&Array.isArray(l.docs)) r.docs.forEach(d=>{ if(!d||!d.horsNuage||d.data) return;
-      const ld=l.docs.find(x=>x&&x.data&&x.nom===d.nom&&x.ts===d.ts); if(ld){ d.data=ld.data; n++; } });
-  });
+  Object.keys(fusion||{}).forEach(c=>{ if(!Array.isArray(fusion[c])||!Array.isArray(local&&local[c])) return;
+    const L=new Map(); local[c].forEach(r=>{ if(r&&r.id!=null) L.set(String(r.id),r); });
+    fusion[c].forEach(r=>{ if(!r||r.id==null) return; const l=L.get(String(r.id)); if(!l||l===r) return;
+      if(r.photosHorsNuage>0 && Array.isArray(l.photos) && l.photos.length>((r.photos&&r.photos.length)||0)){ r.photos=l.photos.slice(); n++; }
+      if(Array.isArray(r.docs)&&Array.isArray(l.docs)) r.docs.forEach(d=>{ if(!d||!d.horsNuage||d.data) return;
+        const ld=l.docs.find(x=>x&&x.data&&x.nom===d.nom&&x.ts===d.ts); if(ld){ d.data=ld.data; n++; } });
+      (Array.isArray(r.champsHorsNuage)?r.champsHorsNuage:[]).forEach(f=>{ if(!r[f]&&typeof l[f]==='string'&&l[f]){ r[f]=l[f]; n++; } });
+    }); });
   return n; }catch(e){ return 0; } }
 function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) return; clearTimeout(_syncTimer);
   /* Trois portes fermées, dans l'ordre où elles coûtent le moins :
@@ -6769,7 +6781,8 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
     /* La copie poussée tient dans le document Firestore — la base locale, elle, garde tout. */
     const alle=syncAlleger(db);
     if(alle.retirees!==_allegeDit){ _allegeDit=alle.retirees;
-      if(alle.retirees){ try{ toast('📦 Base trop lourde pour le nuage : '+alle.retirees+' pièce(s) ou photo(s) restent sur cet appareil, non partagées — allège les pièces jointes des interventions',8000); }catch(_e){}
+      if(alle.retirees){ try{ console.warn('synchro allégée : '+alle.retirees+' pièce(s) retirée(s) de la copie poussée · base '+Math.round(alle.taille/1024)+' Ko'+(alle.gros&&alle.gros.length?' · plus lourds : '+alle.gros.join(', '):'')); }catch(_e){}
+        try{ toast('📦 Base trop lourde pour le nuage : '+alle.retirees+' pièce(s) ou photo(s) restent sur cet appareil, non partagées — allège les pièces jointes des interventions',8000); }catch(_e){}
         try{ logEvent('Synchro allégée', alle.retirees+' pièce(s)/photo(s) gardées sur cet appareil — base '+Math.round(alle.taille/1024)+' Ko','sync'); }catch(_e){} } }
     if(alle.impossible){
       try{ console.error('push : base trop lourde même sans pièces ('+Math.round(alle.taille/1024)+' Ko) — écriture non tentée'); }catch(_e){}
@@ -6783,7 +6796,23 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
        au retour du réseau, ce qui jette la file — la base de l'équipe fait foi. */
     let _acquitte=false;
     const _ecriture=_fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||''),verNum:APP_VERSION_NUM});
-    setTimeout(()=>{ if(!_acquitte){ _horsLignePush=true; try{ horsLigneDebut('écriture sans réponse'); }catch(_e){} } },15000);
+    /* ⛔ UNE ÉCRITURE QUI NE PASSE PAS N'EST PAS UNE PANNE DE RÉSEAU — et la confondre a enfermé
+       ELAN dehors le 11 septembre 2026. Le document dépassait la limite de Firestore : l'écriture
+       n'était jamais acquittée, l'application affichait « Connexion requise » PLEIN ÉCRAN puis se
+       rechargeait, et recommençait — sur tous les appareils, en boucle, alors qu'internet marchait
+       parfaitement et que la LECTURE passait. On tranche donc avec une mesure, pas une supposition :
+       si /health répond, le réseau est là, on PRÉVIENT et on laisse travailler (les modifications
+       sont enregistrées sur l'appareil et repartiront) ; s'il ne répond pas, c'est une vraie coupure
+       et l'écran hors ligne garde tout son sens. */
+    setTimeout(async ()=>{ if(_acquitte) return;
+      let reseau=false;
+      try{ const c2=new AbortController(); const t2=setTimeout(()=>c2.abort(),6000);
+        const r2=await fetch(PUSH_API+'/health',{method:'HEAD',cache:'no-store',signal:c2.signal}); clearTimeout(t2); reseau=!!(r2&&r2.ok); }catch(_e){}
+      if(_acquitte) return;
+      if(!reseau){ _horsLignePush=true; try{ horsLigneDebut('écriture sans réponse'); }catch(_e){} return; }
+      try{ console.warn('synchro : écriture non acquittée en 15 s alors que le réseau répond — base '+Math.round(alle.taille/1024)+' Ko'+(alle.gros&&alle.gros.length?' · plus lourds : '+alle.gros.join(', '):'')); }catch(_e){}
+      try{ toast('⚠️ Tes modifications ne partent pas encore vers l\'équipe — elles sont enregistrées sur cet appareil',7000); }catch(_e){}
+    },15000);
     _ecriture.then(()=>{ _acquitte=true; try{ sauvegardeDeposer(e); }catch(_e){} })
       .catch(er=>{ _acquitte=true; console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){} }); }catch(er){ console.error('encrypt',er); } };
 

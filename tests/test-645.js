@@ -104,4 +104,41 @@ v('impossible → on n\'écrit pas', /if\(alle\.impossible\)\{[\s\S]{0,400}retur
 v('regreffe à la réception ET avant l\'écriture', (APP.match(/syncRegreffer\((db|_localAvant),(remote|db)\)/g) || []).length, 2);
 v('ouvrir une pièce restée locale le dit au lieu de planter', /if\(!d\.data\)\{ toast\('Cette pièce est restée sur l/.test(APP), true);
 
+
+/* ── v646 : l'allègement couvre TOUTES les collections, et une écriture qui ne passe pas
+   ne bloque plus l'application quand le réseau, lui, répond. ───────────────────────── */
+console.log('\nL\'allègement ne se limite plus aux interventions');
+{
+  const sig = 'data:image/png;base64,' + 'S'.repeat(150000);
+  const base = {
+    interventions: [{ id: 'i1', photos: ['data:image/jpeg;base64,' + 'P'.repeat(80000)] }],
+    telecollectes: [{ id: 't1', photos: ['data:image/jpeg;base64,' + 'T'.repeat(200000)] }],
+    registres: [{ id: 'r1', signature: sig }],
+    societes: [{ id: 's1', logo: 'data:image/png;base64,' + 'L'.repeat(120000) }]
+  };
+  const avant = JSON.stringify(base);
+  const r = syncAlleger(base, 100 * 1024);
+  v('la base locale reste intacte', JSON.stringify(base), avant);
+  v('la photo de télécollecte est allégée', r.copie.telecollectes[0].photos.length, 0);
+  v('la signature du registre est allégée et marquée', [r.copie.registres[0].signature, r.copie.registres[0].champsHorsNuage], ['', ['signature']]);
+  v('le logo de la société est allégé', r.copie.societes[0].logo, '');
+  v('la copie tient dans le budget', r.taille <= 100 * 1024, true);
+  v('on sait ce qui pesait (diagnostic)', r.gros.length > 0, true);
+}
+
+console.log('\nLa regreffe couvre aussi ces champs et ces collections');
+{
+  const local = { registres: [{ id: 'r1', _m: 1, signature: 'VRAIE-SIGNATURE' }], telecollectes: [{ id: 't1', _m: 1, photos: ['A', 'B'] }] };
+  const fusion = { registres: [{ id: 'r1', _m: 9, signature: '', champsHorsNuage: ['signature'] }], telecollectes: [{ id: 't1', _m: 9, photos: [], photosHorsNuage: 2 }] };
+  const n = syncRegreffer(local, fusion);
+  v('la signature allégée reprend la nôtre', fusion.registres[0].signature, 'VRAIE-SIGNATURE');
+  v('les photos de télécollecte reviennent', fusion.telecollectes[0].photos, ['A', 'B']);
+  v('deux regreffes comptées', n, 2);
+}
+
+console.log('\nUne écriture non acquittée ne bloque plus si le réseau répond');
+v('on mesure le réseau avant de décider', /const r2=await fetch\(PUSH_API\+'\/health',\{method:'HEAD'/.test(APP), true);
+v('réseau absent → écran hors ligne (inchangé)', /if\(!reseau\)\{ _horsLignePush=true; try\{ horsLigneDebut\('écriture sans réponse'\)/.test(APP), true);
+v('réseau présent → on prévient, on ne bloque pas', /Tes modifications ne partent pas encore vers l/.test(APP), true);
+
 console.log('\n' + ok + ' ✓  ' + ko + ' ✗'); process.exit(ko ? 1 : 0);
