@@ -54,7 +54,7 @@ isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saut
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 509 vérifications, 2,2 s (mesuré)
+for f in tests/test-*.js; do node "$f"; done   # 514 vérifications, 2,2 s (mesuré)
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -456,6 +456,25 @@ Le générateur `devisIAModal()` enchaîne : dictée au micro → génération �
 PDF → client (choisi ou saisi) → envoi par `envoiDoc()`. Le moteur dépend de
 l'offre de l'entreprise, décidée côté serveur : Haiku inclus, Sonnet en supplément,
 ou les deux au choix de l'utilisateur.
+
+## ⛔ RÈGLE DE TRAVAIL — tout le développement sur la BÊTA
+
+Posée par Justin le 11 septembre 2026, après une matinée où deux défauts sont remontés d'ELAN :
+**« tout le développement sur la bêta. Il ne faut pas que ça impacte ELAN, sinon ça va être
+compliqué. »** Ce n'est pas une préférence de confort : ELAN est une entreprise qui travaille,
+et une publication ratée se paie en journée de terrain perdue.
+
+Concrètement, et dans cet ordre :
+1. **Ce qui casse chez un client se corrige tout de suite**, en production — c'est la seule
+   exception, et elle se limite au correctif, jamais à ce qui traîne autour.
+2. **Tout le reste s'écrit, se mesure et se valide sur `beta.html`** (ou un aperçu), et n'atteint
+   `app.html` qu'une fois éprouvé.
+3. **Avant toute publication : qu'est-ce que ça change pour ELAN ?** Si la réponse n'est pas
+   « rien » ou « ça répare quelque chose chez eux », ça attend.
+
+Corollaire déjà éprouvé : un correctif arrête une cause, **il ne range pas derrière lui**. Ce qui
+est déjà entré dans la base d'un client y reste jusqu'à un geste — le dire en même temps que le
+correctif, sinon le chantier paraît clos alors qu'il attend quelqu'un.
 
 ## La bêta : un outil de développement, jamais un canal public
 

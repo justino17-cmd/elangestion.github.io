@@ -54,9 +54,31 @@ cause, il ne range pas derrière lui — même leçon que les doublons. À retir
 2 box (« Cuisine — Restaurant Le Gourmet », « Réserve — Boulangerie Au Bon Pain »), les
 demandes `DC-2026-001`, et les devis/factures/fournisseurs de démonstration.
 
-**Reste ouvert** : « impossible d'ajouter un produit dans une box » chez ELAN. Mesuré sur une
-base polluée par le semis, `boxPoserProduits` fonctionne et la page ne lève aucune erreur — la
-cause est donc AILLEURS, et pas encore observée. Ne rien corriger tant qu'elle ne l'est pas.
+### v643 — et le bouton de box qui ne faisait rien, en silence
+
+Le second défaut du même signalement. Mesuré au navigateur sur le fichier livré : **la box
+affichée absente de `db.boxes`, la feuille ne s'ouvre pas, aucun message, aucune erreur.**
+`bxpBox()` rend `null` et **dix** fonctions de cet écran faisaient `if(!b) return;` en silence.
+On tape, rien ne se passe, et personne ne peut dire pourquoi — ni l'utilisateur, ni nous à
+distance.
+
+Ça arrive quand la box a été supprimée depuis un autre appareil, ou quand la base locale a été
+**remplacée sous les doigts** — ce que faisait précisément le semis rejoué. Les deux défauts du
+signalement d'ELAN se rejoignent donc là, sans que ce soit prouvé pour autant : ce qui est
+prouvé, c'est que le bouton se taisait.
+
+Une seule fonction porte le message (`bxpBoxDite`), pas dix copies — même raison que les quatre
+portes de sortie d'espace. Le bouton de la box ramène à la liste ; les gestes déjà commencés
+dans la feuille parlent sans ramener en arrière, et les deux fonctions internes restent muettes
+(elles passent après la validation, les faire parler doublerait le message).
+
+| | avant | après |
+|---|---|---|
+| box présente | feuille ouverte, pas de message | inchangé |
+| box disparue | **feuille fermée, AUCUN message** | feuille fermée, message + retour à la liste |
+
+**Ce qui reste vraiment ouvert** : je n'ai pas observé l'écran d'ELAN. Si le bouton continue de
+ne rien faire chez eux, il dira maintenant POURQUOI — et c'est ce message qu'il faudra lire.
 
 ---
 

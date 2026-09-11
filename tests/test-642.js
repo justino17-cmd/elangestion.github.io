@@ -49,4 +49,28 @@ console.log('Le semis n\'entre jamais dans la base d\'une entreprise');
   v('…et la demande que la capture d\'ELAN montrait', /num:'DC-2026-001'/.test(APP), true);
 }
 
+console.log('\nUn bouton de box qui ne peut pas agir le DIT');
+{
+  /* ⛔ Le second défaut du même signalement d'ELAN : « impossible d'ajouter les produits dans
+     les box ». Mesuré au navigateur (scratchpad/banc/sonde-bouton-box.js) — la box affichée
+     absente de `db.boxes`, la feuille ne s'ouvre pas, AUCUN message, AUCUNE erreur : dix
+     fonctions faisaient `if(!b) return;` en silence. On tape, rien ne se passe, et personne ne
+     peut dire pourquoi — ni l'utilisateur, ni nous à distance.
+       avant → feuille fermée, message AUCUN
+       après → feuille fermée, « Cette box n'est plus dans ta base… », retour à la liste
+     Le cas sain est inchangé : box présente → la feuille s'ouvre, sans message. */
+  v('une seule fonction porte le message, pas dix copies',
+    (APP.match(/function bxpBoxDite\(retour\)\{/g)||[]).length, 1);
+  v('…et elle parle', /toast\('Cette box n\\'est plus dans ta base/.test(APP), true);
+  /* `retour` n'est vrai que pour le bouton : ramener à la liste au milieu d'un geste déjà
+     commencé dans la feuille serait pire que le silence. */
+  v('le bouton de la box ramène à la liste', /function openBoxProduits\(\)\{ const b=bxpBoxDite\(true\);/.test(APP), true);
+  v('les gestes DANS la feuille parlent sans ramener en arrière',
+    (APP.match(/const b=bxpBoxDite\(\); if\(!b\) return;/g)||[]).length, 6);
+  /* Les fonctions internes (bxpFeuille, bxpMajPied) restent muettes : elles sont appelées
+     APRÈS que la box a été validée, et les faire parler doublerait le message. */
+  v('les deux fonctions internes restent silencieuses, et c\'est voulu',
+    (APP.match(/const b=bxpBox\(\); if\(!b\) return;/g)||[]).length, 2);
+}
+
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);

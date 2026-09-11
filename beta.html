@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '642-beta';
+const APP_VERSION = '643-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -19252,7 +19252,25 @@ function bxpBox(){ return (db.boxes||[]).find(x=>x.id===boxView)||null; }
    dans la box. La bulle et la bande lisent donc le même calcul, fait une fois par ouverture ou
    rafraîchissement, comme dispo et nouv juste à côté. Relevé par `relecteur`. */
 function bxpCalculer(b){ b.stock=b.stock||{}; bxpCache={dispo:abpDisponibles(b),nouv:boxNouveautes(b),pack:cataloguePackNeufs(),dejaCles:new Set((db.produits||[]).map(produitCle))}; return bxpCache; }
-function openBoxProduits(){ const b=bxpBox(); if(!b) return;
+/* ⛔ UN BOUTON QUI NE FAIT RIEN EST UN BOUTON CASSÉ, MÊME QUAND LE CODE EST « JUSTE ».
+   Signalé par ELAN le 11 septembre 2026 : « impossible d'ajouter les produits dans les box ».
+   Mesuré au navigateur sur le fichier livré — la box affichée absente de `db.boxes`, la feuille
+   ne s'ouvre pas, AUCUN message, AUCUNE erreur : `bxpBox()` rend null et les dix fonctions de
+   cet écran faisaient `if(!b) return;` en silence. On tape, il ne se passe rien, et personne ne
+   peut dire pourquoi — ni l'utilisateur, ni moi à distance.
+
+   Ça arrive quand la box a été supprimée depuis un autre appareil, ou quand la base locale a
+   été REMPLACÉE sous les doigts (c'est ce que faisait le semis rejoué, corrigé en v642) : le
+   numéro de box affiché ne désigne plus rien.
+
+   Une seule fonction le dit, pas dix copies — même raison que les quatre portes de sortie
+   d'espace. `retour` n'est vrai que pour le bouton lui-même : ramener à la liste au milieu d'un
+   geste déjà commencé dans la feuille serait pire que le silence. */
+function bxpBoxDite(retour){ const b=bxpBox(); if(b) return b;
+  toast('Cette box n\'est plus dans ta base — supprimée depuis un autre appareil, ou base remplacée. Reviens à la liste des box.',6000);
+  if(retour){ try{ go('boxes'); }catch(e){} }
+  return null; }
+function openBoxProduits(){ const b=bxpBoxDite(true); if(!b) return;
   abpSel=new Set(); bxpNouvSel=new Set(); bxpRetSel=new Set(); bxpFourSel=new Set(); bxpFour=''; bxpQ=''; _doublonsUnParUn=false; bxpOnglet='ajouter'; bxpRetPhase=0; bxpCiblesSel=new Set([b.id]); bxpPosePhase=0; bxpGardesVoir=false; bxpEcartesVoir=false; _doublonsOuvert=false; _doublonsApercu='';
   bxpCalculer(b); bxpCache.nouv.forEach(p=>bxpNouvSel.add(p.id));   // les nouveautés arrivent cochées : le geste attendu, c'est de les poser
   bxpFeuille(); }
@@ -19324,7 +19342,7 @@ function bxpMajPied(){ const el=$('bxp-pose-pied'); if(!el) return; const b=bxpB
   el.innerHTML=cible+note+`<button type="button" class="btn bxp-valider" id="abp-valider" onclick="addBoxProd()" ${total?'':'disabled'}>Ajouter (${total})${nb>1?' dans '+nb+' box':''}</button>`; }
 /* Le choix des box. Chaque ligne annonce ce qu'elle RECEVRAIT vraiment — c'est le plan à blanc,
    box par box, pas une promesse. « complète » et « N écartés gardés » se lisent avant de cocher. */
-function bxpCiblesModal(){ const b=bxpBox(); if(!b) return; const ids=bxpIdsChoisis();
+function bxpCiblesModal(){ const b=bxpBoxDite(); if(!b) return; const ids=bxpIdsChoisis();
   const lignes=bxpCibles().map(bx=>{ const on=bxpCiblesSel.has(bx.id); const meme=bx.id===b.id;
     const ok=new Set(abpDisponibles(bx).map(p=>p.id)); const ec=meme?null:((boxDecision(bx)||{}).ecartes||null);
     let pris=0, sautes=0; ids.forEach(pid=>{ if(!ok.has(pid)||(bx.stock||{})[pid]) return; if(ec&&ec[pid]){ sautes++; return; } pris++; });
@@ -19334,7 +19352,7 @@ function bxpCiblesModal(){ const b=bxpBox(); if(!b) return; const ids=bxpIdsChoi
     <div class="bxp-rech"><button type="button" class="btn ghost sm" onclick="bxpCiblesRaccourci('une')">Cette box</button><button type="button" class="btn ghost sm" onclick="bxpCiblesRaccourci('toutes')">Les ${bxpCibles().length} box que je vois</button></div>
     <div id="bxp-cibles-list">${lignes}</div>`); }
 function bxpCibleToggle(id){ if(bxpCiblesSel.has(id)) bxpCiblesSel.delete(id); else bxpCiblesSel.add(id); if(!bxpCiblesSel.size){ const b=bxpBox(); if(b) bxpCiblesSel.add(b.id); } bxpCiblesModal(); }
-function bxpCiblesRaccourci(q){ const b=bxpBox(); if(!b) return; bxpCiblesSel=q==='toutes'?new Set(bxpCibles().map(x=>x.id)):new Set([b.id]); bxpCiblesModal(); }
+function bxpCiblesRaccourci(q){ const b=bxpBoxDite(); if(!b) return; bxpCiblesSel=q==='toutes'?new Set(bxpCibles().map(x=>x.id)):new Set([b.id]); bxpCiblesModal(); }
 function openBoxProduitsRetour(){ bxpFeuille(); }
 /* Les identifiants réellement choisis, y compris les références fournisseur qui n'existent pas encore
    au catalogue : elles n'ont pas d'identifiant tant qu'on n'a pas validé, donc le plan les compte à
@@ -19422,12 +19440,12 @@ function bxpPosePied(){ const el=$('bxp-pose-pied'); if(!el) return;
     <p>Rien ne sort d'aucun stock. Aucune fiche n'est supprimée du catalogue.</p></div>
     <div class="bxp-2btn"><button type="button" class="btn" id="bxp-pose-oui" disabled onclick="bxpPoseEcrire()">Oui, poser</button><button type="button" class="btn ghost" onclick="bxpPosePhase=0;bxpRendre()">Non, revenir</button></div>`;
   setTimeout(()=>{ const o=$('bxp-pose-oui'); if(o) o.disabled=false; },500); }
-function addBoxProd(){ const b=bxpBox(); if(!b) return; if(!abpSel.size&&!bxpFourSel.size){ toast('Choisis au moins un produit'); return; }
+function addBoxProd(){ const b=bxpBoxDite(); if(!b) return; if(!abpSel.size&&!bxpFourSel.size){ toast('Choisis au moins un produit'); return; }
   /* Plus d'une box : le bouton ne pose rien, il ouvre le récapitulatif. Une seule box : le geste
      d'aujourd'hui, un tap, aucune friction ajoutée au cas courant. Un seuil booléen, rien à régler. */
   if(bxpCiblesSel.size>1&&bxpPosePhase!==1){ bxpPosePhase=1; bxpRendre(); return; }
   return bxpPoseEcrire(); }
-function bxpPoseEcrire(){ const b=bxpBox(); if(!b) return; bxpPosePhase=0;
+function bxpPoseEcrire(){ const b=bxpBoxDite(); if(!b) return; bxpPosePhase=0;
   const fourIdx=[...bxpFourSel].filter(i=>CATFOUR[i]);
   if(bxpCiblesSel.size<=1&&fourIdx.length>60&&!confirm('Ajouter '+fourIdx.length+' références fournisseur au catalogue de l\'entreprise et à cette box ?\n\nElles se poseront aussi dans les autres box, à zéro, à leur prochaine ouverture.')) return;
   /* les références fournisseur entrent d'abord au catalogue (une fois par nom), puis tout se pose ensemble */
@@ -19477,7 +19495,7 @@ function bxpNouvAjouter(){ const b=bxpBox(); if(!b||!bxpNouvSel.size) return; co
 function bxpNouvEcarter(){ const b=bxpBox(); if(!b||!bxpCache) return; const ids=bxpCache.nouv.map(p=>p.id); if(!ids.length) return;
   boxDecider(b,ids); logEvent('Nouveaux produits écartés de la box',(b.nom||b.numero||'')+' : '+ids.map(pid=>produit(pid).nom||pid).join(', '),'stock'); save();
   toast('C\'est noté pour toute l\'équipe : ils ne seront plus proposés sur cette box',3500); bxpRafraichir(); }
-function bxpProposerANouveau(pid){ const b=bxpBox(); if(!b) return; boxDecisionAnnuler(b,pid); logEvent('Nouveau produit proposé à nouveau',(b.nom||b.numero||'')+' : '+(produit(pid).nom||pid),'stock'); save(); bxpNouvSel.add(pid); bxpRafraichir(); }
+function bxpProposerANouveau(pid){ const b=bxpBoxDite(); if(!b) return; boxDecisionAnnuler(b,pid); logEvent('Nouveau produit proposé à nouveau',(b.nom||b.numero||'')+' : '+(produit(pid).nom||pid),'stock'); save(); bxpNouvSel.add(pid); bxpRafraichir(); }
 /* ── Onglet Retirer ── */
 /* LA définition « retirable », une seule pour l'écran et pour l'écriture : à zéro d'unités ET de cartons,
    et aucune demande — en attente ou en brouillon, de qui que ce soit — sur ce produit dans cette box. */
@@ -19498,7 +19516,7 @@ function bxpRendreRetrait(b){ const el=$('bxp-corps'); const ids=Object.keys(b.s
     <div class="bl-pied bxp-pied" id="bxp-ret-pied"></div>`;
   bxpRetPied(b); }
 function bxpRetToggle(pid){ if(bxpRetSel.has(pid)) bxpRetSel.delete(pid); else bxpRetSel.add(pid); bxpRetPhase=0; bxpRendre(); }
-function bxpRetToutZero(){ const b=bxpBox(); if(!b) return; const ret=Object.keys(b.stock||{}).filter(pid=>boxRetirable(b,pid).ok); if(ret.length&&ret.every(pid=>bxpRetSel.has(pid))) bxpRetSel=new Set(); else ret.forEach(pid=>bxpRetSel.add(pid)); bxpRetPhase=0; bxpRendre(); }
+function bxpRetToutZero(){ const b=bxpBoxDite(); if(!b) return; const ret=Object.keys(b.stock||{}).filter(pid=>boxRetirable(b,pid).ok); if(ret.length&&ret.every(pid=>bxpRetSel.has(pid))) bxpRetSel=new Set(); else ret.forEach(pid=>bxpRetSel.add(pid)); bxpRetPhase=0; bxpRendre(); }
 function bxpRetEtape(n){ bxpRetPhase=n; const b=bxpBox(); if(b) bxpRetPied(b); }
 /* Deux boutons distincts, l'action à gauche et gelée 500 ms : une double touche gantée ne peut ni armer
    ni exécuter. Le récapitulatif nomme ce qui part et compte ce qui reste, avant le geste. */
