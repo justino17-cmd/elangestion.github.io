@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '663';
+const APP_VERSION = '664';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -18215,7 +18215,24 @@ function renderBoxesList(){
     }
     el.innerHTML=`<div class="card">${emptyState('🧱',q?'Aucune box ne correspond à cette recherche.':'Aucune box.',(!q&&can('supprimer'))?'Ajouter':'',(!q&&can('supprimer'))?'formBox()':'')}</div>`; return;
   }
+  /* ⛔ LE MÊME ORDRE QUE LES PRODUITS D'UNE BOX, ET POUR LA MÊME RAISON. Demande de Justin,
+     11 septembre 2026 : « fais comme pour les produits box, dans l'ordre alphabétique et les
+     vides en dessous ». La règle avait été posée le 9 septembre pour les produits — deux
+     niveaux, et pas un de plus :
+      · ce qui a du stock au-dessus de ce qui est à zéro ;
+      · à l'intérieur de chaque groupe, l'alphabet FRANÇAIS — 'fr' + sensitivity 'base', pour
+        qu'« ELAN ÉASY » se range à sa lettre et non après « Z », et que les majuscules ne
+        fassent pas deux alphabets.
+     Ce qu'on ne fait PAS, et c'est le point : trier par QUANTITÉ. L'ordre changerait à chaque
+     mouvement, et la ligne qu'on vient de toucher se déplacerait sous le doigt. Seul le passage
+     à zéro réorganise l'écran.
+     Le tri vit DANS chaque groupe : une entreprise qui range ses box par groupe garde ses
+     groupes, elle ne les voit pas éclatés par le stock. */
   const groups={}; list.forEach(b=>{ const g=b.groupe||'Sans groupe'; (groups[g]=groups[g]||[]).push(b); });
+  Object.values(groups).forEach(l=>l.sort((a,b2)=>{
+    const sa=boxADuStock(a), sb=boxADuStock(b2);
+    if(sa!==sb) return sa?-1:1;
+    return ((a.nom||a.numero||'')+'').localeCompare((b2.nom||b2.numero||'')+'','fr',{sensitivity:'base'}); }));
   const candsNv=produitsRecents();   // une fois pour toutes les cartes
   el.innerHTML=Object.keys(groups).sort().map(g=>`<div class="nav-label" style="padding:14px 4px 6px">${esc(g==='Sans groupe'?'Sans groupe':g)}</div>`+groups[g].map(b=>{
     const ab=(b.categorie||'').replace(/[^A-Za-zÀ-ÿ0-9]/g,'').slice(0,2).toUpperCase()||'BX';
