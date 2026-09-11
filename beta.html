@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '658-beta';
+const APP_VERSION = '659-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -24575,13 +24575,27 @@ views.parametres=function(){
       <button class="btn ghost" onclick="syncDisable()">Désactiver sur cet appareil</button>`
       :`<p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:10px">La synchro est <b>désactivée sur cet appareil</b> (les données restent locales).</p>
       <button class="btn" onclick="syncReactivate()">Réactiver la synchro</button>`}</div>`:''}
-    ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>Espaces entreprise (TeamOP)</h3></div>
-      <p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:8px">Crée un <b>espace isolé</b> par entreprise cliente : chaque espace a ses <b>propres données</b>, chiffrées et séparées des autres. Donne le <b>Code espace</b> à l'entreprise pour qu'elle se connecte.</p>
+    ${currentUser.role==='admin'?`<div class="card"><div class="card-head"><h3>${espaceRattache()?'🔗 Le lien de connexion de ton entreprise':'Espaces entreprise (TeamOP)'}</h3></div>
+      ${espaceRattache()
+        ? `<p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:8px">Ce lien met l'appareil de chacun sur <b>l'espace de ton entreprise</b>, celui où vivent tes données. C'est le seul à distribuer.</p>`
+        : `<p style="color:var(--t2);font-size:14px;line-height:1.6;margin-bottom:8px">Crée un <b>espace isolé</b> par entreprise cliente : chaque espace a ses <b>propres données</b>, chiffrées et séparées des autres. Donne le <b>Code espace</b> à l'entreprise pour qu'elle se connecte.</p>`}
       <p style="font-size:12.5px;color:var(--t3);margin-bottom:12px">Espace actuel de cet appareil : <b style="color:var(--t2)">${esc(teamopCurrentSpace())}</b></p>
       ${teamopLienActuel()?`<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:10px 12px;margin-bottom:12px"><div style="font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--t3);margin-bottom:5px">🔗 LIEN DE CONNEXION DE TON ENTREPRISE ${lienLisible()?'<span style="color:var(--acc)">· activé ✓</span>':''}</div><div id="par-lien" style="word-break:break-all;font-family:var(--mono,monospace);font-size:${lienLisible()?'14px;font-weight:700':'11.5px'};color:var(--acc);margin-bottom:8px">${esc(lienConnexionEntreprise())}</div><button class="btn sm" onclick="teamopCopy(document.getElementById('par-lien').textContent,this)">Copier le lien</button><span style="font-size:11.5px;color:var(--t3);margin-left:8px">le même lien pour tous tes utilisateurs, sur le site comme dans l'application : un clic et ils sont sur le bon espace — l'écran de connexion leur dit « Vous allez vous connecter à l'entreprise ${esc(lienLisibleNom()||entrepriseNom()||'…')} »</span><div style="margin-top:8px;font-size:12px;color:var(--t3)">${lienLisible()?'Lien vérifié auprès de TEAM OP (revérifié chaque jour, et à chaque changement de clé d\'équipe).':(localStorage.getItem('elanB_lien_lisible_motif')==='cle_changee'?'<span style="color:var(--org,#e8a33d);font-weight:700">⚠️ La clé d\'équipe a changé depuis l\'inscription chez TEAM OP : le lien de l\'annuaire est suspendu (il mènerait à un espace illisible). Demande à TEAM OP de réinscrire ton espace ; en attendant, ce lien-ci fonctionne.</span>':'Le lien vérifié par TEAM OP apparaîtra ici dès que ton espace sera activé ; en attendant, ce lien fonctionne exactement pareil.')} <a onclick="lienLisibleCharger(true).then(()=>views.parametres())" style="cursor:pointer;text-decoration:underline">Vérifier maintenant</a></div>${entrepriseNom()?'':`<div style="margin-top:8px;font-size:12px;color:var(--org,#e8a33d);font-weight:700">⚠️ Renseigne le nom de ton entreprise (« Mon entreprise », plus bas) : il est mis dans le lien et affiché à tes utilisateurs.</div>`}</div>`:''}
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="teamopCreateSpace()">＋ Créer un espace entreprise</button>
-      <button class="btn ghost" onclick="teamopJoinPrompt()">Rejoindre un espace (code)</button></div>
-      ${teamopSpaces().length?`<div style="margin-top:14px;border-top:1px solid var(--brd);padding-top:12px"><div style="font-size:12px;color:var(--t3);margin-bottom:8px">Espaces créés (enregistrés sur cet appareil)</div>${teamopSpaces().map(s=>`<div class="perm-row"><div class="pn">${esc(s.name||s.t)}<div style="font-size:11px;color:var(--t3);font-weight:400">${esc(s.t)}</div></div><div style="display:flex;gap:6px"><button class="btn sm" onclick="teamopCopieLienSauve('${esc(s.t)}')">🔗 Lien</button><button class="btn ghost sm" onclick="teamopShowSavedCode('${esc(s.t)}')">Voir le code</button></div></div>`).join('')}</div>`:''}
+      ${/* ⛔ « CRÉER UN ESPACE ENTREPRISE » N'A RIEN À FAIRE CHEZ UN CLIENT DÉJÀ INSTALLÉ.
+             teamopCreateSpace() fabrique un espace NEUF et VIDE, en tire un lien, et l'enregistre
+             sur l'appareil — sans rien demander à TEAM OP. Une entreprise qui a déjà le sien n'en
+             a aucun usage, et le bouton n'a qu'un effet possible : produire un second lien, du
+             même nom que le vrai, qui mène à une base vierge. C'est ce qu'on a retrouvé le
+             11 septembre 2026 — « elan-d4v8 », jamais connecté, à côté du vrai « elan-34oc » —
+             et la remarque de Justin qui va avec : « quand un lien n'existe pas, ça ne devrait
+             rien faire ». Le bouton ne s'affiche donc que sur un appareil qui n'est rattaché à
+             aucune entreprise, c'est-à-dire au premier démarrage, là où il sert vraiment.
+             « Rejoindre un espace » reste : c'est le chemin qui REMET un appareil au bon endroit
+             — mais il dit maintenant qu'il fera quitter l'entreprise en cours. */''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${espaceRattache()?'':`<button class="btn" onclick="teamopCreateSpace()">＋ Créer un espace entreprise</button>`}
+      <button class="btn ghost" onclick="teamopJoinPrompt()">${espaceRattache()?'Changer d’espace (code)':'Rejoindre un espace (code)'}</button></div>
+      ${espaceRattache()?`<p style="font-size:12px;color:var(--t3);margin-top:8px;line-height:1.6">⚠️ « Changer d'espace » <b>quitte l'entreprise en cours</b> sur cet appareil : les données de ${esc(entrepriseNom()||'ton entreprise')} y sont retirées et remplacées par celles de l'espace rejoint. Elles restent intactes pour tes collègues, et le lien ci-dessus te ramène ici.</p>`:''}
+      ${(!espaceRattache()&&teamopSpaces().length)?`<div style="margin-top:14px;border-top:1px solid var(--brd);padding-top:12px"><div style="font-size:12px;color:var(--t3);margin-bottom:8px">Espaces créés (enregistrés sur cet appareil)</div>${teamopSpaces().map(s=>`<div class="perm-row"><div class="pn">${esc(s.name||s.t)}<div style="font-size:11px;color:var(--t3);font-weight:400">${esc(s.t)}</div></div><div style="display:flex;gap:6px"><button class="btn sm" onclick="teamopCopieLienSauve('${esc(s.t)}')">🔗 Lien</button><button class="btn ghost sm" onclick="teamopShowSavedCode('${esc(s.t)}')">Voir le code</button></div></div>`).join('')}</div>`:''}
     </div>`:''}
     ${currentUser.role==='admin'?(()=>{ const E=db.entreprise||{};
       return `<div class="card"><div class="card-head"><h3>🏢 Mon entreprise</h3></div>
