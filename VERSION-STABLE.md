@@ -1,5 +1,66 @@
 # Point stable TeamOP
 
+**Version stable : v666** — gravée le 11 septembre 2026 au soir.
+
+v666 — la mise à jour ne se remet plus à plus tard, et le journal dit la vérité.
+
+**Ce qui était ouvert.** Un appareil pouvait rester en vieille version indéfiniment. Deux
+portes de sortie le permettaient : la croix ✕ de la bannière du bas, et « Terminer ma saisie
+d'abord » sur l'écran d'attente, renouvelable tant qu'un formulaire restait ouvert. Mesuré
+chez ELAN le jour même : Benoit en v634, Mathieu et Mathys en v641, alors que le minimum exigé
+était v665 — des semaines de retard sur des appareils qui travaillaient tous les jours. Ils ne
+refusaient pas : personne ne leur avait jamais imposé. Justin, le 11 septembre : « dès la
+connexion, peu importe les choses qu'ils vont faire. Ils peuvent rien faire, ça met la page
+complète. Ils ne peuvent pas la faire plus tard. »
+
+**Le journal de la Tour mentait sur la cause d'un blocage.** Relevé du soir même, copié tel
+quel : « v658 sous le minimum v653 », « v663 sous le minimum v663 », « v661 sous le minimum
+v653 ». **Aucune de ces phrases n'est vraie** — 658 n'est pas sous 653, 663 n'est pas sous 663.
+Le nuage refusait bien l'écriture, mais l'application recopiait dans le journal le minimum
+qu'elle avait EN MÉMOIRE, parfois vieux de plusieurs heures. Neuf publications dans
+l'après-midi, donc neuf fournées de lignes incohérentes — dans le premier endroit qu'on ouvre
+quand un client appelle. `versionRefuseeParNuage` redemande désormais le minimum réel avant de
+nommer une cause ; faute de réponse, elle écrit « minimum non confirmé » au lieu d'inventer.
+
+⚠️ **Et la boucle que le nouvel écran aurait ouverte.** Conséquence directe du premier point :
+sans porte de sortie, un refus du nuage étranger à la version (jeton d'équipe périmé,
+entreprise fermée depuis la Tour) enfermait l'appareil — recharger, se faire refuser,
+recharger, sur un écran dont on ne peut pas sortir. Une seule mise à jour forcée tant que la
+cause n'est pas confirmée ; le second passage montre « Enregistrement refusé », qui dit la
+vérité plutôt que de reproposer un bouton qui ne répare rien. Un écran déjà posé cède la
+place quand la cause change — sans quoi le retour anticipé rouvrait exactement cette boucle.
+
+**Prix assumé, et écrit à l'écran plutôt que taire** : `majOccupe()` n'est plus consulté, donc
+une saisie en cours dans un formulaire non validé est perdue. Ce qui est ENREGISTRÉ, lui, part
+avant le rechargement — `syncPush(true)` a été déplacé dans `majAppliquer`.
+
+**Une adresse qui n'est pas la nôtre ne mène plus à rien** (`connexion.html`). Justin : « si le
+lien n'est pas dans notre base de données ça marche pas ». Avant, n'importe quoi tapé ouvrait
+un formulaire de connexion COMPLET pour une entreprise inexistante, et l'échec final disait
+« identifiant ou mot de passe incorrect » — un mensonge, qui faisait réinitialiser un mot de
+passe pourtant bon. Les trois chemins passent par la même porte : saisie à la main, arrivée
+directe sur `/e/nom`, lien collé sans code. Via `/api/espaces/libre`, qui existe déjà — aucune
+route serveur ajoutée.
+
+⚠️ **TROIS ÉTATS, jamais deux** : connue / inconnue / *on n'a pas pu savoir*. Le troisième
+LAISSE PASSER — refuser sur une réponse qu'on n'a pas reçue fermerait la porte à toute une
+équipe dès que le réseau hoquette, et passer n'accorde rien : il reste l'identifiant et le mot
+de passe à donner derrière. Même discipline que `_mailboxes` dans l'application.
+
+`SYNC_SECRET_DEFAULT` et `SYNC_SALT` ne sont pas touchés d'un caractère (4 et 2 occurrences,
+recomptées). Éprouvé : 28 suites, **848 vérifications, 0 échec** — `tests/test-666.js` en porte
+63 à lui seul, dont les trois lignes fausses d'ELAN rejouées sur la vraie fonction extraite du
+fichier livré. Les deux écrans de mise à jour et les cinq états de la page de connexion sont
+mesurés au navigateur piloté, sur la bêta servie en local — jamais sur `app.html` en production.
+
+⚠️ **Ce que la v666 ne fait PAS encore** : « pour les versions publiques, toutes les mises à
+jour se feront la nuit » (Justin, 11 septembre). Non conçu. Tant que ça n'existe pas, une
+publication de jour peut poser l'écran bloquant sur un téléphone en pleine intervention.
+
+---
+
+## Ancien point
+
 **Version stable : v575** — gravée le 8 septembre 2026.
 
 v575 — l'espace de synchro partagé n'accueille plus personne de nouveau.
