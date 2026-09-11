@@ -2047,6 +2047,77 @@ app.post('/api/monitor/compte/supprimer', monPatronStrict, async (req, res) => {
   monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'suppression de compte ordonnée');
   res.json({ ok: true, attente: true });
 });
+/* ── Supprimer d'un coup les comptes JAMAIS UTILISÉS ─────────────────────────────────────────
+   Demandé par Justin le 11 septembre 2026 devant la liste d'ELAN (« et ça c'est pareil, faut
+   que ça saute ») : cinq comptes marqués « inutilisé », et la suppression unitaire coûte un
+   mail, un code et quatre gestes CHACUNE. Vingt gestes et cinq mails pour cinq comptes que
+   personne n'a jamais ouverts : on ne le fait pas, donc ils restent, donc la liste ment.
+
+   Le lot ne prend QUE ce que le serveur peut PROUVER inutilisé : présent dans l'annuaire, et
+   pas une seule connexion réussie à son nom dans le journal. C'est ce que la Tour affiche
+   comme « inutilisé », et c'est un fait vérifiable ici — pas un rôle annoncé par l'appelant.
+   Un compte qui a servi, même une fois, garde sa suppression unitaire avec son propre code :
+   c'est là qu'on veut relire le nom avant de valider. Le 11 septembre au matin, un ménage trop
+   large avait failli emporter l'administrateur d'ELAN ; la règle vit donc DANS la route, où
+   aucun bouton ne peut la contourner, et pas dans la page qui l'appelle. */
+app.post('/api/monitor/comptes/supprimer', monPatronStrict, async (req, res) => {
+  const b = req.body || {};
+  const t = monStr(b.t, 80);
+  if (!t) return res.status(400).json({ error: 't requis' });
+  const e = espaceParT(t); if (!e) return res.status(404).json({ error: 'espace inconnu' });
+  const demandes = Array.isArray(b.logins) ? b.logins.slice(0, 40).map(x => monStr(x, 40).toLowerCase().trim()).filter(Boolean) : [];
+  if (!demandes.length) return res.status(400).json({ error: 'logins requis' });
+  const annu = (comptesReg[t] && comptesReg[t].c) || {};
+  const aServi = new Set();
+  for (const x of (cnxData[t] || [])) {
+    if (x.ev === 'echec' || x.ev === 'bloque' || x.ev === 'refus') continue;   // la porte a joué : ce n'est pas une connexion
+    const l = String(x.login || '').toLowerCase().trim(); if (l) aServi.add(l);
+  }
+  const refuses = [], logins = [];
+  for (const l of new Set(demandes)) {
+    if (!Object.prototype.hasOwnProperty.call(annu, l)) { refuses.push({ login: l, raison: 'absent de l\'annuaire' }); continue; }
+    if (aServi.has(l)) { refuses.push({ login: l, raison: 'a déjà servi — à supprimer un par un' }); continue; }
+    if (ordreAttente(t, l) || ordreFait(t, l)) { refuses.push({ login: l, raison: 'suppression déjà en cours' }); continue; }
+    logins.push(l);
+  }
+  logins.sort();
+  if (!logins.length) return res.status(409).json({ error: 'aucun compte inutilisé dans cette liste', refuses });
+  /* La clé du code porte l'empreinte de la LISTE : un code reçu pour cinq comptes ne peut pas
+     servir à en supprimer six. Sans ça, le second temps serait une porte ouverte sur un lot
+     que personne n'a lu dans le mail. */
+  const emp = crypto.createHash('sha256').update(logins.join(',')).digest('hex').slice(0, 16);
+  const cle = 'cl:' + t + ':' + emp;
+  const codeRecu = monStr(b.code, 10).trim();
+  if (!codeRecu) {   // 1er temps : le code part par mail
+    if (!mailer) return res.status(503).json({ error: 'e-mail non configuré — impossible d\'envoyer le code' });
+    if (retraitCodes.size > 500) for (const [k, v] of retraitCodes) if (Date.now() > v.exp) retraitCodes.delete(k);
+    const code = String(crypto.randomInt(100000, 1000000));
+    retraitCodes.set(cle, { code, exp: Date.now() + 10 * 60000, tries: 0 });
+    const dest = config.notifDemandes || config.smtp.from || config.smtp.user;
+    try {
+      await mailerEnvoi({ from: config.smtp.from || config.smtp.user, to: dest,
+        confidentiel: true, trace: 'code de suppression de ' + logins.length + ' compte(s) · espace ' + t.slice(0, 12),   // ni les identifiants ni le code au journal
+        subject: '🗑 Code de confirmation — suppression de ' + logins.length + ' compte(s) inutilisé(s) chez ' + espNomPropre(e),
+        text: 'Tu es sur le point de SUPPRIMER ' + logins.length + ' compte(s) de l\'entreprise ' + espNomPropre(e) + ' :\n\n' + logins.map(l => '  · ' + l).join('\n') + '\n\nAucun de ces identifiants ne s\'est jamais connecté : personne ne perd son travail.\n\nCode de confirmation : ' + code + '\n\nValable 10 minutes. Après validation : ces identifiants sont retirés de l\'annuaire tout de suite, et les comptes sont supprimés de l\'application au premier appareil de l\'entreprise qui s\'ouvre.\n\nSi ce n\'est pas toi, ignore ce message : rien ne se passe sans le code.' });
+    } catch (err) { return res.status(500).json({ error: 'envoi du code impossible : ' + String(err.message).slice(0, 120) }); }
+    return res.json({ ok: true, codeEnvoye: true, dest: masqueMail(dest), logins, refuses });
+  }
+  const c = retraitCodes.get(cle);   // 2e temps : le code revient
+  if (!c || Date.now() > c.exp) { retraitCodes.delete(cle); return res.status(400).json({ error: 'code expiré — relance la suppression' }); }
+  if (c.code !== codeRecu) { c.tries++; if (c.tries >= 5) retraitCodes.delete(cle); return res.status(400).json({ error: 'code incorrect' }); }
+  retraitCodes.delete(cle);
+  const ords = ordresData[t] = ordresData[t] || [];
+  let touche = false;
+  for (const login of logins) {
+    ords.forEach(o => { if (o.login === login) o.banni = false; });   // un ancien ordre réautorisé ne compte plus : celui-ci prend le relais
+    ords.push({ login, ts: Date.now(), par: (req.tourUser && req.tourUser.nom) || '', fait: 0 });
+    if (comptesReg[t] && comptesReg[t].c && Object.prototype.hasOwnProperty.call(comptesReg[t].c, login)) { delete comptesReg[t].c[login]; touche = true; }
+  }
+  ordresSave();
+  if (touche) { comptesReg[t].maj = Date.now(); comptesEcrire(); }
+  monLog((req.tourUser && req.tourUser.nom) || 'patron', true, req, 'suppression de ' + logins.length + ' compte(s) inutilisé(s) ordonnée');
+  res.json({ ok: true, attente: true, n: logins.length, logins, refuses });
+});
 /* ══ LES COPIES DE SAUVEGARDE — le filet demandé par Justin le 9 septembre 2026 ══
    « Il faudrait une sauvegarde sur le cloud de chaque chose qu'ils font, pour chaque entreprise. »
    Le nuage ne garde qu'un document, le dernier. Ici on garde des COPIES DATÉES du bloc CHIFFRÉ
