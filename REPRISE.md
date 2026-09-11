@@ -13,6 +13,71 @@ de ligne du tout.
 
 ---
 
+## v666 — ÉCRITE, ÉPROUVÉE, **PAS PUBLIÉE** — elle attend une phrase de Justin
+
+⛔ **Ne pas la publier sans qu'il le demande explicitement pour ce changement-là.** C'est la
+règle durcie du 11 septembre au soir (voir `CLAUDE.md`), et il l'a redite le même soir :
+« fait moi tout mais pas de mise à jour tant que je te l'ai pas dit ». Tout est sur la branche
+`claude/op-gestion-interface-yb6p32` et sur `beta.html`. `app.html` et `sw.js` **restent sur la
+branche** ; `main` n'a rien reçu.
+
+Trois choses dedans, les trois demandées par Justin, les trois mesurées au navigateur :
+
+**1. La mise à jour ne se remet plus à plus tard.** « dès la connexion, peu importe les choses
+qu'ils vont faire. Ils peuvent rien faire, ça met la page complète. » Deux portes de sortie
+existaient et sont fermées : la croix ✕ de la bannière du bas, et « Terminer ma saisie
+d'abord » sur l'écran d'attente. Un seul bouton reste, le clavier ne sort pas de l'écran, et
+`syncPush(true)` part AVANT le rechargement. ⚠️ Prix assumé et écrit à l'écran : une saisie en
+cours dans un formulaire non validé est perdue — `majOccupe()` n'est plus consulté.
+
+**2. Le journal de la Tour ne ment plus sur la cause d'un blocage.** Relevé chez ELAN le soir
+même, copié tel quel : « v658 sous le minimum v653 », « v663 sous le minimum v663 », « v661
+sous le minimum v653 ». **Aucune de ces phrases n'est vraie.** Le nuage refusait bien
+l'écriture, mais l'application recopiait le minimum qu'elle avait EN MÉMOIRE, parfois vieux de
+plusieurs heures — neuf publications dans l'après-midi, donc neuf fournées de lignes
+incohérentes, dans le premier endroit qu'on ouvre quand un client appelle. `versionRefuseeParNuage`
+redemande maintenant le minimum réel (`/api/version`) avant de nommer une cause, et quand elle
+ne l'obtient pas elle écrit « écriture refusée par le nuage — minimum non confirmé ».
+
+→ **C'est la réponse à la question de Justin** (« mon compte justin marchait bien avant ici ») :
+son compte n'a jamais été en cause. À 21 h 01 son Safari était en v664, le minimum venait de
+passer à v665, le nuage a refusé l'écriture — et le message a imprimé l'ancien minimum qu'il
+avait encore en mémoire. La mise à jour est passée une minute plus tard (v665 à 21 h 02).
+
+**3. Et la boucle que le nouvel écran aurait ouverte.** Conséquence directe de (1) : sans porte
+de sortie, un refus du nuage étranger à la version (jeton d'équipe périmé, entreprise fermée
+depuis la Tour) enfermait l'appareil — recharger, se faire refuser, recharger. On ne force donc
+qu'UNE mise à jour tant que la cause n'est pas confirmée (`sessionStorage.elan_maj_forcee`), et
+le second passage montre un écran « Enregistrement refusé » qui dit la vérité au lieu de
+reproposer un bouton qui ne répare rien. Un écran déjà posé cède la place quand la cause change
+— sans quoi le retour anticipé rouvrait exactement cette boucle.
+
+**4. Une adresse qui n'est pas la nôtre ne mène plus à rien** (`connexion.html`). Justin :
+« si le lien n'est pas dans notre base de données ça marche pas ». Avant, n'importe quoi tapé
+ouvrait un formulaire de connexion COMPLET pour une entreprise inexistante ; la personne essayait
+son mot de passe et s'entendait répondre « identifiant ou mot de passe incorrect » — un mensonge,
+et elle faisait réinitialiser un mot de passe qui était bon. Les **trois** chemins passent
+désormais par la même porte (saisie à la main, arrivée directe sur `/e/nom`, lien collé sans
+code), via `/api/espaces/libre` — **aucune route serveur à ajouter**, donc rien à déployer côté
+API. ⚠️ **TROIS ÉTATS, jamais deux** : connue / inconnue / *on n'a pas pu savoir*. Le troisième
+LAISSE PASSER — refuser sur une réponse qu'on n'a pas reçue fermerait la porte à toute une
+équipe dès que le réseau hoquette, et passer n'accorde rien : il reste l'identifiant et le mot
+de passe à donner derrière. Même discipline que `_mailboxes` dans l'application.
+
+**État des contrôles :** 28 suites, **848 vérifications**, 0 échec (`tests/test-666.js` en porte
+63 à lui seul, dont les trois lignes fausses relevées chez ELAN, rejouées sur la vraie fonction).
+`verifier-syntaxe.js` : 27 pages, 50 blocs, 0 erreur. `SYNC_SECRET_DEFAULT` : 4 occurrences.
+Les deux écrans et les cinq états de la page de connexion sont mesurés au navigateur piloté, sur
+la bêta servie en local — jamais sur `app.html` en production.
+
+**Ce qui reste ouvert dessus :**
+- Justin doit dire si l'écran bloquant lui va avant qu'on l'étende aux mises à jour NON
+  obligatoires (aujourd'hui il s'applique aux deux, puisque `showUpdateBanner` y mène).
+- « Pour les versions publiques, toutes les mises à jour se feront la nuit » — demandé le
+  11 septembre, **pas encore conçu**.
+
+---
+
 ## ⛔ INCIDENT ELAN — 2e ACTE, 11 septembre 2026 au soir : LE QUOTA FIREBASE
 
 **La cause, lue dans la console de Justin à 17 h 45, pas déduite :**
