@@ -19,7 +19,11 @@ console.log('Quitter un espace remet l\'appareil VRAIMENT à neuf — les QUATRE
   v('espaceQuitter existe',/function espaceQuitter\(\)\{/.test(APP),true);
   v('elle lit le préfixe sur STORE_KEY, jamais écrit en dur',
     /const P=STORE_KEY\.split\('_'\)\[0\]\+'_';/.test(APP),true);
-  const q=(APP.match(/function espaceQuitter\(\)\{[\s\S]{0,1400}?\n\}/)||[''])[0];
+  /* Borné à la déclaration SUIVANTE, jamais à un nombre de caractères : la première version
+     coupait à 1400 et a cessé de voir la fonction le jour où elle a grandi de dix lignes —
+     quatre vérifications au rouge sur du code pourtant juste. Même leçon que l'extracteur
+     des suites 638 à 640, voir tests/LISEZMOI.md. */
+  const q=(APP.match(/function espaceQuitter\(\)\{[\s\S]*?\n\}\n(?=(?:async function |function |const |let |\/\*))/)||[''])[0];
   v('elle retire la base',/removeItem\(STORE_KEY\)/.test(q),true);
   v('elle retire le drapeau du vidage unique',/removeItem\(P\+'vierge_v1'\)/.test(q),true);
   v('elle pose le drapeau « frais » — sinon la synchro fait l\'union et POUSSE',/setItem\(P\+'frais','1'\)/.test(q),true);

@@ -13,6 +13,139 @@ de ligne du tout.
 
 ---
 
+## v640 — donner enfin une identité à Firestore (la moitié sûre)
+
+Justin, après avoir lu la dette : « dis-moi je dois faire quoi pour les règles ». Réponse
+honnête : **rien tout de suite**, et surtout ne pas y toucher seul — une règle mal écrite
+ferme la porte à toutes les entreprises en même temps. Mais la moitié qui ne risque rien
+peut se faire tout de suite, et c'est ce qui est fait.
+
+**Le problème, en une phrase.** L'application se connectait à Firebase en **anonyme** :
+Google savait qu'un appareil était là, jamais à quelle entreprise il appartenait. Une règle
+ne peut donc dire que « toute personne connectée » — et `{teamId}` n'est comparé à rien.
+D'où : n'importe quel compte anonyme lit ET écrit le document de n'importe quelle
+entreprise. Reproduit : avec les seules constantes du fichier servi publiquement, le contenu
+d'une entreprise restée sur la clé par défaut se déchiffre intégralement.
+
+**Ce qui est en place (v640).** Le serveur délivre, contre la preuve de la clé d'équipe
+(`kh`, l'empreinte SHA-256, jamais la clé), un **jeton Firebase signé** qui porte l'entreprise
+dans `claims.t` — route `POST /api/fb/jeton`. L'application le présente au lieu de la
+connexion anonyme. La clé de signature était déjà sur le VPS et fonctionnait : c'est elle qui
+écrit dans Firestore le minimum de version réglé depuis la Tour.
+
+**Rien ne change pour personne aujourd'hui, et c'est délibéré.** Tant que le jeton échoue —
+réseau coupé, serveur muet, espace de repli — l'appareil garde ou ouvre une session anonyme et
+continue exactement comme avant. On met tout le monde en place **avant** de fermer la porte.
+
+**Ce qui reste, et dans cet ordre :**
+
+1. **Exiger la v640 depuis la Tour**, et attendre que le compteur « appareils sous le
+   minimum » tombe à zéro. C'est le même geste que la porte de version, pour la même raison.
+2. **Déménager les entreprises restées sur la clé partagée** (chantier ci-dessous, ouvert
+   depuis le 8 septembre). L'espace de repli n'a **pas** de jeton — sa clé est écrite en clair
+   dans `app.html`, une preuve venant de lui ne prouve rien. Publier la règle sans avoir
+   déménagé ces entreprises les couperait toutes. **C'est ce qui rend ce chantier bloquant, et
+   plus seulement souhaitable.**
+3. **Alors seulement**, Justin colle dans la console Firebase :
+   ```
+   match /elan_teams/{teamId} {
+     allow read, write: if request.auth != null && request.auth.token.t == teamId;
+   }
+   ```
+   La règle est déjà écrite, en commentaire, dans `firestore.rules`, avec les deux conditions
+   ci-dessus et ce qu'on risque à les ignorer.
+
+Vérifié sur un serveur isolé (jamais la production) : 400 sans preuve, 400 sur une empreinte
+mal formée, 404 sur un espace inconnu, **403 sur l'espace de repli**, 403 sur une clé fausse,
+429 au-delà du plafond ; et avec une clé de signature jetable, le jeton produit a une signature
+RS256 valide, la bonne audience Identity Toolkit, `claims:{t}` seul, soixante minutes de
+validité, et un identifiant dérivé de `t` sans aucune donnée de personne. `tests/test-640.js`
+(31 vérifications) refait la fabrique et vérifie la signature à chaque exécution.
+
+Un détail mesuré et corrigé au passage : la demande de jeton bloquait **huit secondes** quand
+l'API ne répond pas — huit secondes avant le premier échange, sur un téléphone en bord de
+réseau. Ramené à quatre, comme la course d'authentification voisine.
+
+### Ce que `gardien` a trouvé, et qui change la nature du chantier
+
+Six constats, tous corrigés. Trois valent d'être retenus parce qu'ils auraient fait exactement
+l'inverse de ce qu'on cherche :
+
+1. **La garde jugeait un espace sur son NOM, pas sur sa clé.** `ESPACES_INTOUCHABLES` refuse
+   l'espace de repli par son identifiant — mais des entreprises ont leur **propre** espace tout
+   en portant encore la clé partagée. Leur empreinte se calcule depuis le fichier public : elles
+   auraient reçu un vrai jeton, et la règle une fois fermée se serait refermée sur tout le monde
+   **sauf sur la population la plus exposée**. Il y a maintenant un refus sur la VALEUR de la
+   clé (`cleEstPublique`, 409), et une seule définition de « encore sur la clé partagée » dans
+   tout le serveur — le compteur de la Tour et la porte disaient sinon deux choses différentes.
+2. **Le plafond d'appels se comptait AVANT la preuve.** C'était une arme : 120 requêtes avec le
+   `t` d'une entreprise et n'importe quelle empreinte bien formée, et tous ses appareils prenaient
+   429 pour une heure — donc, la règle une fois fermée, **l'entreprise perdait l'accès à ses
+   propres données**, indéfiniment répétable. Le vidage de la table aussi : 5 001 identifiants
+   inventés remettaient tous les compteurs à zéro. Vérifié après correction : 100 fausses preuves
+   contre une entreprise ne consomment plus son quota, son vrai appareil obtient son jeton.
+3. **Un appareil passé par le portail client n'aurait JAMAIS demandé de jeton.** `espace.html`
+   déclare le même projet Firebase sur la même origine : la session était **partagée** avec
+   l'application. Un patron qui règle son abonnement puis ouvre OP GESTION arrivait avec son
+   compte e-mail — ni anonyme, ni porteur du jeton — et le code passait à côté. Sans effet
+   aujourd'hui ; la règle une fois fermée, Firestore aurait tout refusé et l'application aurait
+   travaillé en local toute la session **sans le dire**. OP GESTION a désormais sa propre
+   application Firebase nommée : chaque page sa session, aucune ne dérange l'autre.
+
+Et deux choses écrites noir sur blanc plutôt que corrigées, parce qu'elles se décident :
+
+- **La règle future avait perdu `versionOk()`** dans sa première rédaction — donc rouvrait la
+  porte de version, très exactement « ce qui a détruit les comptes d'ELAN ». Rétabli, et le
+  piège est signalé dans `firestore.rules` pour qui recopiera le bloc.
+- **Un jeton d'une heure n'est pas un accès d'une heure.** Firebase l'échange contre une session
+  renouvelable indéfiniment : après un seul échange, l'appareil ne repasse plus jamais par le
+  serveur. Donc fermer une entreprise depuis la Tour **ne coupe pas** son Firestore sur les
+  appareils déjà pourvus, changer la clé d'équipe ne révoque rien, et l'identifiant étant commun
+  à toute l'entreprise, on ne peut pas couper un seul appareil. Ce n'est pas une régression —
+  aujourd'hui l'anonyme donne tout à tout le monde — mais c'est un levier qu'on n'a pas et qu'on
+  pourrait croire acquis. Le fermer demande un identifiant par appareil et une durée de vie
+  effective plus courte : à traiter seul.
+
+### Seconde passe — trois choses de plus, dont une qui aurait coûté
+
+- ⛔ **La porte « espace fermé par la Tour » ne désarmait rien.** Elle appelait `espaceQuitter()`
+  puis rechargeait **sans délai**, et le retrait de session passait par le SDK Firebase — qui
+  n'existe que si les trois scripts de Google ont fini de charger dans ce chargement-là. La
+  vérification part à 2,6 s : en 4G c'est une course perdue. Et après elle, `elan_sync_team` a
+  disparu, donc `syncAuth` ne repasse **jamais** pour rattraper. Une entreprise coupée par TEAM
+  OP gardait donc, sur chaque appareil, une session valide et renouvelable en lecture **et
+  écriture** sur son document — exactement ce que le retrait devait empêcher. La session s'efface
+  maintenant **aussi directement dans le stockage de Firebase**, ce qui marche SDK chargé ou non,
+  et seulement la clé d'OP GESTION : la base est partagée avec le portail client. Prouvé au
+  navigateur, SDK non chargé : la session d'équipe part, celle du portail reste.
+- ⛔ **Le compteur « à migrer » ne pouvait pas atteindre zéro.** `cleePropre` rendait `false`
+  aussi bien pour « porte la clé partagée » que pour « code illisible » : un seul espace abîmé
+  et le chiffre restait bloqué pour toujours — or c'est la condition n°3 avant de refermer la
+  règle, et une condition impossible à tenir finit par être ignorée. Il y a désormais **trois
+  états** (`cleEtat` : propre / partagée / inconnue), une seule définition dans tout le serveur,
+  et la Tour les distingue. **C'est ce même défaut qui a fait afficher « 🔓 Clé partagée — à
+  migrer » sur un espace HORS ANNUAIRE, dont le serveur n'a aucun code et ne peut donc rien
+  savoir.** Justin l'a lu comme un constat le 11 septembre au matin ; c'était un artefact.
+- **Travailler en local sans le dire.** Quand les quatre reprises de la synchro s'épuisent sur un
+  refus de permission, l'application continuait en silence : l'équipe voyait des données périmées
+  sans qu'aucun message ne le signale. Le jour de la bascule vers le jeton, ce chemin devient
+  fréquent. Elle le dit maintenant. Travailler hors ligne est une fonctionnalité ; se croire
+  synchronisé sans l'être, non.
+
+Et un point **écrit plutôt que corrigé**, parce que le relecteur avait raison de me contredire :
+les copies de sauvegarde d'une entreprise restée sur la clé partagée exposent **plus** que
+Firestore, pas autant. Firestore ne porte que le dernier état ; les copies gardent une version
+par heure sur 24 h et une par jour sur 30 jours — donc des clients supprimés, des interventions
+archivées, des prix d'avant une renégociation. Retirer le filet à ces entreprises serait pire que
+le mal ; mais ça change la priorité : elles passent en premier, et pas « quand on aura le temps ».
+
+Enfin, `espaceQuitter()` emporte maintenant **la session Firebase**. C'est le secret le plus
+vivant de tous, et il ne vit pas dans `localStorage` : sans ce retrait, un appareil qu'on rend
+ou dont la Tour ferme l'espace gardait un accès lecture **et écriture** valide et renouvelable
+sur le document de l'entreprise qu'il venait de quitter.
+
+---
+
 ## v639 — « il faut que personne n'écrase rien »
 
 Demande de Justin, 10 septembre au soir, après avoir vu le bandeau des doublons persister sur

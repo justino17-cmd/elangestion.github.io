@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '639-beta';
+const APP_VERSION = '640-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6265,23 +6265,82 @@ function syncEnabled(){ return localStorage.getItem('elanB_sync_on')!=='0' && !!
 function loadFirebase(){ return new Promise((res,rej)=>{ if(window.firebase&&window.firebase.firestore&&window.firebase.auth) return res();
   const add=src=>new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=ko; document.head.appendChild(s); });
   add('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js').then(()=>add('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js')).then(()=>add('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js')).then(res).catch(rej); }); }
-/* Les règles Firestore exigent un utilisateur connecté : connexion anonyme automatique
-   (la session reste sur l'appareil — un seul compte anonyme par appareil, créé une fois). */
+/* Le jeton d'équipe, demandé au serveur TeamOP contre la PREUVE de la clé (jamais la clé
+   elle-même). Rendu vide dès que quoi que ce soit manque — pas d'espace, pas de preuve
+   utilisable, pas de réseau, serveur sans clé d'administration : l'appareil retombe alors sur
+   la connexion anonyme et continue de fonctionner exactement comme avant. C'est voulu : on
+   met tout le monde en place AVANT de fermer la porte, jamais l'inverse. */
+async function fbJetonEquipe(){ try{
+  const t=syncTeam(); if(!t) return '';
+  const kh=await khEquipe(); if(!kh) return '';
+  /* Quatre secondes, comme la course d'authentification juste en dessous, et pas plus : ce
+     délai s'ajoute au démarrage de la synchro quand api.teamop.fr ne répond pas. Mesuré au
+     navigateur avec le serveur injoignable — huit secondes se voyaient, sur un téléphone en
+     bord de réseau c'est huit secondes avant le premier échange. Le jeton n'est pas urgent
+     (tant que la règle Firestore n'a pas changé, il ne change rien) : mieux vaut abandonner
+     vite et repartir en anonyme que faire attendre quelqu'un sur un chantier. */
+  const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(),4000);
+  let j={};
+  try{ const r=await fetch(PUSH_API+'/api/fb/jeton',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:t,kh:kh}),signal:ctrl.signal});
+       j=await r.json().catch(()=>({})); }
+  finally{ clearTimeout(tm); }
+  return (j&&j.jeton)?String(j.jeton):'';
+}catch(e){ return ''; } }
+/* Les règles Firestore exigent un utilisateur connecté. Jusqu'ici c'était une connexion
+   ANONYME : Google savait qu'un appareil était là, jamais à quelle entreprise il appartenait
+   — d'où une règle qui ne peut dire que « toute personne connectée », donc n'importe quel
+   compte anonyme lisant et écrivant le document de n'importe quelle entreprise.
+   On présente désormais un jeton signé par le serveur, qui porte l'entreprise (`claims.t`).
+   Trois cas à tenir, et chacun a coûté un défaut ailleurs dans ce fichier :
+    · session anonyme, neuve OU DÉJÀ EN PLACE → on tente le jeton. Ne regarder que le cas
+      « aucune session » laisserait tous les appareils déjà utilisés en anonyme pour toujours.
+    · le jeton échoue (réseau, serveur, espace de repli) → on GARDE la session anonyme
+      existante ou on en ouvre une : perdre la synchro pour cause de porte fermée trop tôt
+      serait pire que le mal qu'on soigne.
+    · session déjà porteuse d'un jeton mais d'une AUTRE entreprise (l'appareil a changé
+      d'espace) → on déconnecte, sinon il resterait rattaché à l'ancienne. */
+/* ⛔ OP GESTION A SA PROPRE APPLICATION FIREBASE, ET C'EST UNE QUESTION DE SESSION.
+   `espace.html` — le portail où un client gère son abonnement — déclare le MÊME projet
+   Firebase, sur la MÊME origine, sous le même nom d'application par défaut. La session est
+   donc PARTAGÉE entre les deux pages. Un patron qui règle son abonnement puis ouvre OP GESTION
+   arrivait ici avec son compte e-mail : ni anonyme, ni porteur du jeton d'équipe — donc le
+   bloc ci-dessous était sauté et cet appareil ne demandait JAMAIS de jeton. Sans effet tant
+   que la règle Firestore reste permissive ; le jour où elle exigera le jeton, Firestore
+   refuserait tout et l'application travaillerait en local toute la session, sans le dire.
+   Et le « corriger » en remplaçant sa session ferait se battre les deux pages, chacune
+   reprenant la main sur l'autre à chaque visite.
+   Une application NOMMÉE isole les deux (la persistance Firebase est rangée par nom
+   d'application) : chacune sa session, aucune ne dérange l'autre. Trouvé par `gardien`. */
+function fbApp(){ const cfg=syncGetCfg();
+  try{ return firebase.app('opgestion'); }catch(e){ return firebase.initializeApp(cfg,'opgestion'); } }
 async function syncAuth(){ try{
   if(!firebase.auth) return;
-  const u=await Promise.race([
-    new Promise(res=>{ const off=firebase.auth().onAuthStateChanged(x=>{ try{off();}catch(e){} res(x); }); }),
+  const A=fbApp();
+  let u=await Promise.race([
+    new Promise(res=>{ const off=A.auth().onAuthStateChanged(x=>{ try{off();}catch(e){} res(x); }); }),
     new Promise(res=>setTimeout(()=>res(null),4000))
   ]);
-  if(!u) await firebase.auth().signInAnonymously();
+  const tIci=syncTeam();
+  /* On juge sur le CLAIM, pas sur l'anonymat : la question est « cette session vaut-elle pour
+     l'entreprise qu'on a sous les yeux ? ». Une session porteuse d'une AUTRE entreprise se
+     déconnecte ; une session sans claim (anonyme, ou héritée d'ailleurs) va chercher le jeton. */
+  let cl='';
+  if(u && !u.isAnonymous){ try{ const r=await u.getIdTokenResult(); cl=(r&&r.claims&&r.claims.t)||''; }catch(e){} }
+  if(cl && cl!==tIci){ try{ await A.auth().signOut(); }catch(e){} u=null; cl=''; }
+  if(!cl){
+    const jet=await fbJetonEquipe();
+    if(jet){ try{ await A.auth().signInWithCustomToken(jet); }
+             catch(e){ try{ console.warn('jeton équipe refusé :', e&&e.code); }catch(_e){} } }
+    if(!A.auth().currentUser) await A.auth().signInAnonymously();
+  }
   /* Se connecter ne suffit pas, et attendre currentUser ne suffit pas non plus : currentUser est
      posé dès que signInAnonymously() se résout, alors que le JETON n'est pas encore parvenu au
      client Firestore. L'écouteur s'attachait donc sur une connexion sans jeton et Firestore
      répondait « permission refusée » alors que les règles et l'authentification étaient bonnes.
      getIdToken() attend la vraie remise du jeton — mesuré sur la page : une lecture passe dès
      que c'est fait, et échouait systématiquement avant. */
-  for(let i=0; i<20 && !firebase.auth().currentUser; i++) await new Promise(r=>setTimeout(r,100));
-  const _u=firebase.auth().currentUser;
+  for(let i=0; i<20 && !A.auth().currentUser; i++) await new Promise(r=>setTimeout(r,100));
+  const _u=A.auth().currentUser;
   if(_u) await _u.getIdToken();
 }catch(e){ try{ console.warn('auth sync :', e&&e.message); }catch(_e){} } }
 /* ══════════ UNE ÉQUIPE PASSE D'UNE VERSION À L'AUTRE ENSEMBLE ══════════════════════════
@@ -6340,7 +6399,7 @@ function majVersionVue(v){
   }catch(e){}
 }
 async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn||_syncDemarre) return; _syncDemarre=true;
-  try{ await loadFirebase(); const cfg=syncGetCfg(); if(!firebase.apps.length) firebase.initializeApp(cfg); await syncAuth(); const fs=firebase.firestore();
+  try{ await loadFirebase(); await syncAuth(); const fs=fbApp().firestore();   // application NOMMÉE : voir fbApp(), la session ne se mélange pas avec celle du portail client
     _fbDoc=fs.collection('elanB_teams').doc(syncTeam()); _syncOn=true; _syncGotInitial=false; try{updateSyncBtn();}catch(e){}
     /* Le minimum exigé vit aussi dans Firestore (teamop_config/version) : c'est ce que la règle
        de sécurité lit. On le lit aussi d'ici, pour se bloquer avant même de tenter une écriture. */
@@ -6426,7 +6485,18 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
            travailler en local pour TOUTE la session, sans jamais se resynchroniser : l'équipe
            voyait des données périmées sans qu'aucun message ne le signale. On réessaie. */
         if(err && err.code==='permission-denied' && (_syncEssais=(_syncEssais||0)+1)<=4){
-          setTimeout(()=>{ try{ syncInit(); }catch(e){} }, 1200*_syncEssais); } });
+          setTimeout(()=>{ try{ syncInit(); }catch(e){} }, 1200*_syncEssais); return; }
+        /* ⛔ ET QUAND LES QUATRE REPRISES SONT ÉPUISÉES, ON LE DIT. Le commentaire ci-dessus
+           décrivait déjà le mal — « travailler en local toute la session sans qu'aucun message
+           ne le signale » — et la reprise ne le soigne que si elle finit par réussir. Quand
+           elle échoue, l'utilisateur n'avait toujours rien. Le jour de la bascule vers le jeton
+           d'équipe, ce chemin devient fréquent : appareil non migré, création de compte anonyme
+           refusée par un quota, réseau du bureau saturé au même moment. Travailler hors ligne
+           est une fonctionnalité ; le croire synchronisé alors qu'on ne l'est pas, non.
+           Signalé par `gardien`, seconde passe. */
+        if(err && err.code==='permission-denied'){
+          try{ toast('⚠️ Pas de connexion à l\'espace de l\'équipe — ton travail est enregistré sur cet appareil et repartira quand la connexion reviendra',7000); }catch(e){}
+        } });
   }catch(e){ console.error('syncInit',e); _syncOn=false; _syncDemarre=false; } }
 /* Décrit les déplacements d'interventions reçus d'un collègue (planning temps réel) */
 function planSyncDiff(oldDb,newDb,by){ try{
@@ -6902,6 +6972,33 @@ function espaceQuitter(){
     lienLisibleOublier();
   }catch(e){}
   try{ indexedDB.deleteDatabase(P+'cote'); }catch(e){}
+  /* ⛔ ET LA SESSION FIREBASE PART AVEC — c'est le secret le plus VIVANT de tous. Depuis la
+     v640, elle porte l'entreprise dans son jeton, et elle se renouvelle indéfiniment toute
+     seule : retirer les clés du stockage local n'y change rien, elle vit ailleurs. Sans ce
+     retrait, un appareil qu'on rend, qu'on quitte ou dont la Tour ferme l'espace garde un
+     accès lecture ET écriture valide sur le document de l'entreprise qu'il vient de quitter.
+
+     ⚠️ DEUX RETRAITS, ET LE SECOND EST CELUI QUI COMPTE. Passer par le SDK ne marche que si
+     l'application nommée existe déjà — donc seulement si syncInit a dépassé le chargement des
+     trois scripts de Google dans CE chargement-ci. Sur la porte de la Tour (« espace fermé »),
+     c'est une course perdue d'avance sur un téléphone en 4G : la vérification part à 2,6 s, et
+     après elle `elan_sync_team` a disparu, donc syncAuth ne repassera JAMAIS pour rattraper.
+     On efface donc aussi la session directement dans le stockage de Firebase, ce qui marche
+     que Firebase ait été chargé ou non. Et on n'efface QUE la clé de l'application
+     « opgestion » : la base est partagée avec le portail client (espace.html), vider la base
+     entière déconnecterait le client de son propre espace abonnement.
+     Signalé par `gardien`, 10 septembre 2026, puis précisé en seconde passe. */
+  try{ if(window.firebase&&firebase.apps){ const a=firebase.apps.filter(x=>x&&x.name==='opgestion')[0]; if(a&&a.auth) a.auth().signOut(); } }catch(e){}
+  try{
+    const dm=indexedDB.open('firebaseLocalStorageDb');
+    dm.onsuccess=function(){ try{ const d=dm.result;
+      if(!d.objectStoreNames||!d.objectStoreNames.contains('firebaseLocalStorage')){ d.close(); return; }
+      const st=d.transaction('firebaseLocalStorage','readwrite').objectStore('firebaseLocalStorage');
+      const cl=st.getAllKeys();
+      cl.onsuccess=function(){ try{ (cl.result||[]).forEach(function(k){ if(String(k).indexOf(':opgestion')>0) st.delete(k); }); }catch(e){} d.close(); };
+      cl.onerror=function(){ try{ d.close(); }catch(e){} };
+    }catch(e){} };
+  }catch(e){}
 }
 async function teamopLienCheck(){
   let code='';
@@ -7319,7 +7416,12 @@ async function forfaitServeurSync(silencieux){
       espaceQuitter();
       try{ localStorage.removeItem('elanB_sync_team'); localStorage.removeItem('elanB_sync_secret'); localStorage.removeItem('elanB_sync_on'); localStorage.removeItem('elanB_entreprise_nom'); localStorage.removeItem('elanB_session'); sessionStorage.removeItem('elanB_session'); }catch(e){}
       alert('Cet espace a été fermé par TEAM OP.\n\nPour toute question : contact@teamop.fr');
-      location.reload(); return;
+      /* Un délai, comme les deux autres portes — et ici il est indispensable. alert() gèle la
+         boucle d'événements : le retrait de la session Firebase, qui est asynchrone, ne peut
+         s'exécuter qu'APRÈS. Recharger dans la foulée le coupait net, et cette porte est la
+         seule qui ne se rattrape pas au chargement suivant : après elle, `elan_sync_team` a
+         disparu, donc syncAuth ne repasse plus jamais. */
+      setTimeout(()=>location.reload(),400); return;
     }
     /* Les applications ouvertes à cet espace arrivent par le même aller-retour que la formule.
        On le lit AVANT le test sur la formule : un espace sans formule attribuée sortait par le

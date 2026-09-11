@@ -1867,6 +1867,33 @@ function espaceCleOk(t, kh) {
   if (!cle || !/^[0-9a-f]{64}$/.test(String(kh || '')) || crypto.createHash('sha256').update(cle).digest('hex') !== kh) return false;
   return true;
 }
+/* ⛔ LA CLÉ ÉCRITE EN CLAIR DANS app.html. La connaître ici n'ajoute AUCUN secret — c'est
+   justement le problème qu'elle pose. Elle ne sert qu'à répondre à une question : cet espace
+   a-t-il sa propre clé, ou porte-t-il encore celle que tout le monde peut lire ?
+   ⛔ Ne JAMAIS la modifier, ici ou ailleurs : elle déchiffre les données de toutes les
+   entreprises qui n'en ont pas reçu d'autre (voir CLAUDE.md, SYNC_SECRET_DEFAULT). */
+const CLE_PAR_DEFAUT = 'ELAN-GESTION-7F3A9C2E-cloud-2026';
+/* ⛔ TROIS ÉTATS, PAS DEUX — et c'est la Tour qui l'a appris à ses dépens. Un booléen
+   « a-t-elle sa clé propre ? » confond « non, elle porte la clé partagée » avec « on n'en sait
+   rien » : un espace HORS ANNUAIRE n'a pas de code enregistré, donc pas de clé connue, et il
+   s'affichait pourtant « 🔓 Clé partagée — à migrer ». Justin l'a lu comme un constat le
+   11 septembre 2026, alors que c'était un artefact. Pire, côté chantier : un espace d'annuaire
+   au code illisible se compte « à migrer » pour toujours, donc le compteur ne peut plus
+   atteindre zéro — et une condition impossible à remplir finit par être ignorée.
+   Une seule fonction rend l'état, tout le reste en dérive. */
+function cleEtat(e) {
+  if (!e || !e.code) return 'inconnue';
+  let k = ''; try { k = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) { return 'inconnue'; }
+  if (!k) return 'inconnue';
+  return k === CLE_PAR_DEFAUT ? 'partagee' : 'propre';
+}
+/* Vrai quand l'espace porte encore la clé partagée — donc quand une « preuve de clé » venant de
+   lui ne prouve rien, puisque n'importe qui peut la calculer depuis le fichier public.
+   ⚠️ OUVERTE PAR DÉFAUT, ET C'EST L'ORDRE D'APPEL QUI LA REND SÛRE : un espace inconnu ou un
+   code illisible rend `false`, c'est-à-dire « laisse passer ». Ce n'est acceptable que parce
+   que `sauvRefus` tranche AVANT — 404 sur l'espace inconnu, 403 sur le code illisible.
+   ⛔ Ne jamais l'appeler seule, sans cette garde devant. */
+function cleEstPublique(t) { return cleEtat(espaceParT(t)) === 'partagee'; }
 app.post('/api/monitor/compte/supprimer', monPatronStrict, async (req, res) => {
   const b = req.body || {};
   const t = monStr(b.t, 80), login = monStr(b.login, 40).toLowerCase().trim();
@@ -1934,8 +1961,8 @@ let sauvQuota = new Map();
    dans app.html — une copie de lui serait lisible par n'importe qui, relecture du gardien du
    10 septembre 2026), un espace fermé (« le blocage d'abord », comme les 14 autres endroits),
    une clé fausse. */
-function sauvRefus(t, kh) {
-  if (ESPACES_INTOUCHABLES.includes(t)) return { code: 403, error: 'pas de copie pour l\'espace de repli' };
+function sauvRefus(t, kh, quoi) {
+  if (ESPACES_INTOUCHABLES.includes(t)) return { code: 403, error: 'pas de ' + (quoi || 'copie') + ' pour l\'espace de repli' };
   if (entFermes.espaces.includes(t)) return { code: 403, error: 'espace fermé' };
   const ok = espaceCleOk(t, kh); if (ok === null) return { code: 404, error: 'espace inconnu' }; if (!ok) return { code: 403, error: 'clé d\'équipe incorrecte' };
   return null;
@@ -2071,13 +2098,11 @@ app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
      sert que pour RÉPONDRE À UNE QUESTION : cet espace a-t-il sa propre clé, ou partage-t-il
      celle que tout le monde peut lire ? ⛔ Ne JAMAIS la modifier, ici ou ailleurs : elle
      déchiffre les données de toutes les entreprises qui n'en ont pas reçu d'autre. */
-  const CLE_PAR_DEFAUT = 'ELAN-GESTION-7F3A9C2E-cloud-2026';
-  /* Vrai quand l'espace porte une clé qui n'est PAS celle-là. On rend un booléen, jamais la
-     clé : cette route est en monAdmin, un cran sous le patron. */
-  const cleePropre = (e) => {
-    if (!e || !e.code) return false;
-    try { const k = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); return !!k && k !== CLE_PAR_DEFAUT; } catch (err) { return false; }
-  };
+  /* Une SEULE définition de l'état d'une clé dans tout le fichier (cleEtat, en haut, à côté
+     d'espaceCleOk) : la route du jeton d'équipe s'en sert pour REFUSER les espaces restés sur
+     la clé partagée, et deux définitions finiraient par diverger — le compteur de la Tour
+     dirait une chose et la porte en ferait une autre. On rend l'ÉTAT, jamais la clé : cette
+     route est en monAdmin, un cran sous le patron. */
   const vus = new Set(); const liste = [];
   const pousser = (t, slug, e) => {
     if (!t || vus.has(t)) return; vus.add(t);
@@ -2096,7 +2121,8 @@ app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
       opMessages: !!(e && e.opMessages),
       /* La question qui décide du chantier « un teamId par entreprise » : celles qui ont déjà
          leur clé n'ont rien à migrer. Booléen seulement — la clé ne sort pas d'ici. */
-      cleePropre: cleePropre(e),
+      cleePropre: cleEtat(e) === 'propre',
+      cleEtat: cleEtat(e),   // 'propre' | 'partagee' | 'inconnue' — la Tour ne doit plus confondre les deux derniers
       suspendu: entFermes.espaces.includes(t),
       promo: promoPar[t] || null,
       metier: (cli && cli.metier) || '',
@@ -3328,6 +3354,80 @@ async function fbAdminJeton() {
     return j.access_token;
   } catch (e) { console.error('clé admin firebase :', e.message); return ''; }
 }
+/* ══ LE JETON D'ÉQUIPE — l'identité que Firestore n'a pas encore ═══════════════════════════
+   Aujourd'hui l'application se connecte à Firebase en ANONYME (`signInAnonymously`) : Google
+   sait qu'un appareil est connecté, jamais À QUELLE ENTREPRISE il appartient. C'est pour ça
+   que la règle Firestore ne sait dire que « toute personne connectée » — et donc que
+   n'importe quel compte anonyme lit et écrit le document de n'importe quelle entreprise.
+   Reproduit le 10 septembre 2026 : avec les seules constantes du fichier public, le contenu
+   d'une entreprise restée sur la clé par défaut se déchiffre intégralement.
+
+   Cette route rend un JETON SIGNÉ qui porte l'entreprise dans `claims.t`. Une fois que tous
+   les appareils s'en servent, la règle peut enfin dire quelque chose de vrai :
+
+       match /elan_teams/{teamId} {
+         allow read:  if request.auth != null && request.auth.token.get('t', '') == teamId;
+         allow write: if request.auth != null && request.auth.token.get('t', '') == teamId
+                         && versionOk();
+       }
+
+   ⚠️ NE PAS PERDRE versionOk() : sans lui, la porte de version se rouvre — un appareil resté
+   en vieille version réécrit toute la base de l'entreprise avec sa copie périmée, ce qui a
+   déjà détruit les comptes d'ELAN une fois.
+   ⚠️ L'ORDRE EST VITAL, et c'est exactement la leçon de cette même porte : publier la règle
+   AVANT que tous les appareils présentent le jeton ferme la porte aux retardataires, qui
+   n'ont alors plus accès aux données de leur propre entreprise. D'abord tout le monde monte,
+   ENSUITE la porte se ferme. Le texte complet, avec les trois conditions, est dans
+   `firestore.rules` — c'est lui qui fait foi.
+
+   La preuve demandée est celle des copies de sauvegarde — `kh`, l'empreinte SHA-256 de la
+   clé d'équipe, jamais la clé — et les refus sont les mêmes, pour les mêmes raisons. En
+   particulier l'ESPACE DE REPLI est exclu : ses deux clés sont écrites en clair dans
+   app.html, une preuve venant de lui ne prouve rien. Ces appareils restent donc en anonyme
+   — et c'est précisément ce qui rend le déménagement des entreprises restées sur la clé
+   partagée OBLIGATOIRE avant de pouvoir fermer la porte. */
+let jetonQuota = new Map();
+app.post('/api/fb/jeton', async (req, res) => {
+  const b = req.body || {}; const t = monStr(b.t, 80), kh = monStr(b.kh, 64).toLowerCase();
+  if (!t || !/^[0-9a-f]{64}$/.test(kh)) return res.status(400).json({ error: 't et kh requis' });
+  /* La MÊME garde que les copies de sauvegarde, à un mot près — une seule fonction, parce que
+     deux copies d'un contrôle de sécurité finissent toujours par diverger (c'est la leçon des
+     quatre portes de sortie d'espace, corrigées le même jour). */
+  const refus = sauvRefus(t, kh, 'jeton'); if (refus) return res.status(refus.code).json({ error: refus.error });
+  /* ⛔ LE PLAFOND SE COMPTE APRÈS LA PREUVE, JAMAIS AVANT — relecture du gardien, 10 septembre
+     2026. Compté avant, il devenait une arme : 120 requêtes avec le `t` d'une entreprise et
+     n'importe quelle empreinte bien formée, et TOUS ses appareils prennent 429 pour une heure.
+     Aujourd'hui ils repartent en anonyme sans rien voir ; la règle une fois fermée, l'entreprise
+     perdrait l'accès à ses propres données, de façon répétable indéfiniment. Le vidage de la
+     table aussi : 5001 identifiants inventés remettaient tous les compteurs à zéro. Les trois
+     routes de sauvegarde comptent dans le bon ordre — celle-ci le fait maintenant aussi. */
+  if (jetonQuota.size > 5000) jetonQuota = new Map();
+  if (!quotaOk(jetonQuota, 't:' + t, 120, 3600000)) return res.status(429).json({ error: 'trop de demandes — réessaie plus tard' });
+  /* ⛔ ET UNE CLÉ PUBLIQUE N'EST PAS UNE PREUVE. `sauvRefus` refuse l'espace de REPLI par son
+     NOM ; or des entreprises ont leur propre identifiant d'espace tout en portant encore la
+     clé par défaut, celle qui est écrite en clair dans app.html. Leur empreinte se calcule
+     donc sans rien savoir, et sans ce refus elles recevraient un vrai jeton : la règle une
+     fois fermée se refermerait sur tout le monde SAUF sur elles — exactement la population
+     que firestore.rules désigne comme la plus exposée. C'est ce refus qui rend le déménagement
+     des entreprises restées sur la clé partagée obligatoire, et il faut qu'il se voie. */
+  if (cleEstPublique(t)) return res.status(409).json({ error: 'espace encore sur la clé partagée — à migrer avant de pouvoir être authentifié' });
+  if (!fbAdminCle || !fbAdminCle.client_email || !fbAdminCle.private_key) return res.status(503).json({ error: 'firebase_off' });
+  try {
+    const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const now = Math.floor(Date.now() / 1000);
+    /* Un identifiant par ENTREPRISE, pas par appareil : la règle ne regarde que
+       l'appartenance, et un compte Firebase par téléphone en ouvrirait des milliers pour
+       rien. Il est dérivé de `t`, donc stable, et ne porte aucune donnée de personne. */
+    const uid = 'eq_' + crypto.createHash('sha256').update('teamop:' + t).digest('hex').slice(0, 32);
+    const sans = b64u({ alg: 'RS256', typ: 'JWT' }) + '.' + b64u({
+      iss: fbAdminCle.client_email, sub: fbAdminCle.client_email,
+      aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+      iat: now, exp: now + 3600, uid, claims: { t } });
+    const sig = crypto.createSign('RSA-SHA256').update(sans).sign(fbAdminCle.private_key).toString('base64url');
+    res.set('Cache-Control', 'no-store');   // un jeton d'accès ne se garde nulle part en chemin
+    return res.json({ ok: true, jeton: sans + '.' + sig });
+  } catch (e) { console.error('jeton équipe : signature impossible —', e.message); return res.status(500).json({ error: 'signature impossible' }); }
+});
 const fsBase = () => 'https://firestore.googleapis.com/v1/projects/' + FB_PROJET + '/databases/(default)/documents';
 async function fbAdminFetch(url, opts, tok) {
   const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 10000);
