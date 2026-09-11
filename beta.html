@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '655-beta';
+const APP_VERSION = '656-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6118,8 +6118,14 @@ function migrate(d){
      lien d'installation, qui pose `elan_admin_login`. C'est ce compte-là que boot() renomme, et
      sans lui un nouveau client n'aurait aucune porte d'entrée. Ne jamais fermer les deux. */
   const _rattache=(function(){ try{ return !!String(localStorage.getItem('elanB_sync_team')||'').trim(); }catch(e){ return false; } })();
-  const _installe=(function(){ try{ return !!localStorage.getItem('elanB_admin_login'); }catch(e){ return false; } })();
-  if(!d.users.length && !BETA_ESSAI && (!_rattache || _installe)) d.users = [{id:ID_ADMIN_DEPART,prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];   // la bêta n'a pas de compte de départ : la porte est au serveur
+  /* ⛔ ET L'EXCEPTION « lien d'installation » A ÉTÉ RETIRÉE — elle était fausse, et elle a
+     fabriqué @florent-4 sous les yeux de Justin vingt minutes après avoir été écrite.
+     `elan_admin_login` est posé par TOUT lien de connexion, pas seulement par celui d'un
+     nouveau client : chaque personne ouvrant son lien sur un navigateur neuf créait donc un
+     administrateur fantôme de plus. Le bon discriminant n'est pas connaissable ici — il faut
+     savoir si le document d'équipe est VIDE, et ça ne s'apprend qu'au premier instantané.
+     La création d'un espace neuf est donc déplacée dans syncInit (voir « ESPACE NEUF »). */
+  if(!d.users.length && !BETA_ESSAI && !_rattache) d.users = [{id:ID_ADMIN_DEPART,prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];   // la bêta n'a pas de compte de départ : la porte est au serveur
   d.users.forEach(u=>{ if(!u.login) u.login=(u.prenom||u.nom||'user').toLowerCase().replace(/\s+/g,''); });
   // Messagerie : les anciens messages directs (par technicien) deviennent des messages par compte utilisateur
   (d.messages||[]).forEach(m=>{ if(m.toTechId && !m.toUserId){ const u=(d.users||[]).find(x=>x.techId===m.toTechId); if(u) m.toUserId=u.id; } });
@@ -6511,7 +6517,18 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
       const frais=!!localStorage.getItem('elanB_frais'); let premier=false;
       if(!_syncGotInitial){ _syncGotInitial=true; premier=true;
         // rien n'est poussé depuis l'écran de connexion : l'amorçage d'un espace vide attend qu'un compte soit connecté (save() s'en charge)
-        if(!d||(!d.enc&&!d.db)){ try{ localStorage.removeItem('elanB_frais'); }catch(e){} if(currentUser) syncPush(true); return; }   // équipe vide → on amorce avec nos données
+        if(!d||(!d.enc&&!d.db)){ try{ localStorage.removeItem('elanB_frais'); }catch(e){}
+          /* ══ ESPACE NEUF : c'est ICI, et nulle part ailleurs, qu'on sait que l'équipe est vide.
+             Une entreprise qui vient d'être créée n'a aucun compte : sans porte d'entrée, personne
+             ne peut jamais s'y connecter. On pose donc le compte de départ — mais SEULEMENT une
+             fois le document d'équipe lu et constaté vide, et seulement si le lien d'installation
+             est passé sur cet appareil. Le faire plus tôt (dans migrate) revenait à le créer chez
+             TOUTE personne ouvrant son lien sur un navigateur neuf : @florent-2, -3, -4 chez ELAN. */
+          try{ if(!BETA_ESSAI && !(db.users||[]).length && localStorage.getItem('elanB_admin_login')){
+            db.users=[{id:ID_ADMIN_DEPART,prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];
+            save(); try{ renderLogin(); }catch(_e){}
+          } }catch(_e){}
+          if(currentUser) syncPush(true); return; }   // équipe vide → on amorce avec nos données
         if(d.enc&&plain===null){ try{toast('Clé d\'équipe différente — données non lues');}catch(e){} return; }   // chiffré avec une autre clé → ne rien écraser
         /* Plus de « notre base est plus lourde, on garde la nôtre » : la fusion ci-dessous réunit les
            deux, et repousse si la nôtre avait quelque chose que l'équipe n'avait pas. */
