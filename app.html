@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '648';
+const APP_VERSION = '649';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -7815,6 +7815,17 @@ function perimetreTechIds(u){ u=u||currentUser; if(!u) return new Set();
     const fn=fullName(p).toLowerCase().trim();
     const t=(db.techniciens||[]).find(x=>(x.nom||'').toLowerCase().trim()===fn); if(t) ids.add(t.id); };
   membres.forEach(ajoute); ajoute(u);
+  /* ⛔ UN PÉRIMÈTRE QUI SE CALCULE VIDE N'EST PAS UN PÉRIMÈTRE — c'est une ABSENCE DE DONNÉE,
+     et la confondre avec « cette personne ne doit rien voir » efface tout son écran en silence.
+     Le périmètre se déduit des FICHES TECHNICIENS des personnes rattachées ; si aucune ne se
+     résout (pas de techId, pas de fiche au même nom), l'ensemble ressort vide — et un ensemble
+     vide, passé à visibleBoxes/visibleMouvements/visibleVehicules, ne laisse passer AUCUNE
+     ligne. Constaté chez ELAN le 11 septembre 2026 : un compte à « voir tout » affichant
+     « 1 box (mes box) » alors que l'entreprise en compte une dizaine.
+     On rend donc `null` — « pas de périmètre », exactement comme quand personne n'est rattaché.
+     Ça ne peut QUE rendre de la visibilité, jamais en retirer. C'est aussi ce que le
+     commentaire du bloc promet déjà : « on ne retire jamais un accès en silence ». */
+  if(!ids.size) return null;
   return ids; }
 /* Les identifiants d'utilisateurs du périmètre. null = aucun périmètre. */
 function perimetreUserIds(u){ u=u||currentUser; if(!u) return new Set();
