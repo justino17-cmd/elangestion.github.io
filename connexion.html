@@ -75,11 +75,20 @@ try{
       <input id="adr-nom" placeholder="ton-entreprise" autocapitalize="off" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')adrAller()">
     </div>
     <div id="adr-err" style="display:none;color:#f87171;font-size:12.5px;margin-top:10px;line-height:1.55"></div>
-    <button class="btn" onclick="adrAller()">Accéder à mon compte</button>
+    <button class="btn" id="adr-btn" onclick="adrAller()">Accéder à mon compte</button>
     <div class="liens">
       <a href="#" onclick="entLienColler();return false">J'ai un lien de connexion</a> — colle-le, il connecte directement.<br>
       <a href="#" onclick="adrOubliee();return false">Je ne connais pas l'adresse de mon entreprise</a>
     </div>
+  </div>
+
+  <!-- ══ ÉTAPE 1 bis — L'ADRESSE EST-ELLE LA NÔTRE ? ═══════════════════════════════════════
+       Un écran d'attente plutôt qu'un formulaire qu'on retire ensuite : montrer la connexion
+       puis l'enlever sous les doigts se lit comme un bug, pas comme une vérification. -->
+  <div class="bloc" id="etape-verif" style="display:none">
+    <div class="titre">Vérification de l'adresse…</div>
+    <div class="aide" id="verif-txt">🔎 On regarde si <b style="color:#eef2fa" id="verif-adr"></b> est bien une entreprise inscrite chez TEAM OP.</div>
+    <div id="verif-sortie" style="display:none;margin-top:14px"></div>
   </div>
 
   <div id="cx-favori" style="display:none;width:100%;max-width:460px;background:rgba(124,198,255,.10);border:1px solid rgba(124,198,255,.30);border-radius:14px;padding:13px 16px;margin-bottom:16px;color:#bcd8f5;font-size:12.5px;line-height:1.6">💡 Mets cette page en favori — c'est l'adresse de ton entreprise, elle te ramènera toujours ici.</div>
@@ -134,9 +143,46 @@ try{
     }catch(e){}
     return '';
   }
-  function adrAller(){
-    var v=slugDe(($id('adr-nom')||{}).value);
+  /* ⛔ UNE ADRESSE QUI N'EST PAS LA NÔTRE NE DOIT MENER À RIEN. Demande de Justin, 11 septembre
+     2026 : « si le lien n'est pas dans notre base de données, ça marche pas ». Avant, n'importe
+     quoi tapé ici ouvrait un formulaire de connexion COMPLET pour une entreprise inexistante : la
+     personne essayait son mot de passe et s'entendait répondre « identifiant ou mot de passe
+     incorrect » — un mensonge, puisque le problème était l'adresse. Elle appelait ensuite son
+     responsable pour faire remettre à zéro un mot de passe qui était bon.
+     ⚠️ TROIS ÉTATS, jamais deux : « connue », « inconnue », et « on n'a pas pu savoir ». Le
+     troisième LAISSE PASSER — refuser sur une réponse qu'on n'a pas reçue, ce serait fermer la
+     porte à toute une équipe dès que le réseau hoquette. Et passer n'accorde rien : il reste
+     l'identifiant et le mot de passe à donner derrière. C'est la même discipline que la Réception
+     du courrier dans l'application — on ne propose une porte que quand on SAIT. */
+  async function espaceExiste(slug){
+    if(!slug) return 'inconnue';
+    try{
+      var c=new AbortController(); var tm=setTimeout(function(){ c.abort(); },6000); var r=null;
+      try{ r=await fetch('https://api.teamop.fr/api/espaces/libre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nom:slug}),signal:c.signal}); }
+      finally{ clearTimeout(tm); }
+      if(!r||!r.ok) return 'incertain';
+      var d=await r.json().catch(function(){ return null; });
+      if(!d||typeof d.libre!=='boolean') return 'incertain';   // réponse qu'on ne comprend pas : on ne tranche pas
+      return d.libre?'inconnue':'connue';
+    }catch(e){ return 'incertain'; }
+  }
+  /* Le rouge porte le VERDICT, pas le paragraphe entier : tout peindre en rouge noie la phrase
+     qui compte et rend le lien de secours illisible comme lien. Et le sens ne tient pas à la
+     couleur seule — il est écrit. */
+  function adrPasBonne(n){
+    /* On réécrit ce que la personne a TAPÉ, pas le slug : lui renvoyer « plombierducoin »
+       quand elle a écrit « plombier-du-coin » se lit comme une faute de l'application. */
+    return '<span style="color:#f87171">⛔ <b>« '+String(n||'').slice(0,60).replace(/[<>&]/g,'')+' » n\'est pas une adresse TEAM OP.</b></span><br>'+
+      '<span style="color:#93a9d4">Aucune entreprise de ce nom n\'est inscrite chez nous. Demande son adresse à ton responsable — c\'est lui qui a le lien de connexion de l\'entreprise.</span><br>'+
+      '<a href="#" onclick="entRelance();return false" style="color:#7cc6ff;display:inline-block;margin-top:8px">✉️ me renvoyer le lien par e-mail</a>';
+  }
+  async function adrAller(){
+    var v=slugDe(($id('adr-nom')||{}).value), btn=$id('adr-btn');
     if(!v){ adrMsg('#f87171','Écris l\'adresse de ton entreprise — la partie après teamop.fr/'); return; }
+    if(btn){ btn.disabled=true; btn.textContent='Vérification…'; }
+    var etat=await espaceExiste(v);
+    if(btn){ btn.disabled=false; btn.textContent='Accéder à mon compte'; }
+    if(etat==='inconnue'){ adrMsg('#93a9d4',adrPasBonne((($id('adr-nom')||{}).value||'').trim()||v)); return; }
     location.href='/e/'+encodeURIComponent(v);
   }
   function adrOubliee(){
@@ -218,7 +264,9 @@ try{
     var m=String(l).match(/#entreprise=([A-Za-z0-9+\/=_-]{8,})/);
     if(m){ location.href='/app.html#entreprise='+m[1]; return; }
     var s=slugDe(l);
-    if(s){ location.href='/e/'+encodeURIComponent(s); return; }
+    /* Un lien collé qui ne porte pas de code n'est qu'une adresse : il passe par la même porte
+       que la saisie à la main, sinon la vérification se contourne en collant au lieu de taper. */
+    if(s){ var i=$id('adr-nom'); if(i) i.value=s; adrAller(); return; }
     adrMsg('#f87171','Ce lien ne porte pas de code d\'espace. Redemande-le à ton entreprise, ou entre son adresse ci-dessus.');
   }
   /* Le même bloc que sur les autres pages du site, à l'identique : les champs apparaissent au
@@ -266,6 +314,30 @@ try{
       if(!_esp){ var lec=$id('lien-espace-client'); if(lec) lec.style.display='block'; }
     }catch(e){}
     if(adr){
+      /* ⛔ MÊME PORTE POUR L'ARRIVÉE DIRECTE. C'est le chemin du LIEN — celui qu'on colle,
+         qu'on met en favori, qu'on reçoit par message. Vérifier la saisie à la main et pas
+         celle-là n'aurait rien fermé : il suffisait d'ouvrir teamop.fr/e/nimporte-quoi. */
+      $id('etape-verif').style.display='block';
+      $id('verif-adr').textContent='teamop.fr/e/'+adr;
+      espaceExiste(adr).then(function(etat){
+        if(etat==='inconnue'){
+          $id('sous').textContent='Cette adresse ne correspond à aucune entreprise.';
+          $id('etape-verif').querySelector('.titre').textContent='Adresse inconnue';
+          $id('verif-txt').innerHTML=adrPasBonne(adr);
+          var so=$id('verif-sortie'); so.style.display='block';
+          so.innerHTML='<a href="/connexion.html" style="color:#7cc6ff;font-size:13px;text-decoration:none">← Entrer une autre adresse</a>';
+          return;
+        }
+        $id('etape-verif').style.display='none';
+        cxAfficher(adr);
+      });
+      return;
+    }
+    $id('etape-adresse').style.display='block';
+    setTimeout(function(){ var el=$id('adr-nom'); if(el) el.focus(); },80);
+  });
+  /* L'étape 2 : QUI. On n'y arrive qu'une fois l'adresse reconnue — ou non tranchée. */
+  function cxAfficher(adr){
       ADRESSE=adr;
       $id('cx-adr').textContent='teamop.fr/e/'+adr;
       $id('etape-connexion').style.display='block';
@@ -277,11 +349,7 @@ try{
       try{ if(location.pathname!=='/e/'+adr) history.replaceState(null,'','/e/'+adr); }catch(e){}
       try{ var sv=localStorage.getItem('elan_savedLogin'); if(sv) $id('cx-login').value=sv; }catch(e){}
       setTimeout(function(){ var el=$id($id('cx-login').value?'cx-mdp':'cx-login'); if(el) el.focus(); },80);
-    } else {
-      $id('etape-adresse').style.display='block';
-      setTimeout(function(){ var el=$id('adr-nom'); if(el) el.focus(); },80);
-    }
-  });
+  }
   </script>
 
   <div class="cartes" id="cartes-apps" style="display:none">

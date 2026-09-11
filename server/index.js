@@ -2448,17 +2448,16 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
 //    Une seule adresse par entreprise (dédoublonnée), tout passe par le beau
 //    gabarit TeamOP et le journal des e-mails.
 const ANNONCE = {
-  version: '572',
-  sujet: '🔗 Votre entreprise a maintenant son adresse',
-  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour — elle est déjà active, il suffit de la rouvrir (ou de toucher « Mettre à jour » si la bannière apparaît).',
+  version: '666',
+  sujet: '⬆️ La mise à jour ne se reporte plus — et les messages d’erreur disent la vérité',
+  intro: 'Bonjour,<br>votre application OP GESTION vient d\'être mise à jour. Elle s\'installe toute seule à la prochaine ouverture — vous n\'avez rien à faire.',
   points: [
-    ['🔗 Une adresse pour votre entreprise', 'Jusqu\'ici, se connecter demandait le lien reçu par e-mail — et le perdre, c\'était perdre l\'accès. Votre entreprise a désormais SON adresse : chacun y va, tape son identifiant et son mot de passe, et arrive dans votre espace. Sur n\'importe quel téléphone, sans rien à conserver. Vous la trouvez dans l\'e-mail de bienvenue, ou nous vous la redonnons.'],
-    ['👥 Chaque personne avec ses propres identifiants', 'Ce n\'est plus un lien partagé par toute l\'équipe, mais le compte de chacun — celui que vous créez dans Utilisateurs. Retirer quelqu\'un de la liste lui ferme la porte, sur tous ses appareils, sans rien changer pour les autres.'],
-    ['🔴 La couleur dit la même chose partout', 'En touchant une notification, les produits concernés s\'entourent d\'un anneau : rouge pour ce qui sort ou ce qui manque, vert pour ce qui arrive. « Stock bas » et « Box à réapprovisionner » l\'annonçaient en vert — la couleur qui se lit « tout va bien » — alors qu\'ils disent l\'inverse.'],
-    ['🔍 Trouver une rubrique sans la chercher', 'Le menu compte jusqu\'à quarante rubriques. Un champ discret en haut les filtre à la frappe : tapez « box », vous avez les box ; validez, vous y êtes.'],
-    ['🔒 La box dit ce qui attend le DR', 'Quand vos mouvements passent par la validation du DR, les quantités ne bougeaient pas et rien ne l\'expliquait. La fiche annonce maintenant ce qui est en attente, sur chaque ligne, avec de quoi retirer un produit ou tout annuler.']
+    ['⬆️ La mise à jour s\'installe, elle ne se reporte plus', 'Jusqu\'ici, la petite bannière « mise à jour » se refermait d\'un doigt, et l\'appareil pouvait rester des semaines en retard sans que personne ne s\'en aperçoive — il lisait, mais il n\'enregistrait plus rien pour l\'équipe. Désormais un écran complet le dit, avec un seul bouton. Quelques secondes, et tout le monde travaille sur la même version. Ce qui est déjà enregistré part vers l\'équipe AVANT le redémarrage.'],
+    ['⚠️ Une saisie non validée est perdue — validez avant de quitter', 'C\'est le revers de ce qui précède, et nous préférons vous le dire : si un formulaire est ouvert sans avoir été enregistré au moment où la mise à jour part, son contenu ne survit pas. Tout ce qui a été enregistré, lui, est conservé et envoyé.'],
+    ['⛔ Une adresse qui n\'existe pas le dit tout de suite', 'Se tromper dans l\'adresse de l\'entreprise ouvrait quand même l\'écran de connexion, et l\'application répondait ensuite « identifiant ou mot de passe incorrect ». Des mots de passe ont été remis à zéro pour rien. Maintenant l\'adresse est vérifiée d\'abord : si elle n\'est pas chez nous, c\'est écrit, et l\'écran de connexion n\'apparaît pas.'],
+    ['🔎 Quand l\'application refuse d\'enregistrer, elle dit pourquoi', 'Elle annonçait parfois un retard de version qui n\'en était pas un, et poussait à refaire une mise à jour qui ne réparait rien. Elle distingue désormais les deux cas : « mise à jour nécessaire » quand c\'est vrai, « enregistrement refusé » quand la cause est ailleurs — avec, dans ce cas, la consigne de prévenir votre responsable plutôt que de tourner en rond.']
   ],
-  fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes. Votre lien actuel continue de fonctionner.'
+  fin: 'Rien d\'autre ne change : mêmes données, mêmes écrans, mêmes habitudes. Votre adresse et vos identifiants continuent de fonctionner.'
 };
 app.post('/api/monitor/annonce', monPatronStrict, async (req, res) => {
   if (!mailer) return res.status(503).json({ error: 'e-mail non configuré sur le serveur' });
