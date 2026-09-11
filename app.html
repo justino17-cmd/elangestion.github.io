@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '647';
+const APP_VERSION = '648';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -28210,7 +28210,13 @@ async function annuaireDeposer(){
     if(!envoi.length) return;
     const kh=await sha256(k);
     const r=await fetch(PUSH_API+'/api/espaces/comptes',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({t:t,kh:kh,comptes:envoi})});
+      /* ⛔ `ver` EST OBLIGATOIRE ICI. Le serveur refuse le dépôt d'annuaire en 426 dès qu'une
+         version minimale est exigée — c'est le garde-fou qui empêche un appareil périmé de
+         remplacer onze comptes par trois (comptes.json est réécrit en entier). Mais l'app ne
+         l'envoyait PAS : le contrôle lisait donc 0, et TOUS les appareils, même à jour, étaient
+         refusés dès qu'un minimum existait. Mesuré chez ELAN le 11 septembre 2026 — dernière
+         erreur restante dans l'onglet Réseau une fois la synchro rétablie. */
+      body:JSON.stringify({t:t,kh:kh,comptes:envoi,ver:String(APP_VERSION||'')})});
     if(r&&r.ok){ _annuaireSig=sig; try{ localStorage.setItem('elan_annuaire_cache',JSON.stringify(neuf)); }catch(e){} }
   }catch(e){}
   finally{ _annuaireEnCours=false; }
