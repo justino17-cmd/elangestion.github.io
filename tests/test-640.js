@@ -105,7 +105,10 @@ console.log('\nLa route ne délivre rien sans preuve, et jamais pour le repli');
     /OUVERTE PAR DÉFAUT, ET C'EST L'ORDRE D'APPEL QUI LA REND SÛRE/.test(SRV),true);
   /* La Tour doit lire les trois états, sinon elle remet le mensonge en place. */
   const TOUR=fs.readFileSync(RAC+'/tour.html','utf8');
-  v('la Tour distingue « clé inconnue » de « clé partagée »',/❔ Clé inconnue/.test(TOUR),true);
+  /* Tolérant au balisage : la Tour publiée et celle de la refonte n'écrivent pas le libellé
+     de la même façon (`<b>` ou non). Ce qui est verrouillé, c'est que le troisième état
+     EXISTE et qu'il est nommé, pas la façon dont il est gras. */
+  v('la Tour distingue « clé inconnue » de « clé partagée »',/❔ (<b>)?Clé inconnue/.test(TOUR),true);
   v('son compteur « à migrer » ne compte QUE ce qui est vraiment partagé',
     /x\.cleEtat==='partagee'/.test(TOUR),true);
   v('et son filtre dit la même chose que son compteur',
