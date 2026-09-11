@@ -29,7 +29,12 @@ console.log('Le repère de synchro n\'avance que sur une écriture acquittée');
   v('elle est rendue quand l\'écriture échoue',
     /try\{ if\(_syncTs===ts\) _syncTs=_tsAvant; \}catch\(_e\)\{\}/.test(APP), true);
   v('elle est rendue aussi quand rien n\'est acquitté en 15 s',
-    /if\(_syncTs===ts\) _syncTs=_tsAvant;\n    \},15000\);/.test(APP), true);
+    /* On vérifie la PROPRIÉTÉ, pas la mise en page : la restauration doit se trouver DANS le
+       bloc des 15 secondes, avant qu'il se referme. Exiger les deux lignes COLLÉES rendait ce
+       test faux dès qu'on ajoutait une ligne entre elles — ce qui est arrivé en y branchant le
+       diagnostic automatique. Un test qui casse sur une mise en page ne garde rien. */
+    (function(){ const fin=APP.indexOf('},15000);'); if(fin<0) return 'bloc des 15 s introuvable';
+      return APP.slice(Math.max(0,fin-1500),fin).indexOf('if(_syncTs===ts) _syncTs=_tsAvant;')>=0; })(), true);
   v('le repère sert bien à ignorer le plus ancien (la garde existe toujours)',
     /if\(\(d\.ts\|\|0\)<=\(_syncTs\|\|0\)\) return;/.test(APP), true);
   /* Le garde-fou `_syncTs===ts` : si une écriture PLUS RÉCENTE est passée entre-temps, on ne

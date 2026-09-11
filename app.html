@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '652';
+const APP_VERSION = '653';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6444,9 +6444,40 @@ function majVersionVue(v){
     if(typeof majArmer==='function') majArmer();
   }catch(e){}
 }
+/* Le diagnostic que l'appareil envoie tout seul — une fois par chargement, jamais deux.
+   Des compteurs et un identifiant d'espace : de quoi trancher entre « base vide », « écoute
+   coupée », « mauvais espace » et « écriture refusée », sans jamais rien demander au client
+   ni faire voyager le moindre nom. Voir le bloc ⛔ dans syncInit. */
+let _syncDiagDit=false;
+function syncDiagnostic(motif){
+  if(_syncDiagDit) return; _syncDiagDit=true;
+  try{
+    const n=c=>(((typeof db!=='undefined'&&db&&db[c])||[])).length;
+    const msg='Synchro '+motif
+      +' — espace '+(localStorage.getItem('elan_sync_team')||'aucun')
+      +' · base locale : '+n('boxes')+' box, '+n('produits')+' produits, '+n('users')+' comptes, '+n('interventions')+' interventions, '+n('clients')+' clients'
+      +' · premier instantane '+(_syncGotInitial?'recu':'JAMAIS recu')
+      +' · ecoute '+(_syncOn?'active':'coupee')
+      +' · cle propre '+(localStorage.getItem('elan_sync_secret')?'oui':'non')
+      +' · role '+((typeof currentUser!=='undefined'&&currentUser&&currentUser.role)||'non connecte');
+    try{ console.warn(msg); }catch(_e){}
+    if(typeof tmPush==='function') tmPush('synchro',msg,'','sync',0);
+  }catch(e){}
+}
 async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_syncOn||_syncDemarre) return; _syncDemarre=true;
   try{ await loadFirebase(); await syncAuth(); const fs=fbApp().firestore();   // application NOMMÉE : voir fbApp(), la session ne se mélange pas avec celle du portail client
     _fbDoc=fs.collection('elan_teams').doc(syncTeam()); _syncOn=true; _syncGotInitial=false; try{updateSyncBtn();}catch(e){}
+    /* ⛔ L'APPLICATION DIT ELLE-MÊME QUAND SA SYNCHRO NE PART PAS. Justin, 11 septembre 2026 :
+       « c'est à nous de trouver les problèmes, ce n'est pas normal de leur faire faire ça ».
+       Demander à quelqu'un chez un client de coller une commande dans une console de navigateur
+       n'est pas un diagnostic, c'est un aveu — et ça coûte la confiance devant son propre client.
+       Toute la journée du 11 septembre s'est jouée là : les appareils savaient parfaitement ce qui
+       n'allait pas, personne ne le leur a demandé, et il a fallu des captures d'écran pour
+       reconstituer ce que le code aurait pu dire en une phrase.
+       Au bout de 25 s sans premier instantané, l'appareil remonte son état par le canal qui
+       existe déjà (tmPush → /api/bug) : visible dans la Tour et envoyé par mail. Des COMPTEURS
+       et l'identifiant d'espace, jamais un nom ni une adresse — même règle que /health. */
+    setTimeout(()=>{ if(!_syncGotInitial && _syncOn) syncDiagnostic('bloquée : premier instantané jamais reçu après 25 s'); },25000);
     /* Le minimum exigé vit aussi dans Firestore (teamop_config/version) : c'est ce que la règle
        de sécurité lit. On le lit aussi d'ici, pour se bloquer avant même de tenter une écriture. */
     try{ fs.collection('teamop_config').doc('version').get().then(sn=>{ try{ if(sn&&sn.exists){ const x=sn.data()||{}; versionMinAppliquer(x.min); } }catch(e){} }).catch(()=>{}); }catch(e){}
@@ -6842,6 +6873,8 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       /* Écriture toujours pas acquittée : on REND le repère, sinon cet appareil ignore tout ce que
          l'équipe publie (voir le bloc ⛔ plus haut). Mieux vaut recevoir deux fois que devenir sourd. */
       if(_syncTs===ts) _syncTs=_tsAvant;
+      /* …et on le REMONTE, pour ne plus jamais avoir à demander une capture d'écran à un client. */
+      try{ syncDiagnostic('ecriture non acquittee en 15 s alors que le reseau repond — base '+Math.round(alle.taille/1024)+' Ko'); }catch(_e){}
     },15000);
     _ecriture.then(()=>{ _acquitte=true; try{ sauvegardeDeposer(e); }catch(_e){} })
       .catch(er=>{ _acquitte=true; console.error('push',er);
