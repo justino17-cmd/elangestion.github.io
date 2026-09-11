@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '660-beta';
+const APP_VERSION = '661-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6761,7 +6761,7 @@ function syncAlleger(base, budget){
   colls.forEach(c=>{ base[c].forEach((r,ix)=>{ if(!r||typeof r!=='object') return;
     (Array.isArray(r.docs)?r.docs:[]).forEach((d,k)=>{ const n=(d&&typeof d.data==='string'?d.data:'').length; if(n>1024) pieces.push({c,ix,k,type:'doc',n}); });
     (Array.isArray(r.photos)?r.photos:[]).forEach((ph,k)=>{ const n=(typeof ph==='string'?ph:'').length; if(n>1024) pieces.push({c,ix,k,type:'photo',n}); });
-    ['signature','signatureTech','signatureCli','apercu','image','logo'].forEach(f=>{ const n=(typeof r[f]==='string'?r[f]:'').length; if(n>1024) pieces.push({c,ix,f,type:'champ',n}); });
+    ['signature','signatureTech','signatureCli','apercu','image','logo','photo'].forEach(f=>{ const n=(typeof r[f]==='string'?r[f]:'').length; if(n>1024) pieces.push({c,ix,f,type:'champ',n}); });
   }); });
   pieces.sort((a,b)=>b.n-a.n);   // les plus lourdes d'abord : le moins de pièces retirées pour rentrer
   const gros=pieces.slice(0,6).map(p=>p.c+'.'+(p.f||p.type)+' '+Math.round(p.n/1024)+' Ko');   // de quoi SAVOIR ce qui pèse
@@ -7495,6 +7495,17 @@ const userName = id => { const u=db.users.find(x=>x.id===id); if(u) return fullN
 const vehName = id => { const v=db.vehicules.find(x=>x.id===id); return v? (v.immat||v.nom||'Véhicule') : '—'; };
 
 /* ── Journal ── */
+/* ⛔ UNE LISTE DE NOMS N'A PAS SA PLACE DANS LE JOURNAL. Mesuré chez ELAN le 11 septembre
+   2026 : trois lignes « Produits retirés de la box » pesaient 14 Ko à elles seules, parce
+   qu'elles récitaient quarante-sept noms de produits. La fiche du dépôt le dit depuis
+   longtemps — « compter et nommer les box, ne pas réciter les produits » — et le journal est
+   plafonné à 500 entrées, donc chaque nom recopié chasse une ligne d'historique réel.
+   On garde les trois premiers, qui suffisent à reconnaître le geste, et on compte le reste. */
+function logNoms(liste){
+  const l=(liste||[]).filter(Boolean).map(String);
+  if(l.length<=3) return l.join(', ');
+  return l.slice(0,3).join(', ')+' + '+(l.length-3)+' autre'+(l.length-3>1?'s':'');
+}
 function logEvent(action, detail, type='general', cibleUserId){
   // cibleUserId : la personne concernée par l'évènement (ex. l'auteur d'un mouvement validé par le DR) — elle le voit dans SON historique
   db.journal.unshift({id:uid(),ts:Date.now(),userId:currentUser&&currentUser.id,userNom:currentUser?currentUser.nom:'Système',action,detail,type,...(cibleUserId?{cibleUserId}:{})});
@@ -18685,7 +18696,7 @@ function boxBrouillonValider(boxId){
   lot.lignes=(lot.lignes||[]).filter(function(l){ return ((+l.du||0)+(+l.dc||0))!==0; });
   if(!lot.lignes.length){ toast('Aucune quantité — écris ce que tu prends ou ce que tu reposes'); return; }
   lot.statut='enAttente'; lot.ts=Date.now();
-  logEvent('Mouvement box → validation DR',boxMvtLibelle(lot),'stock');
+  logEvent('Mouvement box → validation DR',boxMvtLibelle(lot,true),'stock');
   boxMvtPrevenir(lot);
   save(); renderBoxProdList();
   var n=(lot.lignes||[]).length;
@@ -18727,7 +18738,7 @@ function boxLotAnnuler(boxId){
   var att=boxAttentes(boxId); if(!att.length) return;
   var n=boxAttentePids(boxId).length;
   if(!confirm('Annuler ce qui attend le DR ?\n\n'+n+' produit'+(n>1?'s ne partiront':' ne partira')+' pas. Le stock n\'a pas encore bougé, rien ne sera défait.')) return;
-  att.forEach(function(m){ logEvent('Demande de mouvement annulée',boxMvtLibelle(m),'stock'); });
+  att.forEach(function(m){ logEvent('Demande de mouvement annulée',boxMvtLibelle(m,true),'stock'); });
   db.boxMvtAttente=(db.boxMvtAttente||[]).filter(function(x){ return att.indexOf(x)<0; });
   save(); toast('Demande annulée'); renderBoxProdList();
 }
@@ -18747,7 +18758,7 @@ function boxLotLigneAnnuler(boxId,pid){
     if(touche) partis.push(m);
   });
   if(partis.length){
-    partis.forEach(function(m){ logEvent('Demande de mouvement annulée',boxMvtLibelle(m),'stock'); });
+    partis.forEach(function(m){ logEvent('Demande de mouvement annulée',boxMvtLibelle(m,true),'stock'); });
     db.boxMvtAttente=(db.boxMvtAttente||[]).filter(function(x){ return partis.indexOf(x)<0; });
   }
   save(); toast('Retiré de la demande'); renderBoxProdList();
@@ -19280,7 +19291,7 @@ function boxMvtEnvoyer(m,silencieux){ db.boxMvtAttente=db.boxMvtAttente||[];
      suite y grave « 0 produits ajustés », faux et definitif — le journal ne se relit pas, lui,
      contrairement a l'ecran de validation. C'est boxAdj() qui l'inscrit, une fois sa premiere
      ligne posee. */
-  if(!(m.type==='ajustementLot'&&!(m.lignes||[]).length)) logEvent('Mouvement box → validation DR',boxMvtLibelle(m),'stock');
+  if(!(m.type==='ajustementLot'&&!(m.lignes||[]).length)) logEvent('Mouvement box → validation DR',boxMvtLibelle(m,true),'stock');
   if(!silencieux) boxMvtPrevenir(m);
   save(); return m; }
 /* Prévenir les valideurs, séparé de l'envoi : un lot naît vide et se remplit au tap
@@ -19301,12 +19312,12 @@ function boxMvtPrevenir(m){
    le bon lié redevient « à réceptionner », l'auteur est prévenu et le voit dans SON historique */
 function boxMvtRefuser(m,motif){
   m.motifRefus=motif||''; m.statut='refuse'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
-  delegationTracer(m,'Mouvement de stock refusé — '+boxMvtLibelle(m));
-  logEvent('Mouvement box refusé',boxMvtLibelle(m)+(motif?' — '+motif:''),'stock',m.parId);
+  delegationTracer(m,'Mouvement de stock refusé — '+boxMvtLibelle(m,true));
+  logEvent('Mouvement box refusé',boxMvtLibelle(m,true)+(motif?' — '+motif:''),'stock',m.parId);
   if(m.bcId){ const bonR=(db.bons||[]).find(x=>x.id===m.bcId);
     if(bonR&&bonR.statut==='arrivageNote'){ bonR.statut=m.statutAvant||'envoyee'; delete bonR.recuPar; delete bonR.recuLe; delete bonR.dateReception; if(bonR.arrivage&&bonR.arrivage.enAttenteDR) delete bonR.arrivage;
       logEvent('Réception refusée par le DR',bonNum(bonR)+(motif?' — '+motif:''),'commande',m.parId); } }
-  try{ if(m.parId) pushNotify('🚫 Refusé par le DR '+fullName(currentUser),boxMvtLibelle(m)+(motif?' — motif : '+motif:''),'/app.html#v=boxes',[m.parId]); }catch(e){}
+  try{ if(m.parId) pushNotify('🚫 Refusé par le DR '+fullName(currentUser),boxMvtLibelle(m,true)+(motif?' — motif : '+motif:''),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations(); }
 let _resteApresValid='';
 /* accords : les quantités accordées par le DR, { 'index:du': -4, … } — lues sur l'écran quand il
@@ -19378,9 +19389,9 @@ function boxMvtValider(id,statut,accords){ _resteApresValid='';
     if(m.pourQui&&rc<0) remiseAjoute(m,-rc,'ctn');
   }
   m.statut='valide'; m.drNom=fullName(currentUser); m.dateValidation=todayISO(); m.tsValidation=Date.now();
-  delegationTracer(m,'Mouvement de stock validé — '+boxMvtLibelle(m));
-  logEvent('Mouvement box validé'+(nCorr?' — quantités corrigées par le DR':''),boxMvtLibelle(m)+(m.motDR?' · « '+m.motDR+' »':''),'stock',m.parId);
-  try{ if(m.parId) pushNotify('✅ Validé par le DR '+fullName(currentUser)+(nCorr?' — quantités corrigées':''),boxMvtLibelle(m)+(m.motDR?' · « '+m.motDR+' »':''),'/app.html#v=boxes',[m.parId]); }catch(e){}
+  delegationTracer(m,'Mouvement de stock validé — '+boxMvtLibelle(m,true));
+  logEvent('Mouvement box validé'+(nCorr?' — quantités corrigées par le DR':''),boxMvtLibelle(m,true)+(m.motDR?' · « '+m.motDR+' »':''),'stock',m.parId);
+  try{ if(m.parId) pushNotify('✅ Validé par le DR '+fullName(currentUser)+(nCorr?' — quantités corrigées':''),boxMvtLibelle(m,true)+(m.motDR?' · « '+m.motDR+' »':''),'/app.html#v=boxes',[m.parId]); }catch(e){}
   save(); if(current==='validations') views.validations();
   const prenom=(m.par||'').split(' ')[0]||'le technicien';
   toast(_resteApresValid
@@ -19776,13 +19787,13 @@ function bxpPoseAnnuler(){ const d=_dernierePose; if(!d) return; let n=0, gardes
   save(); renderBoxDetail(); toast('Pose annulée — '+n+' fiche'+(n>1?'s':'')+' retirée'+(n>1?'s':'')+(gardes?' · '+gardes+' gardée'+(gardes>1?'s':'')+' : du stock est arrivé entre-temps':''),4200); }
 function bxpNouvToggle(pid){ if(bxpNouvSel.has(pid)) bxpNouvSel.delete(pid); else bxpNouvSel.add(pid); bxpRendre(); }
 function bxpNouvAjouter(){ const b=bxpBox(); if(!b||!bxpNouvSel.size) return; const r=boxPoserProduits(b,[...bxpNouvSel]);
-  if(r.poses.length){ logEvent('Nouveaux produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.map(pid=>produit(pid).nom||pid).join(', '),'stock'); save(); }
+  if(r.poses.length){ logEvent('Nouveaux produits ajoutés à la box',(b.nom||b.numero||'')+' : '+r.poses.length+' produit(s) — '+logNoms(r.poses.map(pid=>produit(pid).nom||pid)),'stock'); save(); }
   closeModal(); renderBoxDetail(); toast(r.poses.length+' produit'+(r.poses.length>1?'s':'')+' ajouté'+(r.poses.length>1?'s':'')+' à la box, quantités à zéro',3500); }
 /* « Pas dans cette box » vaut pour toute l'équipe : la box est un objet d'équipe, une personne décide
    une fois, personne ne redécide. La décision se range par identifiant de produit (jamais par date :
    un produit créé ailleurs et reçu en retard n'a pas été vu, il ne peut pas avoir été écarté). */
 function bxpNouvEcarter(){ const b=bxpBox(); if(!b||!bxpCache) return; const ids=bxpCache.nouv.map(p=>p.id); if(!ids.length) return;
-  boxDecider(b,ids); logEvent('Nouveaux produits écartés de la box',(b.nom||b.numero||'')+' : '+ids.map(pid=>produit(pid).nom||pid).join(', '),'stock'); save();
+  boxDecider(b,ids); logEvent('Nouveaux produits écartés de la box',(b.nom||b.numero||'')+' : '+ids.length+' produit(s) — '+logNoms(ids.map(pid=>produit(pid).nom||pid)),'stock'); save();
   toast('C\'est noté pour toute l\'équipe : ils ne seront plus proposés sur cette box',3500); bxpRafraichir(); }
 function bxpProposerANouveau(pid){ const b=bxpBoxDite(); if(!b) return; boxDecisionAnnuler(b,pid); logEvent('Nouveau produit proposé à nouveau',(b.nom||b.numero||'')+' : '+(produit(pid).nom||pid),'stock'); save(); bxpNouvSel.add(pid); bxpRafraichir(); }
 /* ── Onglet Retirer ── */
@@ -19823,7 +19834,7 @@ function boxRetirerCoches(){ const b=bxpBox(); if(!b||!b.stock) return; const re
   [...bxpRetSel].forEach(pid=>{ if(boxRetirable(b,pid).ok){ delete b.stock[pid]; retires.push(pid); } else gardes.push(pid); });
   if(retires.length) boxDecider(b,retires);   // écartés : le catalogue ne les reposera pas tout seul
   if(!retires.length){ toast('Rien retiré : du stock ou une demande est arrivé entre-temps'); bxpRetSel=new Set(); bxpRetPhase=0; bxpRafraichir(); return; }
-  logEvent('Produits retirés de la box',(b.nom||b.numero||'')+' : '+retires.map(pid=>produit(pid).nom||pid).join(', '),'stock');
+  logEvent('Produits retirés de la box',(b.nom||b.numero||'')+' : '+retires.length+' produit(s) — '+logNoms(retires.map(pid=>produit(pid).nom||pid)),'stock');
   _dernierRetrait={boxId:b.id,ids:retires,ts:Date.now()}; save(); closeModal(); renderBoxDetail();
   toastAnnuler(retires.length+' produit'+(retires.length>1?'s':'')+' retiré'+(retires.length>1?'s':'')+(gardes.length?' · '+gardes.length+' gardé'+(gardes.length>1?'s':'')+' : du stock ou une demande est arrivé entre-temps':''),'boxRetirerAnnuler()'); }
 function boxRetirerAnnuler(){ const d=_dernierRetrait; if(!d) return; const b=(db.boxes||[]).find(x=>x.id===d.boxId); if(!b) return; b.stock=b.stock||{}; let n=0;
@@ -28836,7 +28847,20 @@ function enterApp(u){ currentUser=u;
   try{ notifSeenCharger(); }catch(e){}   // notifications « vues » propres à ce compte
   const ta=$('topbar-ava'); if(ta) ta.textContent=initials(fn);
   asstMsgs=[]; asstOpen=false; renderAsst();
-  startI18n(); renderNav(); logEvent('Connexion',`${fn} (@${u.login}) — ${roleLbl(u.role)||''}`,'auth'); save();
+  startI18n(); renderNav();
+  /* ⛔ PAS UNE LIGNE PAR OUVERTURE D'APPLICATION. Mesuré chez ELAN le 11 septembre 2026 :
+     443 des 500 lignes du journal étaient des « Connexion », 83 Ko — les deux tiers du
+     journal, et surtout de quoi CHASSER tout l'historique métier hors du plafond de 500.
+     Le journal sert à savoir qui a fait quoi sur le stock, pas à compter les ouvertures :
+     ça, le serveur le sait déjà (cnxData) et la Tour l'affiche par appareil et par version.
+     On garde la trace d'une PRÉSENCE — une ligne par personne et par jour — ce qui la divise
+     par le nombre d'ouvertures quotidiennes sans rien perdre de ce qu'on venait y lire. */
+  try{
+    const jour=todayISO();
+    const deja=(db.journal||[]).some(e=>e&&e.action==='Connexion'&&e.userId===u.id&&new Date(e.ts||0).toISOString().slice(0,10)===jour);
+    if(!deja) logEvent('Connexion',`${fn} (@${u.login}) — ${roleLbl(u.role)||''}`,'auth');
+  }catch(_e){ logEvent('Connexion',`${fn} (@${u.login}) — ${roleLbl(u.role)||''}`,'auth'); }
+  save();
   try{ cnxSignaler(_cnxVia==='session'?'session':'connexion',{user:u}); _cnxVia='identifiants'; }catch(e){}
   // vue demandée par l'adresse (#v=…) : seulement si ce compte y a droit — sinon tableau de bord, sans message (l'adresse peut venir d'un autre compte sur le même appareil)
   (function(){ const m=location.hash.match(/v=([A-Za-z0-9_-]+)/); let v=m&&views[m[1]]?m[1]:'dashboard'; try{ if(v!=='dashboard'){ let it=null; NAV.forEach(s=>s.items.forEach(x=>{ if(x.k===(v==='carteBox'?'boxes':v)) it=x; })); if(it&&!canSee(it)) v='dashboard'; } }catch(e){} go(v); })();
