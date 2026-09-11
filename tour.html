@@ -5724,6 +5724,28 @@ function compteReautoriser(login){
     toast('Identifiant réautorisé'); chargerDossier(DOS.nom);
   }).catch(function(){ toast('Serveur injoignable'); });
 }
+/* « Et ça c'est pareil, faut que ça saute » — Justin, 11 septembre 2026, devant cinq comptes
+   marqués « inutilisé » chez ELAN. Un par un, chacun coûte un mail, un code et quatre gestes :
+   personne ne le fait, donc ils restent, donc la liste ne dit plus qui travaille vraiment.
+   Un seul mail, un seul code, tout le lot. Le serveur revérifie lui-même que pas un seul de
+   ces identifiants ne s'est jamais connecté — le bouton propose, il ne décide pas. */
+function comptesInutilisesSupprimer(){
+  var d=(DOS&&DOS.d)||{}; if(!d.t) return;
+  var cibles=(d.utilisateurs||[]).filter(function(u){ return u.dansAnnuaire&&!u.derniere&&!u.attente&&!u.supprime; });
+  if(!cibles.length){ toast('Aucun compte inutilisé'); return; }
+  var logins=cibles.map(function(u){ return u.login; });
+  /* Le nom à côté de l'identifiant : c'est la seule relecture avant de valider, et c'est
+     exactement ce qui manquait le matin même quand deux « florent » se ressemblaient. */
+  var liste=cibles.map(function(u){ return '  · '+u.login+(u.nom?'  ('+u.nom+')':''); }).join('\n');
+  if(!confirm('Supprimer les '+logins.length+' compte(s) jamais utilisé(s) chez '+(DOS.nom||'cette entreprise')+' ?\n\n'+liste+'\n\nAucun ne s’est jamais connecté : personne ne perd son travail.\nUn seul code de confirmation va t’être envoyé par mail, pour tout le lot.')) return;
+  apiPost('/api/monitor/comptes/supprimer',{t:d.t,logins:logins}).then(function(x){
+    if(!(x&&x.ok)){ toast('⚠️ '+((x&&x.d&&x.d.error)||'refusé')); return; }
+    var code=prompt('Code reçu par mail'+((x.d&&x.d.dest)?' ('+x.d.dest+')':'')+' :'); if(!code) return;
+    return apiPost('/api/monitor/comptes/supprimer',{t:d.t,logins:logins,code:String(code).trim()}).then(function(y){
+      if(!(y&&y.ok)){ toast('⚠️ '+((y&&y.d&&y.d.error)||'refusé')); return; }
+      toast((y.d&&y.d.n||0)+' compte(s) supprimé(s) — ils ne peuvent plus entrer ; ils partent de l’application au prochain appareil ouvert'); chargerDossier(DOS.nom); });
+  }).catch(function(){ toast('Serveur injoignable'); });
+}
 /* Le bouton demandé par Justin devant la liste d'ELAN (« supprime bien tout ici ») : ces
    identifiants n'existent nulle part, on efface les tentatives qui les font apparaître. */
 function tentativesEffacer(){
@@ -5776,9 +5798,13 @@ function blocUtilisateurs(){
           (MYROLE==='patron'&&!u.attente&&!u.supprime?'<button type="button" class="pill-act" title="Supprimer le compte « '+esc(u.login)+' »" onclick="compteSupprimer(\''+jsq(u.login)+'\')">Supprimer</button>':'')+
         '</span></div>'; };
   var sv=d.sauvegarde||{}, bannis=d.bannis||[];
+  var inut=vrais.filter(function(u){ return u.dansAnnuaire&&!u.derniere&&!u.attente&&!u.supprime; });
   return '<div class="sous-sec">'+
     '<div class="sec">LEURS UTILISATEURS <span class="n">— '+vrais.length+'</span></div>'+
     '<div class="reg-bloc">'+vrais.map(ligne).join('')+'</div>'+
+    /* Le lot n'apparaît qu'à partir de DEUX : pour un seul compte, le bouton « Supprimer » de
+       sa ligne fait déjà le travail, et deux chemins pour un même geste sèment le doute. */
+    (MYROLE==='patron'&&inut.length>1?'<div class="sous-act"><button type="button" class="btn-fant" onclick="comptesInutilisesSupprimer()">Supprimer les '+inut.length+' comptes jamais utilisés</button></div>':'')+
     '<div class="note">🗂 Copies de sauvegarde chiffrées sur notre serveur : '+
       (sv.possible===false?'<b class="att">impossible — espace hors annuaire, aucune clé d’équipe connue du serveur</b>':((sv.n||0)+(sv.derniere?' · dernière '+cnxDepuis(sv.derniere):' · aucune encore (elles arrivent avec la v621, au plus une par demi-heure et par appareil)')))+'</div>'+
     /* Les identifiants supprimés depuis la Tour restent bannis de l'annuaire — un appareil ne peut
