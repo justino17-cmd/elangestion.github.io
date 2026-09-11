@@ -537,9 +537,13 @@ app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox
    correspondance disparue. En text/plain, r.json() jette, le catch met _mailReplies à null,
    et l'écran dit « 📥 Réception indisponible ». Sans toucher à app.html.
 
-   ⛔ ET POURTANT ELLE EST ENCORE OUVERTE — « "mailPreuveExigee": true » DANS
-   /opt/teamop/config.json LA FERME, ET RIEN D'AUTRE. Ce n'est pas une précaution de
-   principe, c'est une mesure : `gardien` a relu ce correctif le 11 septembre et a montré que
+   ✅ FERMÉE EN PRODUCTION LE 11 SEPTEMBRE 2026 À 8 H 17, et le défaut du code l'est
+   devenu avec elle : il faut désormais « "mailPreuveExigee": false » pour ROUVRIR. C'est
+   l'inverse de ce que cette ligne disait le matin même, et le renversement est mesuré, pas
+   décidé — voir plus bas les quatre conditions, puis la vérification faite dans la foulée :
+   403 text/plain sur les deux routes, compteur `mailRefus` à 3 (mes propres essais, motif
+   « absent »), zéro refus venu d'un vrai appareil.
+   ⚠️ Tant que ce n'était PAS vérifié, ce défaut était OUVERT, et il fallait qu'il le soit : `gardien` a relu ce correctif le 11 septembre et a montré que
    le refus en text/plain n'affiche PAS « Réception indisponible » sur l'écran Courrier.
    Vérifié dans app.html : views.boiteMail() appelle loadMailboxes(), dont le catch pose
    _mailboxes=[] ; le .then qui suit réécrit alors #mail-list avec la grande carte
@@ -550,16 +554,20 @@ app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox
    Boîte Commandes initialise `let data={replies:[]}` AVANT son try, donc un refus y affiche
    « Aucune réponse fournisseur » — le silence, exactement.
 
-   L'ORDRE EST DONC CELUI DE LA RÈGLE FIRESTORE, pour la même raison : LES APPAREILS
-   D'ABORD, LA PORTE ENSUITE.
-     1. publier app.html v641, qui distingue « refusé » de « vide » sur les trois points
-        d'appel — fait, c'est la publication qui accompagne ce serveur ;
-     2. exiger la v641 depuis la Tour, et attendre le compteur d'appareils en retard à zéro ;
-     3. alors seulement poser « mailPreuveExigee »: true et redémarrer — dix secondes, sans
-        publication. Le compteur `mailRefus` de /health dit aussitôt si quelqu'un tombe.
-   En attendant, le point de passage compte sans refuser : c'est la phase 1 qui continue, et
-   `parRoute` porte enfin ces deux routes. ⚠️ Le défaut par défaut est donc OUVERT ici, à
-   l'inverse de tout le reste de ce fichier — c'est délibéré, daté, et ça se referme d'un mot.
+   L'ORDRE A ÉTÉ CELUI DE LA RÈGLE FIRESTORE, pour la même raison : LES APPAREILS
+   D'ABORD, LA PORTE ENSUITE. Les quatre marches, toutes franchies le 11 septembre :
+     1. ✅ app.html v641 publiée — elle distingue « refusé » de « vide » sur les trois points
+        d'appel, donc un refus s'affiche enfin comme une panne ;
+     2. ✅ v641 exigée depuis la Tour, et pas seulement côté API : teamop_config/version.min
+        vaut 641 dans Firestore, donc un appareil en retard ne peut plus écrire ;
+     3. ✅ aucune entreprise vivante hors annuaire — les deux espaces qui restaient sont la
+        bêta (justin, 7 h) et le repli (florent, il y a DEUX JOURS, résolu depuis) ;
+     4. ✅ aucune entreprise sur la clé partagée (compteur de la Tour à zéro).
+   ⛔ SI L'UNE DES QUATRE REDEVENAIT FAUSSE — une entreprise remise sur le repli, un parc
+   d'appareils bloqué en version ancienne — il faut ROUVRIR le temps de la traiter, pas
+   laisser des clients sans leur Réception : « mailPreuveExigee »: false, redémarrage, dix
+   secondes. Le compteur `mailRefus` de /health est là pour le voir venir : un motif autre
+   que « absent » qui monte, ce sont de vrais appareils qui tombent.
 
    ⚠️ CE QUE LA MESURE DE LA PHASE 1 NE DIT PAS. « valide 5, absent 0, invalide 0, inconnu 3,
    et un parRoute qui ne porte que subscribe » ne veut pas dire « aucun échec sur ces deux
@@ -569,7 +577,7 @@ app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox
    preuve sur un espace absent de l'annuaire (la bêta l'est, le repli aussi). À regarder
    depuis la Tour avant l'étape 3. */
 function cleEquipeExige(req, res, next) {
-  if (config.mailPreuveExigee !== true) return next();
+  if (config.mailPreuveExigee === false) return next();
   const src = (req.method === 'GET') ? (req.query || {}) : (req.body || {});
   const t = String(src.teamId || src.t || '');
   let motif = '';

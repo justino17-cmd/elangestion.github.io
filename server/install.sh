@@ -54,9 +54,10 @@ if [ ! -f /opt/teamop/config.json ]; then
   "apiKey": "$KEY",
   "contactEmail": "contact@teamop.fr",
   "origins": ["https://teamop.fr", "https://www.teamop.fr"],
+  "mailPreuveExigee": true,
   "smtp": {},
   "anthropic": {
-    "apiKey": "",
+    "cleApi": "",
     "secretDevis": "$SECRET_DEVIS",
     "quotaJour": 100
   }
@@ -111,15 +112,15 @@ const a=c.anthropic||{};
 if(!a.secretDevis){
   console.log('  Bloc absent de config.json. Ajoute-le (exemple, remplace les valeurs) :');
   console.log('    \"anthropic\": {');
-  console.log('      \"apiKey\": \"sk-ant-api03-EXEMPLE-remplace-moi\",');
+  console.log('      \"cleApi\": \"sk-ant-api03-EXEMPLE-remplace-moi\",');
   console.log('      \"secretDevis\": \"EXEMPLE-code-equipe\",');
   console.log('      \"quotaJour\": 100');
   console.log('    }');
 } else {
   console.log('  Code d\\'accès équipe (à saisir une fois par appareil) : '+a.secretDevis);
-  console.log(a.apiKey ? '  Clé Anthropic : configurée.'
-    : '  Clé Anthropic MANQUANTE — colle-la dans anthropic.apiKey de /opt/teamop/config.json,');
-  if(!a.apiKey) console.log('  puis : systemctl restart teamop-api');
+  console.log(a.cleApi ? '  Clé Anthropic : configurée.'
+    : '  Clé Anthropic MANQUANTE — colle-la dans anthropic.cleApi de /opt/teamop/config.json,');
+  if(!a.cleApi) console.log('  puis : systemctl restart teamop-api');
 }
 " 2>/dev/null || echo "  (config.json illisible)"
 echo ""

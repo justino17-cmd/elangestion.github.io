@@ -54,7 +54,7 @@ isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saut
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 473 vérifications, 1,9 s (mesuré)
+for f in tests/test-*.js; do node "$f"; done   # 474 vérifications, 1,9 s (mesuré)
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -152,11 +152,17 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   indisponible ». Avec `/api/mailboxes`, ces deux routes exigent la preuve de clé
   (`cleEquipeExige`, monté APRÈS `cleEquipeObserve` qui pose `req.cleEquipe`) : seul le verdict
   `valide` passe, et `ESPACES_INTOUCHABLES` comme `cleEstPublique(t)` sont refusés — une clé
-  écrite en clair dans `app.html` ne prouve rien quand on la présente. ⚠️ **La porte est posée
-  mais OUVERTE tant que `"mailPreuveExigee": true` n'est pas dans la configuration du VPS** —
-  l'ordre est celui de la règle Firestore, les appareils d'abord (v641 publiée ET exigée), la
-  porte ensuite. `!== true` et non `=== false` : seul le booléen ferme, parce qu'ici fermer
-  par accident casse des clients. Le compteur `mailRefus` de `/health` reste agrégé :
+  écrite en clair dans `app.html` ne prouve rien quand on la présente. ✅ **Fermée en
+  production le 11 septembre 2026 à 8 h 17**, après les quatre marches, dans cet ordre — les
+  appareils d'abord, la porte ensuite : v641 publiée, v641 exigée (`teamop_config/version.min`
+  = 641 dans Firestore, pas seulement côté API), aucune entreprise vivante hors annuaire,
+  aucune sur la clé partagée. **Le défaut du code est désormais FERMÉ** : il faut
+  `"mailPreuveExigee": false` pour ROUVRIR, et `install.sh` pose le réglage sur une
+  configuration neuve — une réinstallation ne peut plus rouvrir la porte en silence.
+  ⛔ **Si l'une des quatre conditions redevient fausse** (une entreprise remise sur le repli,
+  un parc bloqué en version ancienne), **rouvrir** le temps de la traiter plutôt que laisser
+  des clients sans leur Réception. Le compteur `mailRefus` de `/health` le voit venir : un
+  motif autre qu'`absent` qui monte, ce sont de vrais appareils qui tombent. Il reste agrégé —
   `/health` est publique, y nommer un espace dirait au monde quelles entreprises existent.
 - Ne pas modifier l'anti-abus (`server/index.js`) sans relire pourquoi il lit
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie

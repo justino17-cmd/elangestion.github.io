@@ -90,7 +90,7 @@ le trou. Vérifié le 11 septembre par l'aperçu (qui n'écrit rien) :
 `POST /api/promo/valider {"code":"TEAMOP3MOIS","apercu":true}` → `200, mois: 3, premium`. Les
 deux tables s'accordent aujourd'hui. **À revérifier à chaque code ajouté sur le site.**
 
-### 3. `/api/replies` et `/api/mailboxes` : le teamId suffisait — porte POSÉE, encore OUVERTE
+### 3. `/api/replies` et `/api/mailboxes` : le teamId suffisait — ✅ PORTE FERMÉE
 
 `/api/replies` rend les **200 derniers courriels reçus** de l'entreprise — expéditeur, objet,
 corps : la correspondance de ses clients. `/api/mailboxes` rend ses adresses et ses serveurs
@@ -99,9 +99,19 @@ pas un secret : il voyage dans les URL, donc dans les journaux nginx, l'historiq
 navigateur et l'en-tête `Referer` ; il est en clair dans le localStorage de chaque appareil ;
 il ne se révoque pas.
 
-Le point de passage qui exige la preuve est écrit, testé, déployé — **et désarmé**. Un seul
-réglage le ferme : `"mailPreuveExigee": true` dans `/opt/teamop/config.json`, puis
-`systemctl restart teamop-api`. Dix secondes, sans publication.
+**Fermée le 11 septembre 2026 à 8 h 17.** Vérifié dans la foulée depuis l'extérieur :
+
+```
+/api/replies   sans preuve → 403  text/plain  « Réception indisponible : cet appareil… »
+/api/mailboxes sans preuve → 403  text/plain
+kh malformé                → 403
+mailRefus : { n: 3, parMotif: { absent: 3 } }   ← mes trois essais, et rien d'autre
+/health ne nomme aucun espace ✓
+```
+
+Le défaut du CODE a été retourné avec elle : il faut désormais `"mailPreuveExigee": false`
+pour **rouvrir**, et `install.sh` pose le réglage sur une configuration neuve — une
+réinstallation ne peut plus rouvrir la porte en silence.
 
 **Pourquoi il n'est pas encore fermé**, et c'est `gardien` qui l'a montré : le refus en
 `text/plain` était censé faire jeter `r.json()` et afficher « 📥 Réception indisponible ».
@@ -126,13 +136,19 @@ Sonde navigateur, 403 interceptés au réseau, avant/après :
 
 Les deux cas sains (aucune boîte / une boîte et un message) sont inchangés — 8 ✓ à la sonde.
 
-**L'ordre qui reste, et c'est celui de la règle Firestore, pour la même raison :**
+**Les quatre marches, celles de la règle Firestore et pour la même raison — les appareils
+d'abord, la porte ensuite :**
 
-1. ✅ publier la v641 ;
-2. **exiger la v641 depuis la Tour**, attendre le compteur d'appareils en retard à zéro ;
-3. **regarder qui est hors annuaire** (voir ci-dessous) ;
-4. alors seulement poser `"mailPreuveExigee": true` et redémarrer. Le compteur `mailRefus` de
-   `/health`, agrégé et sans jamais nommer d'espace, dit aussitôt si quelqu'un tombe.
+1. ✅ v641 publiée ;
+2. ✅ v641 **exigée** depuis la Tour, et vérifiée là où ça compte : `teamop_config/version.min`
+   = 641 **dans Firestore** (maj 07:09), donc un appareil en retard ne peut plus écrire ;
+3. ✅ **aucune entreprise vivante hors annuaire** — les deux espaces restants sont la bêta
+   (justin, 7 h) et le repli (florent, il y a DEUX JOURS, résolu depuis) ;
+4. ✅ `"mailPreuveExigee": true` posé, serveur redémarré.
+
+⛔ **Si l'une des quatre redevenait fausse**, rouvrir le temps de la traiter plutôt que laisser
+des clients sans leur Réception. Un motif autre qu'`absent` qui monte dans `mailRefus`, ce sont
+de vrais appareils qui tombent.
 
 ⚠️ **Ce que la mesure de la phase 1 ne dit PAS, et que j'avais d'abord mal lu.** Le compteur
 public affichait, après 6 h 12 : `valide 5, absent 0, invalide 0, inconnu 3`, avec un
