@@ -30,11 +30,19 @@ console.log('Le jeton est bien celui que Firebase attend');
   const ROUTE=(SRV.match(/app\.post\('\/api\/fb\/jeton'[\s\S]*?\n\}\);/)||[''])[0];
   const bloc=(ROUTE.match(/const b64u[\s\S]*?const sig = [\s\S]*?\.toString\('base64url'\);/)||[''])[0];
   v('la fabrique est bien dans la route, entière',[bloc.length>300,/const sans =/.test(bloc),/const uid =/.test(bloc)],[true,true,true]);
+  /* ⛔ L'IDENTIFIANT VIENT DU FICHIER, PAS D'UNE COPIE ÉCRITE ICI. Depuis le 11 septembre il
+     vit dans `fbUidEquipe()`, partagée avec la coupure des sessions (fbRevoquerEquipe) — si
+     les deux ne calculaient pas le MÊME identifiant, fermer une entreprise viserait un compte
+     qui n'existe pas et ne dirait rien. En l'extrayant du vrai fichier, ce test éprouve la
+     dérivation réelle : le recopier ici rendrait le test vert sur du code qui a divergé. */
+  const UID_FN=(SRV.match(/function fbUidEquipe\(t\) \{[\s\S]*?\n\}/)||[''])[0];
+  v('la dérivation de l\'identifiant est retrouvée dans le fichier',
+    [UID_FN.length>60,/sha256/.test(UID_FN),/'eq_'/.test(UID_FN)],[true,true,true]);
   const {privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048,
     privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});
   const fbAdminCle={client_email:'essai@teamop.iam.gserviceaccount.com',private_key:privateKey};
   const t='ent-demo-0001';
-  const fab=new Function('fbAdminCle','crypto','t',bloc+'\n return {sans, sig, uid};');
+  const fab=new Function('fbAdminCle','crypto','t',UID_FN+'\n'+bloc+'\n return {sans, sig, uid};');
   const r=fab(fbAdminCle,crypto,t);
   const dec=x=>JSON.parse(Buffer.from(x,'base64url').toString('utf8'));
   const [h,p]=r.sans.split('.'); const ent=dec(h), corps=dec(p);

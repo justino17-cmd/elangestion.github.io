@@ -91,6 +91,96 @@ console.log('\n/api/replies et /api/mailboxes exigent la preuve de la clé d\'é
     /LES APPAREILS\s+D'ABORD, LA PORTE ENSUITE/.test(SRV), true);
 }
 
+/* ══ 3bis. FERMER UNE ENTREPRISE COUPE VRAIMENT SON FIRESTORE ══ */
+console.log('\nFermer une entreprise coupe ses sessions Firebase, et le DIT');
+{
+  /* ⛔ CE QUE FERMER NE FAISAIT PAS. Le serveur refusait bien tout NOUVEAU jeton à un espace
+     fermé (`sauvRefus`, 403 « espace fermé »), mais un jeton s'échange contre une session
+     RENOUVELABLE INDÉFINIMENT : après un seul échange réussi, l'appareil ne repasse plus
+     jamais par le serveur. Fermer une entreprise depuis la Tour ne coupait donc PAS son
+     Firestore sur les appareils déjà pourvus — ils lisaient et écrivaient pour toujours,
+     pendant que la Tour affichait « fermée ».
+     ⚠️ La coupure n'est pas instantanée : jusqu'à UNE HEURE, la durée de vie d'un jeton
+     d'identité déjà délivré (Firestore vérifie la signature et l'échéance, pas l'existence du
+     compte). C'est écrit tel quel dans le code plutôt que promis plus court. */
+  v('l\'identifiant Firebase d\'une entreprise a UNE SEULE définition',
+    (SRV.match(/function fbUidEquipe\(t\) \{/g) || []).length, 1);
+  /* Le point qui compte : si la signature et la coupure ne calculaient pas le MÊME
+     identifiant, la coupure viserait un compte qui n'existe pas — et ne dirait rien. */
+  v('…et plus personne ne le recalcule à la main',
+    /crypto\.createHash\('sha256'\)\.update\('teamop:' \+ t\)/.test(SRV), false);
+  v('la route qui signe le jeton s\'en sert', /const uid = fbUidEquipe\(t\);/.test(SRV), true);
+  v('la coupure aussi', /localId: fbUidEquipe\(t\), validSince:/.test(SRV), true);
+  v('elle passe par accounts:update, l\'appel qui invalide les rafraîchissements',
+    /accounts:update'[\s\S]{0,200}?validSince/.test(SRV), true);
+
+  /* ⛔ LES TROIS PORTES, comme les quatre portes de sortie d'espace : une entreprise se ferme
+     depuis la suspension, depuis la fermeture d'un client, et depuis la suppression totale.
+     Une seule oubliée et la coupure devient une loterie. */
+  v('les TROIS portes de fermeture coupent', (SRV.match(/await fbRevoquerEquipe\(/g) || []).length, 3);
+
+  /* ⛔ ET CHACUNE LE DIT. Croire une entreprise coupée alors qu'elle ne l'est pas (clé
+     d'administration absente du serveur, Firebase qui refuse) est exactement la panne
+     silencieuse que ce fichier passe son temps à refermer. */
+  v('chaque porte rapporte le résultat à la Tour',
+    (SRV.match(/coupureMotif/g) || []).length >= 3, true);
+  v('sans clé d\'administration, la fonction rend false — elle ne prétend pas avoir coupé',
+    /if \(!tok\) return \{ fait: false, motif: 'clé d\\'administration Firebase absente/.test(SRV), true);
+  /* Un compte ABSENT n'est pas un échec : l'entreprise n'a jamais demandé de jeton, il n'y a
+     donc aucune session à couper — c'est le résultat voulu, pas une erreur à signaler. */
+  v('un compte Firebase jamais créé compte comme coupé',
+    /USER_NOT_FOUND[\s\S]{0,80}?fait: true/.test(SRV), true);
+  v('rouvrir ne coupe rien', /if \(rouvrir\) return res\.json\(\{ ok: true, suspendu: false \}\);/.test(SRV), true);
+  /* L'ORDRE, sur la fermeture d'un client : couper AVANT d'effacer. Un appareil qui tient
+     encore sa session repousse la base entière à sa prochaine synchro, et on aurait effacé
+     pour rien. */
+  v('on coupe AVANT d\'effacer les données',
+    SRV.indexOf('for (const tf of espacesAEffacer) { const c = await fbRevoquerEquipe(tf)') < SRV.indexOf('Effacement DÉFINITIF des données chiffrées'), true);
+}
+
+/* ══ 3ter. LA FONCTION DE COUPURE, EXÉCUTÉE ══
+   ⚠️ CE QUI RESTE HORS DE PORTÉE D'ICI, et qu'il faut savoir : l'appel Firebase RÉEL ne peut
+   pas être joué — la clé d'administration vit sur le VPS, jamais dans le dépôt. Ce test
+   éprouve le BRANCHEMENT de la fonction (les quatre réponses possibles), pas le fait que
+   `accounts:update` coupe vraiment. Cette preuve-là se prend en une fois, depuis la Tour :
+   suspendre un espace d'ESSAI et lire `coupure` dans la réponse. À faire avant de croire
+   qu'une fermeture coupe quoi que ce soit.
+   Le seul substitut ici est la DÉPENDANCE (fbAdminJeton / fbAdminFetch), jamais la fonction
+   testée — même couture que l'adresse des certificats dans test-640. */
+console.log('\nLes quatre réponses de la coupure, jouées pour de vrai');
+(async () => {
+  const FN = (SRV.match(/async function fbRevoquerEquipe\(t\) \{[\s\S]*?\n\}/) || [''])[0];
+  const UID = (SRV.match(/function fbUidEquipe\(t\) \{[\s\S]*?\n\}/) || [''])[0];
+  v('la fonction est retrouvée, entière', [FN.length > 400, /validSince/.test(FN), /USER_NOT_FOUND/.test(FN)], [true, true, true]);
+
+  const monte = (jeton, reponse) => new Function('crypto', 'fbAdminJeton', 'fbAdminFetch', 'FB_PROJET',
+    UID + '\n' + FN + '\n return fbRevoquerEquipe;')(crypto, async () => jeton, async () => reponse, 'projet-essai');
+
+  let vuUrl = '', vuCorps = null;
+  const avecEspion = new Function('crypto', 'fbAdminJeton', 'fbAdminFetch', 'FB_PROJET',
+    UID + '\n' + FN + '\n return fbRevoquerEquipe;')(crypto, async () => 'jeton-essai',
+      async (url, opts) => { vuUrl = url; vuCorps = JSON.parse(opts.body); return { ok: true, status: 200, json: async () => ({}) }; }, 'projet-essai');
+
+  v('sans clé d\'administration : elle ne prétend PAS avoir coupé',
+    (await monte('', {}).call(null, 'ent-x')).fait, false);
+  v('…et elle dit pourquoi', /administration/.test((await monte('', {}).call(null, 'ent-x')).motif), true);
+
+  const bon = await avecEspion('ent-x');
+  v('avec la clé : coupé', bon.fait, true);
+  v('…et le motif ne promet pas l\'instantané', /sous une heure/.test(bon.motif), true);
+  v('l\'appel vise accounts:update du bon projet', /projets?-essai\/accounts:update$|projet-essai\/accounts:update/.test(vuUrl), true);
+  v('il envoie l\'identifiant de l\'entreprise et validSince',
+    [vuCorps.localId.slice(0, 3), typeof vuCorps.validSince], ['eq_', 'string']);
+  v('…et le MÊME identifiant que celui que la route signe',
+    vuCorps.localId, 'eq_' + crypto.createHash('sha256').update('teamop:ent-x').digest('hex').slice(0, 32));
+
+  const absent = await monte('jeton-essai', { ok: false, status: 400, json: async () => ({ error: { message: 'USER_NOT_FOUND' } }) })('ent-x');
+  v('compte jamais créé : compté comme coupé, il n\'y a rien à couper', absent.fait, true);
+
+  const refus = await monte('jeton-essai', { ok: false, status: 403, json: async () => ({}) })('ent-x');
+  v('Firebase refuse : elle le dit, elle ne l\'avale pas', [refus.fait, /403/.test(refus.motif)], [false, true]);
+})();
+
 /* ══ 3. L'ANNUAIRE NE S'ÉCRIT QUE D'UN BLOC ══ */
 console.log('\nespaces.json s\'écrit en temporaire puis renommage, partout');
 {

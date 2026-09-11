@@ -1147,20 +1147,31 @@ skill `performance-budget-monitor` avant d'y toucher.
 
 ## Dettes connues, chacune à traiter seule
 
-- ⛔ **Un jeton d'équipe ne se révoque pas, et il vaut pour TOUTE l'entreprise à la fois.**
-  Ouverte le 11 septembre 2026, en même temps que la fermeture de la règle Firestore — c'est
-  ce que cette fermeture ne donne pas, et qu'on pourrait croire acquis. Le jeton vaut une
-  heure, mais l'**accès** qu'il ouvre ne s'arrête pas là : Firebase l'échange contre une
-  session renouvelable indéfiniment, rangée sur l'appareil. Après un seul échange réussi,
-  l'appareil ne repasse plus jamais par le serveur. Donc :
-  · fermer une entreprise depuis la Tour ne coupe **pas** son Firestore sur les appareils déjà
-    pourvus — le refus « espace fermé » ne les rejoint jamais ;
-  · changer la clé d'équipe ne révoque rien ;
-  · l'identifiant étant commun à toute l'entreprise, on ne peut pas couper **un** appareil :
-    révoquer les couperait tous d'un coup.
-  Le fermer demande un identifiant par **appareil** et une durée de vie effective plus courte
-  (redemander un jeton périodiquement). C'est écrit en fin de `firestore.rules`. **À traiter
-  seul, pas au milieu d'autre chose** — ça touche la porte d'entrée de toutes les données.
+- ⛔ **Un jeton d'équipe vaut pour TOUTE l'entreprise à la fois — la moitié est refermée.**
+  Ouverte le 11 septembre 2026 en même temps que la fermeture de la règle Firestore : le jeton
+  vaut une heure, mais l'**accès** qu'il ouvre ne s'arrête pas là — Firebase l'échange contre
+  une session renouvelable indéfiniment, rangée sur l'appareil, et après un seul échange
+  réussi l'appareil ne repasse plus jamais par le serveur.
+
+  ✅ **Refermé le même jour : fermer une entreprise COUPE maintenant ses sessions.**
+  `fbRevoquerEquipe(t)` pose `validSince`, appelée par les trois portes de fermeture, et
+  chacune remonte le résultat à la Tour. ⚠️ **Jusqu'à une heure** avant effet — un jeton déjà
+  délivré reste valable jusqu'à son échéance ; c'est écrit tel quel plutôt que promis plus
+  court.
+
+  **Ce qui reste ouvert**, et qui demande un identifiant par **appareil** :
+  · changer la clé d'équipe ne révoque toujours rien (il faudrait couper au changement de clé,
+    ce qui forcerait chaque appareil à re-prouver la NOUVELLE clé — c'est le comportement
+    voulu, mais ça mérite d'être fait et mesuré seul) ;
+  · l'identifiant étant commun, on ne peut pas couper **un** appareil sans les couper tous —
+    un téléphone perdu ou un salarié parti coûte la coupure de toute l'entreprise ;
+  · pour une coupure **instantanée** plutôt qu'en une heure, il faudrait que la règle Firestore
+    compare `request.auth.token.auth_time` à une date de fermeture lue dans Firestore : un
+    `get()` à chaque évaluation, et un changement de la règle qui garde TOUTES les données.
+  `syncDeviceId()` existe déjà côté client (`elan_dev`) — la matière est là, l'ordre serait le
+  même que d'habitude : les appareils envoient leur identifiant D'ABORD, la coupure fine
+  ENSUITE. **À traiter seul, pas au milieu d'autre chose** — ça touche la porte d'entrée de
+  toutes les données.
 
 - **Les deux tables de codes promo doivent s'accorder** — voir la section du 11 septembre.
   `espace.html` porte `PROMO_CODES` en clair, le serveur ne croit que `config.promos`. Un code

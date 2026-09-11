@@ -54,7 +54,7 @@ isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saut
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 474 vérifications, 1,9 s (mesuré)
+for f in tests/test-*.js; do node "$f"; done   # 496 vérifications, 2,1 s (mesuré)
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -164,6 +164,25 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   des clients sans leur Réception. Le compteur `mailRefus` de `/health` le voit venir : un
   motif autre qu'`absent` qui monte, ce sont de vrais appareils qui tombent. Il reste agrégé —
   `/health` est publique, y nommer un espace dirait au monde quelles entreprises existent.
+- ⛔ **Fermer une entreprise doit COUPER ses sessions Firebase, et le DIRE.** Refuser les
+  nouveaux jetons ne suffit pas : un jeton s'échange contre une session **renouvelable
+  indéfiniment**, rangée sur l'appareil — après un seul échange réussi, l'appareil ne repasse
+  plus jamais par le serveur. Jusqu'au 11 septembre 2026, fermer une entreprise depuis la Tour
+  ne coupait donc PAS son Firestore sur les appareils déjà pourvus : ils lisaient et écrivaient
+  pour toujours pendant que la Tour affichait « fermée ». `fbRevoquerEquipe(t)` pose
+  `validSince` par `accounts:update`. **Les TROIS portes de fermeture l'appellent** (suspendre,
+  fermer un client, supprimer une entreprise) — une seule oubliée et la coupure devient une
+  loterie ; rouvrir, lui, ne coupe rien. Sur la fermeture d'un client, on coupe **avant**
+  d'effacer : un appareil qui tient sa session repousse la base entière et on aurait effacé
+  pour rien. ⚠️ **Ce n'est pas instantané — jusqu'à UNE HEURE**, la durée de vie d'un jeton
+  déjà délivré (Firestore vérifie la signature et l'échéance, pas l'existence du compte) : le
+  dire tel quel plutôt que promettre une coupure immédiate. Et sans clé d'administration, la
+  fonction rend `false` — **l'appelant DOIT le remonter**, croire une entreprise coupée alors
+  qu'elle ne l'est pas est la panne silencieuse type. `fbUidEquipe(t)` n'a **qu'une seule
+  définition**, partagée par la signature et la coupure : deux copies calculeraient un jour
+  deux identifiants différents, et la coupure viserait un compte qui n'existe pas sans rien
+  dire. `tests/test-640.js` extrait cette fonction du fichier réel pour éprouver la vraie
+  dérivation, `tests/test-641.js` joue les quatre réponses de la coupure.
 - Ne pas modifier l'anti-abus (`server/index.js`) sans relire pourquoi il lit
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
