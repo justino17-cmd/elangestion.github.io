@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '641';
+const APP_VERSION = '642';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6017,9 +6017,36 @@ let db = load();
 try{ ombreRelever(); }catch(e){}   // l'ombre part de ce qui est chargé : rien n'est « modifié » tant qu'on n'a rien touché
 let currentUser = null;
 
+/* Cet appareil appartient-il déjà à une entreprise ? On lit le stockage directement, et non
+   syncTeam() : celle-ci est déclarée plus bas, et espaceHerite() n'a pas encore tourné quand
+   load() décide. Le préfixe est réécrit par beta-build.js comme partout ailleurs. */
+function espaceRattache(){ try{ return !!String(localStorage.getItem('elan_sync_team')||'').trim(); }catch(e){ return false; } }
+
 function load(){
-  let d;
-  try{ const raw = localStorage.getItem(STORE_KEY); d = raw ? migrate(JSON.parse(raw)) : migrate(seed()); }catch(e){ d = migrate(seed()); }
+  let d, neuve=false;
+  try{ const raw = localStorage.getItem(STORE_KEY); neuve=!raw; d = raw ? migrate(JSON.parse(raw)) : migrate(seed()); }catch(e){ neuve=true; d = migrate(seed()); }
+  /* ⛔ UN APPAREIL QUI APPARTIENT À UNE ENTREPRISE NE CHARGE JAMAIS LE SEMIS DE DÉMONSTRATION.
+     Constaté chez ELAN le 11 septembre 2026, capture à l'appui : « Mes demandes » affichait
+     DC-2026-001 · « Cuisine — Restaurant Le Gourmet », DEUX FOIS. Reproduit au navigateur sur
+     le fichier livré, en posant l'état exact — drapeau de vidage présent, base locale absente,
+     appareil rattaché : 160 produits, 2 box de démonstration, 2 devis, 2 factures et
+     5 fournisseurs entrent dans la base de l'entreprise. La synchro étant une UNION, tout part
+     chez toute l'équipe ; et comme `uid()` change à chaque passage, un deuxième rejeu AJOUTE
+     une copie au lieu de la remplacer — d'où les doublons exactement identiques de la capture.
+
+     Le défaut tenait à un ET manquant. Les deux lignes au-dessus disent « pas de base → semis »,
+     et le drapeau plus bas ne vide QU'UNE FOIS DANS LA VIE DE L'APPAREIL. Les deux ensemble
+     étaient sûrs tant que « pas de base » voulait dire « appareil neuf ». Ça n'est pas vrai :
+     une base peut disparaître sur un appareil qui a déjà servi — écriture refusée faute de
+     place, stockage nettoyé par le navigateur, profil recréé. Le drapeau reste, la base est
+     partie, et le semis s'installe chez un vrai client.
+
+     On ne touche donc pas au drapeau, qui garde son rôle : c'est la CONDITION DU SEMIS qu'on
+     resserre. Le semis n'a de sens que sur un appareil qui n'appartient à personne — rattaché
+     à une entreprise, ses données viennent de la synchro ; déjà utilisé, elles viennent de sa
+     base. Dans les deux cas, une base VIDE est la bonne réponse : la synchro la remplit.
+     Même vidage que le drapeau, pour n'avoir qu'une seule définition de « base propre ». */
+  if(neuve && (APPAREIL_DEJA_VU || espaceRattache())) COLLECTIONS_DONNEES.forEach(c=>d[c]=[]);
   // Démarrage vierge : on supprime une seule fois les données de démonstration (le compte de connexion est conservé)
   if(!localStorage.getItem('elan_vierge_v1')){
     COLLECTIONS_DONNEES.forEach(c=>d[c]=[]);
