@@ -18,9 +18,10 @@ Pas de compilation, pas de bundler. Ce qui est écrit est ce qui est servi.
 
 ## Le serveur
 
-`server/index.js` — environ 5 610 lignes, 121 routes (recompté le 11 septembre 2026 ; il a
-doublé, puis redoublé, depuis la première rédaction de cette fiche — se méfier des chiffres
-de cette page plus vieux que quelques jours). Écoute sur `127.0.0.1:8080`,
+`server/index.js` — 5 702 lignes, 121 routes (recompté le 11 septembre 2026 ; il a doublé,
+puis redoublé, depuis la première rédaction de cette fiche — se méfier des chiffres de cette
+page plus vieux que quelques jours, celui-ci compris : il a vieilli de 90 lignes dans la
+journée même où il a été corrigé). Écoute sur `127.0.0.1:8080`,
 **derrière nginx** (d'où `app.set('trust proxy', 1)`).
 
 Dépendances : `express`, `imapflow` + `mailparser` (réception des courriels),
@@ -53,7 +54,7 @@ isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saut
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 473 vérifications, ~10 s
+for f in tests/test-*.js; do node "$f"; done   # 473 vérifications, 1,9 s (mesuré)
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche

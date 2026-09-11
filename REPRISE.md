@@ -20,6 +20,20 @@ la v641 (client) part D'ABORD, le serveur ENSUITE** — c'est app.html qui doit 
 un refus avant qu'un serveur en oppose un, et c'est app.html qui doit présenter la preuve de
 clé avant que la route des codes promo l'exige. Voir le détail au point 3.
 
+⚠️ **Les deux correctifs ne sont PAS au même niveau de prudence, et il faut le savoir avant de
+fusionner** (relevé par `relecteur`) :
+- **Les routes courrier** sont derrière un interrupteur que ce diff ne pose pas : quel que soit
+  l'ordre Pages/VPS, elles restent ouvertes après la publication, exactement comme avant.
+  Aucune fenêtre de rupture.
+- **`/api/promo/valider`**, lui, exige la preuve **tout de suite**, sans interrupteur. Si le VPS
+  redéploie AVANT que GitHub Pages serve la v641, un appareil resté en v640 qui tente d'entrer
+  un code promo reçoit un 403 et son message (« mets l'application à jour, puis réessaie »).
+  **Visible, jamais silencieux, et réparé par un rechargement** — mais si un ticket client
+  arrive dans les minutes qui suivent la fusion, c'est ça. Dans l'autre sens (Pages d'abord)
+  il n'y a rien du tout : l'ancien serveur ignore simplement l'en-tête qu'il ne connaît pas.
+  Le choix est assumé : le trou est anonyme et activement exploitable, une gêne de quelques
+  minutes sur la saisie d'un code promo pèse moins lourd.
+
 ### 1. Les codes promo : le client choisissait son code ET sa date de fin
 
 `POST /api/clients/sync` (le résumé que pousse `espace.html`) relayait un code promo vers
@@ -1107,6 +1121,25 @@ skill `performance-budget-monitor` avant d'y toucher.
 ---
 
 ## Dettes connues, chacune à traiter seule
+
+- ⛔ **Un jeton d'équipe ne se révoque pas, et il vaut pour TOUTE l'entreprise à la fois.**
+  Ouverte le 11 septembre 2026, en même temps que la fermeture de la règle Firestore — c'est
+  ce que cette fermeture ne donne pas, et qu'on pourrait croire acquis. Le jeton vaut une
+  heure, mais l'**accès** qu'il ouvre ne s'arrête pas là : Firebase l'échange contre une
+  session renouvelable indéfiniment, rangée sur l'appareil. Après un seul échange réussi,
+  l'appareil ne repasse plus jamais par le serveur. Donc :
+  · fermer une entreprise depuis la Tour ne coupe **pas** son Firestore sur les appareils déjà
+    pourvus — le refus « espace fermé » ne les rejoint jamais ;
+  · changer la clé d'équipe ne révoque rien ;
+  · l'identifiant étant commun à toute l'entreprise, on ne peut pas couper **un** appareil :
+    révoquer les couperait tous d'un coup.
+  Le fermer demande un identifiant par **appareil** et une durée de vie effective plus courte
+  (redemander un jeton périodiquement). C'est écrit en fin de `firestore.rules`. **À traiter
+  seul, pas au milieu d'autre chose** — ça touche la porte d'entrée de toutes les données.
+
+- **Les deux tables de codes promo doivent s'accorder** — voir la section du 11 septembre.
+  `espace.html` porte `PROMO_CODES` en clair, le serveur ne croit que `config.promos`. Un code
+  ajouté d'un seul côté donne un portail qui promet et une application qui reste verrouillée.
 
 - **`FOURNISSEURS_ELAN` (`app.html:4496`) — fausse alerte, levée le 8 septembre 2026.**
   Ce n'était pas la faute de `REPORT_TEMPLATES` : les cinq entrées sont les fournisseurs du
