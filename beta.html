@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '649-beta';
+const APP_VERSION = '650-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6789,7 +6789,16 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       try{ console.error('push : base trop lourde même sans pièces ('+Math.round(alle.taille/1024)+' Ko) — écriture non tentée'); }catch(_e){}
       try{ toast('⛔ La base est trop lourde pour le nuage même sans pièces jointes — contacte TEAM OP',8000); }catch(_e){}
       return; }
-    const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(alle.copie));
+    /* ⛔ LE REPÈRE `_syncTs` NE DOIT AVANCER QUE SUR UNE ÉCRITURE RÉELLEMENT ACQUITTÉE.
+       Il sert à la réception : `if((d.ts||0)<=_syncTs) return;` — « ce que je reçois est plus
+       ancien que ce que j'ai déjà, je l'ignore ». Le poser AVANT l'écriture était juste tant
+       qu'une écriture réussissait toujours. Le 11 septembre 2026 chez ELAN, les écritures ont
+       échoué pendant des heures : le repère avançait quand même, à chaque tentative, donc
+       l'appareil se mettait à IGNORER tout ce que ses collègues publiaient — leurs documents
+       paraissaient plus anciens que ses propres échecs. Un appareil sourd, en silence, qui
+       n'affiche ni les ajouts de produits ni les stocks à jour. On garde donc l'ancienne valeur
+       et on ne l'avance qu'à l'accusé de réception ; en cas d'échec, on la remet. */
+    const ts=Date.now(); const _tsAvant=_syncTs; _syncTs=ts; const e=await syncEncrypt(JSON.stringify(alle.copie));
     /* `verNum` est ce que la règle Firestore compare au minimum exigé. Un refus « permission-denied »
        ici ne veut plus dire « pas authentifié » : il veut dire « cette version n'est plus acceptée ». */
     /* Une écriture que le serveur n'a pas acquittée en 15 s est une écriture en file d'attente
@@ -6813,9 +6822,16 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       if(!reseau){ _horsLignePush=true; try{ horsLigneDebut('écriture sans réponse'); }catch(_e){} return; }
       try{ console.warn('synchro : écriture non acquittée en 15 s alors que le réseau répond — base '+Math.round(alle.taille/1024)+' Ko'+(alle.gros&&alle.gros.length?' · plus lourds : '+alle.gros.join(', '):'')); }catch(_e){}
       try{ toast('⚠️ Tes modifications ne partent pas encore vers l\'équipe — elles sont enregistrées sur cet appareil',7000); }catch(_e){}
+      /* Écriture toujours pas acquittée : on REND le repère, sinon cet appareil ignore tout ce que
+         l'équipe publie (voir le bloc ⛔ plus haut). Mieux vaut recevoir deux fois que devenir sourd. */
+      if(_syncTs===ts) _syncTs=_tsAvant;
     },15000);
     _ecriture.then(()=>{ _acquitte=true; try{ sauvegardeDeposer(e); }catch(_e){} })
-      .catch(er=>{ _acquitte=true; console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){}
+      .catch(er=>{ _acquitte=true; console.error('push',er);
+        /* L'écriture n'a PAS eu lieu : le repère ne doit pas rester en avant, sinon on ignore
+           les publications de toute l'équipe (voir le bloc ⛔ au-dessus de `_tsAvant`). */
+        try{ if(_syncTs===ts) _syncTs=_tsAvant; }catch(_e){}
+        try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){}
         /* ⛔ FILE D'ÉCRITURE SATURÉE : PLUS RIEN NE PARTIRA DE CETTE SESSION. Mesuré chez ELAN le
            11 septembre 2026 — « Write stream exhausted maximum allowed queued writes », répété :
            le SDK Firestore garde ses écritures en attente, et une fois la file pleine il refuse
@@ -27880,8 +27896,29 @@ function notifVoitModule(k){ try{ if(!currentUser) return false; if(currentUser.
 function notifBoxOk(b){ if(!b||!currentUser) return false; if(b.respUserId&&b.respUserId===currentUser.id) return true; try{ return visibleBoxes([b]).length>0; }catch(e){ return false; } }
 /* box « qui me concerne » pour les alertes opérationnelles : admin / DR → toutes celles qu'ils voient ;
    les autres (chef d'équipe, technicien…) → uniquement celles qui leur sont assignées ou dont ils sont responsables */
-function notifBoxConcerne(b){ if(!b||!currentUser) return false; if(['admin','dr'].includes(currentUser.role)||can('validerDR')) return notifBoxOk(b);
-  if(b.respUserId&&b.respUserId===currentUser.id) return true; if((b.userIds||[]).includes(currentUser.id)) return true; const tid=myTechId(); return !!tid&&(b.techIds||[]).includes(tid); }
+/* ⛔ UN DR N'EST ALERTÉ QUE POUR SES BOX — plus « tout, par défaut ». Signalé par Justin le
+   11 septembre 2026 : « pourquoi les DR voient les notifications de certains DR ». La réponse
+   était dans le repli : un DR à qui PERSONNE n'est rattaché n'a pas de périmètre, et l'ancien
+   code lui montrait alors TOUT — donc les mouvements de toutes les équipes, y compris celles
+   d'un autre DR. Un DR avec des personnes rattachées était correctement cloisonné : d'où le
+   « certains » de la question.
+   Le lien doit être EXPLICITE : il est responsable de la box, il y est nommé, sa fiche
+   technicien y est cochée, ou elle appartient à quelqu'un de son périmètre. Sans lien, pas
+   d'alerte. ⚠️ Cela ne change QUE les alertes — ce qu'un DR a le droit de VOIR et d'ouvrir
+   n'est pas touché : la vue reste réglée par visibleBoxes. Un administrateur, lui, garde tout. */
+function notifBoxConcerne(b){ if(!b||!currentUser) return false;
+  const me=currentUser.id, tid=myTechId();
+  const lien=(b.respUserId&&b.respUserId===me) || (b.userIds||[]).includes(me) || (!!tid&&(b.techIds||[]).includes(tid));
+  if(currentUser.role==='admin') return notifBoxOk(b);
+  if(currentUser.role==='dr'||can('validerDR')){
+    if(lien) return true;
+    const pu=perimetreUserIds(currentUser);   // null = aucune personne rattachée
+    if(pu&&((b.respUserId&&pu.has(b.respUserId))||(b.userIds||[]).some(x=>pu.has(x)))) return true;
+    const pt=perimetreTechIds(currentUser);
+    if(pt&&(b.techIds||[]).some(t=>pt.has(t))) return true;
+    return false;
+  }
+  return lien; }
 function notifMoi(nom){ return !!nom && !!currentUser && nom===fullName(currentUser); }   // c'est ma propre action → pas besoin de me la notifier
 function computeNotifs(){ const out=[]; const today=todayISO(); if(!currentUser) return out;
   const vBox=notifVoitModule('boxes'), vStock=notifVoitModule('stock')||notifVoitModule('produits');
