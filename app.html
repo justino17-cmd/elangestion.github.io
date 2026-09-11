@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '656';
+const APP_VERSION = '657';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -7956,6 +7956,23 @@ function visibleBoxes(list){ const p=can('voirTout')?perimetreTechIds():null; if
   return (list||[]).filter(b=>!boxExclu(b,me) && (b.visibleTous || (tid&&(b.techIds||[]).includes(tid)) || (me&&b.respUserId===me) || (me&&(b.userIds||[]).includes(me))
     || (p&&(b.techIds||[]).some(t=>p.has(t)))   // les box de ses équipes
     || abs.some(a=>b.respUserId===a.id || (b.userIds||[]).includes(a.id) || (a.techId&&(b.techIds||[]).includes(a.techId))))); }
+/* ── « Cette personne n'a AUCUNE box » — pour le dire à l'administrateur, sur sa liste ──
+   Mesuré chez ELAN le 11 septembre 2026 : sur treize comptes, quatre techniciens ouvraient
+   « Boxes » sur un écran vide. Aucune des dix-huit box ne les nommait, et aucune n'était
+   « visible par tous ». Rien n'était cassé — personne ne les avait attribuées. Mais rien ne le
+   DISAIT non plus : ni à eux, ni à l'administrateur qui aurait pu le corriger en deux minutes.
+   ⛔ Cette fonction ne CALCULE rien de neuf : elle rejoue visibleBoxes pour un autre que soi,
+   en basculant `currentUser` le temps du test et en le remettant TOUJOURS, même si ça lève.
+   Réécrire la règle de visibilité ici en produirait une seconde, qui divergerait un jour — et
+   l'écran mentirait à nouveau, dans l'autre sens. */
+function usrSansBox(u){
+  if(!u||u.actif===false) return false;
+  if(!(db.boxes||[]).length) return false;        // l'entreprise n'a pas de box : ce n'est pas un oubli
+  const avant=currentUser;
+  try{ currentUser=u; return visibleBoxes(db.boxes).length===0; }
+  catch(e){ return false; }
+  finally{ currentUser=avant; }
+}
 /* Cette box m'est-elle ouverte PARCE QUE quelqu'un est en congés ? Renvoie l'absent, pour
    l'écrire sur la fiche : un accès qu'on ne s'explique pas est un accès qui inquiète. */
 function boxDelegue(b){
@@ -18109,7 +18126,25 @@ function renderBoxesList(){
   const el=$('boxes-list'); if(!el) return;
   const q=norm(boxListSearch);
   let list=visibleBoxes(db.boxes).filter(b=> !q || norm((b.numero||'')+' '+(b.nom||'')+' '+(b.ville||'')+' '+(b.codePostal||'')).includes(q));
-  if(!list.length){ el.innerHTML=`<div class="card">${emptyState('🧱','Aucune box.',can('supprimer')?'Ajouter':'',can('supprimer')?'formBox()':'')}</div>`; return; }
+  /* ⛔ « Aucune box. » MENT quand l'entreprise en a dix-huit. Mesuré chez ELAN le 11 septembre
+     2026 : quatre techniciens (Mathys, Romain Avignon, Zampa, Antho Piovanacci) ouvraient cet
+     écran sur un vide muet — aucune box ne les nommait, ni dans `techIds`, ni dans `userIds`,
+     et aucune n'était « visible par tous ». La phrase leur disait que l'entreprise n'avait
+     rien, donc ils cherchaient la panne dans l'application, et ils appelaient. Il n'y avait
+     pas de panne : personne ne leur avait attribué de box.
+     Même règle que pour le refus de /api/replies : un écran vide doit savoir dire POURQUOI il
+     est vide, et distinguer « il n'y a rien » de « il y a, mais pas pour toi ». */
+  if(!list.length){
+    const total=(db.boxes||[]).length;
+    if(total && !q){
+      el.innerHTML=`<div class="card">${emptyState('🔒',
+        `Aucune box ne t'est attribuée pour l'instant — l'entreprise en compte ${total}.`,
+        can('supprimer')?'Ajouter une box':'', can('supprimer')?'formBox()':'')}
+        <p style="font-size:12.5px;color:var(--t3);line-height:1.6;margin:0 2px">Ce n'est pas une panne : une box s'affiche ici quand tu y es nommé — comme responsable, dans ses intervenants, ou via ta fiche technicien. Demande à ton administrateur de t'ajouter aux box dont tu t'occupes.</p></div>`;
+      return;
+    }
+    el.innerHTML=`<div class="card">${emptyState('🧱',q?'Aucune box ne correspond à cette recherche.':'Aucune box.',(!q&&can('supprimer'))?'Ajouter':'',(!q&&can('supprimer'))?'formBox()':'')}</div>`; return;
+  }
   const groups={}; list.forEach(b=>{ const g=b.groupe||'Sans groupe'; (groups[g]=groups[g]||[]).push(b); });
   const candsNv=produitsRecents();   // une fois pour toutes les cartes
   el.innerHTML=Object.keys(groups).sort().map(g=>`<div class="nav-label" style="padding:14px 4px 6px">${esc(g==='Sans groupe'?'Sans groupe':g)}</div>`+groups[g].map(b=>{
@@ -23285,7 +23320,7 @@ views.utilisateurs=function(){
             <span class="mono">@${esc(u.login)}</span>${u.email?`<span>✉️ ${esc(u.email)}</span>`:(admin?'<span style="color:var(--org)" title="Sans e-mail, « Mot de passe oublié » ne marchera pas pour ce compte">✉️ e-mail à ajouter (Modifier)</span>':'')}
           </div>
         </div>
-        <span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">${u.actif?'<span class="st st-green">Actif</span>':'<span class="st st-red">Désactivé</span>'}${(!u.pwdHash||u.mustChangePwd)?'<span class="st st-org" title="Ce compte n\'a pas encore choisi son mot de passe personnel">🔑 à définir</span>':''}</span>
+        <span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">${u.actif?'<span class="st st-green">Actif</span>':'<span class="st st-red">Désactivé</span>'}${(!u.pwdHash||u.mustChangePwd)?'<span class="st st-org" title="Ce compte n\'a pas encore choisi son mot de passe personnel">🔑 à définir</span>':''}${usrSansBox(u)?'<span class="st st-org" title="Cette personne ouvre « Boxes » sur un écran vide : aucune box ne la nomme, ni comme responsable, ni dans ses intervenants, ni par sa fiche technicien. Ajoute-la aux box dont elle s\'occupe.">🔒 aucune box</span>':''}</span>
         <span style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end" onclick="event.stopPropagation()">${admin?`<button class="btn ghost sm" onclick="resetPwd('${u.id}')" title="Poser un mot de passe provisoire">🔑</button><button class="btn ghost sm" onclick="formUser('${u.id}')">✎ Modifier</button>${moi?'':`<button class="btn danger sm" onclick="delUser('${u.id}')" title="Supprimer">🗑</button>`}`:''}</span>
         <span class="usr-ch" aria-hidden="true">${ouv?'⌄':'›'}</span>
       </div>${ouv?usrDroitsHtml(u,admin):''}</div>`;}).join('');
