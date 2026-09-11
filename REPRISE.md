@@ -13,6 +13,69 @@ de ligne du tout.
 
 ---
 
+## ⛔ INCIDENT ELAN du 11 septembre 2026 — clos à 14 h 20, mais DEUX PORTES RESTENT OUVERTES
+
+Toute l'équipe d'ELAN sans synchro ni connexion de 2 h 30 à 12 h 50, puis l'app bloquée en
+boucle sur « Connexion requise » jusqu'à 13 h 30. Rétabli, confirmé par ELAN à 14 h 20
+(« ils ont rechargé la page et c'est bon ça marche »). Six publications dans la journée :
+v644, v645, v646, v647, v648 (`app.html`) et un correctif serveur.
+
+**La cause racine, mesurée** (sondes `/api/fb/jeton`, `/api/version`, console et Réseau de
+Justin) : la règle Firestore stricte (jeton d'équipe obligatoire) a été publiée à 2 h 30 alors
+que le serveur ne pouvait signer AUCUN jeton — la clé d'administration Firebase n'est pas sur le
+VPS (`/opt/teamop/firebase-admin.json` absent → `fbAdminCle = null` → `/api/fb/jeton` répond 503
+`firebase_off` à tout le monde). ELAN a bien une clé PROPRE : ce n'était ni le repli, ni la clé
+partagée. Tous les appareils sont retombés en anonyme, la règle les a refusés. C'est exactement
+la quatrième condition de CLAUDE.md (« les appareils d'abord, la porte ensuite ») qui n'était
+pas remplie — et rien ne l'avait VÉRIFIÉ avant de publier : un jeton n'a jamais été vu se
+signer (200) pour un vrai espace. Ne plus refermer une porte sans avoir vu passer quelqu'un.
+
+**Ce qui a été fait, dans l'ordre :**
+1. Justin a rouvert la règle `elan_teams` dans la console Firebase (`allow read: if connecte();
+   allow write: if connecte() && versionOk();`, fonction `monEquipe` retirée). ⚠️ **Le fichier
+   `firestore.rules` du dépôt porte encore la règle STRICTE** : le garde-fou de l'outil a refusé
+   que je l'aligne (« affaiblissement de sécurité »). Le dépôt ne dit donc PAS ce qui est en
+   ligne. À corriger à la main, ou à refermer directement (voir « ouvert »).
+2. v644 — `menageDemoBox()` : ménage des box/demandes/devis de démonstration entrés par le
+   rejeu du semis, par signature fictive exacte, jamais par numéro seul (`test-643b.js`).
+3. Serveur — `/health` a son propre compteur (600/min/IP) hors du budget anti-abus : un bureau
+   entier s'auto-verrouillait (battement 20 s + relances 6 s × dix appareils > 120/min).
+4. v645/v646 — allègement de la base avant écriture (`syncAlleger`, budget 620 Ko) et surtout :
+   une écriture non acquittée ne bloque plus l'écran — on mesure `/health` d'abord, on prévient,
+   on laisse travailler. ⚠️ **L'hypothèse « base trop lourde » était FAUSSE pour ce défaut** :
+   la console d'ELAN n'a jamais montré « synchro allégée ». L'allègement reste un garde-fou
+   utile ; il n'était pas la cause. Ne pas le citer comme correctif de l'incident.
+5. v647 — file d'écriture Firestore saturée (« Write stream exhausted ») : une seule reprise par
+   chargement, jamais deux. **Ce qui remplissait la file n'a pas été identifié** — le canal Write
+   répondait 400 avant la reprise ; le corps de cette réponse n'a pas été lu.
+6. v648 — `/api/espaces/comptes` renvoyait 426 à TOUS les appareils : le client n'envoyait pas
+   `ver`, le garde-fou fermait la porte à tout le monde. Une ligne.
+
+**OUVERT — à faire à froid, dans cet ordre :**
+- ⛔ **Reposer la clé d'administration Firebase sur le VPS** (`/opt/teamop/firebase-admin.json`,
+  chmod 600, redémarrer `teamop-api`), vérifier `cleAdmin:true` dans Tour → Surveillance →
+  VERSIONS, puis VOIR un jeton se signer (200) pour un espace à clé propre. Tant que ce n'est
+  pas fait, la règle ouverte est la seule qui marche.
+- ⛔ **Refermer la règle Firestore** (`monEquipe(teamId)`) SEULEMENT après le point précédent,
+  ET après avoir vérifié que tous les appareils actifs présentent le jeton (Tour → Connexions).
+  Réaligner `firestore.rules` dans le dépôt au même moment.
+- Re-cliquer « Exiger la dernière version » une fois la clé posée : le serveur n'a pas pu écrire
+  `teamop_config/version.min` dans Firestore sans elle (le min de la règle est donc périmé ou
+  absent — `versionOk()` ne protège rien tant que ce n'est pas fait).
+- Bêta : l'écran de connexion par lien attend 9 s les comptes puis accuse la connexion. Sur un
+  téléphone en 4G qui part d'une base vide et télécharge toute la base d'ELAN, c'est court —
+  afficher « Chargement des données de l'équipe… » avec le temps écoulé, attendre plus, et dire
+  de réappuyer. C'est CE message qui a affolé tout le monde ce matin.
+- Bêta : un `permission-denied` à l'écriture est pris pour « version trop ancienne »
+  (`versionRefuseeParNuage`) — faux dès que la règle exige un jeton. Distinguer les deux.
+- Bêta : `battement()` compte un 429 comme un serveur mort, et `visibilitychange` pré-arme
+  `_hbEchecs=1` (un seul échec au retour d'onglet suffit à bloquer). Honorer `Retry-After`.
+- Pièces jointes hors du document Firestore (Storage) : `storage.rules` et
+  `PLAN-PIECES-STORAGE.md` sont dans le dépôt. Sans risque pour ELAN, coûte à l'usage, pas urgent.
+- La `/health` publique dit `bugs1h` mais rien sur les jetons : ajouter un compteur agrégé des
+  réponses de `/api/fb/jeton` par statut, pour que cet angle mort se voie la prochaine fois.
+
+
 ## v642 — le semis de démonstration entrait chez un client
 
 Signalé par Justin le 11 septembre à midi, sur ELAN : « Mes demandes » affichait
