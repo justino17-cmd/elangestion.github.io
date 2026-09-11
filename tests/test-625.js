@@ -4,7 +4,7 @@ function decoupe(entete){ const deb=APP.indexOf(entete); if(deb<0) throw new Err
   throw new Error('fin introuvable : '+entete); }
 const morceaux=['const norm = s =>','function produitCle(p){','function boxStock(b,pid){','function produitsDistinctIds(cle){','function produitDistinct(p){','function produitsDistinctsDeclarer(cle,ids,nom){','function produitsDistinctsAnnuler(cle){',
   'function produitsDoublons(){','function produitsFusionnables(l){','function produitsDoublonSurvivante(l){','function produitsFusionApercu(l){','function produitsFusionnerDoublons(cles){',
-  'let bxpOnglet=','function bxpBox(){','function abpDisponibles(b){','function boxPoserProduits(b,ids,opts){','function boxRetirable(b,pid){','function boxRetirerCoches(){','function boxRetirerAnnuler(){',
+  'let bxpOnglet=','function bxpBox(){','function abpDisponibles(b){','function boxPoserProduits(b,ids,opts){','function boxRetirable(b,pid){','function logNoms(liste){','function boxRetirerCoches(){','function boxRetirerAnnuler(){',
   'const BOX_NOUVEAUTES_DEPUIS=','function uidTs(id){','function produitCree(p){','function boxDecision(b){','function boxVuTs(b){','function produitsRecents(){','function boxNouveautes(b,cands){','function boxDecider(b,ids){','function boxDecisionAnnuler(b,pid){',
   'let _pushProduitLot=','function produitCreer(fiche,opts){','function produitCreePrevenir(p){'].map(decoupe).join('\n');
 const bac=new Function('etat',`let db=etat.db, currentUser=etat.currentUser, journal=[], toasts=[], pushes=[], timers=[], boxView='bx', current='boxes', rendus=0;
@@ -86,7 +86,11 @@ console.log('Naissance d\'un produit et push groupé');
 console.log('Retrait coché, revérifié, annulable');
 { const db=base(); bac.poser(db,ADMIN); const b=db.boxes[0]; bac.setRet(['A','B']);
   bac.boxRetirerCoches(); v('A retiré, B gardé (stock)',[b.stock.A,!!b.stock.B],[undefined,true]);
-  v('journal nominatif',/Produits retirés de la box · Box Nord : ADVION/.test(bac.journal[bac.journal.length-1]),true);
+  /* La ligne COMPTE d'abord, puis nomme — au plus trois noms (v661). Chez ELAN, trois lignes
+     de ce type pesaient 14 Ko à elles seules en récitant quarante-sept produits, et chassaient
+     l'historique métier hors du plafond de 500 entrées. Un seul retrait garde donc son nom :
+     ce qui est borné, c'est la liste, pas l'information. */
+  v('journal : compté puis nommé',/Produits retirés de la box · Box Nord : 1 produit\(s\) — ADVION/.test(bac.journal[bac.journal.length-1]),true);
   v('message avec Annuler',/1 produit retiré · 1 gardé.*\[boxRetirerAnnuler\(\)\]/.test(bac.toasts[bac.toasts.length-1]),true);
   b.stock.A={u:2,ctn:0};   // un arrivage a reposé A entre-temps
   bac.boxRetirerAnnuler(); v('annuler ne touche pas un produit déjà reposé avec du stock',b.stock.A,{u:2,ctn:0});
