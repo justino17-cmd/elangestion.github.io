@@ -54,7 +54,7 @@ isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saut
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 496 vérifications, 2,1 s (mesuré)
+for f in tests/test-*.js; do node "$f"; done   # 502 vérifications, 2,1 s (mesuré)
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -170,13 +170,19 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   plus jamais par le serveur. Jusqu'au 11 septembre 2026, fermer une entreprise depuis la Tour
   ne coupait donc PAS son Firestore sur les appareils déjà pourvus : ils lisaient et écrivaient
   pour toujours pendant que la Tour affichait « fermée ». `fbRevoquerEquipe(t)` pose
-  `validSince` par `accounts:update`. **Les TROIS portes de fermeture l'appellent** (suspendre,
-  fermer un client, supprimer une entreprise) — une seule oubliée et la coupure devient une
-  loterie ; rouvrir, lui, ne coupe rien. Sur la fermeture d'un client, on coupe **avant**
-  d'effacer : un appareil qui tient sa session repousse la base entière et on aurait effacé
-  pour rien. ⚠️ **Ce n'est pas instantané — jusqu'à UNE HEURE**, la durée de vie d'un jeton
-  déjà délivré (Firestore vérifie la signature et l'échéance, pas l'existence du compte) : le
-  dire tel quel plutôt que promettre une coupure immédiate. Et sans clé d'administration, la
+  `validSince` par `accounts:update`. **Les QUATRE portes l'appellent** (suspendre, fermer un
+  client, supprimer une entreprise, et « repartir à neuf » — cette dernière n'ajoute pas à
+  `entFermes` mais efface le document de l'ancien espace, et sans coupure il renaissait hors
+  annuaire, orphelin) : une seule oubliée et la coupure devient une loterie ; rouvrir, lui, ne
+  coupe rien. Sur la fermeture d'un client, on coupe **avant** d'effacer — mais la fenêtre est
+  **raccourcie, pas fermée**, et l'écrire autrement ferait croire le contraire : `validSince`
+  n'invalide que le rafraîchissement, donc un appareil qui tient un jeton encore valable peut
+  RECRÉER le document après l'effacement. ⚠️ **Rien n'est instantané — jusqu'à UNE HEURE** :
+  une règle Firestore n'évalue que la signature, l'émetteur et l'échéance du jeton, elle ne
+  consulte JAMAIS l'état du compte (ni désactivé, ni supprimé, ni `validSince`).
+  ⚠️ **Et tout cela ne vaut que parce que la règle a été publiée le 11 septembre** : l'appareil
+  révoqué retombe en anonyme, et c'est la règle qui ne lui donne rien. Avant, l'anonyme avait
+  tout — la coupure aurait été purement cosmétique. Et sans clé d'administration, la
   fonction rend `false` — **l'appelant DOIT le remonter**, croire une entreprise coupée alors
   qu'elle ne l'est pas est la panne silencieuse type. `fbUidEquipe(t)` n'a **qu'une seule
   définition**, partagée par la signature et la coupure : deux copies calculeraient un jour

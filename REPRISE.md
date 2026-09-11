@@ -1154,10 +1154,20 @@ skill `performance-budget-monitor` avant d'y toucher.
   réussi l'appareil ne repasse plus jamais par le serveur.
 
   ✅ **Refermé le même jour : fermer une entreprise COUPE maintenant ses sessions.**
-  `fbRevoquerEquipe(t)` pose `validSince`, appelée par les trois portes de fermeture, et
-  chacune remonte le résultat à la Tour. ⚠️ **Jusqu'à une heure** avant effet — un jeton déjà
-  délivré reste valable jusqu'à son échéance ; c'est écrit tel quel plutôt que promis plus
-  court.
+  `fbRevoquerEquipe(t)` pose `validSince`, appelée par les **quatre** portes (suspendre, fermer
+  un client, supprimer, et « repartir à neuf »), et chacune remonte le résultat à la Tour —
+  l'écran le dit, sinon l'information mourait en JSON. ⚠️ **Jusqu'à une heure** avant effet :
+  une règle Firestore n'évalue que la signature, l'émetteur et l'échéance du jeton, jamais
+  l'état du compte. Et **ça ne vaut que parce que la règle a été publiée** : l'appareil révoqué
+  retombe en anonyme, et la règle ne lui donne rien — avant le 11 septembre, l'anonyme avait
+  tout et la coupure aurait été cosmétique.
+  ⚠️ **La fenêtre de re-poussée est raccourcie, pas fermée** : pendant cette heure, un appareil
+  déjà lancé qui synchronise en fond peut RECRÉER le document d'une entreprise qu'on vient
+  d'effacer — sous un identifiant que l'annuaire ne connaît plus, c'est-à-dire la genèse même
+  des « espaces hors annuaire ». `forfaitServeurSync` vide l'appareil sur `ferme:true`, mais
+  seulement à l'OUVERTURE de l'application. **Ce qui reste à faire pour la fermer :** repasser
+  un DELETE ~65 min après la suppression (une petite liste sur disque, pour survivre à un
+  redémarrage).
 
   **Ce qui reste ouvert**, et qui demande un identifiant par **appareil** :
   · changer la clé d'équipe ne révoque toujours rien (il faudrait couper au changement de clé,

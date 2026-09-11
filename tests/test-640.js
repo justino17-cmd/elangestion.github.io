@@ -215,11 +215,24 @@ console.log('\nLa règle Firestore est REFERMÉE — publiée le 11 septembre 20
   v('tout le reste est toujours fermé',
     /match \/\{document=\*\*\} \{\s*\n\s*allow read, write: if false;/.test(RULES),true);
   /* Ce qu'on a fermé, et ce qu'on n'a PAS obtenu : les deux doivent rester écrits, sinon la
-     prochaine conversation croira avoir un levier de révocation qu'elle n'a pas. */
+     prochaine conversation croira avoir un levier de révocation qu'elle n'a pas — ou croira
+     ne pas en avoir alors qu'il existe. Les deux erreurs coûtent. */
   v('ce que la règle disait avant, et pourquoi il a fallu le fermer, reste écrit',
     [/se déchiffrait INTÉGRALEMENT/.test(RULES),/ne demandait AUCUNE clé/.test(RULES)],[true,true]);
-  v('ce que la règle NE donne pas est écrit aussi',
-    [/l'ACCÈS qu'il ouvre ne s'arrête pas/.test(RULES),/ne coupe PAS son Firestore/.test(RULES)],[true,true]);
+  /* ⛔ CETTE VÉRIFICATION A ÉTÉ RETOURNÉE LE 11 SEPTEMBRE, ET C'EST LE POINT. Elle exigeait
+     que le fichier dise « fermer une entreprise ne coupe PAS son Firestore » — vrai le matin,
+     FAUX l'après-midi, puisque `fbRevoquerEquipe` a été posée entre-temps. Un test qui garde
+     une phrase devenue fausse fait garder le mensonge. Il garde désormais la vérité neuve :
+     la coupure existe, elle n'est pas instantanée, et ce qui reste ouvert est nommé. */
+  v('le levier de révocation est décrit, avec sa limite de temps',
+    [/REFERMÉ LE 11 SEPTEMBRE 2026 : fermer une entreprise coupe ses sessions/.test(RULES),
+     /Effet sous UNE HEURE au plus, jamais instantané/.test(RULES)],[true,true]);
+  v('…et pourquoi c\'est CETTE règle qui referme la chaîne',
+    /sans elle, l'anonyme avait tout, et la coupure n'aurait été que cosmétique/.test(RULES),true);
+  v('ce qui reste ouvert est nommé, pour ne pas le croire réglé',
+    [/changer la clé d'équipe ne révoque toujours rien/.test(RULES),
+     /on ne peut pas couper UN\s*\n\/\/\s*appareil/.test(RULES),
+     /peut encore RECRÉER son document/.test(RULES)],[true,true,true]);
   v('et les quatre conditions tenues avant de publier, pour qui republierait un jour',
     [/Tous les appareils présentent le jeton/.test(RULES),/espace de REPLI/.test(RULES),
      /encore la clé partagée/.test(RULES),/HORS ANNUAIRE/.test(RULES)],[true,true,true,true]);

@@ -114,10 +114,23 @@ console.log('\nFermer une entreprise coupe ses sessions Firebase, et le DIT');
   v('elle passe par accounts:update, l\'appel qui invalide les rafraîchissements',
     /accounts:update'[\s\S]{0,200}?validSince/.test(SRV), true);
 
-  /* ⛔ LES TROIS PORTES, comme les quatre portes de sortie d'espace : une entreprise se ferme
-     depuis la suspension, depuis la fermeture d'un client, et depuis la suppression totale.
-     Une seule oubliée et la coupure devient une loterie. */
-  v('les TROIS portes de fermeture coupent', (SRV.match(/await fbRevoquerEquipe\(/g) || []).length, 3);
+  /* ⛔ QUATRE PORTES, comme les quatre portes de sortie d'espace. Suspendre, fermer un client,
+     supprimer une entreprise — et `/api/monitor/espaces/renaitre`, trouvée par `gardien` : elle
+     n'ajoute pas à `entFermes` mais efface le document Firestore de l'ancien espace et le sort
+     de l'annuaire ; sans coupure, l'appareil garde sa session POUR TOUJOURS et fait renaître
+     l'espace hors annuaire, orphelin. Une seule oubliée et la coupure devient une loterie.
+     ⚠️ On compte les APPELS, pas les `await` : celui de la fermeture d'un client est dans un
+     `Promise.all` (les révocations en parallèle — en série, trois espaces à 10 s dépassaient
+     le délai de nginx et la Tour affichait 504 pendant que la route détruisait). */
+  v('les QUATRE portes coupent', (SRV.match(/fbRevoquerEquipe\(/g) || []).length - 1, 4);
+  v('les révocations partent en parallèle, jamais en série',
+    /await Promise\.all\(espacesAEffacer\.map\(tf => fbRevoquerEquipe\(tf\)\)\)/.test(SRV), true);
+  /* Le jeton d'administration est maintenant sur le chemin de quatre fermetures : sans délai,
+     une fermeture pouvait rester bloquée plusieurs minutes sur un cache froid. */
+  v('le jeton d\'administration a un délai d\'expiration',
+    /ctrl\.abort\(\), 10000\);[\s\S]{0,300}?oauth2\.googleapis\.com\/token/.test(SRV), true);
+  /* Une affirmation sans fait derrière, c'est ce que ce correctif combat — y compris la sienne. */
+  v('aucun espace relié ne se dit pas « coupé »', /aucun espace relié — rien à couper/.test(SRV), true);
 
   /* ⛔ ET CHACUNE LE DIT. Croire une entreprise coupée alors qu'elle ne l'est pas (clé
      d'administration absente du serveur, Firebase qui refuse) est exactement la panne
@@ -135,7 +148,12 @@ console.log('\nFermer une entreprise coupe ses sessions Firebase, et le DIT');
      encore sa session repousse la base entière à sa prochaine synchro, et on aurait effacé
      pour rien. */
   v('on coupe AVANT d\'effacer les données',
-    SRV.indexOf('for (const tf of espacesAEffacer) { const c = await fbRevoquerEquipe(tf)') < SRV.indexOf('Effacement DÉFINITIF des données chiffrées'), true);
+    SRV.indexOf('const coupures = await Promise.all(espacesAEffacer') < SRV.indexOf('Effacement DÉFINITIF des données chiffrées'), true);
+  /* ⛔ ET LE COMMENTAIRE NE PROMET PAS PLUS QUE ÇA NE DONNE. `validSince` n'invalide que le
+     rafraîchissement : un appareil qui tient un jeton encore valable peut RECRÉER le document
+     après l'effacement, jusqu'à une heure. La fenêtre est raccourcie, pas fermée — l'écrire
+     autrement ferait croire le contraire à la prochaine lecture. */
+  v('…et le dit comme RACCOURCIE, pas fermée', /la fenêtre est RACCOURCIE, pas fermée/.test(SRV), true);
 }
 
 /* ══ 3ter. LA FONCTION DE COUPURE, EXÉCUTÉE ══

@@ -2296,8 +2296,16 @@ app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
       efface = r.ok;
     } catch (err) { console.error('renaitre effacement :', err.message); } }
   }
+  /* ⛔ LA QUATRIÈME PORTE, trouvée par `gardien` le 11 septembre. Celle-ci n'ajoute PAS à
+     `entFermes` — elle fait repartir un espace à neuf — mais elle efface le document Firestore
+     de l'ancien et le retire de l'annuaire. Sans coupure, l'appareil ne peut plus obtenir de
+     NOUVEAU jeton (404, espace inconnu) mais garde sa session renouvelable POUR TOUJOURS et
+     repousse toute la base : l'ancien espace renaît hors annuaire, orphelin. C'est exactement
+     la genèse que ce fichier décrit plus bas. Ici l'ajouter est gratuit : l'ancien espace est
+     mort, personne n'a besoin de sa session. */
+  const cut = t ? await fbRevoquerEquipe(t) : { fait: true, motif: 'aucun ancien espace' };
   console.log('Tour :', req.tourUser.nom, 'fait repartir « ' + slug + ' » à neuf — ancien espace', t, efface ? 'effacé' : 'NON effacé');
-  res.json({ ok: true, ancien: t, efface });
+  res.json({ ok: true, ancien: t, efface, coupure: cut.fait, coupureMotif: cut.motif });
 });
 // le patron active un code promo pour une entreprise, directement depuis la Tour
 app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
@@ -3448,9 +3456,20 @@ async function fbAdminJeton() {
       scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit',
       iat: now, exp: now + 3600 });
     const sig = crypto.createSign('RSA-SHA256').update(jwtSans).sign(fbAdminCle.private_key).toString('base64url');
-    const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + jwtSans + '.' + sig });
+    /* ⛔ UN DÉLAI, parce que cette fonction est désormais sur le chemin des TROIS fermetures.
+       `fbAdminFetch` a le sien (10 s) ; celui-ci était un `fetch` nu, et undici n'a pas de
+       délai total par défaut. Sur cache froid — donc typiquement la première fermeture de la
+       journée — une fermeture pouvait rester bloquée plusieurs minutes, nginx rendre 504 à
+       60 s, et l'opérateur relancer une route DESTRUCTIVE en plein vol. */
+    const ctrl = new AbortController();
+    const tm = setTimeout(() => ctrl.abort(), 10000);
+    let r;
+    try {
+      r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + jwtSans + '.' + sig,
+        signal: ctrl.signal });
+    } finally { clearTimeout(tm); }
     const j = await r.json().catch(() => ({}));
     if (!j.access_token) { console.error('clé admin firebase : jeton refusé', j.error || r.status); return ''; }
     fbAdminTok.jeton = j.access_token; fbAdminTok.exp = Date.now() + 50 * 60000;
@@ -3596,9 +3615,13 @@ function fbUidEquipe(t) {
    est exactement la panne silencieuse que ce fichier passe son temps à refermer. */
 async function fbRevoquerEquipe(t) {
   if (!t) return { fait: false, motif: 'espace vide' };
-  const tok = await fbAdminJeton();
-  if (!tok) return { fait: false, motif: 'clé d\'administration Firebase absente du serveur' };
+  /* Le `await` est DANS le try : aujourd'hui fbAdminJeton ne peut pas rejeter, mais ce fichier
+     n'a ni `unhandledRejection` ni middleware d'erreur Express — et Node 22 transforme un rejet
+     non traité en ARRÊT DU PROCESSUS. Faire dépendre la survie de l'API de la discipline d'une
+     fonction voisine est un pari qu'on finit par perdre. */
   try {
+    const tok = await fbAdminJeton();
+    if (!tok) return { fait: false, motif: 'clé d\'administration Firebase absente du serveur' };
     const r = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:update',
       { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ localId: fbUidEquipe(t), validSince: String(Math.floor(Date.now() / 1000)) }) }, tok);
@@ -3690,12 +3713,20 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   if (!fermesSave()) ecrit = false;
   if (!ecrit) return res.status(500).json({ error: 'La fermeture n\'a pas pu être enregistrée — rien n\'est garanti. Vérifie le serveur avant de recommencer.' });
   delete clientsData[email]; cliSave();
-  /* ⛔ COUPER LES SESSIONS AVANT D'EFFACER, jamais après. L'effacement ci-dessous supprime le
-     document Firestore de l'entreprise — mais un appareil qui tient encore sa session le
-     REPOUSSE tout entier à sa prochaine synchro, et on aurait effacé pour rien. Le blocage
-     `entFermes` ne le rattrape que si l'application pense à demander l'état avant d'écrire. */
-  const coupures = [];
-  for (const tf of espacesAEffacer) { const c = await fbRevoquerEquipe(tf); coupures.push(c); }
+  /* ⛔ COUPER AVANT D'EFFACER — mais la fenêtre est RACCOURCIE, pas fermée, et il faut le dire
+     dans ces termes. `validSince` n'invalide que le RAFRAÎCHISSEMENT : un appareil qui tient
+     encore un jeton d'identité valable passe la règle Firestore pendant jusqu'à une heure, et
+     peut donc RECRÉER `elan_teams/{t}` en entier après l'effacement — sous un identifiant que
+     l'annuaire ne connaît plus, c'est-à-dire la genèse même des « espaces hors annuaire » que
+     ce fichier décrit plus bas. `forfaitServeurSync` (app.html) vide l'appareil sur
+     `ferme:true`, mais seulement À L'OUVERTURE de l'application : un appareil déjà lancé qui
+     synchronise en fond ne repasse pas par là.
+     Ce qui reste à faire pour fermer vraiment : repasser un DELETE ~65 min après (une liste
+     sur disque, pour survivre à un redémarrage). Noté dans REPRISE, pas fait ici.
+     En parallèle et non en série : chaque révocation coûte jusqu'à 10 s, `espacesAEffacer`
+     n'est borné par rien, et nginx rend 504 à 60 s — en série, trois espaces suffisaient à
+     faire croire la route plantée pendant qu'elle détruisait. */
+  const coupures = await Promise.all(espacesAEffacer.map(tf => fbRevoquerEquipe(tf)));
   // Effacement DÉFINITIF des données chiffrées de l'entreprise sur Firestore :
   // plus rien n'est enregistré, la place est libérée. (Les appareils reliés se
   // vident de toute façon au prochain lancement via le blocage entFermes.)
@@ -3731,9 +3762,15 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   /* La coupure se DIT. Si la clé d'administration manque, les appareils déjà pourvus gardent
      leur session jusqu'à une heure ET peuvent repousser la base qu'on vient d'effacer :
      c'est exactement ce qu'il faut savoir avant de croire l'entreprise fermée. */
+  /* `[].every()` rend TRUE : sans ce cas, un client sans aucun espace relié s'entendait dire
+     « sessions coupées » alors que rien n'avait été tenté. C'est la même famille d'affirmation
+     sans fait derrière que ce correctif combat — elle ne s'autorise pas ici non plus. */
   const coupOk = coupures.every(c => c.fait);
   res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces, compteSite,
-    coupure: coupOk, coupureMotif: coupOk ? 'sessions Firebase coupées — effectif sous une heure' : (coupures.find(c => !c.fait) || {}).motif || '' });
+    coupure: coupOk,
+    coupureMotif: !coupures.length ? 'aucun espace relié — rien à couper'
+      : coupOk ? 'sessions Firebase coupées — effectif sous une heure'
+      : (coupures.find(c => !c.fait) || {}).motif || '' });
 });
 
 /* ══ SUPPRIMER UNE ENTREPRISE, PARTOUT ═══════════════════════════════════════════
