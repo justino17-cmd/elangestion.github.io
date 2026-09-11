@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '653-beta';
+const APP_VERSION = '654-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6105,7 +6105,21 @@ function migrate(d){
    ⚠️ Ne pas conditionner cette création au rattachement : une entreprise qui vient d'être
    créée n'a pas d'autre compte, et c'est celui-ci que le lien d'installation renomme
    (`elan_admin_login` dans boot()). La supprimer ici fermerait la porte à tout nouveau client. */
-  if(!d.users.length && !BETA_ESSAI) d.users = [{id:ID_ADMIN_DEPART,prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];   // la bêta n'a pas de compte de départ : la porte est au serveur
+  /* ⛔ ET ON NE LE CRÉE PAS SUR UN APPAREIL DÉJÀ RATTACHÉ À UNE ENTREPRISE. Constaté chez ELAN le
+     11 septembre 2026 : trois comptes « OP Admin » (@florent-2, @florent-3) apparus en ouvrant
+     l'application sur un navigateur neuf. Sur un appareil qui n'a pas encore de base, cette ligne
+     s'exécute AVANT que la synchro ait livré les comptes de l'équipe : elle fabrique le compte de
+     départ, boot() le renomme vers l'identifiant de l'entreprise, le nom est déjà pris, et la
+     déduplication le renomme « -2 », « -3 »… Un administrateur fantôme de plus à chaque nouveau
+     navigateur, chez un vrai client. L'identifiant fixe (v651) empêchait l'empilement par
+     identifiant, pas la CRÉATION.
+     Rattaché à une entreprise, les comptes viennent de la synchro : il n'y a rien à fabriquer.
+     ⚠️ L'exception qui doit rester ouverte : une entreprise qui vient d'être créée arrive par le
+     lien d'installation, qui pose `elan_admin_login`. C'est ce compte-là que boot() renomme, et
+     sans lui un nouveau client n'aurait aucune porte d'entrée. Ne jamais fermer les deux. */
+  const _rattache=(function(){ try{ return !!String(localStorage.getItem('elanB_sync_team')||'').trim(); }catch(e){ return false; } })();
+  const _installe=(function(){ try{ return !!localStorage.getItem('elanB_admin_login'); }catch(e){ return false; } })();
+  if(!d.users.length && !BETA_ESSAI && (!_rattache || _installe)) d.users = [{id:ID_ADMIN_DEPART,prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];   // la bêta n'a pas de compte de départ : la porte est au serveur
   d.users.forEach(u=>{ if(!u.login) u.login=(u.prenom||u.nom||'user').toLowerCase().replace(/\s+/g,''); });
   // Messagerie : les anciens messages directs (par technicien) deviennent des messages par compte utilisateur
   (d.messages||[]).forEach(m=>{ if(m.toTechId && !m.toUserId){ const u=(d.users||[]).find(x=>x.techId===m.toTechId); if(u) m.toUserId=u.id; } });

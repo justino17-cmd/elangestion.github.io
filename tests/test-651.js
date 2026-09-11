@@ -29,6 +29,23 @@ console.log('Le compte de départ ne se duplique plus');
     /d\.users = \[\{id:uid\(\)/.test(APP), false);
 }
 
+console.log('\nLe compte de départ ne se crée PAS sur un appareil déjà rattaché');
+{
+  /* Constaté chez ELAN : trois « OP Admin » (@florent-2, @florent-3) nés en ouvrant l'app sur
+     un navigateur neuf. La base locale est vide au démarrage, donc le compte de départ se
+     fabriquait AVANT que la synchro ait livré les vrais comptes ; boot() le renommait, le nom
+     était pris, la déduplication ajoutait « -2 », « -3 ». L'identifiant fixe empêchait
+     l'empilement par identifiant, pas la création. */
+  v('la création regarde si l\'appareil est rattaché',
+    /const _rattache=\(function\(\)\{ try\{ return !!String\(localStorage\.getItem\('elan_sync_team'\)\|\|''\)\.trim\(\);/.test(APP), true);
+  v('…et si le lien d\'installation est passé', /const _installe=\(function\(\)\{ try\{ return !!localStorage\.getItem\('elan_admin_login'\);/.test(APP), true);
+  v('rattaché SANS lien d\'installation → aucun compte fabriqué',
+    /if\(!d\.users\.length && !BETA_ESSAI && \(!_rattache \|\| _installe\)\)/.test(APP), true);
+  /* ⚠️ L'exception qui doit rester ouverte : une entreprise NEUVE arrive par le lien, qui pose
+     `elan_admin_login`. Fermer les deux laisserait tout nouveau client sans porte d'entrée. */
+  v('⛔ le lien d\'installation rouvre la création (nouveau client)', /\|\| _installe\)\)/.test(APP), true);
+}
+
 console.log('\nLa constante est visible de partout où elle sert (piège de portée)');
 {
   /* Déclarée DANS migrate(), elle était invisible depuis boot() : ReferenceError au démarrage,
