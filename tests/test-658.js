@@ -40,6 +40,10 @@ let vuParVisibleBoxes = [];
 function visibleBoxes(list) { vuParVisibleBoxes.push(currentUser ? currentUser.login : null); return (list || []).filter(b => (b.userIds || []).includes(currentUser && currentUser.id)); }
 // eslint-disable-next-line no-eval
 eval(extraire('usrSansBox'));
+/* boxADuStock est extraite ici parce que le cadre ET le filtre s'en servent : la charger une
+   seule fois dans ce test reproduit exactement ce que fait le fichier livré. */
+// eslint-disable-next-line no-eval
+eval(APP.slice(APP.indexOf('function boxADuStock(b){'), APP.indexOf('\n', APP.indexOf('function boxADuStock(b){'))));
 
 console.log('Un écran vide dit pourquoi, et « jamais connecté » n’est pas déduit d’un journal plein');
 
@@ -118,6 +122,51 @@ console.log('Un écran vide dit pourquoi, et « jamais connecté » n’est pas 
   v('aucune box : rien à compter, et le cadre n’affiche pas le détail', [avecStock, unites], [0, 0]);
   v('le détail n’apparaît que s’il y a des box', /\$\{mine\.length\} box[^`]*`\s*\+\(mine\.length\?/.test(APP), true);
   v('le nombre est écrit à la française (espace insécable pour les milliers)', /toLocaleString\('fr-FR'\)/.test(APP), true);
+}
+
+// ── 7) v663 : la puce « Avec du stock », pour ne plus défiler à travers treize box vides.
+{
+  /* La règle « cette box a du stock » doit exister UNE seule fois : le compte du cadre et le
+     filtre de la liste répondent à la même question, et deux expressions séparées finiraient
+     par annoncer « 5 avec du stock » en n'en montrant que quatre. */
+  v('une seule définition de la règle', (APP.match(/function boxADuStock\(b\)\{/g) || []).length, 1);
+  v('une box à zéro n’a pas de stock', boxADuStock({ stock: { p: { u: 0, ctn: 0 } } }), false);
+  v('des unités comptent', boxADuStock({ stock: { p: { u: 3, ctn: 0 } } }), true);
+  v('⛔ un carton sans unité compte AUSSI', boxADuStock({ stock: { p: { u: 0, ctn: 2 } } }), true);
+  v('une box sans stock du tout', [boxADuStock({}), boxADuStock({ stock: {} }), boxADuStock(null)], [false, false, false]);
+  v('le cadre réutilise la fonction au lieu de refaire le calcul',
+    /const avecStock=mine\.filter\(boxADuStock\)\.length;/.test(APP), true);
+  v('le filtre de la liste aussi', /\(!boxFiltreStock\|\|boxADuStock\(b\)\)/.test(APP), true);
+  /* Un filtre qui ne filtre rien n'est qu'un bouton de plus : il n'apparaît que s'il y a du
+     plein ET du vide. Et il se REMET À FAUX quand il disparaît, sinon il resterait actif de
+     façon invisible sur l'écran suivant. */
+  v('⛔ la puce n’apparaît que s’il y a quelque chose à filtrer',
+    /const nStock=mine\.filter\(boxADuStock\)\.length, filtrable=nStock>0&&nStock<mine\.length;/.test(APP), true);
+  v('⛔ et le filtre retombe quand elle disparaît', /if\(!filtrable\) boxFiltreStock=false;/.test(APP), true);
+  v('la puce porte le compte', /📦 Avec du stock · \$\{nStock\}/.test(APP), true);
+  v('le filtre part à faux au chargement', /let boxListSearch='', boxFiltreStock=false;/.test(APP), true);
+}
+
+// ── 8) v663 : le stock s'affiche SUR la ligne — « ici il faudrait voir le nombre de stockage
+//    par box » (Justin, 11 septembre 2026). Sans ce chiffre, il fallait ouvrir les dix-huit box
+//    une par une pour savoir lesquelles servent.
+{
+  // eslint-disable-next-line no-eval
+  eval(extraire('boxTotalStock'));
+  v('une box vide totalise zéro', boxTotalStock({ stock: { a: { u: 0, ctn: 0 } } }), { u: 0, c: 0 });
+  v('les unités s’additionnent', boxTotalStock({ stock: { a: { u: 3 }, b: { u: 4 } } }), { u: 7, c: 0 });
+  /* ⛔ Les cartons se comptent À PART : un carton n'est pas une unité, et les additionner
+     donnerait un total qui ne veut rien dire — c'est la règle « un bon de remise ne totalise
+     pas des unités avec des cartons », appliquée à l'affichage. */
+  v('⛔ les cartons restent séparés des unités', boxTotalStock({ stock: { a: { u: 2, ctn: 5 } } }), { u: 2, c: 5 });
+  v('un stock au format ancien (nombre nu) compte quand même', boxTotalStock({ stock: { a: 6 } }), { u: 6, c: 0 });
+  v('rien ne casse sur une box sans stock', [boxTotalStock({}), boxTotalStock(null)], [{ u: 0, c: 0 }, { u: 0, c: 0 }]);
+  /* ELAN, mesuré : Nantes 7 199 u, et treize box à zéro. */
+  v('la pastille n’apparaît pas quand il n’y a rien à montrer', /if\(!t\.u&&!t\.c\) return '';/.test(APP), true);
+  v('elle est posée sur la ligne de la liste, avant le chevron',
+    APP.indexOf('title="Stock total de cette box"') < APP.indexOf('font-size:22px;font-weight:300">›'), true);
+  v('les chiffres sont alignés en colonne (chasse fixe)', /font-variant-numeric:tabular-nums;white-space:nowrap/.test(APP), true);
+  v('et écrits à la française', /t\.u\.toLocaleString\('fr-FR'\)\+' u'/.test(APP), true);
 }
 
 console.log('\n' + ok + ' ✓  ' + ko + ' ✗'); process.exit(ko ? 1 : 0);
