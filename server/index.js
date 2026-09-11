@@ -2296,8 +2296,16 @@ app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
       efface = r.ok;
     } catch (err) { console.error('renaitre effacement :', err.message); } }
   }
+  /* ⛔ LA QUATRIÈME PORTE, trouvée par `gardien` le 11 septembre. Celle-ci n'ajoute PAS à
+     `entFermes` — elle fait repartir un espace à neuf — mais elle efface le document Firestore
+     de l'ancien et le retire de l'annuaire. Sans coupure, l'appareil ne peut plus obtenir de
+     NOUVEAU jeton (404, espace inconnu) mais garde sa session renouvelable POUR TOUJOURS et
+     repousse toute la base : l'ancien espace renaît hors annuaire, orphelin. C'est exactement
+     la genèse que ce fichier décrit plus bas. Ici l'ajouter est gratuit : l'ancien espace est
+     mort, personne n'a besoin de sa session. */
+  const cut = t ? await fbRevoquerEquipe(t) : { fait: true, motif: 'aucun ancien espace' };
   console.log('Tour :', req.tourUser.nom, 'fait repartir « ' + slug + ' » à neuf — ancien espace', t, efface ? 'effacé' : 'NON effacé');
-  res.json({ ok: true, ancien: t, efface });
+  res.json({ ok: true, ancien: t, efface, coupure: cut.fait, coupureMotif: cut.motif });
 });
 // le patron active un code promo pour une entreprise, directement depuis la Tour
 app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
@@ -3171,7 +3179,7 @@ app.post('/api/monitor/espaces/renommer', monPatronStrict, (req, res) => {
    lancement (forfaitServeurSync lit « ferme » et efface le stockage local). Rouvrir rend
    l'espace ; les appareils devront repasser par le lien ou le code, leurs données les y
    attendent. Effacer pour de bon, c'est « Repartir à neuf » (/renaitre), pas cette route. */
-app.post('/api/monitor/espaces/suspendre', monPatronStrict, (req, res) => {
+app.post('/api/monitor/espaces/suspendre', monPatronStrict, async (req, res) => {
   const slug = espSlug(monStr((req.body || {}).slug || (req.body || {}).nom, 80));
   const e = espaceAJour(slug);
   const t = e ? espaceT(e) : '';
@@ -3196,7 +3204,14 @@ app.post('/api/monitor/espaces/suspendre', monPatronStrict, (req, res) => {
      jusqu'au redémarrage, puis l'oublierait — et le patron croirait l'accès fermé. */
   if (!fermesSave()) { entFermes.espaces = avant; entFermes.suspendus = avantS; return res.status(500).json({ error: 'Rien n\'a été enregistré — réessaie.' }); }
   console.log('Tour :', req.tourUser.nom, (rouvrir ? 'rouvre' : 'suspend'), 'l\'espace', t);
-  res.json({ ok: true, suspendu: !rouvrir });
+  /* Refuser les NOUVEAUX jetons ne suffit pas : les appareils déjà pourvus tiennent une
+     session renouvelable et ne repassent plus par le serveur. On coupe donc aussi côté
+     Firebase — et on le DIT, parce qu'une suspension qu'on croit effective alors qu'elle ne
+     l'est pas est pire que pas de suspension du tout. Rien à faire à la réouverture : les
+     appareils redemanderont un jeton et l'obtiendront. */
+  if (rouvrir) return res.json({ ok: true, suspendu: false });
+  const cut = await fbRevoquerEquipe(t);
+  res.json({ ok: true, suspendu: true, coupure: cut.fait, coupureMotif: cut.motif });
 });
 app.post('/api/espaces/relance', (req, res) => {
   // borné AVANT espSlug : son normalize('NFD') sur 6 Mo gèle la boucle d'événements, donc toute l'API
@@ -3441,9 +3456,20 @@ async function fbAdminJeton() {
       scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit',
       iat: now, exp: now + 3600 });
     const sig = crypto.createSign('RSA-SHA256').update(jwtSans).sign(fbAdminCle.private_key).toString('base64url');
-    const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + jwtSans + '.' + sig });
+    /* ⛔ UN DÉLAI, parce que cette fonction est désormais sur le chemin des TROIS fermetures.
+       `fbAdminFetch` a le sien (10 s) ; celui-ci était un `fetch` nu, et undici n'a pas de
+       délai total par défaut. Sur cache froid — donc typiquement la première fermeture de la
+       journée — une fermeture pouvait rester bloquée plusieurs minutes, nginx rendre 504 à
+       60 s, et l'opérateur relancer une route DESTRUCTIVE en plein vol. */
+    const ctrl = new AbortController();
+    const tm = setTimeout(() => ctrl.abort(), 10000);
+    let r;
+    try {
+      r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + jwtSans + '.' + sig,
+        signal: ctrl.signal });
+    } finally { clearTimeout(tm); }
     const j = await r.json().catch(() => ({}));
     if (!j.access_token) { console.error('clé admin firebase : jeton refusé', j.error || r.status); return ''; }
     fbAdminTok.jeton = j.access_token; fbAdminTok.exp = Date.now() + 50 * 60000;
@@ -3511,10 +3537,7 @@ app.post('/api/fb/jeton', async (req, res) => {
   try {
     const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
     const now = Math.floor(Date.now() / 1000);
-    /* Un identifiant par ENTREPRISE, pas par appareil : la règle ne regarde que
-       l'appartenance, et un compte Firebase par téléphone en ouvrirait des milliers pour
-       rien. Il est dérivé de `t`, donc stable, et ne porte aucune donnée de personne. */
-    const uid = 'eq_' + crypto.createHash('sha256').update('teamop:' + t).digest('hex').slice(0, 32);
+    const uid = fbUidEquipe(t);
     const sans = b64u({ alg: 'RS256', typ: 'JWT' }) + '.' + b64u({
       iss: fbAdminCle.client_email, sub: fbAdminCle.client_email,
       aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
@@ -3555,6 +3578,67 @@ async function fbSupprimerCompteSite(email) {
     return { fait: true, motif: 'compte du site + fiche + messagerie supprimés (' + n + ' message(s))' };
   } catch (e) { return { fait: false, motif: String(e.message).slice(0, 120) }; }
 }
+/* ══ L'IDENTITÉ FIREBASE D'UNE ENTREPRISE, ET COMMENT LA COUPER ═══════════════════════════
+   Un identifiant par ENTREPRISE, pas par appareil : la règle ne regarde que l'appartenance,
+   et un compte Firebase par téléphone en ouvrirait des milliers pour rien. Dérivé de `t`,
+   donc stable, et il ne porte aucune donnée de personne.
+
+   ⛔ UNE SEULE DÉFINITION, parce que deux copies d'un contrôle de sécurité finissent toujours
+   par diverger — c'est la leçon des quatre portes de sortie d'espace, corrigées le même jour.
+   `/api/fb/jeton` la signe, `fbRevoquerEquipe` la coupe : si les deux ne calculaient pas le
+   MÊME identifiant, la coupure viserait un compte qui n'existe pas et ne dirait rien. */
+function fbUidEquipe(t) {
+  return 'eq_' + crypto.createHash('sha256').update('teamop:' + String(t || '')).digest('hex').slice(0, 32);
+}
+
+/* ⛔ CE QUE FERMER UNE ENTREPRISE NE FAISAIT PAS, ET QUE PERSONNE NE VOYAIT.
+   Le serveur refusait bien tout NOUVEAU jeton à un espace fermé (`sauvRefus`, 403 « espace
+   fermé »). Mais un jeton vaut une heure et Firebase l'échange contre une session
+   RENOUVELABLE INDÉFINIMENT, rangée sur l'appareil : après un seul échange réussi, l'appareil
+   ne repasse plus jamais par le serveur. Fermer une entreprise depuis la Tour ne coupait donc
+   PAS son Firestore sur les appareils déjà pourvus — ils continuaient à lire et à écrire les
+   données de l'entreprise, pour toujours, pendant que la Tour affichait « fermée ».
+
+   `validSince` est ce qui manquait : il invalide les jetons de rafraîchissement du compte.
+   L'appareil ne peut plus renouveler, et sa session meurt à l'expiration de celle qu'il tient.
+
+   ⚠️ CE N'EST DONC PAS INSTANTANÉ — jusqu'à UNE HEURE, la durée de vie d'un jeton d'identité
+   déjà délivré. Firestore vérifie la signature et l'échéance, pas l'existence du compte. Il
+   faut le dire tel quel plutôt que promettre une coupure immédiate : une heure de trop se
+   gère (on prévient), une promesse fausse ne se gère pas.
+   Pour l'instantané il faudrait que la règle Firestore compare `request.auth.token.auth_time`
+   à une date de fermeture lue dans Firestore — un `get()` à chaque évaluation, et un
+   changement de la règle qui garde TOUTES les données. À traiter seul, pas ici.
+
+   ⚠️ ET ÇA NE MARCHE PAS SANS LA CLÉ D'ADMINISTRATION. Quand elle manque, la fonction rend
+   `false` et l'appelant DOIT le dire : croire une entreprise coupée alors qu'elle ne l'est pas
+   est exactement la panne silencieuse que ce fichier passe son temps à refermer. */
+async function fbRevoquerEquipe(t) {
+  if (!t) return { fait: false, motif: 'espace vide' };
+  /* Le `await` est DANS le try : aujourd'hui fbAdminJeton ne peut pas rejeter, mais ce fichier
+     n'a ni `unhandledRejection` ni middleware d'erreur Express — et Node 22 transforme un rejet
+     non traité en ARRÊT DU PROCESSUS. Faire dépendre la survie de l'API de la discipline d'une
+     fonction voisine est un pari qu'on finit par perdre. */
+  try {
+    const tok = await fbAdminJeton();
+    if (!tok) return { fait: false, motif: 'clé d\'administration Firebase absente du serveur' };
+    const r = await fbAdminFetch('https://identitytoolkit.googleapis.com/v1/projects/' + FB_PROJET + '/accounts:update',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localId: fbUidEquipe(t), validSince: String(Math.floor(Date.now() / 1000)) }) }, tok);
+    /* Un compte ABSENT n'est pas un échec : l'entreprise n'a simplement jamais demandé de
+       jeton (elle vivait en anonyme, ou elle n'a pas encore ouvert l'application depuis la
+       v640). Il n'y a alors aucune session à couper — c'est le résultat voulu. */
+    if (r.status === 400) {
+      const j = await r.json().catch(() => ({}));
+      const m = String((j.error && j.error.message) || '');
+      if (/USER_NOT_FOUND/i.test(m)) return { fait: true, motif: 'aucune session Firebase à couper' };
+      return { fait: false, motif: 'refus Firebase : ' + m.slice(0, 80) };
+    }
+    if (!r.ok) return { fait: false, motif: 'Firebase a répondu HTTP ' + r.status };
+    return { fait: true, motif: 'sessions coupées — effectif sous une heure' };
+  } catch (e) { return { fait: false, motif: String(e && e.message || e).slice(0, 120) }; }
+}
+
 /* Met à jour la fiche « Mon espace » du client (Firestore, via la clé admin) :
    demande acceptée → badge « Accès activé », application OP GESTION active,
    abonnement affiché. Sans la clé admin, on passe silencieusement. */
@@ -3629,6 +3713,20 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   if (!fermesSave()) ecrit = false;
   if (!ecrit) return res.status(500).json({ error: 'La fermeture n\'a pas pu être enregistrée — rien n\'est garanti. Vérifie le serveur avant de recommencer.' });
   delete clientsData[email]; cliSave();
+  /* ⛔ COUPER AVANT D'EFFACER — mais la fenêtre est RACCOURCIE, pas fermée, et il faut le dire
+     dans ces termes. `validSince` n'invalide que le RAFRAÎCHISSEMENT : un appareil qui tient
+     encore un jeton d'identité valable passe la règle Firestore pendant jusqu'à une heure, et
+     peut donc RECRÉER `elan_teams/{t}` en entier après l'effacement — sous un identifiant que
+     l'annuaire ne connaît plus, c'est-à-dire la genèse même des « espaces hors annuaire » que
+     ce fichier décrit plus bas. `forfaitServeurSync` (app.html) vide l'appareil sur
+     `ferme:true`, mais seulement À L'OUVERTURE de l'application : un appareil déjà lancé qui
+     synchronise en fond ne repasse pas par là.
+     Ce qui reste à faire pour fermer vraiment : repasser un DELETE ~65 min après (une liste
+     sur disque, pour survivre à un redémarrage). Noté dans REPRISE, pas fait ici.
+     En parallèle et non en série : chaque révocation coûte jusqu'à 10 s, `espacesAEffacer`
+     n'est borné par rien, et nginx rend 504 à 60 s — en série, trois espaces suffisaient à
+     faire croire la route plantée pendant qu'elle détruisait. */
+  const coupures = await Promise.all(espacesAEffacer.map(tf => fbRevoquerEquipe(tf)));
   // Effacement DÉFINITIF des données chiffrées de l'entreprise sur Firestore :
   // plus rien n'est enregistré, la place est libérée. (Les appareils reliés se
   // vident de toute façon au prochain lancement via le blocage entFermes.)
@@ -3661,7 +3759,18 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
   // et le compte créé sur le site (connexion espace client) : supprimé aussi, si la clé admin est là
   const compteSite = await fbSupprimerCompteSite(email);
   console.log('Tour :', req.tourUser.nom, 'a FERMÉ l\'entreprise', masqueMail(email), '— données effacées :', effaces + '/' + espacesAEffacer.length, '· compte du site :', compteSite.motif);
-  res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces, compteSite });
+  /* La coupure se DIT. Si la clé d'administration manque, les appareils déjà pourvus gardent
+     leur session jusqu'à une heure ET peuvent repousser la base qu'on vient d'effacer :
+     c'est exactement ce qu'il faut savoir avant de croire l'entreprise fermée. */
+  /* `[].every()` rend TRUE : sans ce cas, un client sans aucun espace relié s'entendait dire
+     « sessions coupées » alors que rien n'avait été tenté. C'est la même famille d'affirmation
+     sans fait derrière que ce correctif combat — elle ne s'autorise pas ici non plus. */
+  const coupOk = coupures.every(c => c.fait);
+  res.json({ ok: true, supprime: true, espaces: espacesAEffacer.length, donneesEffacees: effaces, compteSite,
+    coupure: coupOk,
+    coupureMotif: !coupures.length ? 'aucun espace relié — rien à couper'
+      : coupOk ? 'sessions Firebase coupées — effectif sous une heure'
+      : (coupures.find(c => !c.fait) || {}).motif || '' });
 });
 
 /* ══ SUPPRIMER UNE ENTREPRISE, PARTOUT ═══════════════════════════════════════════
@@ -3886,6 +3995,11 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
   const fermesOk = fermesSave();
   if (!fermesOk) return res.status(500).json({ error: 'Le blocage de l\'espace n\'a pas pu être enregistré — RIEN n\'a été supprimé. Vérifie le serveur (disque plein ?) avant de recommencer.' });
   fait.bloque = true;
+  /* Le blocage dit « n'écris plus » à une application qui veut bien demander. La coupure, elle,
+     retire le droit d'écrire à un appareil qui ne redemande rien — c'est ce qui empêche la base
+     chiffrée de revenir après tout ce qu'on efface en dessous. Elle se dit aussi : `fait` est
+     recopié tel quel dans la réponse, donc dans ce que la Tour affiche. */
+  { const c = await fbRevoquerEquipe(t); fait.coupure = c.fait; fait.coupureMotif = c.motif; }
 
   // ── 2. LES BOÎTES MAIL. releveBoite() les relit toutes les 120 s : tant qu'elles sont là,
   //       le serveur se reconnecte et réécrit dans replies.jsonl ce qu'on va en retirer.
@@ -4045,9 +4159,16 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
      « tout est propre ». */
   const purgeRatee = fait.erreurs === null || fait.reponsesMail === null || fait.bonsEnvoyes === null;
   if (purgeRatee) ecrit = false;
+  /* ⛔ UNE COUPURE RATÉE EST UN AVERTISSEMENT, PAS UN DÉTAIL. Si les sessions Firebase n'ont
+     pas pu être révoquées, les appareils déjà pourvus gardent l'accès aux données — et
+     peuvent REPOUSSER la base qu'on vient d'effacer. Dire « supprimée partout » là-dessus
+     serait faux. On passe par `avertissement` plutôt que par un champ neuf : c'est le seul
+     canal que la Tour affiche déjà, donc le seul qui atteigne vraiment Justin. */
+  const ennuis = [];
+  if (!(ecrit && fait.donneesEffacees)) ennuis.push('Une partie n\'a pas pu être écrite ou effacée — relance l\'aperçu de suppression pour voir ce qu\'il reste.');
+  if (!fait.coupure) ennuis.push('Les sessions Firebase n\'ont pas pu être coupées (' + (fait.coupureMotif || 'raison inconnue') + ') : les appareils déjà connectés gardent l\'accès et peuvent repousser la base effacée.');
   res.json({ ok: true, supprime: true, t, nom: inv.nom, fait, ecrit,
-    avertissement: ecrit && fait.donneesEffacees ? '' :
-      'Une partie n\'a pas pu être écrite ou effacée — relance l\'aperçu de suppression pour voir ce qu\'il reste.' });
+    avertissement: ennuis.join(' · ') });
 });
 
 // liste des problèmes + compteurs (admin)

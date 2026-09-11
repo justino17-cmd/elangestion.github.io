@@ -142,15 +142,27 @@ service cloud.firestore {
 //  Un jeton d'équipe vaut une heure, mais l'ACCÈS qu'il ouvre ne s'arrête pas au
 //  bout d'une heure : Firebase l'échange contre une session renouvelable
 //  indéfiniment, rangée sur l'appareil. Après un seul échange réussi, l'appareil
-//  ne repasse plus jamais par le serveur. Donc :
-//    • fermer une entreprise depuis la Tour ne coupe PAS son Firestore sur les
-//      appareils déjà pourvus (le refus « espace fermé » ne les rejoint jamais) ;
-//    • changer la clé d'équipe ne révoque rien ;
+//  ne repasse plus jamais par le serveur.
+//
+//  ✅ REFERMÉ LE 11 SEPTEMBRE 2026 : fermer une entreprise coupe ses sessions.
+//  Le serveur pose `validSince` sur le compte Firebase de l'équipe
+//  (`fbRevoquerEquipe`, appelée par les QUATRE portes : suspendre, fermer un
+//  client, supprimer, et « repartir à neuf »). L'appareil ne peut plus
+//  renouveler, retombe en anonyme — et c'est CETTE RÈGLE qui referme la chaîne :
+//  sans elle, l'anonyme avait tout, et la coupure n'aurait été que cosmétique.
+//  ⚠️ Effet sous UNE HEURE au plus, jamais instantané : une règle n'évalue que la
+//  signature, l'émetteur et l'échéance du jeton — elle ne consulte JAMAIS l'état
+//  du compte (ni désactivé, ni supprimé, ni `validSince`). Pour l'instantané il
+//  faudrait comparer ici `request.auth.token.auth_time` à une date de fermeture
+//  lue dans Firestore : un get() à chaque évaluation.
+//
+//  CE QUI RESTE OUVERT, et qui demande un identifiant par APPAREIL :
+//    • changer la clé d'équipe ne révoque toujours rien ;
 //    • l'identifiant étant commun à toute l'entreprise, on ne peut pas couper UN
-//      appareil : révoquer les couperait tous d'un coup.
-//  Le fermer demanderait un identifiant par APPAREIL et une durée de vie
-//  effective plus courte (redemander un jeton périodiquement) : à traiter seul,
-//  pas au milieu d'autre chose.
+//      appareil : un téléphone perdu coûte la coupure de toute l'entreprise ;
+//    • une entreprise fermée peut encore RECRÉER son document pendant l'heure qui
+//      suit, si un appareil déjà lancé synchronise avant d'avoir rouvert l'app.
+//  À traiter seul, pas au milieu d'autre chose.
 //
 //  ET CE QU'IL A FALLU VÉRIFIER AVANT DE PUBLIER — pour mémoire, si la règle doit
 //  un jour être republiée ou étendue à une autre collection :

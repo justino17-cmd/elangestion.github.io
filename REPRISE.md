@@ -704,6 +704,15 @@ sélecteur simple ne la bat pas — il faut le co-sélecteur `html[data-refonte]
 
 ### L'identité d'un produit — v633 (fusion) puis v634 (création)
 
+> ✅ **CLOS LE 11 SEPTEMBRE 2026 : Justin a fusionné les doublons d'ELAN.** Les deux causes
+> étaient refermées depuis la v634, mais un correctif empêche le mal, il ne range pas derrière
+> lui — les fiches déjà créées restaient dans la base jusqu'à un geste. Ce geste attendait
+> **une seule chose** : que plus aucun appareil en vieille version ne puisse écrire, sinon le
+> doublon revenait en ligne orpheline après la synchro (mesuré : 6+4, orphelin `advion_b`).
+> C'est la v641 exigée depuis la Tour — `teamop_config/version.min` = 641 **dans Firestore** —
+> qui l'a rendu sûr. **La leçon, pour la prochaine fois qu'un correctif laisse des dégâts
+> derrière lui : fermer la cause ne suffit pas, il faut dire QUI range l'existant et QUAND.**
+
 Les 110 doublons vus chez ELAN le 10 septembre avaient DEUX causes, refermées l'une après l'autre.
 
 **v633 — la fusion perdait du stock.** `produitsFusionnerDoublons()` supprimait les DEUX fiches quand
@@ -1138,20 +1147,41 @@ skill `performance-budget-monitor` avant d'y toucher.
 
 ## Dettes connues, chacune à traiter seule
 
-- ⛔ **Un jeton d'équipe ne se révoque pas, et il vaut pour TOUTE l'entreprise à la fois.**
-  Ouverte le 11 septembre 2026, en même temps que la fermeture de la règle Firestore — c'est
-  ce que cette fermeture ne donne pas, et qu'on pourrait croire acquis. Le jeton vaut une
-  heure, mais l'**accès** qu'il ouvre ne s'arrête pas là : Firebase l'échange contre une
-  session renouvelable indéfiniment, rangée sur l'appareil. Après un seul échange réussi,
-  l'appareil ne repasse plus jamais par le serveur. Donc :
-  · fermer une entreprise depuis la Tour ne coupe **pas** son Firestore sur les appareils déjà
-    pourvus — le refus « espace fermé » ne les rejoint jamais ;
-  · changer la clé d'équipe ne révoque rien ;
-  · l'identifiant étant commun à toute l'entreprise, on ne peut pas couper **un** appareil :
-    révoquer les couperait tous d'un coup.
-  Le fermer demande un identifiant par **appareil** et une durée de vie effective plus courte
-  (redemander un jeton périodiquement). C'est écrit en fin de `firestore.rules`. **À traiter
-  seul, pas au milieu d'autre chose** — ça touche la porte d'entrée de toutes les données.
+- ⛔ **Un jeton d'équipe vaut pour TOUTE l'entreprise à la fois — la moitié est refermée.**
+  Ouverte le 11 septembre 2026 en même temps que la fermeture de la règle Firestore : le jeton
+  vaut une heure, mais l'**accès** qu'il ouvre ne s'arrête pas là — Firebase l'échange contre
+  une session renouvelable indéfiniment, rangée sur l'appareil, et après un seul échange
+  réussi l'appareil ne repasse plus jamais par le serveur.
+
+  ✅ **Refermé le même jour : fermer une entreprise COUPE maintenant ses sessions.**
+  `fbRevoquerEquipe(t)` pose `validSince`, appelée par les **quatre** portes (suspendre, fermer
+  un client, supprimer, et « repartir à neuf »), et chacune remonte le résultat à la Tour —
+  l'écran le dit, sinon l'information mourait en JSON. ⚠️ **Jusqu'à une heure** avant effet :
+  une règle Firestore n'évalue que la signature, l'émetteur et l'échéance du jeton, jamais
+  l'état du compte. Et **ça ne vaut que parce que la règle a été publiée** : l'appareil révoqué
+  retombe en anonyme, et la règle ne lui donne rien — avant le 11 septembre, l'anonyme avait
+  tout et la coupure aurait été cosmétique.
+  ⚠️ **La fenêtre de re-poussée est raccourcie, pas fermée** : pendant cette heure, un appareil
+  déjà lancé qui synchronise en fond peut RECRÉER le document d'une entreprise qu'on vient
+  d'effacer — sous un identifiant que l'annuaire ne connaît plus, c'est-à-dire la genèse même
+  des « espaces hors annuaire ». `forfaitServeurSync` vide l'appareil sur `ferme:true`, mais
+  seulement à l'OUVERTURE de l'application. **Ce qui reste à faire pour la fermer :** repasser
+  un DELETE ~65 min après la suppression (une petite liste sur disque, pour survivre à un
+  redémarrage).
+
+  **Ce qui reste ouvert**, et qui demande un identifiant par **appareil** :
+  · changer la clé d'équipe ne révoque toujours rien (il faudrait couper au changement de clé,
+    ce qui forcerait chaque appareil à re-prouver la NOUVELLE clé — c'est le comportement
+    voulu, mais ça mérite d'être fait et mesuré seul) ;
+  · l'identifiant étant commun, on ne peut pas couper **un** appareil sans les couper tous —
+    un téléphone perdu ou un salarié parti coûte la coupure de toute l'entreprise ;
+  · pour une coupure **instantanée** plutôt qu'en une heure, il faudrait que la règle Firestore
+    compare `request.auth.token.auth_time` à une date de fermeture lue dans Firestore : un
+    `get()` à chaque évaluation, et un changement de la règle qui garde TOUTES les données.
+  `syncDeviceId()` existe déjà côté client (`elan_dev`) — la matière est là, l'ordre serait le
+  même que d'habitude : les appareils envoient leur identifiant D'ABORD, la coupure fine
+  ENSUITE. **À traiter seul, pas au milieu d'autre chose** — ça touche la porte d'entrée de
+  toutes les données.
 
 - **Les deux tables de codes promo doivent s'accorder** — voir la section du 11 septembre.
   `espace.html` porte `PROMO_CODES` en clair, le serveur ne croit que `config.promos`. Un code

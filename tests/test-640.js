@@ -30,11 +30,19 @@ console.log('Le jeton est bien celui que Firebase attend');
   const ROUTE=(SRV.match(/app\.post\('\/api\/fb\/jeton'[\s\S]*?\n\}\);/)||[''])[0];
   const bloc=(ROUTE.match(/const b64u[\s\S]*?const sig = [\s\S]*?\.toString\('base64url'\);/)||[''])[0];
   v('la fabrique est bien dans la route, entière',[bloc.length>300,/const sans =/.test(bloc),/const uid =/.test(bloc)],[true,true,true]);
+  /* ⛔ L'IDENTIFIANT VIENT DU FICHIER, PAS D'UNE COPIE ÉCRITE ICI. Depuis le 11 septembre il
+     vit dans `fbUidEquipe()`, partagée avec la coupure des sessions (fbRevoquerEquipe) — si
+     les deux ne calculaient pas le MÊME identifiant, fermer une entreprise viserait un compte
+     qui n'existe pas et ne dirait rien. En l'extrayant du vrai fichier, ce test éprouve la
+     dérivation réelle : le recopier ici rendrait le test vert sur du code qui a divergé. */
+  const UID_FN=(SRV.match(/function fbUidEquipe\(t\) \{[\s\S]*?\n\}/)||[''])[0];
+  v('la dérivation de l\'identifiant est retrouvée dans le fichier',
+    [UID_FN.length>60,/sha256/.test(UID_FN),/'eq_'/.test(UID_FN)],[true,true,true]);
   const {privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048,
     privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});
   const fbAdminCle={client_email:'essai@teamop.iam.gserviceaccount.com',private_key:privateKey};
   const t='ent-demo-0001';
-  const fab=new Function('fbAdminCle','crypto','t',bloc+'\n return {sans, sig, uid};');
+  const fab=new Function('fbAdminCle','crypto','t',UID_FN+'\n'+bloc+'\n return {sans, sig, uid};');
   const r=fab(fbAdminCle,crypto,t);
   const dec=x=>JSON.parse(Buffer.from(x,'base64url').toString('utf8'));
   const [h,p]=r.sans.split('.'); const ent=dec(h), corps=dec(p);
@@ -207,11 +215,24 @@ console.log('\nLa règle Firestore est REFERMÉE — publiée le 11 septembre 20
   v('tout le reste est toujours fermé',
     /match \/\{document=\*\*\} \{\s*\n\s*allow read, write: if false;/.test(RULES),true);
   /* Ce qu'on a fermé, et ce qu'on n'a PAS obtenu : les deux doivent rester écrits, sinon la
-     prochaine conversation croira avoir un levier de révocation qu'elle n'a pas. */
+     prochaine conversation croira avoir un levier de révocation qu'elle n'a pas — ou croira
+     ne pas en avoir alors qu'il existe. Les deux erreurs coûtent. */
   v('ce que la règle disait avant, et pourquoi il a fallu le fermer, reste écrit',
     [/se déchiffrait INTÉGRALEMENT/.test(RULES),/ne demandait AUCUNE clé/.test(RULES)],[true,true]);
-  v('ce que la règle NE donne pas est écrit aussi',
-    [/l'ACCÈS qu'il ouvre ne s'arrête pas/.test(RULES),/ne coupe PAS son Firestore/.test(RULES)],[true,true]);
+  /* ⛔ CETTE VÉRIFICATION A ÉTÉ RETOURNÉE LE 11 SEPTEMBRE, ET C'EST LE POINT. Elle exigeait
+     que le fichier dise « fermer une entreprise ne coupe PAS son Firestore » — vrai le matin,
+     FAUX l'après-midi, puisque `fbRevoquerEquipe` a été posée entre-temps. Un test qui garde
+     une phrase devenue fausse fait garder le mensonge. Il garde désormais la vérité neuve :
+     la coupure existe, elle n'est pas instantanée, et ce qui reste ouvert est nommé. */
+  v('le levier de révocation est décrit, avec sa limite de temps',
+    [/REFERMÉ LE 11 SEPTEMBRE 2026 : fermer une entreprise coupe ses sessions/.test(RULES),
+     /Effet sous UNE HEURE au plus, jamais instantané/.test(RULES)],[true,true]);
+  v('…et pourquoi c\'est CETTE règle qui referme la chaîne',
+    /sans elle, l'anonyme avait tout, et la coupure n'aurait été que cosmétique/.test(RULES),true);
+  v('ce qui reste ouvert est nommé, pour ne pas le croire réglé',
+    [/changer la clé d'équipe ne révoque toujours rien/.test(RULES),
+     /on ne peut pas couper UN\s*\n\/\/\s*appareil/.test(RULES),
+     /peut encore RECRÉER son document/.test(RULES)],[true,true,true]);
   v('et les quatre conditions tenues avant de publier, pour qui republierait un jour',
     [/Tous les appareils présentent le jeton/.test(RULES),/espace de REPLI/.test(RULES),
      /encore la clé partagée/.test(RULES),/HORS ANNUAIRE/.test(RULES)],[true,true,true,true]);
