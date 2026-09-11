@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '662-beta';
+const APP_VERSION = '663-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -18150,7 +18150,22 @@ const boxTechs=b=>(b.techIds||[]).map(techName).filter((n,i,a)=>n&&n!=='Non assi
 /* toutes les personnes qui voient la box : techniciens cochés + comptes autorisés (DR, commercial…) + responsable */
 const boxPersonnes=b=>{ const l=boxTechs(b).slice(); (b.userIds||[]).forEach(id=>{ const u=(db.users||[]).find(x=>x.id===id); if(u) l.push(fullName(u)); }); if(b.respUserId){ const r=(db.users||[]).find(x=>x.id===b.respUserId); if(r) l.push(fullName(r)); } return l.filter((n,i,a)=>n&&a.indexOf(n)===i); };
 /* Liste des boxes — groupée, façon ELAN */
-let boxListSearch='';
+let boxListSearch='', boxFiltreStock=false;
+/* ⛔ UNE SEULE DÉFINITION DE « CETTE BOX A DU STOCK ». Le compte du cadre et le filtre de la
+   liste répondent à la même question : deux expressions séparées finiraient par diverger, et
+   l'écran annoncerait « 5 avec du stock » en n'en montrant que quatre. Un carton sans unité
+   EST du stock — une box pleine de cartons ne s'annonce pas vide. */
+function boxADuStock(b){ return Object.values((b&&b.stock)||{}).some(s=>((s&&typeof s==='object')?((+s.u||0)+(+s.ctn||0)):(+s||0))>0); }
+/* Le total d'une box, en unités — pour l'afficher SUR la ligne de la liste. Demandé par Justin
+   le 11 septembre 2026 : « ici il faudrait voir le nombre de stockage par box ». Sans ce
+   chiffre, il fallait ouvrir les dix-huit box une par une pour savoir lesquelles servent —
+   et l'administrateur, seul à toutes les voir, concluait que tout était vide alors que cinq
+   d'entre elles portaient 12 753 unités. Les cartons sont comptés à part : un carton n'est pas
+   une unité, et les additionner donnerait un total qui ne veut rien dire. */
+function boxTotalStock(b){ let u=0,c=0;
+  for(const s of Object.values((b&&b.stock)||{})){
+    if(s&&typeof s==='object'){ u+=(+s.u||0); c+=(+s.ctn||0); } else u+=(+s||0); }
+  return {u,c}; }
 views.boxes=function(){
   const mine=visibleBoxes(db.boxes), perim=can('voirTout')&&perimetreTechIds();   // « tout voir » mais rattaché à des équipes (v622) : la liste est réduite, l'en-tête doit le dire
   /* ⛔ COMBIEN DE CES BOX ONT VRAIMENT DU STOCK. Sans ce chiffre, deux personnes de la même
@@ -18160,19 +18175,27 @@ views.boxes=function(){
      ne voit QUE la sienne, pleine, et répond « elles sont pleines ». Personne ne se trompe :
      seul l'administrateur voit l'entreprise entière, donc lui seul voit les box inutilisées.
      Le sous-titre le dit maintenant, au lieu de le laisser déduire du défilement. */
-  const avecStock=mine.filter(b=>Object.values(b.stock||{}).some(s=>((s&&typeof s==='object')?((+s.u||0)+(+s.ctn||0)):(+s||0))>0)).length;
+  const avecStock=mine.filter(boxADuStock).length;
   const unites=mine.reduce((t,b)=>t+Object.values(b.stock||{}).reduce((n,s)=>n+((s&&typeof s==='object')?(+s.u||0):(+s||0)),0),0);
   const cadre=`${mine.length} box${can('voirTout')?(perim?' (mon équipe)':''):' (mes box)'}`
     +(mine.length?` · ${avecStock} avec du stock · ${unites.toLocaleString('fr-FR')} u`:'');
   setHeader('Boxes',cadre,`<button class="btn ghost" onclick="go('carteBox')">🗺️ Carte</button> <button class="btn ghost" onclick="openAjoutProduitBoxes()">Ajouter produit</button> ${can('supprimer')?'<button class="btn" onclick="formBox()">＋ Box</button>':''}`);
-  $('content').innerHTML=`<div class="filters" style="margin:0 0 8px"><div class="chip active">📋 Liste</div><div class="chip" onclick="go('carteBox')">🗺️ Carte des box</div></div>
+  /* ⛔ LA PUCE QUI ÉVITE DE DÉFILER À TRAVERS TREIZE BOX VIDES. Chez ELAN, l'administrateur
+     est le seul à voir les dix-huit ; cinq seulement ont du stock, et elles sont noyées. Il
+     faisait défiler, ne lisait que des zéros, et concluait que tout était vide — trois fois
+     dans la même journée. Le cadre le DIT depuis la v658 ; cette puce permet de le VOIR.
+     Elle n'apparaît que s'il y a quelque chose à filtrer : sur une liste dont tout est plein,
+     ou tout vide, un filtre qui ne filtre rien n'est qu'un bouton de plus. */
+  const nStock=mine.filter(boxADuStock).length, filtrable=nStock>0&&nStock<mine.length;
+  if(!filtrable) boxFiltreStock=false;
+  $('content').innerHTML=`<div class="filters" style="margin:0 0 8px"><div class="chip active">📋 Liste</div><div class="chip" onclick="go('carteBox')">🗺️ Carte des box</div>${filtrable?`<div class="chip${boxFiltreStock?' active':''}" onclick="boxFiltreStock=!boxFiltreStock;views.boxes()">📦 Avec du stock · ${nStock}</div>`:''}</div>
     <input class="search-inp" id="box-search" placeholder="Numéro, nom, ville…" value="${esc(boxListSearch)}" oninput="boxListSearch=this.value;renderBoxesList()"><div id="boxes-list"></div>`;
   renderBoxesList();
 };
 function renderBoxesList(){
   const el=$('boxes-list'); if(!el) return;
   const q=norm(boxListSearch);
-  let list=visibleBoxes(db.boxes).filter(b=> !q || norm((b.numero||'')+' '+(b.nom||'')+' '+(b.ville||'')+' '+(b.codePostal||'')).includes(q));
+  let list=visibleBoxes(db.boxes).filter(b=> (!boxFiltreStock||boxADuStock(b)) && (!q || norm((b.numero||'')+' '+(b.nom||'')+' '+(b.ville||'')+' '+(b.codePostal||'')).includes(q)));
   /* ⛔ « Aucune box. » MENT quand l'entreprise en a dix-huit. Mesuré chez ELAN le 11 septembre
      2026 : quatre techniciens (Mathys, Romain Avignon, Zampa, Antho Piovanacci) ouvraient cet
      écran sur un vide muet — aucune box ne les nommait, ni dans `techIds`, ni dans `userIds`,
@@ -18203,6 +18226,12 @@ function renderBoxesList(){
         <div class="pl-title">${esc(b.nom)||esc(b.adresse)||esc(b.numero)||'Box'}${(()=>{ const nv=candsNv.length?boxNouveautes(b,candsNv).length:0; return nv?` <span class="bxp-pastille bxp-pastille-carte" title="Nouveaux produits au catalogue, pas encore dans cette box">+${nv>9?'9+':nv}</span>`:''; })()}</div>
         <div style="display:flex;align-items:center;gap:6px"><span class="pl-meta">${esc(b.ville||'')||'—'}</span>${b.secteur?`<span class="st st-green" style="font-size:9px">${esc(b.secteur)}</span>`:''}</div>
       </div>
+      ${(()=>{ const t=boxTotalStock(b);
+        /* Rien quand il n'y a rien : une box sans stock n'a pas besoin d'un « 0 » de plus à
+           lire, elle se reconnaît à l'absence de pastille. Le vide se voit mieux en creux. */
+        if(!t.u&&!t.c) return '';
+        const txt=[t.u?t.u.toLocaleString('fr-FR')+' u':'',t.c?t.c.toLocaleString('fr-FR')+' ctn':''].filter(Boolean).join(' · ');
+        return `<span class="st st-green" style="font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0" title="Stock total de cette box">${txt}</span>`; })()}
       <span style="color:var(--t3);font-size:22px;font-weight:300">›</span>
     </div>`;}).join('')).join('');
 }
