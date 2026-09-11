@@ -38,12 +38,19 @@ console.log('\nLe compte de départ ne se crée PAS sur un appareil déjà ratta
      l'empilement par identifiant, pas la création. */
   v('la création regarde si l\'appareil est rattaché',
     /const _rattache=\(function\(\)\{ try\{ return !!String\(localStorage\.getItem\('elan_sync_team'\)\|\|''\)\.trim\(\);/.test(APP), true);
-  v('…et si le lien d\'installation est passé', /const _installe=\(function\(\)\{ try\{ return !!localStorage\.getItem\('elan_admin_login'\);/.test(APP), true);
-  v('rattaché SANS lien d\'installation → aucun compte fabriqué',
-    /if\(!d\.users\.length && !BETA_ESSAI && \(!_rattache \|\| _installe\)\)/.test(APP), true);
-  /* ⚠️ L'exception qui doit rester ouverte : une entreprise NEUVE arrive par le lien, qui pose
-     `elan_admin_login`. Fermer les deux laisserait tout nouveau client sans porte d'entrée. */
-  v('⛔ le lien d\'installation rouvre la création (nouveau client)', /\|\| _installe\)\)/.test(APP), true);
+  /* ⛔ L'EXCEPTION « lien d'installation » A ÉTÉ RETIRÉE, et ce test la garde fermée. Écrite en
+     v654, elle a fabriqué @florent-4 vingt minutes plus tard : `elan_admin_login` est posé par
+     TOUT lien de connexion, pas seulement par celui d'un nouveau client. Chaque personne ouvrant
+     son lien sur un navigateur neuf créait donc un administrateur fantôme. */
+  v('⛔ l\'exception `_installe` ne doit PAS revenir dans migrate()', /\(!_rattache \|\| _installe\)/.test(APP), false);
+
+  /* Le bon endroit : au premier instantané, quand on SAIT que le document d'équipe est vide. */
+  v('un espace NEUF reçoit sa porte d\'entrée au premier instantané', /══ ESPACE NEUF/.test(APP), true);
+  v('…et seulement si l\'équipe est vraiment vide',
+    /if\(!BETA_ESSAI && !\(db\.users\|\|\[\]\)\.length && localStorage\.getItem\('elan_admin_login'\)\)\{/.test(APP), true);
+  v('…dans la branche « document d\'équipe vide » uniquement', (function(){
+    const i=APP.indexOf('if(!d||(!d.enc&&!d.db)){'); if(i<0) return 'branche introuvable';
+    return APP.slice(i,i+1400).indexOf('ESPACE NEUF')>=0; })(), true);
 }
 
 console.log('\nLa constante est visible de partout où elle sert (piège de portée)');
