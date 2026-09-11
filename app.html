@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '664';
+const APP_VERSION = '665';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5190,7 +5190,16 @@ function seedFournisseurs(){
     db.fournisseurs=db.fournisseurs||[];
     const have=new Set(db.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
     let n=0;
-    FOURNISSEURS_3D.forEach(f=>{ if(have.has(f.nom.toUpperCase())) return; db.fournisseurs.push({id:uid(),...f}); have.add(f.nom.toUpperCase()); n++; });
+    /* ⛔ UN IDENTIFIANT DÉTERMINISTE, PAS UN uid(). La garde du dessus ne protège qu'UN appareil :
+       trois appareils qui sèment le pack chacun de leur côté tirent trois uid() différents, et
+       fusionnerBases — qui unit par IDENTIFIANT — garde les trois. Mesuré chez ELAN le
+       11 septembre 2026 : cinq fournisseurs EN TRIPLE, seize fiches au lieu de six, avec trois
+       lots d'identifiants nés chacun dans la même milliseconde. C'est le piège que la fiche du
+       dépôt décrit pour les produits, appliqué aux fournisseurs.
+       Les noms du pack sont des CONSTANTES de ce fichier, pas des saisies : ils sluguent tous,
+       donc l'identifiant déduit est sûr ici — et il rend le semis idempotent entre appareils.
+       ⚠️ Ne jamais faire ça pour un fournisseur créé à la main : là, uid() reste la règle. */
+    FOURNISSEURS_3D.forEach(f=>{ if(have.has(f.nom.toUpperCase())) return; db.fournisseurs.push({id:idCatalogue(f.nom,'four'),...f}); have.add(f.nom.toUpperCase()); n++; });
     db.foursSeededV=FOURS_VER; db.foursSeeded=Date.now();
     save();
     if(n && currentUser && typeof current!=='undefined' && current==='fournisseurs'){ try{ views.fournisseurs(); }catch(e){} }
@@ -6072,7 +6081,7 @@ function load(){
   if(!localStorage.getItem('elan_fours_v1')){
     d.fournisseurs = d.fournisseurs || [];
     const haveF = new Set(d.fournisseurs.map(f=>(f.nom||'').trim().toUpperCase()));
-    if(PACK_METIER_AUTO) FOURNISSEURS_3D.forEach(f=>{ if(haveF.has(f.nom.toUpperCase())) return; d.fournisseurs.push({id:uid(),...f}); haveF.add(f.nom.toUpperCase()); });
+    if(PACK_METIER_AUTO) FOURNISSEURS_3D.forEach(f=>{ if(haveF.has(f.nom.toUpperCase())) return; d.fournisseurs.push({id:idCatalogue(f.nom,'four'),...f}); haveF.add(f.nom.toUpperCase()); });   // identifiant déterministe : voir le bloc ⛔ de foursSeed()
     localStorage.setItem('elan_fours_v1','1');
     try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){}
   }
@@ -7267,6 +7276,34 @@ function espaceQuitter(){
     }catch(e){} };
   }catch(e){}
 }
+/* ⛔ UN LIEN QUI NE DÉSIGNE AUCUNE ENTREPRISE NE DOIT RIEN FAIRE. Justin, 11 septembre 2026 :
+   « j'ai mis un autre lien et il n'existe pas… quand un lien n'existe pas, ça ne devrait rien
+   faire. Tu m'étonnes qu'il y ait des bugs après. »
+   Il avait raison sur la mécanique : le lien porte l'espace ET sa clé, et l'application le
+   croyait sur parole — elle vidait l'appareil et se rattachait, sans jamais demander au serveur
+   si cet espace existait. Un lien inventé, périmé, ou fabriqué par « Créer un espace » (voir
+   v659) mettait donc l'appareil sur une base vierge, en silence. C'est comme ça qu'« elan-d4v8 »
+   est apparu à côté du vrai « elan-34oc ».
+   On demande maintenant AVANT de vider quoi que ce soit. Trois réponses, trois conduites :
+    · l'espace est connu et la clé correspond → on rejoint ;
+    · le serveur dit qu'il ne le connaît pas (404) → on REFUSE et on le dit ;
+    · le serveur est injoignable → on laisse passer. Un technicien sur un chantier sans réseau
+      ne doit pas être enfermé dehors par un contrôle qui, lui, a besoin du réseau. La panne de
+      ce matin est née exactement de cette confusion-là. */
+async function lienEspaceConnu(o){
+  try{
+    if(!o||!o.t||!o.k) return 'inconnu';
+    const kh=await sha256(o.k);
+    const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(),5000);
+    let r=null;
+    try{ r=await fetch(PUSH_API+'/api/espaces/lien',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:o.t,kh:kh}),signal:ctrl.signal}); }
+    finally{ clearTimeout(tm); }
+    if(!r) return 'incertain';
+    if(r.status===404) return 'inconnu';
+    return r.ok?'ok':'incertain';
+  }catch(e){ return 'incertain'; }
+}
+const LIEN_PAS_BON='⛔ Ce lien n\'est pas bon : il ne correspond à aucune entreprise connue de TEAM OP. Rien n\'a été changé sur cet appareil. Redemande le lien à jour à ton entreprise.';
 async function teamopLienCheck(){
   let code='';
   try{ const m=(location.hash+' '+location.search).match(/entreprise=([A-Za-z0-9+/=_-]{8,})/); if(m) code=m[1]; }catch(e){}
@@ -7289,6 +7326,9 @@ async function teamopLienCheck(){
   try{ history.replaceState(null,'',location.pathname); }catch(e){}
   if(!o){ toast('Lien de connexion invalide — redemande-le à ton entreprise'); return false; }
   if(syncTeam()===o.t) return false;   // déjà dans le bon espace
+  /* ⛔ ON DEMANDE AVANT DE VIDER. Ce contrôle vient APRÈS « déjà dans le bon espace » : un
+     appareil qui rouvre son propre lien ne doit pas dépendre du réseau pour ne rien faire. */
+  if(await lienEspaceConnu(o)==='inconnu'){ toast(LIEN_PAS_BON,10000); return false; }
   // appareil déjà utilisé par un autre espace avec des données → on prévient avant de repartir propre
   const occupe=(db.clients||[]).length||(db.interventions||[]).length||(db.users||[]).length>2;
   if(occupe && !confirm('Cet appareil va se connecter à l\'espace « '+(o.n||o.t)+' » et repartir propre (les données locales actuelles seront remplacées par celles de cet espace). Continuer ?')) return false;
@@ -7306,8 +7346,12 @@ function teamopJoinPrompt(){
   const code=prompt('Colle le Code espace de ton entreprise :'); if(!code) return;
   teamopJoin(code);
 }
-function teamopJoin(code){
+async function teamopJoin(code){
   const o=teamopDecode(code); if(!o){ toast('Code espace invalide'); return; }
+  if(syncTeam()===o.t){ toast('Cet appareil est déjà sur cet espace'); return; }
+  /* Même contrôle que le lien dans l'adresse, et par la même fonction : deux vérifications
+     séparées finiraient par ne plus refuser les mêmes liens. */
+  if(await lienEspaceConnu(o)==='inconnu'){ toast(LIEN_PAS_BON,10000); return; }
   if(!confirm('Rejoindre l\'espace « '+(o.n||o.t)+' » ?\n\nCet appareil va se connecter UNIQUEMENT aux données de cet espace (il repart propre et adopte les données de cet espace).')) return;
   localStorage.setItem('elan_sync_team',o.t);
   localStorage.setItem('elan_sync_secret',o.k);
@@ -17567,7 +17611,7 @@ const fournName=id=>{ const f=db.fournisseurs.find(x=>x.id===id); return f?f.nom
 views.fournisseurs=function(){
   setHeader('Fournisseurs',`${db.fournisseurs.length} fournisseur(s)`,`<button class="btn" onclick="formFournisseur()">＋ Fournisseur</button>`);
   const isAdmin=currentUser&&currentUser.role==='admin';
-  const rows=db.fournisseurs.map(f=>{ const nb=db.produits.filter(p=>(p.fournisseurs||[]).includes(f.nom)).length;
+  const rows=db.fournisseurs.map(f=>{ const nb=db.produits.filter(p=>produitDuFournisseur(p,f.nom)).length;   // sans la casse : voir fourMemeNom
     const c=fourColor(f.nom);
     const adr=[f.adresse,[f.codePostal,f.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ');
     return `<div class="card" style="padding:14px 16px;margin-bottom:10px">
@@ -21497,7 +21541,7 @@ function bonCatChips(){ const el=$('bcat-chips'); if(!el) return;
     return `<button type="button" style="cursor:pointer;font-size:12px;font-weight:700;padding:6px 13px;border-radius:100px;border:1px solid ${on?c:'var(--brd2)'};color:${on?c:'var(--t2)'};background:${on?`color-mix(in srgb,${c} 15%,transparent)`:'transparent'}" onclick="_bonCatFour='${esc(f)}';bonCatChips();bonCatList()">${esc(f)||'Tous'}</button>`; }).join(''); }
 function bonCatList(){ const el=$('bcat-list'); if(!el) return; const q=norm(($('bcat-q')||{}).value||'');
   let list=db.produits.filter(p=>!q||norm((p.nom||'')+' '+(p.ref||'')+' '+(p.categorie||'')+' '+(p.fournisseurs||[]).join(' ')).includes(q));
-  if(_bonCatFour) list=list.filter(p=>(p.fournisseurs||[]).includes(_bonCatFour));
+  if(_bonCatFour) list=list.filter(p=>produitDuFournisseur(p,_bonCatFour));   // sans la casse : voir fourMemeNom
   list=list.slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
   const n=$('bcat-n'); if(n) n.textContent=_bonCatSel.size;
   el.innerHTML=list.slice(0,200).map(p=>{ const on=_bonCatSel.has(p.id);
@@ -28493,6 +28537,64 @@ async function annuaireDeposer(){
   finally{ _annuaireEnCours=false; }
 }
 function getSession(){ return localStorage.getItem('elan_session')||sessionStorage.getItem('elan_session'); }
+/* ⛔ UN PRODUIT DÉSIGNE SON FOURNISSEUR PAR SON NOM — DONC LA CASSE NE DOIT PAS COMPTER.
+   Mesuré sur la base réelle d'ELAN le 11 septembre 2026 : 53 produits citent « ARMOSA » et
+   16 citent « ENSYSTEX », alors que leurs fiches s'appellent « Armosa » et « Ensystex ».
+   SOIXANTE-NEUF liens rompus, pour une histoire de majuscules — l'écran Fournisseurs affichait
+   « 0 produit » en face d'ARMOSA, et le filtre d'un bon de commande ne proposait rien.
+   D'où vient l'écart : le pack métier s'est écrit « Armosa » dans une version, « ARMOSA » dans
+   une autre ; les fiches datent de la première, les produits du catalogue de la seconde.
+   On ne renomme pas les fiches d'un client pour rattraper ça — on compare sans la casse ni les
+   accents, ce qui répare les 69 liens partout, y compris chez les entreprises qu'on ne touche
+   pas. UNE seule définition : deux comparaisons séparées finiraient par ne plus dire la même
+   chose, et un écran annoncerait un compte que l'autre ne retrouve pas. */
+function fourMemeNom(a,b){
+  const n=x=>String(x||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const x=n(a); return !!x && x===n(b); }
+function produitDuFournisseur(p,nom){ return ((p&&p.fournisseurs)||[]).some(v=>fourMemeNom(v,nom)); }
+/* ══ FOURNISSEURS EN DOUBLE — LE MÉNAGE DE CE QUI EST DÉJÀ ENTRÉ ══
+   Le correctif d'identifiant ci-dessus arrête la cause ; il ne range pas derrière lui. Chez
+   ELAN, seize fiches pour six fournisseurs — chacun des cinq du pack métier en TRIPLE.
+
+   ⛔ POURQUOI C'EST SANS RISQUE ICI, ET POURQUOI ÇA NE LE SERAIT PAS AILLEURS : un produit
+   désigne son fournisseur PAR SON NOM, jamais par son identifiant (mesuré sur la base réelle :
+   133 références par nom, ZÉRO par identifiant). Effacer une fiche en double ne casse donc
+   aucun lien. Le jour où un lien par identifiant existera, ce ménage devra les remapper AVANT
+   d'effacer — sinon il rendra muettes les fiches qu'il prétend réparer.
+
+   ⛔ ET LE SURVIVANT EST CHOISI DE FAÇON DÉTERMINISTE. Deux appareils qui feraient ce ménage
+   chacun de leur côté DOIVENT garder exactement la même fiche : s'ils en gardaient deux
+   différentes, la fusion les réunirait et on aurait recréé le doublon qu'on vient d'enlever.
+   D'où l'ordre, sans aucune part de hasard : l'identifiant du pack s'il existe (c'est celui qui
+   sera stable ensuite), sinon la fiche la plus renseignée, sinon le plus petit identifiant. */
+function menageFournisseursDoublons(db){
+  const l=(db&&db.fournisseurs)||[]; if(l.length<2) return false;
+  const cle=f=>String((f&&f.nom)||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+  const groupes=new Map();
+  l.forEach(f=>{ const k=cle(f); if(!k) return; if(!groupes.has(k)) groupes.set(k,[]); groupes.get(k).push(f); });
+  const remplis=f=>Object.keys(f||{}).filter(k=>k!=='id'&&k!=='_m'&&String(f[k]||'').trim()!=='').length;
+  const aGarder=new Set(), aJeter=new Set();
+  groupes.forEach(g=>{
+    if(g.length<2){ return; }
+    const tri=g.slice().sort((a,b)=>{
+      const pa=/^four_/.test(String(a.id||'')), pb=/^four_/.test(String(b.id||''));
+      if(pa!==pb) return pa?-1:1;
+      const ra=remplis(a), rb=remplis(b); if(ra!==rb) return rb-ra;
+      return String(a.id||'').localeCompare(String(b.id||'')); });
+    /* ⛔ ET L'ORTHOGRAPHE DU SURVIVANT EST CELLE DU PACK, quand c'en est un. Sans ça, le tri
+       pouvait garder « mabi » plutôt que « MABI » — déterministe, mais moche, et le client voit
+       son fournisseur renommé en minuscules sans avoir rien demandé. La comparaison des
+       produits ignore la casse (fourMemeNom), donc ça ne casse aucun lien : c'est purement ce
+       qui s'affiche. On ne touche RIEN pour un fournisseur créé à la main — son nom est le sien. */
+    const ref=(typeof FOURNISSEURS_3D!=='undefined'?FOURNISSEURS_3D:[]).find(x=>cle(x)===cle(tri[0]));
+    if(ref&&ref.nom&&tri[0].nom!==ref.nom) tri[0].nom=ref.nom;
+    aGarder.add(tri[0].id);
+    tri.slice(1).forEach(f=>aJeter.add(f.id));
+  });
+  if(!aJeter.size) return false;
+  db.fournisseurs=l.filter(f=>!aJeter.has(f.id));
+  return true;
+}
 /* ══ NETTOYAGE DES ENTRÉES DE DÉMONSTRATION ENTRÉES CHEZ UN CLIENT ══
    Le semis de démo a pu déverser ses données dans la base d'une entreprise — rejeu constaté
    chez ELAN le 11 septembre 2026, fermé POUR L'AVENIR par la garde de load() (test-642). Mais
@@ -28552,6 +28654,7 @@ async function boot(){
     }
     // Box, demandes et devis de démonstration entrés par un rejeu du semis — par signature fictive exacte.
     if(menageDemoBox(db)) ch=true;
+  if(menageFournisseursDoublons(db)) ch=true;
     /* ⛔ LES « OP Admin » EMPILÉS — conséquence du compte de départ créé avec un identifiant
        neuf à chaque chargement (corrigé juste au-dessus par ID_ADMIN_DEPART). Ceux qui sont
        DÉJÀ entrés chez un client y restent : un correctif arrête la cause, il ne range pas

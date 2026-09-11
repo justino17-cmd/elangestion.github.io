@@ -81,7 +81,14 @@ console.log('Aucun chemin de nom libre ne fabrique plus l\'identifiant génériq
   v('plus aucun appel produitCreer avec idCatalogue sur un nom libre',(APP.match(APPEL)||[]).length,0);
   // les sites qui gardent idCatalogue prennent tous leur nom d'une CONSTANTE du fichier
   const restants=(APP.match(/id:idCatalogue\(([^)]*)\)/g)||[]).map(x=>x.replace(/^id:idCatalogue\(/,'').replace(/\)$/,''));
-  v('et ceux qui restent viennent de CATALOGUE ou CATFOUR',[...new Set(restants)].sort(),['c[0]','nom','x[0]']);
+  /* `f.nom,'four'` s'est ajouté le 11 septembre 2026 (v665) : le semis du pack FOURNISSEURS_3D.
+     Il a sa place dans cette liste pour la MÊME raison que les autres — le nom vient d'une
+     CONSTANTE de ce fichier (ARMOSA, ENSYSTEX, SODIF, MABI, ORCAD), jamais d'une saisie, et
+     les cinq sluguent. Sans identifiant déduit, trois appareils qui sèment le pack chacun de
+     leur côté tiraient trois uid() différents : mesuré chez ELAN, cinq fournisseurs en TRIPLE,
+     seize fiches pour six. ⚠️ Un fournisseur créé à la main garde uid() — cette ligne ne
+     l'autorise QUE pour le pack. */
+  v('et ceux qui restent viennent de CATALOGUE, CATFOUR ou du pack fournisseurs',[...new Set(restants)].sort(),['c[0]',"f.nom,'four'",'nom','x[0]']);
   v('le site « nom » est celui de cataloguePoser, gardé par slugNom',/if\(!nom\|\|!slugNom\(nom\)\)return;/.test(APP),true); }
 
 console.log('Deux appareils hors ligne, deux noms illisibles : la synchro n\'en écrase plus un');
