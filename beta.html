@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '659-beta';
+const APP_VERSION = '660-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6883,7 +6883,15 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
     /* Une écriture que le serveur n'a pas acquittée en 15 s est une écriture en file d'attente
        chez un appareil qui se croit en ligne. On la déclare hors ligne : la page se rechargera
        au retour du réseau, ce qui jette la file — la base de l'équipe fait foi. */
-    let _acquitte=false;
+    let _acquitte=false, _alerte=false;
+    /* ⛔ QUINZE SECONDES N'EST PAS UNE DURÉE, C'EST UNE VITESSE DÉGUISÉE. Le délai était fixe,
+       quelle que soit la taille : mesuré le 11 septembre 2026, le document d'ELAN pèse 621 Ko
+       une fois chiffré (59 % de la limite Firestore, donc parfaitement valide) — il faut plus
+       de 300 kbit/s soutenus pour le pousser en quinze secondes. Sur un téléphone de terrain en
+       4G, une écriture parfaitement saine dépasse donc le délai et l'application annonce une
+       panne qui n'existe pas. On accorde une seconde de plus par tranche de 50 Ko, plafonné à
+       45 s : au-delà, il y a vraiment quelque chose à dire. */
+    const _delai=Math.min(45000, 15000+Math.round((alle.taille||0)/50000)*1000);
     const _ecriture=_fbDoc.set({enc:e.enc,iv:e.iv,salt:e.salt,ts,writer:syncDeviceId(),at:new Date().toISOString(),by:(currentUser?fullName(currentUser):''),ver:String(APP_VERSION||''),verNum:APP_VERSION_NUM});
     /* ⛔ UNE ÉCRITURE QUI NE PASSE PAS N'EST PAS UNE PANNE DE RÉSEAU — et la confondre a enfermé
        ELAN dehors le 11 septembre 2026. Le document dépassait la limite de Firestore : l'écriture
@@ -6900,14 +6908,22 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       if(_acquitte) return;
       if(!reseau){ _horsLignePush=true; try{ horsLigneDebut('écriture sans réponse'); }catch(_e){} return; }
       try{ console.warn('synchro : écriture non acquittée en 15 s alors que le réseau répond — base '+Math.round(alle.taille/1024)+' Ko'+(alle.gros&&alle.gros.length?' · plus lourds : '+alle.gros.join(', '):'')); }catch(_e){}
+      _alerte=true;
       try{ toast('⚠️ Tes modifications ne partent pas encore vers l\'équipe — elles sont enregistrées sur cet appareil',7000); }catch(_e){}
       /* Écriture toujours pas acquittée : on REND le repère, sinon cet appareil ignore tout ce que
          l'équipe publie (voir le bloc ⛔ plus haut). Mieux vaut recevoir deux fois que devenir sourd. */
       if(_syncTs===ts) _syncTs=_tsAvant;
       /* …et on le REMONTE, pour ne plus jamais avoir à demander une capture d'écran à un client. */
       try{ syncDiagnostic('ecriture non acquittee en 15 s alors que le reseau repond — base '+Math.round(alle.taille/1024)+' Ko'); }catch(_e){}
-    },15000);
-    _ecriture.then(()=>{ _acquitte=true; try{ sauvegardeDeposer(e); }catch(_e){} })
+    },_delai);
+    /* ⛔ ON REFERME CE QU'ON A OUVERT. Sans ce second message, l'alerte du dessus était sans
+       fin : la personne apprenait que son travail ne partait pas, et n'apprenait JAMAIS qu'il
+       était finalement parti. Elle refaisait sa saisie, appelait, ou cessait de croire l'écran —
+       ce qui est pire que de n'avoir rien dit. Une alerte qui ne sait pas se démentir est une
+       alerte qu'on finit par ignorer. */
+    _ecriture.then(()=>{ _acquitte=true;
+      if(_alerte){ try{ toast('✅ C\'est parti — l\'équipe a bien reçu tes modifications',5000); }catch(_e){} }
+      try{ sauvegardeDeposer(e); }catch(_e){} })
       .catch(er=>{ _acquitte=true; console.error('push',er);
         /* L'écriture n'a PAS eu lieu : le repère ne doit pas rester en avant, sinon on ignore
            les publications de toute l'équipe (voir le bloc ⛔ au-dessus de `_tsAvant`). */
