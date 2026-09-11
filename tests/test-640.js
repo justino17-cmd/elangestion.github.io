@@ -185,9 +185,9 @@ console.log('\nLa règle Firestore n\'a PAS changé — et c\'est l\'ordre qui p
      `gardien`. Le paradoxe aurait été complet : la condition n°1 s'appuie sur ce verrou pour
      orchestrer la migration. */
   v('elle GARDE versionOk() sur l\'écriture',/== teamId\s*\n\s*\/\/\s*&& versionOk\(\);/.test(RULES),true);
-  v('les TROIS conditions avant de la publier sont écrites',
+  v('les QUATRE conditions avant de la publier sont écrites',
     [/Tous les appareils doivent présenter le jeton/.test(RULES),/espace de REPLI/.test(RULES),
-     /ENCORE LA CLÉ PARTAGÉE/.test(RULES)],[true,true,true]);
+     /ENCORE LA CLÉ PARTAGÉE/.test(RULES),/LES ESPACES HORS ANNUAIRE/.test(RULES)],[true,true,true,true]);
   v('et le danger de l\'inverse aussi',/perdent alors l'accès aux données de LEUR PROPRE entreprise/.test(RULES),true);
   /* Un jeton d'une heure n'est pas un accès d'une heure : Firebase l'échange contre une
      session renouvelable indéfiniment. Fermer une entreprise depuis la Tour ne coupe donc
