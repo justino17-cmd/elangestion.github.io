@@ -66,6 +66,16 @@ espace est vraiment servi, et la route passe sous le quota strict par IP. L'aper
 public — `espace.html` et `recap-abonnement.html` valident un code **avant** qu'un espace
 existe, il n'y a alors aucune clé à prouver ; il n'écrit rien, donc il ne donne rien.
 
+⚠️ **Une dépendance qui devient porteuse : les deux tables de codes doivent s'accorder.**
+`espace.html` porte sa propre table en clair (`PROMO_CODES`, une seule entrée aujourd'hui :
+`TEAMOP3MOIS`, 3 mois) et écrit l'offre dans le document Firestore du client ; le serveur, lui,
+ne croit plus que `config.promos`. Un code présent côté site mais **absent de `config.promos`**
+donnerait donc un portail qui affiche « offre active » et une application qui reste
+verrouillée — silencieusement. Avant, le serveur gobait la date du site : c'était précisément
+le trou. Vérifié le 11 septembre par l'aperçu (qui n'écrit rien) :
+`POST /api/promo/valider {"code":"TEAMOP3MOIS","apercu":true}` → `200, mois: 3, premium`. Les
+deux tables s'accordent aujourd'hui. **À revérifier à chaque code ajouté sur le site.**
+
 ### 3. `/api/replies` et `/api/mailboxes` : le teamId suffisait — porte POSÉE, encore OUVERTE
 
 `/api/replies` rend les **200 derniers courriels reçus** de l'entreprise — expéditeur, objet,
