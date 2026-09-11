@@ -169,4 +169,54 @@ console.log('Un écran vide dit pourquoi, et « jamais connecté » n’est pas 
   v('et écrits à la française', /t\.u\.toLocaleString\('fr-FR'\)\+' u'/.test(APP), true);
 }
 
+// ── 9) v664 : l'ordre de la liste — « comme pour les produits box, dans l'ordre alphabétique
+//    et les vides en dessous » (Justin, 11 septembre 2026). Même règle que celle posée le
+//    9 septembre pour les produits d'une box : DEUX niveaux, et surtout pas la quantité.
+{
+  const i = APP.indexOf('Object.values(groups).forEach(l=>l.sort(');
+  v('le tri existe', i > -1, true);
+  /* On extrait le comparateur par équilibrage d'accolades, pas par recherche de texte : une
+     découpe approximative rendrait ce test faux au premier retour à la ligne ajouté. */
+  const deb = APP.indexOf('l.sort(', i) + 'l.sort('.length;
+  let prof = 0, fin = deb;
+  for (let k = deb; k < APP.length; k++) {
+    const c = APP[k];
+    if (c === '{' || c === '(') prof++;
+    else if (c === '}' || c === ')') { if (prof === 0) { fin = k; break; } prof--; }
+  }
+  // eslint-disable-next-line no-eval
+  const cmp = eval('(' + APP.slice(deb, fin) + ')');
+  const bx = (nom, u) => ({ nom, stock: u ? { p: { u: u, ctn: 0 } } : {} });
+
+  const l = [bx('Zèbre', 0), bx('Alpha', 0), bx('Oméga', 5), bx('Bravo', 3)];
+  l.sort(cmp);
+  v('⛔ ce qui a du stock passe devant, quoi qu’il arrive à l’alphabet',
+    l.map(x => x.nom), ['Bravo', 'Oméga', 'Alpha', 'Zèbre']);
+
+  /* L'alphabet FRANÇAIS : « Éole » se range à sa lettre, pas après « Z ». */
+  const acc = [bx('Zoulou', 0), bx('Éole', 0), bx('Alpha', 0)];
+  acc.sort(cmp);
+  v('les accents se rangent à leur lettre', acc.map(x => x.nom), ['Alpha', 'Éole', 'Zoulou']);
+
+  /* Les majuscules ne font pas deux alphabets : sans sensitivity 'base', « alpha » finirait
+     après « Zoulou ». */
+  const maj = [bx('ZOULOU', 0), bx('alpha', 0), bx('Bravo', 0)];
+  maj.sort(cmp);
+  v('majuscules et minuscules dans le même alphabet', maj.map(x => x.nom), ['alpha', 'Bravo', 'ZOULOU']);
+
+  /* ⛔ Le point qui compte : on NE trie PAS par quantité. Deux box pleines gardent l'ordre
+     alphabétique — sinon la ligne qu'on vient de toucher se déplacerait sous le doigt à
+     chaque mouvement de stock. Seul le passage à ZÉRO réorganise l'écran. */
+  const q = [bx('Alpha', 2), bx('Bravo', 9000)];
+  q.sort(cmp);
+  v('⛔ deux box pleines restent dans l’ordre alphabétique, pas par quantité',
+    q.map(x => x.nom), ['Alpha', 'Bravo']);
+
+  v('une box sans nom retombe sur son numéro', [{ numero: '07', stock: {} }, { numero: '02', stock: {} }].sort(cmp).map(x => x.numero), ['02', '07']);
+  /* Le tri vit DANS chaque groupe : une entreprise qui range ses box par groupe garde ses
+     groupes, elle ne les voit pas éclatés par le stock. */
+  v('le tri s’applique groupe par groupe', /Object\.values\(groups\)\.forEach\(l=>l\.sort\(/.test(APP), true);
+  v('…et le groupement n’a pas été retiré', /const groups=\{\}; list\.forEach\(b=>\{ const g=b\.groupe\|\|'Sans groupe'/.test(APP), true);
+}
+
 console.log('\n' + ok + ' ✓  ' + ko + ' ✗'); process.exit(ko ? 1 : 0);
