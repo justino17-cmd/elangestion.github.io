@@ -141,4 +141,12 @@ v('on mesure le réseau avant de décider', /const r2=await fetch\(PUSH_API\+'\/
 v('réseau absent → écran hors ligne (inchangé)', /if\(!reseau\)\{ _horsLignePush=true; try\{ horsLigneDebut\('écriture sans réponse'\)/.test(APP), true);
 v('réseau présent → on prévient, on ne bloque pas', /Tes modifications ne partent pas encore vers l/.test(APP), true);
 
+
+/* ── v647 : la file d'écriture saturée se reprend UNE fois, jamais deux ───────────── */
+console.log('\nFile d\'écriture saturée : une seule reprise, jamais de boucle');
+v('le drapeau de reprise unique existe', /let _fbFileSaturee=false;/.test(APP), true);
+v('on réagit à resource-exhausted', /er\.code==='resource-exhausted'/.test(APP), true);
+v('…une seule fois (le drapeau garde le rechargement)', /if\(!_fbFileSaturee\)\{ _fbFileSaturee=true;/.test(APP), true);
+v('…et la deuxième fois on le DIT au lieu de recharger', /La synchronisation reste bloquée/.test(APP), true);
+
 console.log('\n' + ok + ' ✓  ' + ko + ' ✗'); process.exit(ko ? 1 : 0);

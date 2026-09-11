@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '646-beta';
+const APP_VERSION = '647-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6222,6 +6222,7 @@ const FB_TEAM='elan-gestion-beta';
 let _syncEssais=0;
 let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
 let _allegeDit=0;   // combien de pièces l'allègement a laissées sur cet appareil la dernière fois qu'on l'a dit (voir syncAlleger)
+let _fbFileSaturee=false;   /* la file d'écriture Firestore a saturé : une seule reprise par chargement (voir syncPush) */
 /* Version minimale exigée par TeamOP (Tour de contrôle). Et une décision sans option : l'application
    ne travaille QU'EN LIGNE (Justin, 9 septembre 2026 : « le mode hors ligne crée trop de problèmes,
    on l'oublie complètement »). La v616 gardait un interrupteur d'urgence dans la Tour ; il est retiré
@@ -6814,7 +6815,23 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       try{ toast('⚠️ Tes modifications ne partent pas encore vers l\'équipe — elles sont enregistrées sur cet appareil',7000); }catch(_e){}
     },15000);
     _ecriture.then(()=>{ _acquitte=true; try{ sauvegardeDeposer(e); }catch(_e){} })
-      .catch(er=>{ _acquitte=true; console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){} }); }catch(er){ console.error('encrypt',er); } };
+      .catch(er=>{ _acquitte=true; console.error('push',er); try{ if(er&&er.code==='permission-denied') versionRefuseeParNuage(); }catch(_e){}
+        /* ⛔ FILE D'ÉCRITURE SATURÉE : PLUS RIEN NE PARTIRA DE CETTE SESSION. Mesuré chez ELAN le
+           11 septembre 2026 — « Write stream exhausted maximum allowed queued writes », répété :
+           le SDK Firestore garde ses écritures en attente, et une fois la file pleine il refuse
+           TOUTES les suivantes. Aucune reprise n'est possible de l'intérieur : seul un
+           rechargement rend une file vide. UNE SEULE FOIS PAR CHARGEMENT, jamais deux — sinon on
+           rouvre exactement la boucle de rechargement qu'on vient de fermer, et l'équipe est
+           enfermée dehors une seconde fois. Si ça se reproduit, on ne recharge plus : on le dit. */
+        try{ if(er&&(er.code==='resource-exhausted')){
+          if(!_fbFileSaturee){ _fbFileSaturee=true;
+            console.warn('synchro : file d\'écriture saturée — une seule reprise, maintenant');
+            try{ toast('Reprise de la synchronisation…',3000); }catch(_e2){}
+            setTimeout(()=>{ try{ location.reload(); }catch(_e2){} },1200);
+          } else {
+            try{ toast('⚠️ La synchronisation reste bloquée — ton travail est enregistré sur cet appareil. Préviens TEAM OP.',8000); }catch(_e2){}
+          } } }catch(_e){}
+      }); }catch(er){ console.error('encrypt',er); } };
 
   if(now) go(); else _syncTimer=setTimeout(go,800); }
 /* ══ LE GARDE-FOU DU RÉTRÉCISSEMENT ══
