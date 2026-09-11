@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '665';
+const APP_VERSION = '666';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -29812,16 +29812,51 @@ function syncNow(){ const b=$('sync-btn'); if(b){ b.classList.add('spin'); setTi
   else { toast('Active la synchro temps réel dans Paramètres'); go('parametres'); } }
 function updateSyncBtn(){ const b=$('sync-btn'); if(!b) return; b.style.color=_syncOn?'var(--acc)':''; b.title=_syncOn?'Synchro temps réel active — toucher pour forcer':'Synchroniser'; }
 /* Bannière « nouvelle version » */
-function showUpdateBanner(){ if($('update-banner')) return; const d=document.createElement('div'); d.id='update-banner';
-  d.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));z-index:130;background:var(--acc);color:var(--on-acc);font-weight:700;font-size:14px;padding:12px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5);display:flex;gap:12px;align-items:center';
-  d.innerHTML='Mise à jour — elle se fera dès que tu auras fini'+(typeof majAttenteTxt==='function'?majAttenteTxt():'')+' <button onclick="majAppliquer()" style="background:#fff;color:var(--acc);border:none;border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer">Mettre à jour</button><span onclick="this.parentNode.remove()" style="cursor:pointer;opacity:.8">✕</span>';
-  document.body.appendChild(d); }
-/* « Mettre à jour » : on demande d'abord au service worker de ranger la version fraîche
-   (réseau lent compris), puis on recharge — sinon l'ancienne copie revenait et le bandeau avec. */
-/* ══ L'ÉCRAN « MISE À JOUR EN COURS » — demande de Justin, 9 septembre 2026 ══
-   Un bandeau se ferme d'un doigt et s'oublie ; un écran plein avec une barre qui avance dit ce
-   qui se passe et empêche de toucher à quoi que ce soit pendant les quelques secondes du
-   téléchargement. Le service worker lit la nouvelle version en flux et remonte les octets. */
+/* ⛔ LA BANNIÈRE REFERMABLE EST REMPLACÉE PAR L'ÉCRAN BLOQUANT. Elle portait une croix ✕ :
+   un geste, et la mise à jour attendait indéfiniment. C'était la première des deux portes de
+   sortie que Justin a demandé de fermer le 11 septembre 2026 au soir. On garde le NOM de la
+   fonction — une dizaine d'endroits l'appellent — et on change ce qu'elle fait. */
+function showUpdateBanner(){ majEcranBloquant(_versionMin||''); }
+/* `cause` vaut 'version' (le cas normal : une mise à jour à faire) ou 'refus' (le nuage refuse
+   d'enregistrer sans que la version soit en cause, et on a déjà tenté le rechargement). Deux
+   textes, deux boutons — proposer « Faire la mise à jour » à quelqu'un qui est déjà à jour,
+   c'est l'envoyer tourner en rond en lui faisant croire qu'il répare quelque chose. */
+function majEcranBloquant(min,cause){
+  let e=$('maj-bloque');
+  /* ⛔ UN ÉCRAN DÉJÀ POSÉ NE SE GARDE QUE S'IL DIT LA MÊME CHOSE. Mesuré au navigateur sur la
+     bêta, le 11 septembre 2026 : un premier appel montait l'écran, le second ressortait aussitôt
+     sans rien changer. Sans conséquence pour la ligne de version, qui n'est qu'un repère — mais
+     le cas qui coûte est l'autre : l'écran « mise à jour » monté en premier (le service worker a
+     vu une nouvelle version), puis le refus du nuage qui arrive derrière. La personne gardait
+     sous les yeux un bouton qui recharge sans rien réparer, c'est-à-dire exactement la boucle
+     qu'on vient de fermer, réouverte par un retour anticipé. */
+  if(e){ if(e.getAttribute('data-cause')===(cause||'version')) return e; e.remove(); }
+  /* On retire la bannière d'avant si elle traîne : deux invites pour la même chose, dont une
+     qu'on peut fermer, ce serait exactement le trou qu'on vient de boucher. */
+  try{ const b=$('update-banner'); if(b) b.remove(); }catch(_e){}
+  try{ const a=$('maj-ecran'); if(a) a.remove(); }catch(_e){}
+  e=document.createElement('div'); e.id='maj-bloque';
+  e.setAttribute('role','alertdialog'); e.setAttribute('aria-modal','true');
+  e.setAttribute('data-cause',cause||'version');
+  e.style.cssText='position:fixed;inset:0;z-index:2147483647;background:var(--bg,#0D1624);color:var(--t1,#eef2fa);display:flex;align-items:center;justify-content:center;padding:28px;text-align:center;-webkit-user-select:none;user-select:none';
+  const de=String(APP_VERSION||''), vers=String(min||''), refus=(cause==='refus');
+  e.innerHTML='<div style="max-width:400px;width:100%">'+
+    '<div style="width:64px;height:64px;margin:0 auto 18px;border-radius:18px;background:'+(refus?'var(--warn,#d97706)':'var(--acc,#16a34a)')+';display:flex;align-items:center;justify-content:center;font-size:30px">'+(refus?'⚠️':'⬆️')+'</div>'+
+    '<h2 style="margin:0 0 10px;font-size:25px;line-height:1.15;letter-spacing:-.022em;font-weight:800">'+(refus?'Enregistrement refusé':'Mise à jour nécessaire')+'</h2>'+
+    (refus
+      ? '<p style="color:var(--t2,#b8c7e8);font-size:15px;line-height:1.6;margin:0 0 6px">Cet appareil est à jour, mais le nuage <b>refuse d’enregistrer</b>. La mise à jour a déjà été tentée et n’y change rien : ce n’est pas la version qui bloque.</p>'+
+        '<p style="color:var(--t3,#93a9d4);font-size:13px;margin:0 0 20px">Préviens ton responsable — rien de ce que tu saisis maintenant ne partira à l’équipe.</p>'
+      : '<p style="color:var(--t2,#b8c7e8);font-size:15px;line-height:1.6;margin:0 0 6px">Une nouvelle version d’OP GESTION est disponible. <b>Elle est obligatoire</b> : tant qu’elle n’est pas installée, cet appareil ne peut pas enregistrer le travail de l’équipe.</p>'+
+        (de&&vers&&de!==vers?'<p style="color:var(--t3,#93a9d4);font-size:13px;margin:0 0 20px"><span style="font-variant-numeric:tabular-nums">v'+esc(de)+'</span> → <b style="color:var(--acc,#16a34a);font-variant-numeric:tabular-nums">v'+esc(vers)+'</b></p>':'<div style="height:20px"></div>'))+
+    '<button id="maj-bloque-btn" class="btn" style="width:100%;justify-content:center;padding:15px;font-size:16px;font-weight:700" onclick="'+(refus?'location.reload()':'majAppliquer()')+'">'+(refus?'Réessayer':'Faire la mise à jour')+'</button>'+
+    '<p style="color:var(--t3,#93a9d4);font-size:12.5px;line-height:1.55;margin:16px 0 0">'+(refus?'Tu peux continuer à <b>consulter</b> après avoir réessayé — c’est l’enregistrement qui est refusé, pas la lecture.':'Quelques secondes. Ne ferme pas l’application pendant l’installation.<br>Ce qui est déjà enregistré est envoyé à l’équipe avant le redémarrage.')+'</p>'+
+    '</div>';
+  document.body.appendChild(e);
+  /* Le clavier ne doit pas pouvoir sortir de l'écran : sans ça, une tabulation ramène le focus
+     sur l'application derrière, qu'on croyait inaccessible. */
+  try{ setTimeout(()=>{ const b=$('maj-bloque-btn'); if(b) b.focus(); },50); }catch(_e){}
+  try{ document.addEventListener('keydown',function(ev){ if($('maj-bloque')&&ev.key==='Tab'){ ev.preventDefault(); const b=$('maj-bloque-btn'); if(b) b.focus(); } },true); }catch(_e){}
+  return e; }
 function majEcran(titre,sous){ let e=$('maj-ecran');
   if(!e){ e=document.createElement('div'); e.id='maj-ecran';
     e.style.cssText='position:fixed;inset:0;z-index:99998;background:var(--bg,#0D1624);color:var(--t1,#eef2fa);display:flex;align-items:center;justify-content:center;padding:28px;text-align:center';
@@ -29840,6 +29875,12 @@ function majProgres(recu,total){ const b=$('maj-barre'), s=$('maj-etat'); if(!b)
   b.style.width=Math.max(4,pct)+'%';
   if(s) s.textContent='Téléchargement de la nouvelle version… '+(recu>=1048576?(recu/1048576).toFixed(1)+' Mo':Math.round(recu/1024)+' Ko'); }
 function majAppliquer(){ try{ const b=$('update-banner'); if(b) b.remove(); }catch(e){}
+  try{ const z=$('maj-bloque'); if(z) z.remove(); }catch(e){}
+  _majEnRoute=true; try{ clearTimeout(_majAutoTimer); }catch(e){}
+  /* ⛔ CE QUI EST ENREGISTRÉ PART AVANT LE RECHARGEMENT. C'était fait dans majPrete, qui ne
+     recharge plus lui-même : sans ce déplacement, la dernière sauvegarde de la journée serait
+     restée sur l'appareil au moment où l'on redémarre. */
+  try{ if(typeof syncPush==='function') syncPush(true); }catch(e){}
   majEcran('Mise à jour en cours','La nouvelle version s\'installe. Quelques secondes — ne ferme pas l\'application.');
   let fait=false;
   const go=()=>{ if(fait) return; fait=true; try{ const s=$('maj-etat'); if(s) s.textContent='Redémarrage…'; const bar=$('maj-barre'); if(bar) bar.style.width='100%'; }catch(e){} setTimeout(()=>{ try{ location.reload(); }catch(e){} },350); };
@@ -29859,12 +29900,45 @@ function majAppliquer(){ try{ const b=$('update-banner'); if(b) b.remove(); }cat
    rien et on se met à jour tout de suite — en laissant finir ce qui est en cours, 45 s au plus. */
 function versionMinAppliquer(min){ min=parseInt(min,10)||0; if(min>_versionMin) _versionMin=min;
   if(_versionMin&&APP_VERSION_NUM&&APP_VERSION_NUM<_versionMin) majObligatoire(_versionMin); }
-function versionRefuseeParNuage(){ majObligatoire(_versionMin||(APP_VERSION_NUM+1)); }
+/* ⛔ NE JAMAIS ANNONCER UN MINIMUM QU'ON N'A PLUS. Relevé de la Tour chez ELAN, 11 septembre
+   2026 au soir : « v658 sous le minimum v653 », « v663 sous le minimum v663 », « v661 sous le
+   minimum v653 ». Aucune de ces phrases n'est vraie — 658 n'est pas sous 653, 663 n'est pas sous
+   663. Le nuage refusait bien l'écriture (la règle Firestore compare `verNum` à ce qui est publié
+   dans teamop_config/version), mais l'application recopiait dans le journal le minimum qu'elle
+   avait EN MÉMOIRE, parfois vieux de plusieurs heures. Neuf publications dans l'après-midi, donc
+   neuf fournées de lignes incohérentes — dans le journal de la Tour, c'est-à-dire le premier
+   endroit qu'on ouvre quand un client appelle. On redemande donc le minimum RÉEL avant de nommer
+   une cause, et quand la demande échoue on ne l'invente pas : on dit qu'on ne sait pas. */
+function versionRefuseeParNuage(){
+  if(_versionBloquee) return;
+  /* versionVerifier pose _versionMin et déclenche lui-même le blocage si on est vraiment en
+     dessous — d'où le second contrôle de _versionBloquee ici. */
+  const suite=()=>{ if(_versionBloquee) return; majObligatoire(_versionMin>APP_VERSION_NUM?_versionMin:0); };
+  try{ const p=versionVerifier(true); if(p&&p.then) p.then(suite,suite); else suite(); }catch(e){ suite(); }
+}
+/* Deux causes derrière un refus du nuage, et elles ne se disent pas pareil : la porte de version
+   (on connaît le minimum, on est dessous) et tout le reste — jeton d'équipe absent ou périmé,
+   entreprise fermée depuis la Tour. Les confondre remplit le journal de phrases fausses et fait
+   chercher une mise à jour là où il n'y en a aucune à faire. */
 function majObligatoire(min){
   if(_versionBloquee) return; _versionBloquee=true;
-  try{ cnxSignaler('bloque',{motif:'v'+APP_VERSION+' sous le minimum v'+min}); }catch(e){}
+  min=parseInt(min,10)||0;
+  const versionEnCause=min>APP_VERSION_NUM;
+  try{ cnxSignaler('bloque',{motif:versionEnCause?('v'+APP_VERSION+' sous le minimum v'+min)
+    :('écriture refusée par le nuage — v'+APP_VERSION+', minimum non confirmé')}); }catch(e){}
   try{ clearTimeout(_majAutoTimer); }catch(e){}
   try{ if(navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r=>{ r&&r.update&&r.update(); }).catch(()=>{}); }catch(e){}
+  /* ⛔ UNE SEULE MISE À JOUR FORCÉE QUAND LA CAUSE N'EST PAS CONFIRMÉE. Recharger répare un
+     appareil en retard ; ça ne répare RIEN quand le refus vient d'ailleurs, et l'écran bloquant
+     n'a plus de porte de sortie depuis ce soir — on tournerait en rond pour toujours, sur un
+     écran dont on ne peut pas sortir. La marque survit au rechargement (même onglet), donc le
+     second passage ne repart pas : il DIT ce qui se passe, et laisse lire. */
+  if(!versionEnCause){
+    let dejaTente=false;
+    try{ dejaTente=sessionStorage.getItem('elan_maj_forcee')==='1'; }catch(e){}
+    if(dejaTente){ majEcranBloquant(0,'refus'); return; }
+    try{ sessionStorage.setItem('elan_maj_forcee','1'); }catch(e){}
+  }
   majPrete(true);
 }
 let _versionDernierControle=0;
@@ -30007,24 +30081,22 @@ function majAutoArmer(){
    et une seule porte de sortie, « Terminer ma saisie d'abord », qui laisse deux minutes au
    plus. Après, ça part quoi qu'il arrive. */
 let _majDeadline=0,_majSnooze=false,_majEnRoute=false;
+/* ⛔ PLUS D'ATTENTE, PLUS DE « TERMINER MA SAISIE D'ABORD ». C'était la seconde porte de
+   sortie : l'écran d'attente offrait deux boutons, dont un qui le refermait. Il n'en reste
+   qu'un, et il est sur l'écran bloquant — la personne appuie quand elle veut, mais elle ne
+   peut rien faire d'autre en attendant. Justin, le 11 septembre 2026 : « ils ne peuvent pas la
+   faire plus tard ».
+   ⚠️ `majOccupe()` n'est plus consulté, et c'est le prix assumé de la règle : une saisie en
+   cours dans un formulaire non validé est perdue. Ce qui est ENREGISTRÉ, lui, part avant le
+   rechargement (voir majAppliquer). On le dit sur l'écran plutôt que de le taire. */
 function majPrete(oblig){
   if(_majEnRoute) return;
-  if(!_majDeadline) _majDeadline=Date.now()+(oblig?60000:120000);
-  const occ=(typeof majOccupe==='function')?majOccupe():'';
-  if(!occ||Date.now()>=_majDeadline){
-    _majEnRoute=true; clearTimeout(_majAutoTimer);
-    majEcran(oblig?'Mise à jour obligatoire':'Mise à jour','La nouvelle version s\'installe. Quelques secondes — ne ferme pas l\'application.');
-    try{ if(typeof syncPush==='function') syncPush(true); }catch(e){}   // ce qui est enregistré part avant le rechargement
-    setTimeout(majAppliquer,1200); return;
-  }
-  if(_majSnooze){ clearTimeout(_majAutoTimer); _majAutoTimer=setTimeout(()=>majPrete(oblig),3000); return; }   // porte de sortie prise : on revient sans écran, jusqu'à la limite
-  const reste=Math.max(0,Math.ceil((_majDeadline-Date.now())/1000));
-  majEcran(oblig?'Mise à jour obligatoire':'Nouvelle version prête','Quelqu\'un travaille sur cet appareil ('+occ+'). La mise à jour démarre dès que c\'est fini — dans '+reste+' s au plus.');
-  try{ const a=$('maj-actions'); if(a) a.innerHTML='<button class="btn" onclick="majMaintenant()">Mettre à jour maintenant</button> <button class="btn ghost" onclick="majTerminerSaisie()">Terminer ma saisie d\'abord</button>'; }catch(e){}
-  clearTimeout(_majAutoTimer); _majAutoTimer=setTimeout(()=>majPrete(oblig),1000);
+  majEcranBloquant(_versionMin||'');
 }
-function majMaintenant(){ _majDeadline=1; majPrete(!!_versionBloquee); }
-function majTerminerSaisie(){ _majSnooze=true; try{ const e=$('maj-ecran'); if(e) e.remove(); }catch(_e){} try{ toast('D\'accord — la mise à jour partira dès que tu as fini, dans deux minutes au plus',3200); }catch(_e){} majPrete(!!_versionBloquee); }
+/* Gardées : une dizaine d'endroits les appellent, et une fonction absente casserait tout un
+   écran pour une porte qu'on vient de condamner. Les deux mènent maintenant au même endroit. */
+function majMaintenant(){ majAppliquer(); }
+function majTerminerSaisie(){ majEcranBloquant(_versionMin||''); }
 function majArmer(){
   if(_majArmee) return; _majArmee=true; _majDepuis=Date.now();
   try{ majPrete(false); }catch(e){ try{ majAppliquer(); }catch(_e){} }
