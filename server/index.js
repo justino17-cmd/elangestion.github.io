@@ -306,7 +306,12 @@ app.get('/health', (req, res) => res.json({ ok: true, v: 5, histo: true, annonce
      la suite se déciderait à l'aveugle : /api/mail/cles est protégée par une clé de
      serveur que Justin n'a pas. « absent » et « inconnu » à zéro = on peut fermer. */
   cles: { valide: cleEquipeVu.valide, absent: cleEquipeVu.absent, invalide: cleEquipeVu.invalide,
-          inconnu: cleEquipeVu.inconnu, depuis: cleEquipeVu.depuis, parRoute: cleEquipeParRoute } }));
+          inconnu: cleEquipeVu.inconnu, depuis: cleEquipeVu.depuis, parRoute: cleEquipeParRoute },
+  /* Depuis la phase 2 : ce que les deux routes de lecture ont REFUSÉ. Agrégé par motif,
+     sans espace ni adresse — c'est ce compteur qui dit, en une seconde et sans clé, si la
+     fermeture a pris une vraie entreprise au passage. S'il monte, l'interrupteur
+     « mailPreuve: false » rouvre le temps de comprendre (voir cleEquipeExige). */
+  mailRefus: { n: mailRefus.n, parMotif: mailRefus.parMotif, ts: mailRefus.ts } }));
 
 // ── Assistant devis : l'agent qui compose un devis à partir d'une conversation.
 //    Il ne fait que parler à Claude ; c'est OP GESTION qui enregistre le devis
@@ -499,6 +504,65 @@ function mailServers(email) {
    — /api/mail/cles, protégée — et on ne ferme que lorsque le compte « sans preuve » est à
    zéro pour les espaces vivants. */
 app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox/disconnect', '/api/sendmail', '/api/subscribe', '/api/notify'], cleEquipeObserve);
+
+/* ══ PHASE 2 — 11 septembre 2026 : LES DEUX ROUTES QUI LISENT REFUSENT VRAIMENT ══
+   Elles ne demandaient qu'un teamId dans l'URL. /api/mailboxes rendait les adresses de
+   messagerie de l'entreprise et ses serveurs IMAP/SMTP ; /api/replies rendait ses DEUX
+   CENTS derniers messages reçus, expéditeur, objet et corps compris — la correspondance
+   de ses clients. Et le teamId n'a jamais été un secret : il voyage dans les URL, donc
+   dans les journaux nginx, l'historique du navigateur et l'en-tête Referer ; il est écrit
+   en clair dans le localStorage de chaque appareil ; il ne se révoque pas.
+
+   ⚠️ CE N'EST PAS UN CHANGEMENT D'AVIS SUR LA PRUDENCE DE LA PHASE 1 — ce sont ses quatre
+   conditions, enfin réunies, et chacune a été VÉRIFIÉE avant d'écrire cette ligne :
+     1. Le compteur de /health, public et agrégé, au bout de 6 h 12 de service :
+        valide 5, absent 0, invalide 0, inconnu 3 — et un `parRoute` qui ne contient QUE
+        `subscribe`. Donc : aucun `absent`, aucun `invalide` nulle part, et les trois
+        `inconnu` sont sur /api/subscribe, que cette ligne ne touche pas (espace.html et
+        messages.html l'appellent sans kh, c'est le bruit prévu par la phase 1).
+     2. `inconnu` venait des espaces hors annuaire — la Tour en comptait trois le
+        11 septembre : un espace d'essai, supprimé depuis, et les deux espaces techniques.
+        Plus une seule entreprise vivante hors annuaire, donc plus un seul `inconnu`
+        légitime possible sur ces deux routes.
+     3. Une preuve ne prouve que si la clé est privée : le compteur « à migrer (clé
+        partagée) » de la Tour est à zéro, et `cleEstPublique` referme le cas résiduel.
+     4. app.html est le SEUL appelant de ces deux routes — vérifié par recherche sur tout
+        le dépôt — et ses trois points d'appel passent par enteteEquipe(), donc envoient le
+        kh. Ni espace.html ni messages.html ne les appellent.
+
+   ⛔ LE REFUS N'EST PAS DU JSON, ET C'EST LE POINT QUI COMPTE. loadMailReplies()
+   (app.html) fait « const d = await r.json(); _mailReplies = d.replies || [] » : un refus
+   en JSON se parserait sans erreur, la liste deviendrait VIDE au lieu de NULLE, et l'écran
+   afficherait « 📭 Aucun message ». Le client ne verrait pas une panne — il verrait sa
+   correspondance disparue. En text/plain, r.json() jette, le catch met _mailReplies à null,
+   et l'écran dit « 📥 Réception indisponible ». Sans toucher à app.html.
+
+   L'INTERRUPTEUR DE SECOURS : « "mailPreuve": false » dans /opt/teamop/config.json rouvre
+   les deux routes après un `systemctl restart teamop-api` — dix secondes, sans publication.
+   Il est absent par défaut, donc la porte est FERMÉE par défaut : une configuration qu'on
+   oublie de mettre à jour ne rouvre rien. À n'utiliser que le temps de comprendre, et le
+   compteur `mailRefus` de /health dit tout de suite s'il faut. */
+function cleEquipeExige(req, res, next) {
+  if (config.mailPreuve === false) return next();
+  const src = (req.method === 'GET') ? (req.query || {}) : (req.body || {});
+  const t = String(src.teamId || src.t || '');
+  let motif = '';
+  if (req.cleEquipe !== 'valide') motif = req.cleEquipe || 'absent';
+  /* Ces deux-là ne sont vérifiables qu'APRÈS `valide` : il garantit que l'espace est dans
+     l'annuaire avec un code lisible, ce dont cleEstPublique() a besoin pour ne pas rendre
+     « laisse passer » par défaut (voir sa mise en garde). Un espace dont la clé est écrite
+     en clair dans app.html ne prouve rien en la présentant : n'importe qui la calcule. */
+  else if (ESPACES_INTOUCHABLES.includes(t)) motif = 'technique';
+  else if (cleEstPublique(t)) motif = 'partagee';
+  if (!motif) return next();
+  mailRefus.n++; mailRefus.parMotif[motif] = (mailRefus.parMotif[motif] || 0) + 1; mailRefus.ts = Date.now();
+  /* Agrégé, et rien d'autre : /health est publique. Un slug ou un teamId ici dirait au
+     monde quelles entreprises existent — c'est /api/mail/cles, protégée, qui les ventile. */
+  res.status(403).type('text/plain; charset=utf-8')
+     .send('Réception indisponible : cet appareil n\'a pas prouvé la clé de son entreprise.');
+}
+const mailRefus = { n: 0, parMotif: Object.create(null), ts: 0 };
+app.use(['/api/replies', '/api/mailboxes'], cleEquipeExige);
 
 /* Le nombre d'essais de connexion à une boîte, par IP et par heure. La route tente un
    SMTP puis un IMAP chez le fournisseur et RENVOIE son message d'erreur : sans borne,
@@ -4613,21 +4677,56 @@ app.post('/api/clients/sync', async (req, res) => {
     demandesTraitees: prev.demandesTraitees || {}
   };
   cliSave();
-  // Un code promo activé sur le SITE se relaie à l'espace de l'application :
-  // même échéance, l'app se débloque toute seule à sa prochaine vérification.
+  /* Un code promo activé sur le SITE se relaie à l'espace de l'application : l'app se
+     débloque toute seule à sa prochaine vérification.
+
+     ⛔ LE CODE ET SON ÉCHÉANCE VIENNENT DE config.promos, JAMAIS DU CORPS DE LA REQUÊTE.
+     Jusqu'au 11 septembre 2026, ce bloc lisait `promoCode` ET `promoFin` dans le corps et
+     les écrivait tels quels dans promoUsages, sans jamais ouvrir config.promos. Or
+     espacePaye() lit promoUsages et rend `paye: true` sans rien revérifier. Conséquence
+     mesurée sur serveur isolé : n'importe quel compte du portail client s'offrait
+     l'abonnement de son entreprise, à vie, en postant
+     { promoCode:'PEU-IMPORTE', promoFin:'9999-12-31' } — un code inexistant faisait
+     l'affaire, la date était crue sur parole, et maxUtilisations n'était jamais regardé.
+     La requête est signée par Firebase, donc ce n'était pas ouvert à l'anonyme : c'était
+     ouvert à tous nos clients, ce qui est pire, parce qu'ils ont une raison d'essayer.
+
+     Trois contrôles, les mêmes que /api/monitor/espaces/promo et que le rattrapage
+     d'espacePaye() — ce chemin-ci était le seul des trois à ne pas les faire :
+       1. le code doit exister dans config.promos ;
+       2. l'échéance se CALCULE depuis p.mois, elle ne se lit pas ;
+       3. maxUtilisations se vérifie avant de compter, et un code déjà actif ne se
+          prolonge pas — un seul code à la fois, comme depuis la Tour. */
   try {
-    const pc = monStr(b.promoCode, 40).toUpperCase(), pf = monStr(b.promoFin, 10);
-    if (pc && /^\d{4}-\d{2}-\d{2}$/.test(pf)) {
+    const pc = monStr(b.promoCode, 40).trim().toUpperCase();
+    const pDef = pc ? (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === pc) : null;
+    if (pDef) {
       const esp = Object.values(espacesReg).find(x => (x.email || '').toLowerCase() === email);
       let tEsp = esp && esp.t;
       if (esp && !tEsp) { try { tEsp = String(JSON.parse(Buffer.from(esp.code, 'base64').toString('utf8')).t || ''); } catch (e2) {} }
-      if (tEsp) {
-        const u = promoUsages[pc] || { n: 0, equipes: {} };
-        if (!u.equipes[tEsp]) { u.n++; u.equipes[tEsp] = { date: new Date().toISOString().slice(0, 10), finLe: pf }; promoUsages[pc] = u; savePromoUsages(); console.log('code promo du site relayé →', pc, tEsp, 'fin', pf);
-          const pDef = (config.promos || []).find(x => String(x.code || '').trim().toUpperCase() === pc);
-          mailPromoActive(tEsp, pc, pf, (pDef && ['pro', 'business', 'premium'].includes(pDef.formule)) ? pDef.formule : 'premium'); }
-        else if (pf > (u.equipes[tEsp].finLe || '')) { u.equipes[tEsp].finLe = pf; savePromoUsages(); }
+      const u = tEsp ? (promoUsages[pc] || { n: 0, equipes: {} }) : null;
+      /* Un autre code déjà en cours pour cet espace : on ne l'empile pas. Même règle, même
+         raison qu'à la Tour — deux codes actifs rendent l'échéance réelle illisible. */
+      let autre = '';
+      if (u && !u.equipes[tEsp]) {
+        const auj = new Date().toISOString().slice(0, 10);
+        for (const [c2, u2] of Object.entries(promoUsages || {})) {
+          const eq2 = u2 && u2.equipes && u2.equipes[tEsp];
+          if (c2 !== pc && eq2 && eq2.finLe && eq2.finLe >= auj) { autre = c2; break; }
+        }
       }
+      if (u && !u.equipes[tEsp] && !autre && !(pDef.maxUtilisations && u.n >= pDef.maxUtilisations)) {
+        const dF = new Date(); dF.setMonth(dF.getMonth() + Math.max(1, Number(pDef.mois) || 1));
+        const finLe = dF.toISOString().slice(0, 10);
+        u.n++; u.equipes[tEsp] = { date: new Date().toISOString().slice(0, 10), finLe };
+        promoUsages[pc] = u; savePromoUsages();
+        console.log('code promo du site relayé →', pc, tEsp, 'fin', finLe);
+        mailPromoActive(tEsp, pc, finLe, ['pro', 'business', 'premium'].includes(pDef.formule) ? pDef.formule : 'premium');
+      }
+    } else if (pc) {
+      /* Le code seul, sans l'adresse ni l'espace : savoir qu'un code inconnu a été tenté
+         est utile, savoir PAR QUI ne l'est pas — et ce journal n'est pas le bon endroit. */
+      console.log('code promo du site IGNORÉ (inconnu de config.promos) →', pc);
     }
   } catch (e) {}
   // Nouvelle demande d'application → e-mail au patron (destinataire : config.notifDemandes,

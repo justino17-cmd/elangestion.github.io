@@ -18,8 +18,9 @@ Pas de compilation, pas de bundler. Ce qui est écrit est ce qui est servi.
 
 ## Le serveur
 
-`server/index.js` — environ 3 270 lignes, 80 routes (vérifié le 6 septembre 2026 ; il a
-doublé depuis la première rédaction de cette fiche). Écoute sur `127.0.0.1:8080`,
+`server/index.js` — environ 5 610 lignes, 121 routes (recompté le 11 septembre 2026 ; il a
+doublé, puis redoublé, depuis la première rédaction de cette fiche — se méfier des chiffres
+de cette page plus vieux que quelques jours). Écoute sur `127.0.0.1:8080`,
 **derrière nginx** (d'où `app.set('trust proxy', 1)`).
 
 Dépendances : `express`, `imapflow` + `mailparser` (réception des courriels),
@@ -45,11 +46,14 @@ cd server && npm audit --omit=dev  # failles dans les dépendances de production
 node --check server/index.js       # contrôle de syntaxe, depuis la racine
 ```
 
-**Treize suites dans `tests/`**, sans dépendance ni installation : chacune extrait les fonctions
-réelles d'`app.html` et les exécute — elles testent donc le fichier livré.
+**Quatorze suites dans `tests/`**, sans dépendance ni installation : treize extraient les
+fonctions réelles d'`app.html` et les exécutent — elles testent donc le fichier livré. La
+quatorzième, `test-641.js`, est la seule qui vise `server/` : elle LANCE le vrai serveur,
+isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saute d'elle-même sa
+partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 411 vérifications, ~5 s
+for f in tests/test-*.js; do node "$f"; done   # 451 vérifications, ~8 s
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -106,6 +110,27 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
 
 - Ne jamais committer `config.json`, `.env`, ni le contenu de `.claude-flow/`
 - Ne pas toucher à `/opt/teamop/config.json` depuis le dépôt : il vit sur le VPS
+- ⛔ **Une valeur du CORPS d'une requête ne décide jamais de ce qu'une entreprise a payé.**
+  Un code promo s'active en trois contrôles, et les trois sont obligatoires : le code doit
+  exister dans `config.promos`, l'échéance se **calcule** depuis `p.mois`, `maxUtilisations`
+  se vérifie avant de compter — plus « un seul code à la fois par espace ». Trois chemins les
+  font (`espacePaye()`, `/api/monitor/espaces/promo`, le relais de `/api/clients/sync`) ; le
+  troisième ne les faisait pas, et lisait `promoFin` dans le corps : tout client du portail
+  s'offrait l'abonnement à vie avec `{promoCode:'PEU-IMPORTE', promoFin:'9999-12-31'}`, parce
+  qu'`espacePaye()` relit `promoUsages` sans rien revérifier. Un quatrième chemin un jour fera
+  les trois contrôles ou n'existera pas. `tests/test-641.js` le relit.
+- ⛔ **Le refus de `/api/replies` n'est PAS du JSON.** `loadMailReplies()` (`app.html`) fait
+  `const d = await r.json(); _mailReplies = d.replies||[]` : un refus en JSON se parse sans
+  erreur, la liste devient **vide** au lieu de **nulle**, et l'écran affiche « 📭 Aucun
+  message » — le client ne voit pas une panne, il voit sa correspondance disparue. En
+  `text/plain`, `r.json()` jette, le `catch` met `null`, l'écran dit « Réception
+  indisponible ». Avec `/api/mailboxes`, ces deux routes exigent la preuve de clé
+  (`cleEquipeExige`, monté APRÈS `cleEquipeObserve` qui pose `req.cleEquipe`) : seul le verdict
+  `valide` passe, et `ESPACES_INTOUCHABLES` comme `cleEstPublique(t)` sont refusés — une clé
+  écrite en clair dans `app.html` ne prouve rien quand on la présente. `"mailPreuve": false`
+  dans la configuration du VPS rouvre en un redémarrage ; **l'absence de ce réglage FERME**,
+  jamais l'inverse. Le compteur `mailRefus` de `/health` reste agrégé : `/health` est publique,
+  y nommer un espace dirait au monde quelles entreprises existent.
 - Ne pas modifier l'anti-abus (`server/index.js`) sans relire pourquoi il lit
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
