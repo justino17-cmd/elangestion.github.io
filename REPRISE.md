@@ -106,6 +106,39 @@ Et deux choses écrites noir sur blanc plutôt que corrigées, parce qu'elles se
   pourrait croire acquis. Le fermer demande un identifiant par appareil et une durée de vie
   effective plus courte : à traiter seul.
 
+### Seconde passe — trois choses de plus, dont une qui aurait coûté
+
+- ⛔ **La porte « espace fermé par la Tour » ne désarmait rien.** Elle appelait `espaceQuitter()`
+  puis rechargeait **sans délai**, et le retrait de session passait par le SDK Firebase — qui
+  n'existe que si les trois scripts de Google ont fini de charger dans ce chargement-là. La
+  vérification part à 2,6 s : en 4G c'est une course perdue. Et après elle, `elan_sync_team` a
+  disparu, donc `syncAuth` ne repasse **jamais** pour rattraper. Une entreprise coupée par TEAM
+  OP gardait donc, sur chaque appareil, une session valide et renouvelable en lecture **et
+  écriture** sur son document — exactement ce que le retrait devait empêcher. La session s'efface
+  maintenant **aussi directement dans le stockage de Firebase**, ce qui marche SDK chargé ou non,
+  et seulement la clé d'OP GESTION : la base est partagée avec le portail client. Prouvé au
+  navigateur, SDK non chargé : la session d'équipe part, celle du portail reste.
+- ⛔ **Le compteur « à migrer » ne pouvait pas atteindre zéro.** `cleePropre` rendait `false`
+  aussi bien pour « porte la clé partagée » que pour « code illisible » : un seul espace abîmé
+  et le chiffre restait bloqué pour toujours — or c'est la condition n°3 avant de refermer la
+  règle, et une condition impossible à tenir finit par être ignorée. Il y a désormais **trois
+  états** (`cleEtat` : propre / partagée / inconnue), une seule définition dans tout le serveur,
+  et la Tour les distingue. **C'est ce même défaut qui a fait afficher « 🔓 Clé partagée — à
+  migrer » sur un espace HORS ANNUAIRE, dont le serveur n'a aucun code et ne peut donc rien
+  savoir.** Justin l'a lu comme un constat le 11 septembre au matin ; c'était un artefact.
+- **Travailler en local sans le dire.** Quand les quatre reprises de la synchro s'épuisent sur un
+  refus de permission, l'application continuait en silence : l'équipe voyait des données périmées
+  sans qu'aucun message ne le signale. Le jour de la bascule vers le jeton, ce chemin devient
+  fréquent. Elle le dit maintenant. Travailler hors ligne est une fonctionnalité ; se croire
+  synchronisé sans l'être, non.
+
+Et un point **écrit plutôt que corrigé**, parce que le relecteur avait raison de me contredire :
+les copies de sauvegarde d'une entreprise restée sur la clé partagée exposent **plus** que
+Firestore, pas autant. Firestore ne porte que le dernier état ; les copies gardent une version
+par heure sur 24 h et une par jour sur 30 jours — donc des clients supprimés, des interventions
+archivées, des prix d'avant une renégociation. Retirer le filet à ces entreprises serait pire que
+le mal ; mais ça change la priorité : elles passent en premier, et pas « quand on aura le temps ».
+
 Enfin, `espaceQuitter()` emporte maintenant **la session Firebase**. C'est le secret le plus
 vivant de tous, et il ne vit pas dans `localStorage` : sans ce retrait, un appareil qu'on rend
 ou dont la Tour ferme l'espace gardait un accès lecture **et écriture** valide et renouvelable

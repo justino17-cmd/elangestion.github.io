@@ -6485,7 +6485,18 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
            travailler en local pour TOUTE la session, sans jamais se resynchroniser : l'équipe
            voyait des données périmées sans qu'aucun message ne le signale. On réessaie. */
         if(err && err.code==='permission-denied' && (_syncEssais=(_syncEssais||0)+1)<=4){
-          setTimeout(()=>{ try{ syncInit(); }catch(e){} }, 1200*_syncEssais); } });
+          setTimeout(()=>{ try{ syncInit(); }catch(e){} }, 1200*_syncEssais); return; }
+        /* ⛔ ET QUAND LES QUATRE REPRISES SONT ÉPUISÉES, ON LE DIT. Le commentaire ci-dessus
+           décrivait déjà le mal — « travailler en local toute la session sans qu'aucun message
+           ne le signale » — et la reprise ne le soigne que si elle finit par réussir. Quand
+           elle échoue, l'utilisateur n'avait toujours rien. Le jour de la bascule vers le jeton
+           d'équipe, ce chemin devient fréquent : appareil non migré, création de compte anonyme
+           refusée par un quota, réseau du bureau saturé au même moment. Travailler hors ligne
+           est une fonctionnalité ; le croire synchronisé alors qu'on ne l'est pas, non.
+           Signalé par `gardien`, seconde passe. */
+        if(err && err.code==='permission-denied'){
+          try{ toast('⚠️ Pas de connexion à l\'espace de l\'équipe — ton travail est enregistré sur cet appareil et repartira quand la connexion reviendra',7000); }catch(e){}
+        } });
   }catch(e){ console.error('syncInit',e); _syncOn=false; _syncDemarre=false; } }
 /* Décrit les déplacements d'interventions reçus d'un collègue (planning temps réel) */
 function planSyncDiff(oldDb,newDb,by){ try{
@@ -6966,10 +6977,28 @@ function espaceQuitter(){
      seule : retirer les clés du stockage local n'y change rien, elle vit ailleurs. Sans ce
      retrait, un appareil qu'on rend, qu'on quitte ou dont la Tour ferme l'espace garde un
      accès lecture ET écriture valide sur le document de l'entreprise qu'il vient de quitter.
-     Le cas « l'appareil rejoint ensuite une autre entreprise » était déjà couvert par
-     syncAuth ; celui-ci — l'appareil qui ne rejoint plus rien — ne l'était pas.
-     Signalé par `gardien`, 10 septembre 2026. */
+
+     ⚠️ DEUX RETRAITS, ET LE SECOND EST CELUI QUI COMPTE. Passer par le SDK ne marche que si
+     l'application nommée existe déjà — donc seulement si syncInit a dépassé le chargement des
+     trois scripts de Google dans CE chargement-ci. Sur la porte de la Tour (« espace fermé »),
+     c'est une course perdue d'avance sur un téléphone en 4G : la vérification part à 2,6 s, et
+     après elle `elan_sync_team` a disparu, donc syncAuth ne repassera JAMAIS pour rattraper.
+     On efface donc aussi la session directement dans le stockage de Firebase, ce qui marche
+     que Firebase ait été chargé ou non. Et on n'efface QUE la clé de l'application
+     « opgestion » : la base est partagée avec le portail client (espace.html), vider la base
+     entière déconnecterait le client de son propre espace abonnement.
+     Signalé par `gardien`, 10 septembre 2026, puis précisé en seconde passe. */
   try{ if(window.firebase&&firebase.apps){ const a=firebase.apps.filter(x=>x&&x.name==='opgestion')[0]; if(a&&a.auth) a.auth().signOut(); } }catch(e){}
+  try{
+    const dm=indexedDB.open('firebaseLocalStorageDb');
+    dm.onsuccess=function(){ try{ const d=dm.result;
+      if(!d.objectStoreNames||!d.objectStoreNames.contains('firebaseLocalStorage')){ d.close(); return; }
+      const st=d.transaction('firebaseLocalStorage','readwrite').objectStore('firebaseLocalStorage');
+      const cl=st.getAllKeys();
+      cl.onsuccess=function(){ try{ (cl.result||[]).forEach(function(k){ if(String(k).indexOf(':opgestion')>0) st.delete(k); }); }catch(e){} d.close(); };
+      cl.onerror=function(){ try{ d.close(); }catch(e){} };
+    }catch(e){} };
+  }catch(e){}
 }
 async function teamopLienCheck(){
   let code='';
@@ -7387,7 +7416,12 @@ async function forfaitServeurSync(silencieux){
       espaceQuitter();
       try{ localStorage.removeItem('elan_sync_team'); localStorage.removeItem('elan_sync_secret'); localStorage.removeItem('elan_sync_on'); localStorage.removeItem('elan_entreprise_nom'); localStorage.removeItem('elan_session'); sessionStorage.removeItem('elan_session'); }catch(e){}
       alert('Cet espace a été fermé par TEAM OP.\n\nPour toute question : contact@teamop.fr');
-      location.reload(); return;
+      /* Un délai, comme les deux autres portes — et ici il est indispensable. alert() gèle la
+         boucle d'événements : le retrait de la session Firebase, qui est asynchrone, ne peut
+         s'exécuter qu'APRÈS. Recharger dans la foulée le coupait net, et cette porte est la
+         seule qui ne se rattrape pas au chargement suivant : après elle, `elan_sync_team` a
+         disparu, donc syncAuth ne repasse plus jamais. */
+      setTimeout(()=>location.reload(),400); return;
     }
     /* Les applications ouvertes à cet espace arrivent par le même aller-retour que la formule.
        On le lit AVANT le test sur la formule : un espace sans formule attribuée sortait par le

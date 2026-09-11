@@ -1873,15 +1873,27 @@ function espaceCleOk(t, kh) {
    ⛔ Ne JAMAIS la modifier, ici ou ailleurs : elle déchiffre les données de toutes les
    entreprises qui n'en ont pas reçu d'autre (voir CLAUDE.md, SYNC_SECRET_DEFAULT). */
 const CLE_PAR_DEFAUT = 'ELAN-GESTION-7F3A9C2E-cloud-2026';
-/* Vrai quand l'espace porte encore la clé partagée — donc quand une « preuve de clé » venant
-   de lui ne prouve rien, puisque n'importe qui peut la calculer depuis le fichier public.
-   Rend TOUJOURS un booléen, jamais la clé. Prudent par défaut : un espace inconnu ou un code
-   illisible n'est pas déclaré public, c'est espaceCleOk qui tranche ces cas-là. */
-function cleEstPublique(t) {
-  const e = espaceParT(t); if (!e || !e.code) return false;
-  try { return String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || '') === CLE_PAR_DEFAUT; }
-  catch (err) { return false; }
+/* ⛔ TROIS ÉTATS, PAS DEUX — et c'est la Tour qui l'a appris à ses dépens. Un booléen
+   « a-t-elle sa clé propre ? » confond « non, elle porte la clé partagée » avec « on n'en sait
+   rien » : un espace HORS ANNUAIRE n'a pas de code enregistré, donc pas de clé connue, et il
+   s'affichait pourtant « 🔓 Clé partagée — à migrer ». Justin l'a lu comme un constat le
+   11 septembre 2026, alors que c'était un artefact. Pire, côté chantier : un espace d'annuaire
+   au code illisible se compte « à migrer » pour toujours, donc le compteur ne peut plus
+   atteindre zéro — et une condition impossible à remplir finit par être ignorée.
+   Une seule fonction rend l'état, tout le reste en dérive. */
+function cleEtat(e) {
+  if (!e || !e.code) return 'inconnue';
+  let k = ''; try { k = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); } catch (err) { return 'inconnue'; }
+  if (!k) return 'inconnue';
+  return k === CLE_PAR_DEFAUT ? 'partagee' : 'propre';
 }
+/* Vrai quand l'espace porte encore la clé partagée — donc quand une « preuve de clé » venant de
+   lui ne prouve rien, puisque n'importe qui peut la calculer depuis le fichier public.
+   ⚠️ OUVERTE PAR DÉFAUT, ET C'EST L'ORDRE D'APPEL QUI LA REND SÛRE : un espace inconnu ou un
+   code illisible rend `false`, c'est-à-dire « laisse passer ». Ce n'est acceptable que parce
+   que `sauvRefus` tranche AVANT — 404 sur l'espace inconnu, 403 sur le code illisible.
+   ⛔ Ne jamais l'appeler seule, sans cette garde devant. */
+function cleEstPublique(t) { return cleEtat(espaceParT(t)) === 'partagee'; }
 app.post('/api/monitor/compte/supprimer', monPatronStrict, async (req, res) => {
   const b = req.body || {};
   const t = monStr(b.t, 80), login = monStr(b.login, 40).toLowerCase().trim();
@@ -2086,16 +2098,11 @@ app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
      sert que pour RÉPONDRE À UNE QUESTION : cet espace a-t-il sa propre clé, ou partage-t-il
      celle que tout le monde peut lire ? ⛔ Ne JAMAIS la modifier, ici ou ailleurs : elle
      déchiffre les données de toutes les entreprises qui n'en ont pas reçu d'autre. */
-  /* Vrai quand l'espace porte une clé qui n'est PAS la clé partagée. On rend un booléen,
-     jamais la clé : cette route est en monAdmin, un cran sous le patron.
-     La constante et le test vivent maintenant en haut du fichier (cleEstPublique), à côté
-     d'espaceCleOk : la route du jeton d'équipe s'en sert pour REFUSER ces espaces, et deux
-     définitions de « cet espace est-il encore sur la clé partagée » finiraient par diverger
-     — le compteur de la Tour dirait une chose et la porte en ferait une autre. */
-  const cleePropre = (e) => {
-    if (!e || !e.code) return false;
-    try { const k = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).k || ''); return !!k && k !== CLE_PAR_DEFAUT; } catch (err) { return false; }
-  };
+  /* Une SEULE définition de l'état d'une clé dans tout le fichier (cleEtat, en haut, à côté
+     d'espaceCleOk) : la route du jeton d'équipe s'en sert pour REFUSER les espaces restés sur
+     la clé partagée, et deux définitions finiraient par diverger — le compteur de la Tour
+     dirait une chose et la porte en ferait une autre. On rend l'ÉTAT, jamais la clé : cette
+     route est en monAdmin, un cran sous le patron. */
   const vus = new Set(); const liste = [];
   const pousser = (t, slug, e) => {
     if (!t || vus.has(t)) return; vus.add(t);
@@ -2114,7 +2121,8 @@ app.get('/api/monitor/entreprises', monAdmin, (req, res) => {
       opMessages: !!(e && e.opMessages),
       /* La question qui décide du chantier « un teamId par entreprise » : celles qui ont déjà
          leur clé n'ont rien à migrer. Booléen seulement — la clé ne sort pas d'ici. */
-      cleePropre: cleePropre(e),
+      cleePropre: cleEtat(e) === 'propre',
+      cleEtat: cleEtat(e),   // 'propre' | 'partagee' | 'inconnue' — la Tour ne doit plus confondre les deux derniers
       suspendu: entFermes.espaces.includes(t),
       promo: promoPar[t] || null,
       metier: (cli && cli.metier) || '',

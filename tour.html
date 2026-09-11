@@ -5255,9 +5255,12 @@ function vueEntreprises(){
      déployée d'app.html, et déduire la référence de la liste évite d'attendre une route. */
   var refKpi=verReference();
   var enRetard=(ENT.liste||[]).filter(function(o){ return verEtat(o,refKpi).retard; }).length;
-  /* On ne compte QUE les espaces d'annuaire : un espace hors annuaire n'a pas de code, donc
-     pas de clé connue — le compter « à migrer » ferait un chiffre qui ne descend jamais. */
-  var aMigrer=(ENT.liste||[]).filter(function(x){ return x.dansAnnuaire && !x.cleePropre; }).length;
+  /* On ne compte que les espaces dont la clé est RÉELLEMENT connue et RÉELLEMENT partagée.
+     Le test d'avant — « dans l'annuaire ET pas de clé propre » — comptait aussi les codes
+     illisibles : un seul suffisait pour que ce chiffre ne descende jamais à zéro, et une
+     condition impossible à remplir finit par être ignorée. Or c'est la condition n°3 avant de
+     refermer la règle Firestore (voir firestore.rules). Elle doit pouvoir être tenue. */
+  var aMigrer=(ENT.liste||[]).filter(function(x){ return x.cleEtat==='partagee'; }).length;
   var kpi='<div class="grille-kpi simple" style="--kpi-min:170px;margin-bottom:20px">'+
     compteur(st.total||0,'entreprises connues','','')+
     compteur(st.avecErreurs||0,'erreurs signalées','--redText','erreurs')+
@@ -5279,7 +5282,7 @@ function vueEntreprises(){
     if(ENT.filtre==='echecs') return o.echecs24>0;
     if(ENT.filtre==='horsAnnuaire') return !o.dansAnnuaire;
     if(ENT.filtre==='retard') return verEtat(o,refFiltre).retard;
-    if(ENT.filtre==='migrer') return o.dansAnnuaire && !o.cleePropre;
+    if(ENT.filtre==='migrer') return o.cleEtat==='partagee';   // même définition que le compteur, une seule
     return true;
   };
   var l=(ENT.liste||[]).filter(function(o){
@@ -5634,9 +5637,16 @@ function ficheEntreprise(){
               : '🎁 <b class="mono">'+esc(o.promo.code)+'</b> — <span class="g">terminé le '+esc(o.promo.finLe)+'</span>')
           : '<span class="g">aucun</span>')+
         fait('OP MESSAGES',o.opMessages?'<span class="past p-vert">ouvert</span>':'<span class="past p-gris">fermé</span>')+
-        fait('Chiffrement',o.cleePropre
-          ? '<span class="past p-vert">🔐 Clé propre</span> <span class="g">ses données ne se déchiffrent qu’avec sa clé à elle — rien à migrer</span>'
-          : '<span class="past p-ambre">🔓 Clé partagée</span> <span class="g">celle qui est écrite en clair dans app.html — à migrer</span>')+
+        /* ⛔ TROIS ÉTATS, PAS DEUX. Ce champ n'affichait qu'un booléen : un espace HORS
+           ANNUAIRE, dont le serveur n'a aucun code enregistré et donc aucune clé connue,
+           s'affichait « 🔓 Clé partagée — à migrer ». Justin l'a lu comme un constat le
+           11 septembre 2026 alors que c'était un artefact du `false`. On ne fait pas dire à
+           une absence d'information ce qu'elle ne dit pas. */
+        fait('Chiffrement',{
+          propre:'<span class="past p-vert">🔐 Clé propre</span> <span class="g">ses données ne se déchiffrent qu’avec sa clé à elle — rien à migrer</span>',
+          partagee:'<span class="past p-ambre">🔓 Clé partagée</span> <span class="g">celle qui est écrite en clair dans app.html — à migrer</span>',
+          inconnue:'<span class="past p-gris">❔ Clé inconnue</span> <span class="g">espace hors annuaire : le serveur n’a pas son code, il ne peut pas savoir. Ni « à migrer », ni « en règle ».</span>'
+        }[o.cleEtat||(o.cleePropre?'propre':'inconnue')])+
       '</div></div>'+
   '</div>'+
   /* Chaque bloc devient une carte de la grille. Sur 1100 px et plus, deux colonnes ;

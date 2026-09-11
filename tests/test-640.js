@@ -83,11 +83,33 @@ console.log('\nLa route ne délivre rien sans preuve, et jamais pour le repli');
      fois fermée se refermerait sur tout le monde SAUF sur la population la plus exposée. */
   v('elle refuse un espace encore sur la clé PARTAGÉE, pas seulement l\'espace de repli',
     /if \(cleEstPublique\(t\)\) return res\.status\(409\)/.test(route),true);
-  const pub=(SRV.match(/function cleEstPublique\(t\) \{[\s\S]*?\n\}/)||[''])[0];
-  v('cleEstPublique compare la VALEUR de la clé, et ne la rend jamais',
-    [/=== CLE_PAR_DEFAUT/.test(pub),/return (true|false)/.test(pub),!/return .*\bk\b\s*;/.test(pub)],[true,true,true]);
-  v('une seule définition de « encore sur la clé partagée » dans tout le serveur',
-    (SRV.match(/CLE_PAR_DEFAUT = '/g)||[]).length,1);
+  /* ⛔ TROIS ÉTATS, PAS DEUX. Un booléen « a-t-elle sa clé propre ? » confond « non, elle
+     porte la clé partagée » avec « on n'en sait rien ». Deux dégâts, tous deux constatés :
+     un espace HORS ANNUAIRE s'affichait « 🔓 Clé partagée — à migrer » dans la Tour alors que
+     le serveur n'a aucun code pour lui — Justin l'a lu comme un constat le 11 septembre 2026 ;
+     et un espace d'annuaire au code illisible se comptait « à migrer » POUR TOUJOURS, donc le
+     compteur ne pouvait plus atteindre zéro — or c'est la condition n°3 avant de refermer la
+     règle Firestore, et une condition impossible à tenir finit par être ignorée. */
+  const etat=new Function('CLE_PAR_DEFAUT',(SRV.match(/function cleEtat\(e\) \{[\s\S]*?\n\}/)||[''])[0]+'\nreturn cleEtat;')('ELAN-GESTION-7F3A9C2E-cloud-2026');
+  const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64');
+  v('clé à elle → « propre »',etat({code:b64({k:'sa-cle-a-elle'})}),'propre');
+  v('clé écrite en clair dans app.html → « partagee »',etat({code:b64({k:'ELAN-GESTION-7F3A9C2E-cloud-2026'})}),'partagee');
+  v('hors annuaire (aucun code) → « inconnue », surtout pas « partagee »',[etat(null),etat({})],['inconnue','inconnue']);
+  v('code illisible → « inconnue », pour que le compteur puisse descendre à zéro',etat({code:'pas-du-base64-valide!!'}),'inconnue');
+  v('clé vide → « inconnue »',etat({code:b64({k:''})}),'inconnue');
+  v('cleEstPublique n\'est que « l\'état vaut partagee », pas une seconde définition',
+    /function cleEstPublique\(t\) \{ return cleEtat\(espaceParT\(t\)\) === 'partagee'; \}/.test(SRV),true);
+  v('une seule définition de la clé partagée, et une seule de l\'état',
+    [(SRV.match(/CLE_PAR_DEFAUT = '/g)||[]).length,(SRV.match(/function cleEtat\(/g)||[]).length],[1,1]);
+  v('son commentaire dit la VÉRITÉ : ouverte par défaut, sûre par l\'ordre d\'appel',
+    /OUVERTE PAR DÉFAUT, ET C'EST L'ORDRE D'APPEL QUI LA REND SÛRE/.test(SRV),true);
+  /* La Tour doit lire les trois états, sinon elle remet le mensonge en place. */
+  const TOUR=fs.readFileSync(RAC+'/tour.html','utf8');
+  v('la Tour distingue « clé inconnue » de « clé partagée »',/❔ Clé inconnue/.test(TOUR),true);
+  v('son compteur « à migrer » ne compte QUE ce qui est vraiment partagé',
+    /x\.cleEtat==='partagee'/.test(TOUR),true);
+  v('et son filtre dit la même chose que son compteur',
+    (TOUR.match(/cleEtat==='partagee'/g)||[]).length,2);
   v('un jeton ne se met en cache nulle part en chemin',/Cache-Control', 'no-store'/.test(route),true);
   v('sans clé d\'administration, elle le dit au lieu de fabriquer n\'importe quoi',
     /firebase_off/.test(route),true);
@@ -129,9 +151,25 @@ console.log('\nCôté application : le jeton s\'essaie, mais rien ne casse s\'il
     auth.indexOf('fbJetonEquipe()')>auth.indexOf('if(!cl)'),true);
   /* La session Firebase est le secret le plus VIVANT : elle se renouvelle indéfiniment toute
      seule. Un appareil qu'on rend ou dont la Tour ferme l'espace la garderait sinon. */
-  const quitter=(APP.match(/function espaceQuitter\(\)\{[\s\S]*?\n\}/)||[''])[0];
+  const quitter=(APP.match(/function espaceQuitter\(\)\{[\s\S]*?\n\}\n(?=(?:async function |function |const |let |\/\*))/)||[''])[0];
   v('quitter un espace emporte AUSSI la session Firebase',
     /name==='opgestion'\)\[0\]; if\(a&&a\.auth\) a\.auth\(\)\.signOut\(\)/.test(quitter),true);
+  /* ⛔ ET PAR LE STOCKAGE, PAS SEULEMENT PAR LE SDK. L'application nommée n'existe que si
+     syncInit a dépassé le chargement des trois scripts de Google DANS CE CHARGEMENT-CI. Sur
+     la porte de la Tour (« espace fermé »), la vérification part à 2,6 s : en 4G c'est une
+     course perdue d'avance, et après elle `elan_sync_team` a disparu — donc syncAuth ne
+     repassera JAMAIS pour rattraper. Une entreprise coupée par TEAM OP gardait ainsi, sur
+     chaque appareil, une session valide et renouvelable en lecture ET écriture sur son
+     document. Trouvé par `gardien` en seconde passe. */
+  v('…et directement dans le stockage de Firebase, qui marche même si le SDK n\'est pas chargé',
+    /indexedDB\.open\('firebaseLocalStorageDb'\)/.test(quitter),true);
+  v('en n\'effaçant QUE la clé d\'OP GESTION — la base est partagée avec le portail client',
+    /indexOf\(':opgestion'\)>0\) st\.delete\(k\)/.test(quitter),true);
+  v('la porte de la Tour laisse le temps à ce retrait de s\'exécuter',
+    /setTimeout\(\(\)=>location\.reload\(\),400\); return;/.test(APP),true);
+  /* Travailler hors ligne est une fonctionnalité ; se croire synchronisé sans l'être, non. */
+  v('et quand les quatre reprises sont épuisées, l\'utilisateur l\'apprend',
+    /Pas de connexion à l\\?'espace de l\\?'équipe/.test(APP),true);
 }
 
 console.log('\nLa règle Firestore n\'a PAS changé — et c\'est l\'ordre qui protège');
