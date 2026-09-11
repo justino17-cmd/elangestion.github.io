@@ -77,15 +77,16 @@ console.log('\n/api/replies et /api/mailboxes exigent la preuve de la clé d\'é
      cleEquipeObserve pose. Monté avant lui, il refuserait tout le monde. */
   v('et APRÈS le compteur qui pose req.cleEquipe',
     SRV.indexOf('], cleEquipeObserve);') < SRV.indexOf('], cleEquipeExige);'), true);
-  /* ⛔ LA PORTE EST POSÉE MAIS OUVERTE, ET C'EST VOULU — voir le long commentaire du
-     serveur. `gardien` a montré le 11 septembre que le refus faisait afficher « Connecte ta
-     boîte mail » et son bouton : on ne ferme qu'une fois la v641 publiée ET exigée. Le test
-     l'exerce dans les DEUX positions, plus bas, sur un vrai serveur.
-     `!== true` et non `=== false` : seul le booléen true ferme. Une configuration où
-     quelqu'un écrirait "true", 1 ou "oui" laisse la porte ouverte — c'est le sens prudent
-     ici, l'inverse de d'habitude, parce que fermer par accident casse des clients. */
-  v('la fermeture tient à un seul réglage, et il faut le booléen true',
-    /if \(config\.mailPreuveExigee !== true\) return next\(\);/.test(SRV), true);
+  /* ⛔ LE DÉFAUT EST « FERMÉ », ET IL FAUT LE BOOLÉEN false POUR ROUVRIR. Il a été
+     « ouvert » une demi-journée, délibérément, le temps que la v641 soit publiée ET exigée :
+     un refus ne se montre pas tout seul, il fallait d'abord que l'écran sache le dire. Le
+     renversement a été fait après vérification en production (403 sur les deux routes,
+     `mailRefus` ne portant que mes propres essais). Une réinstallation ne peut plus rouvrir
+     la porte en silence : `install.sh` pose le réglage, ET l'absence de réglage ferme. */
+  v('le défaut du code est FERMÉ — seul le booléen false rouvre',
+    /if \(config\.mailPreuveExigee === false\) return next\(\);/.test(SRV), true);
+  v('et l\'installeur pose le réglage sur une configuration neuve',
+    /"mailPreuveExigee": true,/.test(fs.readFileSync(path.join(RACINE, 'server', 'install.sh'), 'utf8')), true);
   v('…et le commentaire dit l\'ordre : les appareils d\'abord, la porte ensuite',
     /LES APPAREILS\s+D'ABORD, LA PORTE ENSUITE/.test(SRV), true);
 }
@@ -182,8 +183,8 @@ function stop() { try { if (enfant && enfant.pid) process.kill(enfant.pid); } ca
   /* Deux configurations : celle du banc FERME la porte (c'est ce qu'on veut éprouver), et
      une seconde SANS le réglage sert à vérifier que la version publiée, elle, laisse passer. */
   const cfg = { vapidPublicKey: vap.publicKey, vapidPrivateKey: vap.privateKey, apiKey: 'banc' };
-  fs.writeFileSync(path.join(banc, 'config.json'), JSON.stringify(Object.assign({ mailPreuveExigee: true }, cfg)));
-  fs.writeFileSync(path.join(banc, 'config-defaut.json'), JSON.stringify(cfg));
+  fs.writeFileSync(path.join(banc, 'config.json'), JSON.stringify(cfg));                                  // SANS réglage → fermé
+  fs.writeFileSync(path.join(banc, 'config-defaut.json'), JSON.stringify(Object.assign({ mailPreuveExigee: false }, cfg)));   // le secours
   fs.writeFileSync(path.join(banc, 'data', 'espaces.json'), JSON.stringify({
     'entreprise-a': { slug: 'entreprise-a', nom: 'A', email: 'a@exemple.fr', t: 'ent-a-9x', code: b64({ t: 'ent-a-9x', k: CLE_A }), ts: 1 },
     'entreprise-b': { slug: 'entreprise-b', nom: 'B', email: 'b@exemple.fr', t: 'ent-b-7y', code: b64({ t: 'ent-b-7y', k: CLE_PARTAGEE }), ts: 2 },
@@ -245,11 +246,11 @@ function stop() { try { if (enfant && enfant.pid) process.kill(enfant.pid); } ca
     r = await q('/api/replies?teamId=espace-hors-annuaire', { 'x-teamop-kh': kh(CLE_A) });
     v('espace hors annuaire : invérifiable, donc refusé', r.statut, 403);
 
-    /* ⛔ ET LA POSITION DANS LAQUELLE ÇA PART : OUVERT. Sans ce contrôle, la suite dirait
-       « tout va bien » alors que la porte publiée ne refuse rien — on se croirait protégé.
-       Un second serveur, même code, configuration SANS le réglage : il doit laisser passer,
-       exactement comme la v641 qu'on déploie. Le jour où Justin posera
-       « mailPreuveExigee »: true, c'est CE test-là qui devra être retourné. */
+    /* ⛔ ET L'INTERRUPTEUR DE SECOURS DOIT MARCHER, sinon on ne peut plus rouvrir si l'une
+       des quatre conditions redevient fausse (une entreprise remise sur le repli, un parc
+       bloqué en version ancienne). Un second serveur, même code, avec
+       « mailPreuveExigee »: false : il doit laisser passer. Sans ce contrôle, la seule
+       porte de sortie tiendrait sur une lecture de code, pas sur une mesure. */
     const PORT2 = PORT + 1;
     const enf2 = spawn(process.execPath, [path.join(RACINE, 'server', 'index.js')], {
       env: Object.assign({}, process.env, { TEAMOP_CONFIG: path.join(banc, 'config-defaut.json'), TEAMOP_DATA: path.join(banc, 'data'), PORT: String(PORT2) }),
@@ -258,7 +259,7 @@ function stop() { try { if (enfant && enfant.pid) process.kill(enfant.pid); } ca
       const B2 = 'http://127.0.0.1:' + PORT2;
       for (let i = 0; i < 60; i++) { try { await fetch(B2 + '/health'); break; } catch (e) { await new Promise(r => setTimeout(r, 100)); } }
       const r2 = await fetch(B2 + '/api/replies?teamId=ent-a-9x');
-      v('sans le réglage, la porte est OUVERTE — c\'est ce qui est publié aujourd\'hui', r2.status, 200);
+      v('« mailPreuveExigee »: false rouvre — le secours fonctionne', r2.status, 200);
       const r3 = await fetch(B2 + '/api/mailboxes?teamId=ent-a-9x');
       v('les boîtes aussi', r3.status, 200);
     } finally { try { if (enf2.pid) process.kill(enf2.pid); } catch (e) {} }
