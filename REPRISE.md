@@ -704,6 +704,15 @@ sélecteur simple ne la bat pas — il faut le co-sélecteur `html[data-refonte]
 
 ### L'identité d'un produit — v633 (fusion) puis v634 (création)
 
+> ✅ **CLOS LE 11 SEPTEMBRE 2026 : Justin a fusionné les doublons d'ELAN.** Les deux causes
+> étaient refermées depuis la v634, mais un correctif empêche le mal, il ne range pas derrière
+> lui — les fiches déjà créées restaient dans la base jusqu'à un geste. Ce geste attendait
+> **une seule chose** : que plus aucun appareil en vieille version ne puisse écrire, sinon le
+> doublon revenait en ligne orpheline après la synchro (mesuré : 6+4, orphelin `advion_b`).
+> C'est la v641 exigée depuis la Tour — `teamop_config/version.min` = 641 **dans Firestore** —
+> qui l'a rendu sûr. **La leçon, pour la prochaine fois qu'un correctif laisse des dégâts
+> derrière lui : fermer la cause ne suffit pas, il faut dire QUI range l'existant et QUAND.**
+
 Les 110 doublons vus chez ELAN le 10 septembre avaient DEUX causes, refermées l'une après l'autre.
 
 **v633 — la fusion perdait du stock.** `produitsFusionnerDoublons()` supprimait les DEUX fiches quand
