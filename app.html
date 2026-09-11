@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '661';
+const APP_VERSION = '662';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6260,6 +6260,11 @@ let _syncEssais=0;
 let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
 let _allegeDit=0;   // combien de pièces l'allègement a laissées sur cet appareil la dernière fois qu'on l'a dit (voir syncAlleger)
 let _fbFileSaturee=false;   /* la file d'écriture Firestore a saturé : une seule reprise par chargement (voir syncPush) */
+/* Le bouton « Synchroniser » de la barre du haut a été touché : il attend une réponse, pas une
+   promesse. Voir syncNow() — il annonçait « Synchronisé avec l'équipe » AVANT que quoi que ce
+   soit soit parti, et disait donc exactement la même chose pendant que le quota Firebase
+   bloquait toutes les écritures (11 septembre 2026). */
+let _pushManuel=false;
 /* Version minimale exigée par TeamOP (Tour de contrôle). Et une décision sans option : l'application
    ne travaille QU'EN LIGNE (Justin, 9 septembre 2026 : « le mode hors ligne crée trop de problèmes,
    on l'oublie complètement »). La v616 gardait un interrupteur d'urgence dans la Tour ; il est retiré
@@ -6922,9 +6927,13 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
        ce qui est pire que de n'avoir rien dit. Une alerte qui ne sait pas se démentir est une
        alerte qu'on finit par ignorer. */
     _ecriture.then(()=>{ _acquitte=true;
+      /* Un seul message : le démenti de l'alerte passe devant, il en dit plus que la simple
+         confirmation. Deux bandeaux coup sur coup au même endroit ne se lisent pas. */
       if(_alerte){ try{ toast('✅ C\'est parti — l\'équipe a bien reçu tes modifications',5000); }catch(_e){} }
+      else if(_pushManuel){ try{ toast('✅ Synchronisé avec l\'équipe',4000); }catch(_e){} }
+      _pushManuel=false;
       try{ sauvegardeDeposer(e); }catch(_e){} })
-      .catch(er=>{ _acquitte=true; console.error('push',er);
+      .catch(er=>{ _acquitte=true; _pushManuel=false; console.error('push',er);
         /* L'écriture n'a PAS eu lieu : le repère ne doit pas rester en avant, sinon on ignore
            les publications de toute l'équipe (voir le bloc ⛔ au-dessus de `_tsAvant`). */
         try{ if(_syncTs===ts) _syncTs=_tsAvant; }catch(_e){}
@@ -29644,7 +29653,12 @@ function toggleTheme(ev){
 }
 /* Bouton Synchroniser (barre du haut) */
 function syncNow(){ const b=$('sync-btn'); if(b){ b.classList.add('spin'); setTimeout(()=>{ const x=$('sync-btn'); if(x) x.classList.remove('spin'); },1200); }
-  if(_syncOn){ syncPush(true); toast('Synchronisé avec l\'équipe'); }
+  /* ⛔ ON N'ANNONCE PAS UN RÉSULTAT QU'ON N'A PAS. syncPush() n'est pas attendue : le message
+     partait dans la foulée de l'appel, donc il disait « Synchronisé avec l'équipe » aussi bien
+     quand l'écriture passait que quand elle restait bloquée — et c'est précisément ce qu'il a
+     dit toute la soirée du 11 septembre 2026 pendant que le quota Firebase refusait tout.
+     On dit ce qu'on fait, et c'est l'accusé de réception qui dira que c'est fait. */
+  if(_syncOn){ _pushManuel=true; syncPush(true); toast('Envoi à l\'équipe…',1800); }
   else if(typeof syncEnabled==='function' && syncEnabled()){ syncInit().then(()=>toast('Reconnexion à l\'équipe…')); }
   else { toast('Active la synchro temps réel dans Paramètres'); go('parametres'); } }
 function updateSyncBtn(){ const b=$('sync-btn'); if(!b) return; b.style.color=_syncOn?'var(--acc)':''; b.title=_syncOn?'Synchro temps réel active — toucher pour forcer':'Synchroniser'; }

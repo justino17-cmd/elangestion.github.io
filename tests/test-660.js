@@ -72,4 +72,28 @@ v('la fenêtre de lecture atteint bien l’accusé de réception', bloc.indexOf(
   v('l’accusé de réception dépose toujours la copie de sauvegarde', /sauvegardeDeposer\(e\)/.test(bloc), true);
 }
 
+/* ── AJOUT v662 : le bouton « Synchroniser » de la barre du haut ────────────────────────────
+   Le 11 septembre 2026 au soir, pendant que le quota Firebase refusait TOUTES les écritures,
+   ce bouton affichait « Synchronisé avec l'équipe » à chaque pression. Il ne mentait pas par
+   erreur : il annonçait le résultat sans l'attendre — `syncPush(true)` n'est pas awaitée, et le
+   toast partait dans la foulée de l'appel. Même défaut que l'alerte du dessus, dans l'autre
+   sens : l'une n'a jamais dit que c'était passé, l'autre l'a toujours dit.
+   Il annonce maintenant l'ACTION, et c'est l'accusé de réception qui annonce le RÉSULTAT. */
+{
+  const iN = APP.indexOf('function syncNow()');
+  const fn = APP.slice(iN, iN + 900);
+  v('⛔ le bouton n’annonce plus un résultat qu’il n’a pas',
+    /toast\('Synchronisé avec l\\'équipe'\);/.test(fn), false);
+  v('il dit ce qu’il fait', /_pushManuel=true; syncPush\(true\); toast\('Envoi à l\\'équipe…',1800\);/.test(fn), true);
+  v('⛔ et c’est l’accusé de réception qui confirme',
+    /else if\(_pushManuel\)\{ try\{ toast\('✅ Synchronisé avec l\\'équipe',4000\); \}catch\(_e\)\{\} \}/.test(bloc), true);
+  /* Deux bandeaux au même endroit ne se lisent pas : le démenti de l'alerte passe devant,
+     il en dit plus. Le `else if` est donc la forme JUSTE, pas un raccourci d'écriture. */
+  v('un seul message : le démenti passe devant la confirmation',
+    bloc.indexOf("if(_alerte){") < bloc.indexOf("else if(_pushManuel)"), true);
+  v('le drapeau retombe sur l’accusé de réception', /_pushManuel=false;\n      try\{ sauvegardeDeposer/.test(bloc), true);
+  v('⛔ et il retombe aussi quand l’écriture échoue', /\.catch\(er=>\{ _acquitte=true; _pushManuel=false;/.test(bloc), true);
+  v('le drapeau part à faux', /^let _pushManuel=false;$/m.test(APP), true);
+}
+
 console.log('\n' + ok + ' ✓  ' + ko + ' ✗'); process.exit(ko ? 1 : 0);
