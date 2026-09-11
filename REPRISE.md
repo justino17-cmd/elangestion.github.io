@@ -13,6 +13,53 @@ de ligne du tout.
 
 ---
 
+## v642 — le semis de démonstration entrait chez un client
+
+Signalé par Justin le 11 septembre à midi, sur ELAN : « Mes demandes » affichait
+`DC-2026-001` · « Cuisine — Restaurant Le Gourmet », **deux fois**. Ce n'était ni la bêta ni la
+simulation d'essai — les deux ont été éliminées par mesure avant d'aller plus loin (la bêta
+écrit dans `elanB_teams`, une autre collection : elle ne PEUT pas polluer une base de
+production ; et le bandeau de simulation ne se rend pas hors bêta).
+
+**C'est le semis, et il tenait à un ET manquant.** `load()` fait « pas de base → `seed()` », et
+le drapeau `elan_vierge_v1` ne vide qu'**une fois dans la vie de l'appareil**. Les deux ensemble
+sont sûrs tant que « pas de base » veut dire « appareil neuf ». C'est faux : une base disparaît
+aussi sur un appareil qui a servi — écriture refusée faute de place, stockage nettoyé par le
+navigateur, profil recréé. Le drapeau reste, la base est partie, le semis s'installe.
+
+Reproduit au navigateur sur le fichier livré, en posant l'état exact — drapeau présent, base
+absente, appareil rattaché :
+
+| | avant | après |
+|---|---|---|
+| produits | **160** | 0 |
+| box de démonstration | **2** | 0 |
+| devis / factures / fournisseurs | **2 / 2 / 5** | 0 / 0 / 0 |
+
+La synchro étant une UNION, tout part chez toute l'équipe ; et comme `uid()` change à chaque
+passage, un second rejeu **ajoute** une copie au lieu de la remplacer — d'où les deux lignes
+rigoureusement identiques de la capture.
+
+**La garde ne touche pas au drapeau**, qui garde son rôle : elle resserre la CONDITION du semis.
+Il n'a de sens que sur un appareil qui n'appartient à personne — rattaché à une entreprise, les
+données viennent de la synchro ; déjà utilisé, elles viennent de sa base. Dans les deux cas une
+base vide est la bonne réponse.
+
+⚠️ **Le contre-test compte autant** : une garde qui bloque tout ne vaut rien. Les trois cas sont
+joués au navigateur — appareil vraiment neuf → 160 produits et 2 box (la découverte est
+intacte) ; rattaché → 0 ; déjà utilisé → 0. 6 ✓ 0 ✗.
+
+**Ce que ça ne fait PAS** : nettoyer ce qui est déjà entré chez ELAN. Le correctif arrête la
+cause, il ne range pas derrière lui — même leçon que les doublons. À retirer à la main :
+2 box (« Cuisine — Restaurant Le Gourmet », « Réserve — Boulangerie Au Bon Pain »), les
+demandes `DC-2026-001`, et les devis/factures/fournisseurs de démonstration.
+
+**Reste ouvert** : « impossible d'ajouter un produit dans une box » chez ELAN. Mesuré sur une
+base polluée par le semis, `boxPoserProduits` fonctionne et la page ne lève aucune erreur — la
+cause est donc AILLEURS, et pas encore observée. Ne rien corriger tant qu'elle ne l'est pas.
+
+---
+
 ## Serveur, 11 septembre 2026 — quatre portes que l'audit avait trouvées ouvertes
 
 Un push sur `main` qui touche `server/**` redéploie le VPS tout seul. **L'ordre compte ici :

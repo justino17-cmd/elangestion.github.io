@@ -47,14 +47,14 @@ cd server && npm audit --omit=dev  # failles dans les dépendances de production
 node --check server/index.js       # contrôle de syntaxe, depuis la racine
 ```
 
-**Quatorze suites dans `tests/`**, sans dépendance ni installation : treize extraient les
+**Quinze suites dans `tests/`**, sans dépendance ni installation : treize extraient les
 fonctions réelles d'`app.html` et les exécutent — elles testent donc le fichier livré. La
 quatorzième, `test-641.js`, est la seule qui vise `server/` : elle LANCE le vrai serveur,
 isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saute d'elle-même sa
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 502 vérifications, 2,1 s (mesuré)
+for f in tests/test-*.js; do node "$f"; done   # 509 vérifications, 2,2 s (mesuré)
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -339,6 +339,20 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   base64 (donc « corrigé » par une relecture consciencieuse). **Le piège se referme dans les
   deux sens.** Changer ces valeurs n'est pas un renommage : c'est un déménagement de données
   chiffrées, qui se conçoit, se teste et se publie seul.
+- ⛔ **Le semis de démonstration ne charge QUE sur un appareil qui n'appartient à personne.**
+  `load()` fait « pas de base → `seed()` », et le drapeau `elan_vierge_v1` ne vide QU'UNE FOIS
+  dans la vie de l'appareil. Les deux ensemble sont sûrs tant que « pas de base » veut dire
+  « appareil neuf » — **ce qui est faux** : une base disparaît aussi sur un appareil qui a servi
+  (écriture refusée faute de place, stockage nettoyé, profil recréé). Constaté chez ELAN le
+  11 septembre 2026, capture à l'appui : `DC-2026-001` · « Cuisine — Restaurant Le Gourmet »
+  dans « Mes demandes », deux fois. Reproduit au navigateur : 160 produits, 2 box de
+  démonstration, 2 devis, 2 factures, 5 fournisseurs entrent dans la base du client, et la
+  synchro — une UNION — les répand dans toute l'entreprise ; `uid()` changeant à chaque passage,
+  un second rejeu AJOUTE une copie au lieu de la remplacer. La garde est
+  `if(neuve && (APPAREIL_DEJA_VU || espaceRattache()))` : **on ne touche pas au drapeau**, on
+  resserre la CONDITION du semis. ⚠️ Le contre-test compte autant — un appareil vraiment neuf
+  doit toujours recevoir la démonstration, sinon personne ne peut plus découvrir l'application.
+  `tests/test-642.js` et les deux sondes du scratchpad tiennent les trois cas.
 - **Ne pas renommer les clés de stockage `elan_*` à la légère.** `elan_vierge_v1` en
   particulier : si ce drapeau manque, `load()` vide 28 collections d'une base pleine,
   l'enregistre, et la synchro propage le vide à tous les appareils de l'entreprise. Neuf
