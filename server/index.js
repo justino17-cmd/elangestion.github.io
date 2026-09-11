@@ -144,7 +144,7 @@ const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
    requêtes par minute et par IP, or ce dépôt part de chaque appareil qui se connecte —
    toute une équipe qui arrive le matin derrière la même box les épuiserait. Il est déjà
    borné par son quota horaire à lui, il exige la clé d'équipe, et il coûte peu. */
-const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|espaces\/(ouvrir|connexion|relance|libre))/;
+const ROUTES_SENSIBLES = /^\/api\/(stripe|devis|sendcode|mdp|beta|promo|espaces\/(ouvrir|connexion|relance|libre))/;
 
 let compteurs = new Map();
 setInterval(() => { compteurs = new Map(); }, 60000).unref();
@@ -537,13 +537,39 @@ app.use(['/api/replies', '/api/mailboxes', '/api/mailbox/connect', '/api/mailbox
    correspondance disparue. En text/plain, r.json() jette, le catch met _mailReplies à null,
    et l'écran dit « 📥 Réception indisponible ». Sans toucher à app.html.
 
-   L'INTERRUPTEUR DE SECOURS : « "mailPreuve": false » dans /opt/teamop/config.json rouvre
-   les deux routes après un `systemctl restart teamop-api` — dix secondes, sans publication.
-   Il est absent par défaut, donc la porte est FERMÉE par défaut : une configuration qu'on
-   oublie de mettre à jour ne rouvre rien. À n'utiliser que le temps de comprendre, et le
-   compteur `mailRefus` de /health dit tout de suite s'il faut. */
+   ⛔ ET POURTANT ELLE EST ENCORE OUVERTE — « "mailPreuveExigee": true » DANS
+   /opt/teamop/config.json LA FERME, ET RIEN D'AUTRE. Ce n'est pas une précaution de
+   principe, c'est une mesure : `gardien` a relu ce correctif le 11 septembre et a montré que
+   le refus en text/plain n'affiche PAS « Réception indisponible » sur l'écran Courrier.
+   Vérifié dans app.html : views.boiteMail() appelle loadMailboxes(), dont le catch pose
+   _mailboxes=[] ; le .then qui suit réécrit alors #mail-list avec la grande carte
+   « Connecte ta boîte mail » ET SON BOUTON — qui ÉCRASE le message de panne rendu
+   synchroniquement juste après. Le client ne voit donc pas une panne : il voit sa boîte
+   disparue et une invitation à retaper son mot de passe d'application Gmail. C'est PIRE que
+   l'écran vide que ce correctif voulait éviter. Deuxième point du même défaut : l'onglet
+   Boîte Commandes initialise `let data={replies:[]}` AVANT son try, donc un refus y affiche
+   « Aucune réponse fournisseur » — le silence, exactement.
+
+   L'ORDRE EST DONC CELUI DE LA RÈGLE FIRESTORE, pour la même raison : LES APPAREILS
+   D'ABORD, LA PORTE ENSUITE.
+     1. publier app.html v641, qui distingue « refusé » de « vide » sur les trois points
+        d'appel — fait, c'est la publication qui accompagne ce serveur ;
+     2. exiger la v641 depuis la Tour, et attendre le compteur d'appareils en retard à zéro ;
+     3. alors seulement poser « mailPreuveExigee »: true et redémarrer — dix secondes, sans
+        publication. Le compteur `mailRefus` de /health dit aussitôt si quelqu'un tombe.
+   En attendant, le point de passage compte sans refuser : c'est la phase 1 qui continue, et
+   `parRoute` porte enfin ces deux routes. ⚠️ Le défaut par défaut est donc OUVERT ici, à
+   l'inverse de tout le reste de ce fichier — c'est délibéré, daté, et ça se referme d'un mot.
+
+   ⚠️ CE QUE LA MESURE DE LA PHASE 1 NE DIT PAS. « valide 5, absent 0, invalide 0, inconnu 3,
+   et un parRoute qui ne porte que subscribe » ne veut pas dire « aucun échec sur ces deux
+   routes » : ça veut dire AUCUN APPEL du tout en 6 h 12. La mesure n'a jamais exercé le
+   chemin qu'on ferme. Et les trois « inconnu » ne sont pas le bruit d'espace.html : sans kh
+   le verdict est « absent », pas « inconnu » — ce sont donc des appareils qui PRÉSENTENT une
+   preuve sur un espace absent de l'annuaire (la bêta l'est, le repli aussi). À regarder
+   depuis la Tour avant l'étape 3. */
 function cleEquipeExige(req, res, next) {
-  if (config.mailPreuve === false) return next();
+  if (config.mailPreuveExigee !== true) return next();
   const src = (req.method === 'GET') ? (req.query || {}) : (req.body || {});
   const t = String(src.teamId || src.t || '');
   let motif = '';
@@ -1566,7 +1592,7 @@ function codeMdpHache(code) {
     if (propre !== e.code) { e.code = propre; n++; }
   }
   if (n) {
-    try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+    espacesEcrire();
     console.log('annuaire : mot de passe remplac\u00e9 par son empreinte dans', n, 'code(s) d\'espace');
   }
 })();
@@ -1596,7 +1622,7 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
   espacesReg[slug] = { nom, code, t, ts: Date.now(), par: req.tourUser.nom, origine, email: monStr((req.body || {}).email, 120).toLowerCase() || prev.email || '',
     opMessages: prev.opMessages,
     formule: prev.formule, quantite: prev.quantite, formulePar: prev.formulePar, formuleTs: prev.formuleTs };
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) {}
+  espacesEcrire();
   res.json({ ok: true, slug });
 });
 // le patron attribue la formule d'un espace (Gratuit/Pro/Business/Premium × quantité)
@@ -1609,7 +1635,7 @@ app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
   const q = Math.max(1, Math.min(50, parseInt((req.body || {}).quantite, 10) || 1));
   e.formule = f; e.quantite = q; e.formulePar = req.tourUser.nom; e.formuleTs = Date.now();
   try { if (!e.t) { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); e.t = String(o.t || ''); } } catch (err) {}
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  espacesEcrire();
   console.log('Tour :', req.tourUser.nom, 'attribue', f, '×' + q, 'à', slug);
   // le « Mon espace » du client reflète l'attribution : accès activé + abonnement affiché
   if (e.email) fbMajFicheClient(e.email, { status: 'fourni', apps: ['elan'], plan: FORMULE_LBL[f] || f, planStatus: 'actif' }).catch(() => {});
@@ -1633,7 +1659,7 @@ app.post('/api/monitor/espaces/abonnement', monPatronStrict, (req, res) => {
   e.formule = f; e.quantite = q; e.formulePar = req.tourUser.nom; e.formuleTs = Date.now();
   e.aboStatut = st === 'auto' ? '' : st; e.aboFin = fin; e.aboPar = req.tourUser.nom; e.aboTs = Date.now();
   try { if (!e.t) { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); e.t = String(o.t || ''); } } catch (err) {}
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  espacesEcrire();
   console.log('Tour :', req.tourUser.nom, 'règle l\'abonnement de', slug, ':', f, '×' + q, st, fin || '');
   // la fiche client (site « Mon espace ») reflète le réglage
   const ps = { auto: 'actif', actif: 'actif', essai: 'essai', impaye: 'impaye', suspendu: 'impaye', annule: 'annule' }[st] || 'actif';
@@ -2248,7 +2274,7 @@ app.post('/api/monitor/espaces/renaitre', monPatronStrict, async (req, res) => {
   if (t && accesReg[t]) { delete accesReg[t]; accesEcrire(); }   // l'espace repart à neuf : son code aussi
   if (t && comptesReg[t]) { delete comptesReg[t]; comptesEcrire(); }   // et son annuaire de connexion : sinon d'anciens identifiants ouvrent le nouvel espace
   delete espacesReg[slug];
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  espacesEcrire();
   let efface = false;
   if (t) {
     let tok = await fbAdminJeton(), viaAdmin = !!tok;
@@ -2294,7 +2320,7 @@ app.post('/api/monitor/espaces/promo', monPatronStrict, (req, res) => {
   e.codePromo = c;
   const f = ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium';
   if (!e.formule || e.formule === 'gratuit') { e.formule = f; e.quantite = e.quantite || 1; e.formulePar = req.tourUser.nom + ' (code)'; e.formuleTs = Date.now(); }
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  espacesEcrire();
   console.log('Tour :', req.tourUser.nom, 'active le code', c, 'pour', slug, '→ fin', finLe);
   res.json({ ok: true, code: c, formule: e.formule, finLe });
 });
@@ -2557,7 +2583,7 @@ function espaceAutoPour(email, entreprise, formuleLabel, users, lienVoulu, preno
     e.formule = f; e.quantite = Math.max(1, Math.min(50, parseInt(users, 10) || 1));
     e.formulePar = 'auto (demande)'; e.formuleTs = Date.now();
   }
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {}
+  espacesEcrire();
   let t = e.t;
   try { if (!t) t = String(JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')).t || ''); } catch (err) {}
   return { slug, nom: e.nom, formule: e.formule || '', quantite: e.quantite || 1, neuf, t, ident, mdp: mdpProv };
@@ -2800,10 +2826,8 @@ app.post('/api/monitor/espaces/identifiants', monPatronStrict, (req, res) => {
      l'opération annulée. Même motif que /api/monitor/espaces/acces. */
   const avant = espacesReg[vraiSlug].code;
   espacesReg[vraiSlug].code = neuf;
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); }
-  catch (err) {
+  if (!espacesEcrire()) {
     espacesReg[vraiSlug].code = avant;
-    console.error('identifiants : espaces.json non écrit :', err.message);
     return res.status(500).json({ error: 'Enregistrement impossible — rien n\'a changé.' });
   }
   console.log('Tour :', req.tourUser.nom, 'change les identifiants de départ de l\'espace', t);
@@ -3246,10 +3270,10 @@ app.post('/api/espaces/lien', (req, res) => {
   if (!cleAnn) return refus();
   if (crypto.createHash('sha256').update(cleAnn).digest('hex') !== kh) {
     // l'appareil a une autre clé que l'annuaire : le code de l'annuaire est périmé → le site cesse de le servir
-    if (!espacesReg[e.slug].clePerimee) { espacesReg[e.slug].clePerimee = Date.now(); try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} lastRefus = { ts: Date.now(), raison: 'clé d\'équipe changée pour un espace inscrit — à réinscrire dans la Tour (le journal dit lequel)' }; console.warn('espace', e.slug, ': clé d\'équipe changée — lien de l\'annuaire périmé'); }
+    if (!espacesReg[e.slug].clePerimee) { espacesReg[e.slug].clePerimee = Date.now(); espacesEcrire(); lastRefus = { ts: Date.now(), raison: 'clé d\'équipe changée pour un espace inscrit — à réinscrire dans la Tour (le journal dit lequel)' }; console.warn('espace', e.slug, ': clé d\'équipe changée — lien de l\'annuaire périmé'); }
     return res.status(404).json({ error: 'la clé d\'équipe a changé depuis l\'inscription chez TEAM OP — l\'espace est à réinscrire dans la Tour', motif: 'cle_changee' });
   }
-  if (espacesReg[e.slug].clePerimee) { delete espacesReg[e.slug].clePerimee; try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
+  if (espacesReg[e.slug].clePerimee) { delete espacesReg[e.slug].clePerimee; espacesEcrire(); }
   // identAdmin : l'identifiant déclaré administrateur à la création de l'espace. Il n'est rendu
   // qu'ici, c'est-à-dire contre une preuve de possession de la clé d'équipe — jamais par une
   // route ouverte. L'application s'en sert pour qu'un patron ne puisse pas être déclassé.
@@ -3591,7 +3615,7 @@ app.post('/api/monitor/clients/retirer', monPatronStrict, async (req, res) => {
      la route répondait « fermée » pendant que rien n'était écrit, et au redémarrage l'entreprise
      revenait, code d'accès compris. On préfère dire que ça n'a pas marché. */
   let ecrit = true;
-  try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (e) { ecrit = false; console.error('fermeture : espaces.json non écrit :', e.message); }
+  if (!espacesEcrire()) ecrit = false;
   if (!accesEcrire()) ecrit = false;
   if (!comptesEcrire()) ecrit = false;
   if (!fermesSave()) ecrit = false;
@@ -4720,13 +4744,32 @@ app.post('/api/clients/sync', async (req, res) => {
         const finLe = dF.toISOString().slice(0, 10);
         u.n++; u.equipes[tEsp] = { date: new Date().toISOString().slice(0, 10), finLe };
         promoUsages[pc] = u; savePromoUsages();
+        /* ⛔ SANS CES DEUX LIGNES, LE CODE EST CONSOMMÉ ET L'APPLICATION RESTE VERROUILLÉE.
+           espacePaye() sort sur « aucune formule » AVANT même de regarder promoUsages : un
+           espace qui n'a pas encore de formule voyait donc son code décompté, recevait
+           l'e-mail « formule offerte jusqu'au … », et restait fermé. Les deux autres chemins
+           posent la formule (la Tour en 2296, le bloc demandes via espaceAutoPour) ; celui-ci
+           l'avait oublié. Et `codePromo` est ce que relit le rattrapage d'espacePaye() quand
+           un espace est recréé — sans lui, un code activé depuis le site est irrécupérable.
+           La formule n'écrase que le vide ou le gratuit : la même règle qu'à la Tour, pour
+           ne jamais rétrograder une entreprise qui paie déjà mieux. */
+        const eMaj = espacesReg[esp.slug] || esp;
+        const fPromo = ['pro', 'business', 'premium'].includes(pDef.formule) ? pDef.formule : 'premium';
+        if (eMaj) {
+          eMaj.codePromo = pc;
+          if (!eMaj.formule || eMaj.formule === 'gratuit') { eMaj.formule = fPromo; eMaj.quantite = eMaj.quantite || 1; eMaj.formulePar = 'code ' + pc + ' (site)'; eMaj.formuleTs = Date.now(); }
+          espacesEcrire();
+        }
         console.log('code promo du site relayé →', pc, tEsp, 'fin', finLe);
-        mailPromoActive(tEsp, pc, finLe, ['pro', 'business', 'premium'].includes(pDef.formule) ? pDef.formule : 'premium');
+        mailPromoActive(tEsp, pc, finLe, fPromo);
       }
     } else if (pc) {
       /* Le code seul, sans l'adresse ni l'espace : savoir qu'un code inconnu a été tenté
          est utile, savoir PAR QUI ne l'est pas — et ce journal n'est pas le bon endroit. */
-      console.log('code promo du site IGNORÉ (inconnu de config.promos) →', pc);
+      /* `monStr` n'est qu'un `slice` : un code de 40 caractères contenant un saut de ligne
+         fabriquait une ENTRÉE DE JOURNAL FORGÉE dans journalctl. On ne journalise que ce qui
+         ressemble à un code, et jamais l'adresse ni l'espace — la règle du dépôt. */
+      console.log('code promo du site IGNORÉ (inconnu de config.promos) →', pc.replace(/[^A-Z0-9_-]/g, '·'));
     }
   } catch (e) {}
   // Nouvelle demande d'application → e-mail au patron (destinataire : config.notifDemandes,
@@ -4761,12 +4804,24 @@ app.post('/api/clients/sync', async (req, res) => {
       let promoActif = null;
       if (promoDef) { const eEsp = espacesReg[auto.slug];
         if (eEsp && eEsp.codePromo !== promoDef.code) { eEsp.codePromo = promoDef.code;
-          try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} } }
+          espacesEcrire(); } }
       if (promoDef && auto.t) {
         const u = promoUsages[promoDef.code] || { n: 0, equipes: {} };
         const deja = u.equipes[auto.t];
+        /* « Un seul code à la fois », la règle que font déjà la Tour, /api/promo/valider et
+           le relais juste au-dessus : ce quatrième chemin était le dernier à ne pas la faire.
+           Deux codes actifs rendent l'échéance réelle illisible — pour le client comme pour
+           la Tour, qui affiche le premier trouvé. */
+        let autreActif = '';
+        if (!deja) {
+          const auj = new Date().toISOString().slice(0, 10);
+          for (const [c2, u2] of Object.entries(promoUsages || {})) {
+            const eq2 = u2 && u2.equipes && u2.equipes[auto.t];
+            if (c2 !== promoDef.code && eq2 && eq2.finLe && eq2.finLe >= auj) { autreActif = c2; break; }
+          }
+        }
         if (deja) promoActif = Object.assign({}, promoDef, { finLe: deja.finLe });
-        else if (!(promoDef.max && u.n >= promoDef.max)) {
+        else if (!autreActif && !(promoDef.max && u.n >= promoDef.max)) {
           const dF = new Date(); dF.setMonth(dF.getMonth() + promoDef.mois);
           const finLe = dF.toISOString().slice(0, 10);
           u.n++; u.equipes[auto.t] = { date: new Date().toISOString().slice(0, 10), finLe };
@@ -5542,6 +5597,26 @@ app.get('/api/monitor/promos', monAdmin, (req, res) => {
   res.json({ codes, total: codes.length, actifsTotal: codes.reduce((n, c) => n + c.actifs, 0) });
 });
 
+/* ⛔ LA MÊME PORTE QUE LE RELAIS DE /api/clients/sync, EN VERSION ANONYME — trouvée par
+   `gardien` le 11 septembre 2026, le jour où l'autre a été refermée. Fermer une moitié d'un
+   défaut pendant que l'autre reste ouverte ne vaut rien : celle-ci ne demandait AUCUNE
+   identité. `teamId` était lu dans le corps, jamais vérifié ; espacePaye() relit ensuite
+   promoUsages et rend paye:true. Rejoué sur banc :
+     POST /api/promo/valider {"code":"TEST3","teamId":"ent-victime"}   → 200
+     POST /api/espaces/etat  {"t":"ent-victime"}  → paye:true, « code promo TEST3 »
+   Trois exploitations, toutes mesurées : offrir l'abonnement à n'importe quel espace (le
+   teamId n'est pas un secret) ; ÉPUISER un code — `u.n++` s'exécutait avant `if (team)`,
+   donc un appel sans teamId incrémentait maxUtilisations et l'écrivait sur disque, deux
+   appels suffisant à brûler un code à 2, en déni de service définitif sur une campagne ;
+   et énumérer les codes par `apercu:1`, qui répond 404/200 SANS rien écrire.
+
+   Ce qui change : l'ÉCRITURE exige la preuve de la clé d'équipe (le même `kh` que la
+   famille mail, la même fonction), le compteur ne bouge plus que quand un espace est
+   vraiment servi, et la route passe sous le quota strict par IP.
+   ⚠️ L'APERÇU RESTE PUBLIC, et c'est nécessaire : espace.html et recap-abonnement.html
+   valident un code AVANT qu'un espace existe — il n'y a alors aucune clé à prouver. Il
+   n'écrit rien, donc il ne donne rien ; il reste un oracle sur l'existence d'un code, ce que
+   le quota strict borne désormais. */
 app.post('/api/promo/valider', (req, res) => {
   const { code, teamId, apercu } = req.body || {};
   const c = String(code || '').trim().toUpperCase();
@@ -5550,6 +5625,15 @@ app.post('/api/promo/valider', (req, res) => {
   if (!p) return res.status(404).json({ error: 'Code promo inconnu' });
   const u = promoUsages[c] || { n: 0, equipes: {} };
   const team = String(teamId || '').slice(0, 80);
+  if (!apercu && team) {
+    /* `valide` garantit que l'espace est à l'annuaire avec un code lisible — c'est ce dont
+       cleEstPublique a besoin pour ne pas rendre « laisse passer » par défaut (voir sa mise
+       en garde). Un espace resté sur la clé écrite en clair dans app.html ne prouve rien en
+       la présentant : même refus que /api/fb/jeton, pour le même secret. */
+    const v = cleEquipeVerdict(team, req.headers['x-teamop-kh'] || '');
+    if (v !== 'valide' || cleEstPublique(team))
+      return res.status(403).json({ error: 'Cet appareil n\'a pas prouvé la clé de son entreprise — mets l\'application à jour, puis réessaie.' });
+  }
   const deja = team && u.equipes[team];
   // un seul code à la fois par espace : si un AUTRE code est encore actif, refus clair
   if (team && !deja) {
@@ -5567,8 +5651,12 @@ app.post('/api/promo/valider', (req, res) => {
   } else {
     const d = new Date(); d.setMonth(d.getMonth() + mois);
     finLe = d.toISOString().slice(0, 10);
-    if (!apercu) { u.n++; if (team) u.equipes[team] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages();
-      if (team) mailPromoActive(team, c, finLe, ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium'); }
+    /* ⛔ `u.n++` SOUS `if (team)`, jamais au-dessus : au-dessus, un appel sans teamId
+       consommait une utilisation et l'écrivait sur disque — un code à maxUtilisations:2
+       s'épuisait en deux requêtes, et un vrai client lisait ensuite « ce code a atteint son
+       maximum ». On ne compte que ce qu'on a réellement donné à quelqu'un. */
+    if (!apercu && team) { u.n++; u.equipes[team] = { date: new Date().toISOString().slice(0, 10), finLe }; promoUsages[c] = u; savePromoUsages();
+      mailPromoActive(team, c, finLe, ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium'); }
   }
   res.json({ ok: true, formule: ['pro', 'business', 'premium'].includes(p.formule) ? p.formule : 'premium', mois, finLe, dejaUtilise: !!deja });
 });
@@ -5604,7 +5692,7 @@ function rappelsEcheances() {
           .catch(err => console.error('rappel échéance:', err.message));
       }
     }
-    if (touche) { try { fs.writeFileSync(ESPACES_PATH, JSON.stringify(espacesReg)); } catch (err) {} }
+    if (touche) { espacesEcrire(); }
   } catch (e) { console.error('rappelsEcheances:', e.message); }
 }
 setTimeout(rappelsEcheances, 90 * 1000);      // un premier passage peu après le démarrage

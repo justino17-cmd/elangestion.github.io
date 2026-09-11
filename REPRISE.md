@@ -13,10 +13,12 @@ de ligne du tout.
 
 ---
 
-## Serveur, 11 septembre 2026 — deux portes que l'audit avait trouvées ouvertes
+## Serveur, 11 septembre 2026 — quatre portes que l'audit avait trouvées ouvertes
 
-Ces deux-là ne touchent pas `app.html` : **rien à publier côté client, rien à mettre à jour
-sur les téléphones.** Un push sur `main` qui touche `server/**` redéploie le VPS tout seul.
+Un push sur `main` qui touche `server/**` redéploie le VPS tout seul. **L'ordre compte ici :
+la v641 (client) part D'ABORD, le serveur ENSUITE** — c'est app.html qui doit savoir montrer
+un refus avant qu'un serveur en oppose un, et c'est app.html qui doit présenter la preuve de
+clé avant que la route des codes promo l'exige. Voir le détail au point 3.
 
 ### 1. Les codes promo : le client choisissait son code ET sa date de fin
 
@@ -41,46 +43,103 @@ Mesuré sur banc isolé, la même sonde jouée sur les deux versions (jamais `ap
 **avant → 3 ✓ 7 ✗** (le code inventé entre avec `finLe: 9999-12-31`, deux codes s'empilent, un
 code à `maxUtilisations:1` est distribué trois fois) ; **après → 10 ✓ 0 ✗**.
 
-### 2. `/api/replies` et `/api/mailboxes` : le teamId suffisait
+### 2. `/api/promo/valider` : la MÊME faille, en version anonyme
 
-`/api/replies` rendait les **200 derniers courriels reçus** de l'entreprise — expéditeur, objet,
-corps : la correspondance de ses clients. `/api/mailboxes` rendait ses adresses et ses serveurs
-IMAP/SMTP. Les deux ne filtraient que sur `req.query.teamId`, jamais vérifié. Or le teamId n'a
-jamais été un secret : il voyage dans les URL, donc dans les journaux nginx, l'historique du
-navigateur et l'en-tête `Referer` ; il est écrit en clair dans le localStorage de chaque
-appareil ; il ne se révoque pas.
+Trouvée par `gardien` en relisant le correctif ci-dessus, le jour même. Fermer une moitié
+d'un défaut pendant que l'autre reste ouverte ne vaut rien : cette route-ci ne demandait
+**aucune identité**. `teamId` lu dans le corps, jamais vérifié ; `espacePaye()` relit ensuite
+`promoUsages` et rend `paye:true`. Rejoué sur banc :
 
-La phase 1 (le 10 septembre) comptait sans refuser, **volontairement** : refuser d'emblée aurait
-renvoyé en 403 des entreprises légitimes absentes du registre, et `loadMailReplies()` avale un
-403 dans son `catch`. Ses quatre conditions sont maintenant réunies, et chacune a été vérifiée
-avant d'écrire la ligne :
+```
+POST /api/promo/valider  {"code":"TEST3","teamId":"ent-victime"}   → 200
+POST /api/espaces/etat   {"t":"ent-victime"}   → paye:true, « code promo TEST3 »
+```
 
-- le compteur public de `/health`, après 6 h 12 de service : `valide 5, absent 0, invalide 0,
-  inconnu 3` — et un `parRoute` qui ne contient **que** `subscribe`. Aucun appel à ces deux
-  routes de toute la fenêtre ; les trois `inconnu` sont le bruit prévu d'`espace.html` et
-  `messages.html` sur `/api/subscribe`, que ce correctif ne touche pas ;
-- plus une entreprise vivante hors annuaire (voir ci-dessus) ;
-- plus une entreprise sur la clé partagée — une preuve ne prouve que si la clé est privée ;
-- `app.html` est le **seul** appelant des deux routes dans tout le dépôt, et ses trois points
-  d'appel passent par `enteteEquipe()`, donc envoient déjà la preuve.
+Trois exploitations, toutes mesurées : **offrir l'abonnement** à n'importe quel espace (le
+teamId n'est pas un secret) ; **épuiser un code** — `u.n++` s'exécutait avant `if (team)`,
+donc un appel sans `teamId` incrémentait `maxUtilisations` et l'écrivait sur disque, deux
+appels suffisant à brûler un code à 2, en déni de service définitif sur une campagne ; et
+**énumérer les codes** par `apercu:1`, qui répond 404/200 sans rien écrire.
 
-⛔ **Le refus est en `text/plain`, jamais en JSON**, et ce n'est pas cosmétique :
-`loadMailReplies()` fait `const d = await r.json(); _mailReplies = d.replies||[]`. Un refus en
-JSON se parserait sans erreur, la liste deviendrait **vide** au lieu de **nulle**, et l'écran
-afficherait « 📭 Aucun message ». Le client ne verrait pas une panne — il verrait sa
-correspondance disparue.
+L'écriture exige désormais la preuve de la clé d'équipe, le compteur ne bouge que quand un
+espace est vraiment servi, et la route passe sous le quota strict par IP. L'aperçu reste
+public — `espace.html` et `recap-abonnement.html` valident un code **avant** qu'un espace
+existe, il n'y a alors aucune clé à prouver ; il n'écrit rien, donc il ne donne rien.
 
-**L'interrupteur de secours**, parce qu'on ferme une porte qu'on n'a pas pu mesurer longtemps :
-`"mailPreuve": false` dans `/opt/teamop/config.json` rouvre les deux routes après un
-`systemctl restart teamop-api` — dix secondes, sans publication. Absent par défaut, donc la
-porte est **fermée** par défaut. Et `/health` porte un compteur `mailRefus`, agrégé par motif
-et sans jamais nommer d'espace, qui dit tout de suite s'il faut s'en servir.
+### 3. `/api/replies` et `/api/mailboxes` : le teamId suffisait — porte POSÉE, encore OUVERTE
 
-`tests/test-641.js` (36 vérifications) est la **première suite qui vise `server/`** : elle lance
-le vrai serveur, isolé, et lui parle en HTTP. Vérifiée capable d'échouer — rejouée sur le code
-d'avant, elle tombe sur 26 points.
+`/api/replies` rend les **200 derniers courriels reçus** de l'entreprise — expéditeur, objet,
+corps : la correspondance de ses clients. `/api/mailboxes` rend ses adresses et ses serveurs
+IMAP/SMTP. Les deux ne filtrent que sur `req.query.teamId`, jamais vérifié. Or le teamId n'est
+pas un secret : il voyage dans les URL, donc dans les journaux nginx, l'historique du
+navigateur et l'en-tête `Referer` ; il est en clair dans le localStorage de chaque appareil ;
+il ne se révoque pas.
+
+Le point de passage qui exige la preuve est écrit, testé, déployé — **et désarmé**. Un seul
+réglage le ferme : `"mailPreuveExigee": true` dans `/opt/teamop/config.json`, puis
+`systemctl restart teamop-api`. Dix secondes, sans publication.
+
+**Pourquoi il n'est pas encore fermé**, et c'est `gardien` qui l'a montré : le refus en
+`text/plain` était censé faire jeter `r.json()` et afficher « 📥 Réception indisponible ».
+**Mesuré au navigateur sur la bêta, il affichait « Connecte ta boîte mail » AVEC SON BOUTON.**
+`loadMailboxes()` posait `_mailboxes=[]` sur échec, et son `.then` réécrivait la liste par
+dessus le message de panne. Le client ne voyait pas une panne : il voyait sa boîte disparue et
+une invitation à retaper son mot de passe d'application Gmail. **Pire que l'écran vide qu'on
+voulait éviter** — on ne réclame pas ses identifiants à quelqu'un parce qu'un serveur a
+répondu 403. Deuxième point du même défaut : l'onglet Boîte Commandes initialisait
+`let data={replies:[]}` avant son `try`, donc un refus y affichait « Aucune réponse
+fournisseur » — le silence, exactement.
+
+C'est corrigé en v641 : `_mailboxes` a désormais **trois** états (une liste, une liste vide,
+et `null` = on n'a pas pu savoir), les trois points d'appel testent `!r.ok` autant que le
+`catch`, et on ne propose de connecter une boîte que quand on **sait** qu'il n'y en a aucune.
+Sonde navigateur, 403 interceptés au réseau, avant/après :
+
+| | avant | après |
+|---|---|---|
+| dit la panne | non ⛔ | **oui** ✓ |
+| réclame le mot de passe de la boîte | **oui** ⛔ | non ✓ |
+
+Les deux cas sains (aucune boîte / une boîte et un message) sont inchangés — 8 ✓ à la sonde.
+
+**L'ordre qui reste, et c'est celui de la règle Firestore, pour la même raison :**
+
+1. ✅ publier la v641 ;
+2. **exiger la v641 depuis la Tour**, attendre le compteur d'appareils en retard à zéro ;
+3. **regarder qui est hors annuaire** (voir ci-dessous) ;
+4. alors seulement poser `"mailPreuveExigee": true` et redémarrer. Le compteur `mailRefus` de
+   `/health`, agrégé et sans jamais nommer d'espace, dit aussitôt si quelqu'un tombe.
+
+⚠️ **Ce que la mesure de la phase 1 ne dit PAS, et que j'avais d'abord mal lu.** Le compteur
+public affichait, après 6 h 12 : `valide 5, absent 0, invalide 0, inconnu 3`, avec un
+`parRoute` ne portant que `subscribe`. Ça ne veut pas dire « aucun échec sur ces deux
+routes » : ça veut dire **aucun appel du tout**. La mesure n'a jamais exercé le chemin qu'on
+ferme. Et les trois `inconnu` ne sont pas le bruit d'`espace.html` comme je l'avais écrit :
+sans `kh` le verdict est `absent`, pas `inconnu`. Ce sont donc des appareils qui **présentent
+une preuve sur un espace absent de l'annuaire** — la bêta l'est, l'espace de repli aussi.
+**Question pour Justin, avant l'étape 4** : dans la Tour → Connexions clients, qui sont ces
+appareils ? Si c'est la bêta, rien à faire. Si une vraie entreprise vit encore sur l'espace de
+repli, elle est déjà coupée de Firestore depuis la publication de la règle — et ça, c'est
+urgent, indépendamment du courrier.
+
+### 4. L'annuaire ne s'écrit plus jamais à moitié
+
+Treize écritures directes de `espaces.json`, alors que l'assistant atomique `espacesEcrire()`
+(temporaire puis renommage) existait déjà juste à côté, utilisé par quatre appels seulement.
+Ce n'était pas grave hier ; ça l'est devenu aujourd'hui. Si ce fichier est tronqué par un
+disque plein ou un arrêt au mauvais moment, **toutes les entreprises sortent de l'annuaire
+d'un coup** — et depuis ce matin ça ne casse plus seulement la Tour : `cleEquipeVerdict` rend
+« inconnu », `/api/fb/jeton` rend 404, et la règle Firestore publiée refuse l'anonyme. Plus de
+synchro du tout, pour tout le monde. Les treize passent par l'assistant ; les deux appelants
+qui savaient revenir en arrière sur échec le font toujours.
+
+`tests/test-641.js` (58 vérifications) est la **première suite qui vise `server/`** : elle
+lance le vrai serveur, isolé, et lui parle en HTTP — dans les **deux** positions de
+l'interrupteur, pour que la suite ne dise jamais « tout va bien » sur une porte qui ne refuse
+rien. Vérifiée capable d'échouer : rejouée sur le code d'avant, elle tombe sur 26 points.
 
 ---
+
 
 ## v640 — donner enfin une identité à Firestore (la moitié sûre)
 

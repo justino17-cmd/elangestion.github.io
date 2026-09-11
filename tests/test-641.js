@@ -60,7 +60,10 @@ console.log('Un code promo ne s\'active QUE s\'il existe, et son échéance se c
      dans les journaux » appliquée à un message qu'on a envie d'enrichir. */
   const ligneIgnore = (bloc.match(/console\.log\('code promo du site IGNORÉ.*/) || [''])[0];
   v('le code inconnu est bien journalisé', /IGNORÉ/.test(ligneIgnore), true);
-  v('…avec le code seul — ni adresse, ni espace', /, pc\);\s*$/.test(ligneIgnore), true);
+  /* Et le code est NETTOYÉ avant d'être écrit : `monStr` n'est qu'un `slice`, donc un code
+     de 40 caractères contenant un saut de ligne fabriquait une entrée de journalctl forgée. */
+  v('…avec le code seul — ni adresse, ni espace', /, pc\.replace\([^)]*\)\);\s*$/.test(ligneIgnore), true);
+  v('…et les caractères de contrôle sont neutralisés', /\[\^A-Z0-9_-\]/.test(ligneIgnore), true);
   v('…et rien qui ressemble à un identifiant', /email|tEsp|esp\.|b\.nom/.test(ligneIgnore), false);
 }
 
@@ -74,8 +77,87 @@ console.log('\n/api/replies et /api/mailboxes exigent la preuve de la clé d\'é
      cleEquipeObserve pose. Monté avant lui, il refuserait tout le monde. */
   v('et APRÈS le compteur qui pose req.cleEquipe',
     SRV.indexOf('], cleEquipeObserve);') < SRV.indexOf('], cleEquipeExige);'), true);
-  v('l\'interrupteur de secours est fermé par défaut (=== false, jamais un test de véracité)',
-    /if \(config\.mailPreuve === false\) return next\(\);/.test(SRV), true);
+  /* ⛔ LA PORTE EST POSÉE MAIS OUVERTE, ET C'EST VOULU — voir le long commentaire du
+     serveur. `gardien` a montré le 11 septembre que le refus faisait afficher « Connecte ta
+     boîte mail » et son bouton : on ne ferme qu'une fois la v641 publiée ET exigée. Le test
+     l'exerce dans les DEUX positions, plus bas, sur un vrai serveur.
+     `!== true` et non `=== false` : seul le booléen true ferme. Une configuration où
+     quelqu'un écrirait "true", 1 ou "oui" laisse la porte ouverte — c'est le sens prudent
+     ici, l'inverse de d'habitude, parce que fermer par accident casse des clients. */
+  v('la fermeture tient à un seul réglage, et il faut le booléen true',
+    /if \(config\.mailPreuveExigee !== true\) return next\(\);/.test(SRV), true);
+  v('…et le commentaire dit l\'ordre : les appareils d\'abord, la porte ensuite',
+    /LES APPAREILS\s+D'ABORD, LA PORTE ENSUITE/.test(SRV), true);
+}
+
+/* ══ 3. L'ANNUAIRE NE S'ÉCRIT QUE D'UN BLOC ══ */
+console.log('\nespaces.json s\'écrit en temporaire puis renommage, partout');
+{
+  /* Pourquoi ça compte davantage depuis le 11 septembre : si ce fichier est tronqué par un
+     disque plein ou un arrêt au mauvais moment, TOUTES les entreprises sortent de l'annuaire
+     d'un coup. Et ce jour-là, ça ne casse plus seulement la Tour — `cleEquipeVerdict` rend
+     « inconnu » (donc plus de courrier), `/api/fb/jeton` rend 404 (donc plus de jeton), et
+     la règle Firestore désormais publiée refuse l'anonyme : plus de synchro du tout, pour
+     tout le monde. Le renommage est atomique ; l'écriture directe ne l'est pas. */
+  v('⛔ plus une seule écriture directe de espaces.json',
+    (SRV.match(/fs\.writeFileSync\(ESPACES_PATH/g) || []).length, 0);
+  v('le seul chemin d\'écriture passe par le temporaire puis le renommage',
+    /function espacesEcrire\(\) \{[\s\S]{0,400}?ESPACES_PATH \+ '\.tmp'[\s\S]{0,200}?fs\.renameSync\(tmp, ESPACES_PATH\)/.test(SRV), true);
+  v('et il rend false plutôt que de lever — l\'appelant peut revenir en arrière',
+    /catch \(e\) \{ console\.error\('espaces\.json non écrit[\s\S]{0,60}?return false; \}/.test(SRV), true);
+  v('les deux appelants qui savent revenir en arrière le font toujours',
+    (SRV.match(/if \(!espacesEcrire\(\)\)/g) || []).length >= 2, true);
+}
+
+/* ══ 4. CÔTÉ APPLICATION : UN REFUS SE VOIT, ET NE RÉCLAME PAS UN MOT DE PASSE ══ */
+console.log('\nL\'écran Courrier distingue « refusé » de « aucune boîte »');
+{
+  const APP = fs.readFileSync(path.join(RACINE, 'app.html'), 'utf8');
+  /* ⛔ CE QUE `gardien` A TROUVÉ LE 11 SEPTEMBRE, ET QUI A REPOUSSÉ LA FERMETURE.
+     Le refus en text/plain devait faire jeter r.json() et afficher « Réception
+     indisponible ». Mesuré au navigateur sur la bêta, il affichait « Connecte ta boîte
+     mail » AVEC SON BOUTON : loadMailboxes() posait _mailboxes=[] sur échec, et son .then
+     réécrivait #mail-list par-dessus le message de panne. On réclamait son mot de passe
+     d'application Gmail à quelqu'un dont la boîte marchait très bien.
+     Avant/après, même sonde, 403 interceptés au réseau (scratchpad/banc/sonde-courrier.js) :
+       avant → « Connecte ta boîte mail », panne NON annoncée, mot de passe réclamé
+       après → « Réception indisponible », panne annoncée, rien de réclamé, 0 erreur de page
+     Les deux cas sains sont inchangés (sonde-normal.js, 8 ✓). */
+  v('_mailboxes part de null — « on ne sait pas », pas « aucune »',
+    /let mailTab='recu'; let _mailboxes=null;/.test(APP), true);
+  v('un statut non-ok met la liste à NULL, sans attendre que r.json\(\) jette',
+    (APP.match(/if\(!r\.ok\)\{ _mail(boxes|Replies)=null; return _mail(boxes|Replies); \}/g) || []).length, 2);
+  /* Trois : les deux chargeurs de l'écran Courrier, plus l'onglet Boîte Commandes. */
+  v('une réponse qui n\'est pas un tableau ne passe pas pour une liste vide',
+    (APP.match(/Array\.isArray\(d\.(mailboxes|replies)\)\?d\.(mailboxes|replies):null/g) || []).length, 3);
+  v('⛔ on ne propose de connecter une boîte QUE si on sait qu\'il n\'y en a aucune',
+    /if\(!_mbKo && !_mb\.length\)\{ const el=\$\('mail-list'\);/.test(APP), true);
+  v('plus un seul lecteur de _mailboxes qui jetterait sur null',
+    /(?<!\(|\|\|\[\]\))_mailboxes\.(length|map|forEach|find)\(/.test(APP.replace(/\(_mailboxes\|\|\[\]\)\./g, 'SAFE.')), false);
+  v('l\'onglet Boîte Commandes ne dit plus « aucune réponse » sur un refus',
+    /let reps=null;/.test(APP) && /if\(reps===null\)\{[^]{0,120}Réponses indisponibles/.test(APP), true);
+  v('le code promo présente désormais la preuve de clé',
+    /api\/promo\/valider',\{method:'POST',headers:await enteteEquipe\(\{'Content-Type':'application\/json'\}\)/.test(APP), true);
+}
+
+console.log('\nLe code promo anonyme ne s\'offre plus un abonnement');
+{
+  /* ⛔ LA MÊME FAILLE QUE LE RELAIS, EN VERSION SANS IDENTITÉ — et elle est restée ouverte
+     une demi-journée après que l'autre a été fermée. Fermer une moitié d'un défaut ne vaut
+     rien. Rejoué par `gardien` sur banc : POST /api/promo/valider {code, teamId} → 200, puis
+     /api/espaces/etat → paye:true. Et `u.n++` au-dessus de `if (team)` épuisait un code à
+     maxUtilisations:2 en deux requêtes sans teamId : déni de service sur une campagne. */
+  const bloc = SRV.slice(SRV.indexOf("app.post('/api/promo/valider'"), SRV.indexOf("// ── ⏳ Rappel d'échéance"));
+  v('le bloc est retrouvé, et entier', bloc.length > 800 && /res\.json\(\{ ok: true, formule:/.test(bloc), true);
+  v('l\'écriture exige la preuve de la clé d\'équipe',
+    /const v = cleEquipeVerdict\(team, req\.headers\['x-teamop-kh'\] \|\| ''\);/.test(bloc), true);
+  v('…et refuse une clé publique, comme /api/fb/jeton', /v !== 'valide' \|\| cleEstPublique\(team\)/.test(bloc), true);
+  v('⛔ le compteur ne bouge QUE si un espace est servi', /if \(!apercu && team\) \{ u\.n\+\+;/.test(bloc), true);
+  v('⛔ et plus jamais au-dessus de la condition', /\{ u\.n\+\+; if \(team\)/.test(bloc), false);
+  v('l\'aperçu reste public — il n\'écrit rien et précède tout espace',
+    /if \(!apercu && team\) \{/.test(bloc), true);
+  v('la route passe sous le quota strict par IP',
+    /ROUTES_SENSIBLES = \/\^\\\/api\\\/\(stripe\|devis\|sendcode\|mdp\|beta\|promo\|/.test(SRV), true);
 }
 
 const banc = path.join(require('os').tmpdir(), 'teamop-test-641-' + process.pid);
@@ -97,7 +179,11 @@ function stop() { try { if (enfant && enfant.pid) process.kill(enfant.pid); } ca
 
   fs.mkdirSync(path.join(banc, 'data'), { recursive: true });
   const vap = webpush.generateVAPIDKeys();
-  fs.writeFileSync(path.join(banc, 'config.json'), JSON.stringify({ vapidPublicKey: vap.publicKey, vapidPrivateKey: vap.privateKey, apiKey: 'banc' }));
+  /* Deux configurations : celle du banc FERME la porte (c'est ce qu'on veut éprouver), et
+     une seconde SANS le réglage sert à vérifier que la version publiée, elle, laisse passer. */
+  const cfg = { vapidPublicKey: vap.publicKey, vapidPrivateKey: vap.privateKey, apiKey: 'banc' };
+  fs.writeFileSync(path.join(banc, 'config.json'), JSON.stringify(Object.assign({ mailPreuveExigee: true }, cfg)));
+  fs.writeFileSync(path.join(banc, 'config-defaut.json'), JSON.stringify(cfg));
   fs.writeFileSync(path.join(banc, 'data', 'espaces.json'), JSON.stringify({
     'entreprise-a': { slug: 'entreprise-a', nom: 'A', email: 'a@exemple.fr', t: 'ent-a-9x', code: b64({ t: 'ent-a-9x', k: CLE_A }), ts: 1 },
     'entreprise-b': { slug: 'entreprise-b', nom: 'B', email: 'b@exemple.fr', t: 'ent-b-7y', code: b64({ t: 'ent-b-7y', k: CLE_PARTAGEE }), ts: 2 },
@@ -158,6 +244,24 @@ function stop() { try { if (enfant && enfant.pid) process.kill(enfant.pid); } ca
     v('espace technique (repli, bêta) : refusé', r.statut, 403);
     r = await q('/api/replies?teamId=espace-hors-annuaire', { 'x-teamop-kh': kh(CLE_A) });
     v('espace hors annuaire : invérifiable, donc refusé', r.statut, 403);
+
+    /* ⛔ ET LA POSITION DANS LAQUELLE ÇA PART : OUVERT. Sans ce contrôle, la suite dirait
+       « tout va bien » alors que la porte publiée ne refuse rien — on se croirait protégé.
+       Un second serveur, même code, configuration SANS le réglage : il doit laisser passer,
+       exactement comme la v641 qu'on déploie. Le jour où Justin posera
+       « mailPreuveExigee »: true, c'est CE test-là qui devra être retourné. */
+    const PORT2 = PORT + 1;
+    const enf2 = spawn(process.execPath, [path.join(RACINE, 'server', 'index.js')], {
+      env: Object.assign({}, process.env, { TEAMOP_CONFIG: path.join(banc, 'config-defaut.json'), TEAMOP_DATA: path.join(banc, 'data'), PORT: String(PORT2) }),
+      stdio: 'ignore' });
+    try {
+      const B2 = 'http://127.0.0.1:' + PORT2;
+      for (let i = 0; i < 60; i++) { try { await fetch(B2 + '/health'); break; } catch (e) { await new Promise(r => setTimeout(r, 100)); } }
+      const r2 = await fetch(B2 + '/api/replies?teamId=ent-a-9x');
+      v('sans le réglage, la porte est OUVERTE — c\'est ce qui est publié aujourd\'hui', r2.status, 200);
+      const r3 = await fetch(B2 + '/api/mailboxes?teamId=ent-a-9x');
+      v('les boîtes aussi', r3.status, 200);
+    } finally { try { if (enf2.pid) process.kill(enf2.pid); } catch (e) {} }
 
     const h = await (await fetch(B + '/health')).json();
     v('les refus sont comptés', h.mailRefus.n > 0, true);

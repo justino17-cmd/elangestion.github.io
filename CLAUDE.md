@@ -53,7 +53,7 @@ isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saut
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
 ```bash
-for f in tests/test-*.js; do node "$f"; done   # 451 vérifications, ~8 s
+for f in tests/test-*.js; do node "$f"; done   # 473 vérifications, ~10 s
 ```
 
 Quand une suite ne peut pas exécuter (un ordre d'opérations, un balisage, une fonction qui touche
@@ -119,6 +119,30 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   s'offrait l'abonnement à vie avec `{promoCode:'PEU-IMPORTE', promoFin:'9999-12-31'}`, parce
   qu'`espacePaye()` relit `promoUsages` sans rien revérifier. Un quatrième chemin un jour fera
   les trois contrôles ou n'existera pas. `tests/test-641.js` le relit.
+- ⛔ **Un code promo ne s'active QUE contre la preuve de la clé d'équipe, et le compteur ne
+  bouge QUE si un espace est servi.** `/api/promo/valider` n'exigeait aucune identité :
+  `{code, teamId}` offrait l'abonnement de n'importe quelle entreprise, et `u.n++` placé
+  au-dessus de `if (team)` laissait épuiser un code à `maxUtilisations:2` en deux requêtes
+  sans `teamId` — déni de service définitif sur une campagne. L'aperçu (`apercu:true`) reste
+  public **par nécessité** : `espace.html` et `recap-abonnement.html` valident un code avant
+  qu'un espace existe, il n'y a alors aucune clé à prouver ; il n'écrit rien, donc il ne donne
+  rien. Ne pas le fermer « pour faire propre », ça casserait la page d'abonnement.
+- ⛔ **`espaces.json` ne s'écrit QUE par `espacesEcrire()`** (temporaire puis renommage).
+  Tronqué, il sort TOUTES les entreprises de l'annuaire d'un coup — et depuis que la règle
+  Firestore est publiée, ça ne casse plus seulement la Tour : plus de verdict de clé, plus de
+  jeton, donc plus de synchro du tout, pour tout le monde. `tests/test-641.js` compte les
+  écritures directes et exige zéro.
+- ⛔ **Un refus ne se montre PAS tout seul : il faut que l'écran sache le dire.** La preuve
+  par l'exemple, 11 septembre 2026 : le refus de `/api/replies` était rendu en `text/plain`
+  exprès pour faire jeter `r.json()` et afficher « Réception indisponible » — **mesuré au
+  navigateur, il affichait « Connecte ta boîte mail » et son bouton**, parce que
+  `loadMailboxes()` posait `_mailboxes=[]` sur échec et réécrivait la liste par-dessus. On
+  réclamait son mot de passe d'application Gmail à quelqu'un dont la boîte marchait très
+  bien. `_mailboxes` et `_mailReplies` ont donc TROIS états — une liste, une liste vide, et
+  `null` « on n'a pas pu savoir » — et les trois points d'appel testent `!r.ok` autant que le
+  `catch`. Ne jamais reconfondre les deux derniers : on ne propose de connecter une boîte que
+  quand on SAIT qu'il n'y en a aucune. Corollaire général : avant de faire refuser une route,
+  aller REGARDER au navigateur ce que l'écran affiche — pas ce qu'on croit qu'il affiche.
 - ⛔ **Le refus de `/api/replies` n'est PAS du JSON.** `loadMailReplies()` (`app.html`) fait
   `const d = await r.json(); _mailReplies = d.replies||[]` : un refus en JSON se parse sans
   erreur, la liste devient **vide** au lieu de **nulle**, et l'écran affiche « 📭 Aucun
@@ -127,10 +151,12 @@ journalctl -u teamop-api | grep '^devis '   # appels d'outil de l'assistant devi
   indisponible ». Avec `/api/mailboxes`, ces deux routes exigent la preuve de clé
   (`cleEquipeExige`, monté APRÈS `cleEquipeObserve` qui pose `req.cleEquipe`) : seul le verdict
   `valide` passe, et `ESPACES_INTOUCHABLES` comme `cleEstPublique(t)` sont refusés — une clé
-  écrite en clair dans `app.html` ne prouve rien quand on la présente. `"mailPreuve": false`
-  dans la configuration du VPS rouvre en un redémarrage ; **l'absence de ce réglage FERME**,
-  jamais l'inverse. Le compteur `mailRefus` de `/health` reste agrégé : `/health` est publique,
-  y nommer un espace dirait au monde quelles entreprises existent.
+  écrite en clair dans `app.html` ne prouve rien quand on la présente. ⚠️ **La porte est posée
+  mais OUVERTE tant que `"mailPreuveExigee": true` n'est pas dans la configuration du VPS** —
+  l'ordre est celui de la règle Firestore, les appareils d'abord (v641 publiée ET exigée), la
+  porte ensuite. `!== true` et non `=== false` : seul le booléen ferme, parce qu'ici fermer
+  par accident casse des clients. Le compteur `mailRefus` de `/health` reste agrégé :
+  `/health` est publique, y nommer un espace dirait au monde quelles entreprises existent.
 - Ne pas modifier l'anti-abus (`server/index.js`) sans relire pourquoi il lit
   `req.ip` et non l'en-tête brut — un en-tête fourni par le client se falsifie
 - Ne pas écrire de données personnelles de clients dans les journaux
