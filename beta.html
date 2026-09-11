@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '650-beta';
+const APP_VERSION = '651-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -5799,6 +5799,10 @@ const badge = (map,k) => { const o=map[k]||Object.values(map)[0]; return `<span 
    Placée après, elle donnait « Cannot access COLLECTIONS_DONNEES before initialization » et
    l'application ne démarrait plus du tout. Même piège que annuaireDeposer (voir CLAUDE.md). */
 const COLLECTIONS_DONNEES=['techniciens','clients','interventions','boxes','enveloppes','produits','mouvements','vehicules','demandes','bons','journal','devis','factures','contrats','pointages','messages','groupes','conducteurs','produitsDonnes','brouillons','champsPerso','fournisseurs','taches','absences','chantiers','telecollectes','registres'];
+/* Identifiant FIXE du compte de départ « OP Admin » — au niveau global, car migrate() le pose
+   et boot() s'en sert pour reconnaître le compte à garder quand plusieurs se sont empilés.
+   Déclaré ici, à côté de COLLECTIONS_DONNEES, donc avant le premier load(). */
+const ID_ADMIN_DEPART='u-op-admin';
 
 /* ── Un espace par entreprise : la photo se prend AVANT load(), et pas ailleurs ──
    Sans rattachement, un appareil synchronisait jusqu'ici sur l'espace de repli (FB_TEAM),
@@ -6088,7 +6092,20 @@ function migrate(d){
     const hasPlan=(((d.plansSite||{})[c.id])||[]).length>0;
     const proMots=/\b(sarl|sas|sasu|eurl|sci|snc|scop|sa|soci[ée]t[ée]|restaurant|boulangerie|h[oô]tel|camping|supermarch[ée]|hypermarch[ée]|bar|brasserie|pizzeria|traiteur|[ée]cole|coll[eè]ge|lyc[ée]e|cr[eè]che|mairie|ehpad|clinique|h[oô]pital|pharmacie|garage|entreprise|magasin|boucherie|charcuterie|boulang|intermarch[ée]|leclerc|carrefour|lidl|aldi|syndic|immobilier|r[ée]sidence|cabinet|agence|atelier|usine|entrep[oô]t|logistique)\b/i;
     c.typeClient=(hasPlan||c.siret||proMots.test(c.nom||''))?'pro':'particulier'; } });
-  if(!d.users.length && !BETA_ESSAI) d.users = [{id:uid(),prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];   // la bêta n'a pas de compte de départ : la porte est au serveur
+/* ⛔ L'IDENTIFIANT DU COMPTE DE DÉPART EST FIXE, JAMAIS `uid()`. Signalé par ELAN le
+   11 septembre 2026 : « à chaque mise à jour ça recrée un OP Admin ». Cette ligne tourne à
+   CHAQUE chargement, et se déclenche dès que la liste des comptes est vide — ce qui arrive sur
+   un appareil qui a perdu sa base, ou avant que la synchro n'ait livré les comptes de l'équipe.
+   Avec `uid()`, chaque passage fabriquait un identifiant NEUF ; or la fusion réunit les comptes
+   par identifiant, donc elle les ADDITIONNAIT au lieu de les confondre. Un OP Admin de plus à
+   chaque fois, chez un vrai client.
+   Un identifiant fixe règle les deux : les recréations retombent sur le MÊME enregistrement
+   (plus d'empilement), et surtout, une fois le compte supprimé, sa pierre tombale porte cet
+   identifiant — `usersFusionner` l'écarte alors définitivement, il ne peut plus revenir.
+   ⚠️ Ne pas conditionner cette création au rattachement : une entreprise qui vient d'être
+   créée n'a pas d'autre compte, et c'est celui-ci que le lien d'installation renomme
+   (`elan_admin_login` dans boot()). La supprimer ici fermerait la porte à tout nouveau client. */
+  if(!d.users.length && !BETA_ESSAI) d.users = [{id:ID_ADMIN_DEPART,prenom:'OP',nom:'Admin',login:'admin',role:'admin',pinHash:'',actif:true}];   // la bêta n'a pas de compte de départ : la porte est au serveur
   d.users.forEach(u=>{ if(!u.login) u.login=(u.prenom||u.nom||'user').toLowerCase().replace(/\s+/g,''); });
   // Messagerie : les anciens messages directs (par technicien) deviennent des messages par compte utilisateur
   (d.messages||[]).forEach(m=>{ if(m.toTechId && !m.toUserId){ const u=(d.users||[]).find(x=>x.techId===m.toTechId); if(u) m.toUserId=u.id; } });
@@ -28329,6 +28346,24 @@ async function boot(){
     }
     // Box, demandes et devis de démonstration entrés par un rejeu du semis — par signature fictive exacte.
     if(menageDemoBox(db)) ch=true;
+    /* ⛔ LES « OP Admin » EMPILÉS — conséquence du compte de départ créé avec un identifiant
+       neuf à chaque chargement (corrigé juste au-dessus par ID_ADMIN_DEPART). Ceux qui sont
+       DÉJÀ entrés chez un client y restent : un correctif arrête la cause, il ne range pas
+       derrière lui. On n'enlève QUE le compte de départ resté INTACT — prénom « OP », nom
+       « Admin », aucun mot de passe ni code posé, donc jamais utilisé par personne — et on en
+       garde toujours UN, sinon une entreprise dont c'est le seul compte perdrait sa porte
+       d'entrée. Un administrateur qui a servi a un mot de passe : il n'est jamais touché. */
+    try{
+      const vierges=(db.users||[]).filter(u=>u&&(u.prenom||'')==='OP'&&(u.nom||'')==='Admin'&&!u.pwdHash&&!u.pinHash);
+      if(vierges.length>1){
+        const garde=vierges.find(u=>u.id===ID_ADMIN_DEPART)||vierges[0];
+        const aRetirer=vierges.filter(u=>u!==garde);
+        db.usersSupprimes=usersTombesFusion(db,{usersSupprimes:aRetirer.map(u=>({id:u.id,ts:Date.now()}))});
+        db.users=db.users.filter(u=>!aRetirer.includes(u));
+        try{ logEvent('Comptes de départ en double', aRetirer.length+' compte(s) « OP Admin » jamais utilisés retirés','crud'); }catch(_e){}
+        ch=true;
+      }
+    }catch(e){}
   }catch(e){}
   // Renommage : les comptes « ELAN Admin » existants deviennent « OP Admin »
   for(const u of db.users){ if((u.prenom||'')==='ELAN'&&(u.nom||'')==='Admin'){ u.prenom='OP'; ch=true; } }

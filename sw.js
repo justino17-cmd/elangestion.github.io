@@ -1,7 +1,7 @@
 /* OP GESTION — Service Worker : cache d'ouverture rapide et mises à jour. L'application ne
    travaille qu'en ligne (décision du 9 septembre 2026) ; la copie gardée ne sert qu'à afficher
    son propre écran « Connexion requise » sans réseau, et à recharger sans attendre. */
-const CACHE = 'elan-gestion-v849';
+const CACHE = 'elan-gestion-v850';
 const ASSETS = [
   './',
   'index.html',
