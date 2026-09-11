@@ -47,9 +47,9 @@ cd server && npm audit --omit=dev  # failles dans les dépendances de production
 node --check server/index.js       # contrôle de syntaxe, depuis la racine
 ```
 
-**Quinze suites dans `tests/`**, sans dépendance ni installation : treize extraient les
-fonctions réelles d'`app.html` et les exécutent — elles testent donc le fichier livré. La
-quatorzième, `test-641.js`, est la seule qui vise `server/` : elle LANCE le vrai serveur,
+**Quinze suites dans `tests/`**, sans dépendance ni installation : quatorze extraient les
+fonctions réelles d'`app.html` et les exécutent — elles testent donc le fichier livré. `test-641.js`
+est la seule qui vise `server/` : elle LANCE le vrai serveur,
 isolé (configuration, données et port à lui), et lui parle en HTTP. Elle saute d'elle-même sa
 partie exécutée si `server/node_modules` manque, et ⚠️ ne vise jamais `api.teamop.fr`.
 
