@@ -3465,7 +3465,14 @@ function tourAccesSuspendre(slug,nom,rouvrir){
   apiPost('/api/monitor/espaces/suspendre',{slug:slug,rouvrir:!!rouvrir}).then(function(r){
     if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Refusé — réservé au patron'); return; }
     JR.actions.unshift({ts:Date.now(),tx:MYNOM+(rouvrir?' a rouvert':' a suspendu')+' l’accès « '+(nom||slug)+' »'});
-    toast(rouvrir?'▶️ Accès rouvert':'⏸ Accès suspendu');
+    /* ⛔ SUSPENDRE NE SUFFIT PAS À COUPER, et il faut que ça se voie. Le serveur refuse les
+       nouveaux jetons, mais un appareil déjà connecté tient une session renouvelable : sans
+       la révocation Firebase il garde l'accès aux données. Le serveur la tente et dit si elle
+       a marché — afficher « Accès suspendu » sans le regarder ferait croire à une coupure qui
+       n'a pas eu lieu. Et ce n'est pas instantané : jusqu'à une heure. */
+    if(rouvrir) toast('▶️ Accès rouvert');
+    else if(r.d&&r.d.coupure===false) toast('⚠️ Suspendu, mais les sessions ne sont PAS coupées — '+((r.d&&r.d.coupureMotif)||'raison inconnue'),7000);
+    else toast('⏸ Accès suspendu · sessions coupées (effectif sous 1 h)');
     chargerAccesPublics();
   }).catch(function(){ toast('Serveur injoignable'); });
 }
@@ -3632,7 +3639,12 @@ function tourRetirerEntreprise(email){
     var code=prompt('📧 Code de confirmation envoyé sur '+(r.d.dest||'ta boîte')+' :\n\nEntre le code à 6 chiffres pour fermer définitivement cette entreprise.');
     if(!code) { toast('Fermeture annulée'); return; }
     apiPost('/api/monitor/clients/retirer',{email:email,code:code.trim()}).then(function(r2){
-      if(r2&&r2.ok&&r2.d&&r2.d.supprime){ toast('🗑 Entreprise fermée — données effacées ('+(r2.d.donneesEffacees||0)+'/'+(r2.d.espaces||0)+' espace(s))'+((r2.d.compteSite&&r2.d.compteSite.fait)?' · compte du site supprimé ✔':' · compte du site : '+((r2.d.compteSite&&r2.d.compteSite.motif)||'—'))); CLI.sel=null; chargerClients(); }
+      if(r2&&r2.ok&&r2.d&&r2.d.supprime){
+        /* Même raison qu'à la suspension : une coupure ratée laisse les appareils déjà
+           connectés lire ET repousser la base qu'on vient d'effacer. Ça ne se tait pas. */
+        var _cp=(r2.d.coupure===false)?' · ⚠️ SESSIONS NON COUPÉES ('+((r2.d.coupureMotif)||'raison inconnue')+')':' · sessions coupées ✔';
+        toast('🗑 Entreprise fermée — données effacées ('+(r2.d.donneesEffacees||0)+'/'+(r2.d.espaces||0)+' espace(s))'+((r2.d.compteSite&&r2.d.compteSite.fait)?' · compte du site supprimé ✔':' · compte du site : '+((r2.d.compteSite&&r2.d.compteSite.motif)||'—'))+_cp, r2.d.coupure===false?8000:0);
+        CLI.sel=null; chargerClients(); }
       else toast((r2&&r2.d&&r2.d.error)||'Code refusé');
     }).catch(function(){ toast('Serveur injoignable'); });
   }).catch(function(){ toast('Serveur injoignable'); });

@@ -4122,9 +4122,16 @@ app.post('/api/monitor/entreprise/supprimer', monPatronStrict, async (req, res) 
      « tout est propre ». */
   const purgeRatee = fait.erreurs === null || fait.reponsesMail === null || fait.bonsEnvoyes === null;
   if (purgeRatee) ecrit = false;
+  /* ⛔ UNE COUPURE RATÉE EST UN AVERTISSEMENT, PAS UN DÉTAIL. Si les sessions Firebase n'ont
+     pas pu être révoquées, les appareils déjà pourvus gardent l'accès aux données — et
+     peuvent REPOUSSER la base qu'on vient d'effacer. Dire « supprimée partout » là-dessus
+     serait faux. On passe par `avertissement` plutôt que par un champ neuf : c'est le seul
+     canal que la Tour affiche déjà, donc le seul qui atteigne vraiment Justin. */
+  const ennuis = [];
+  if (!(ecrit && fait.donneesEffacees)) ennuis.push('Une partie n\'a pas pu être écrite ou effacée — relance l\'aperçu de suppression pour voir ce qu\'il reste.');
+  if (!fait.coupure) ennuis.push('Les sessions Firebase n\'ont pas pu être coupées (' + (fait.coupureMotif || 'raison inconnue') + ') : les appareils déjà connectés gardent l\'accès et peuvent repousser la base effacée.');
   res.json({ ok: true, supprime: true, t, nom: inv.nom, fait, ecrit,
-    avertissement: ecrit && fait.donneesEffacees ? '' :
-      'Une partie n\'a pas pu être écrite ou effacée — relance l\'aperçu de suppression pour voir ce qu\'il reste.' });
+    avertissement: ennuis.join(' · ') });
 });
 
 // liste des problèmes + compteurs (admin)
