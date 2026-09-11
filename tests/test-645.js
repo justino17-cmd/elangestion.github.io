@@ -149,4 +149,11 @@ v('on réagit à resource-exhausted', /er\.code==='resource-exhausted'/.test(APP
 v('…une seule fois (le drapeau garde le rechargement)', /if\(!_fbFileSaturee\)\{ _fbFileSaturee=true;/.test(APP), true);
 v('…et la deuxième fois on le DIT au lieu de recharger', /La synchronisation reste bloquée/.test(APP), true);
 
+
+/* ── v648 : le dépôt d'annuaire envoie sa version, sinon le serveur le refuse en 426 ── */
+console.log('\nL\'annuaire de connexion annonce sa version');
+v('le dépôt /api/espaces/comptes envoie `ver`',
+  /body:JSON\.stringify\(\{t:t,kh:kh,comptes:envoi,ver:String\(APP_VERSION\|\|''\)\}\)/.test(APP), true);
+v('…et c\'est bien la route de l\'annuaire', /\/api\/espaces\/comptes/.test(APP), true);
+
 console.log('\n' + ok + ' ✓  ' + ko + ' ✗'); process.exit(ko ? 1 : 0);
