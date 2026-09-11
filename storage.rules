@@ -1,31 +1,59 @@
 rules_version = '2';
 
-// ══════════════════════════════════════════════════════════════════════════
-//  TEAM OP — L'ESPACE DE FICHIERS (Firebase Storage)
+// ══════════════════════════════════════════════════════════════════════════════
+//  FIREBASE STORAGE — LÀ OÙ IRONT LES PIÈCES LOURDES
 //
-//  À quoi ça sert : les fichiers envoyés dans les conversations qui
-//  dépassent 800 Ko partent ici, en qualité d'origine, jusqu'à 2 Go.
+//  POURQUOI CE FICHIER EXISTE. Aujourd'hui TOUTE la base d'une entreprise part
+//  chiffrée dans UN document Firestore, plafonné à 1 Mio — une limite DURE, la
+//  même sur le forfait gratuit et sur le forfait payant : aucun abonnement ne la
+//  relève. Les photos d'intervention et les pièces jointes, stockées en base64
+//  dans ce document, l'ont fait dépasser chez ELAN le 11 septembre 2026 :
+//  Firestore refusait chaque écriture (400, « Write stream exhausted »), donc
+//  plus aucune synchro, sur tous les appareils à la fois.
 //
-//  Où les coller : console.firebase.google.com → ton projet →
-//  Storage → onglet « Rules » → tout remplacer → Publier.
-//  (Il faut d'abord avoir activé Storage : bouton « Commencer ».)
-// ══════════════════════════════════════════════════════════════════════════
+//  La seule vraie façon d'« augmenter la taille » est de SORTIR ces pièces du
+//  document : Storage n'a pas de limite de 1 Mo (Go par fichier), le document
+//  Firestore ne porte alors que du texte et des références, très loin du plafond.
+//
+//  ⚠️ CE FICHIER N'EST PAS ENCORE PUBLIÉ. Il décrit la porte à ouvrir le jour où
+//  l'application écrira dans Storage. Le publier seul ne casse rien et ne change
+//  rien — mais ne PAS le publier avant que l'application n'écrive : sans règles,
+//  le bucket est fermé.
+//
+//  ⛔ MÊME PREUVE QUE FIRESTORE, PAS UNE AUTRE. L'appareil présente le jeton
+//  d'équipe signé par notre serveur (POST /api/fb/jeton), qui porte l'entreprise
+//  dans `claims.t`. Une pièce ne se lit et ne s'écrit que dans le dossier de SON
+//  entreprise. Ne jamais retomber sur « connecté » tout court : un compte anonyme
+//  lirait alors les photos de chantier de n'importe quel client.
+// ══════════════════════════════════════════════════════════════════════════════
 
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // chaque compte écrit dans SON dossier, 2 Go maximum par fichier
-    match /partages/{uid}/{fichier} {
-      allow write: if request.auth != null
-                   && request.auth.uid == uid
-                   && request.resource.size <= 2 * 1024 * 1024 * 1024;
-      // lire : tout compte connecté (le lien est partagé dans une conversation)
-      allow read:  if request.auth != null;
-      // seul l'expéditeur peut effacer son fichier
-      allow delete: if request.auth != null && request.auth.uid == uid;
+    function connecte()        { return request.auth != null; }
+    function monEquipe(teamId) { return connecte() && request.auth.token.get('t', '') == teamId; }
+
+    // Le poids d'une pièce : large pour un PDF ou une photo, borné quand même —
+    // sans plafond, un appareil qui déraille remplit le bucket et la facture.
+    function poidsOk()  { return request.resource.size < 25 * 1024 * 1024; }
+    // On ne prend que ce qu'on sait afficher : images et PDF.
+    function typeOk()   { return request.resource.contentType.matches('image/.*')
+                            || request.resource.contentType == 'application/pdf'; }
+
+    // equipes/{t}/… — tout ce qui appartient à une entreprise, rangé sous son identifiant.
+    match /equipes/{teamId}/{tous=**} {
+      allow read:   if monEquipe(teamId);
+      allow create: if monEquipe(teamId) && poidsOk() && typeOk();
+      allow update: if monEquipe(teamId) && poidsOk() && typeOk();
+      // ⛔ La suppression passe par le serveur, jamais par l'appareil : une pièce
+      // effacée ici serait perdue pour toute l'équipe, sans pierre tombale et sans
+      // retour possible. Le ménage se fait côté serveur, sur pièces orphelines.
+      allow delete: if false;
     }
 
-    // tout le reste est fermé
-    match /{tout=**} { allow read, write: if false; }
+    // Tout le reste est fermé.
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
