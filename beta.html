@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '643-beta';
+const APP_VERSION = '644-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -28097,6 +28097,46 @@ async function annuaireDeposer(){
   finally{ _annuaireEnCours=false; }
 }
 function getSession(){ return localStorage.getItem('elanB_session')||sessionStorage.getItem('elanB_session'); }
+/* ══ NETTOYAGE DES ENTRÉES DE DÉMONSTRATION ENTRÉES CHEZ UN CLIENT ══
+   Le semis de démo a pu déverser ses données dans la base d'une entreprise — rejeu constaté
+   chez ELAN le 11 septembre 2026, fermé POUR L'AVENIR par la garde de load() (test-642). Mais
+   ce qui est DÉJÀ entré y reste jusqu'à un geste : ce ménage l'enlève, une fois, au chargement,
+   comme le fait déjà le bloc au-dessus pour les comptes de démo.
+   ⛔ UNIQUEMENT PAR SIGNATURE FICTIVE EXACTE, JAMAIS PAR NUMÉRO DE DOCUMENT SEUL. « ENV-2026-001 »,
+   « BC-2026-001 », « DC-2026-001 » sont des numéros qu'une VRAIE entreprise génère aussi : matcher
+   là-dessus effacerait ses vraies pièces. On exige donc le NOM fictif du semis (une box « Cuisine —
+   Restaurant Le Gourmet », un client « Jean Leroy ») ET un second marqueur de semis — la conjonction
+   rend un faux positif sur un vrai enregistrement quasi impossible. Filtrer puis save() posent les
+   pierres tombales (l'ombre est relevée au chargement) : la suppression voyage à l'équipe et ne
+   ressuscite pas. Le rejeu ayant AJOUTÉ des copies (uid neuf à chaque passage), le filtre les enlève
+   toutes d'un coup. `tests/test-643b.js` éprouve la vraie fonction, faux positifs compris. */
+function menageDemoBox(db){
+  const NOMS = ['Cuisine — Restaurant Le Gourmet', 'Réserve — Boulangerie Au Bon Pain'];   // noms fictifs du semis
+  const REFS = ['RAT-A12', 'INS-B07'];      // références de semis
+  const NUMS = ['BX-001', 'BX-002'];        // numéros de semis
+  const DEVIS = [ { nom: 'Jean Leroy', tel: '01 23 45 67 89' }, { nom: 'Sophie Petit', tel: '01 98 76 54 32' } ];
+  let ch = false;
+  try{
+    // Box de démo : NOM fictif exact ET (numéro OU référence de semis).
+    const estBoxDemo = b => !!b && NOMS.includes(b.nom) && (NUMS.includes(b.numero) || REFS.includes(b.reference));
+    if(Array.isArray(db.boxes) && db.boxes.length){
+      const n = db.boxes.length; db.boxes = db.boxes.filter(b => !estBoxDemo(b));
+      if(db.boxes.length !== n) ch = true;
+    }
+    // Demandes qui nomment une box de démo (par son nom fictif) : elles partent avec elle.
+    if(Array.isArray(db.demandes) && db.demandes.length){
+      const n = db.demandes.length; db.demandes = db.demandes.filter(d => !(d && NOMS.includes(d.boxNom)));
+      if(db.demandes.length !== n) ch = true;
+    }
+    // Devis de démo : nom du client fictif ET son téléphone de démo (le couple protège d'un vrai homonyme).
+    if(Array.isArray(db.devis) && db.devis.length){
+      const estDevisDemo = q => !!q && DEVIS.some(x => x.nom === q.clientNom && x.tel === q.clientTelephone);
+      const n = db.devis.length; db.devis = db.devis.filter(q => !estDevisDemo(q));
+      if(db.devis.length !== n) ch = true;
+    }
+  }catch(e){}
+  return ch;
+}
 async function boot(){
   try{ if(await teamopLienCheck()) return; }catch(e){}   // lien d'entreprise : bascule d'espace avant tout
   try{ regMigration(); }catch(e){} let ch=false; for(const u of db.users){ if(!u.pinHash && !u.sansMdp && !u.compteSite && !BETA_ESSAI){ u.pinHash=await sha256('1234'); ch=true; } }
@@ -28114,6 +28154,8 @@ async function boot(){
       db.clients=(db.clients||[]).filter(c=>!cDemoIds.includes(c.id));
       ch=true;
     }
+    // Box, demandes et devis de démonstration entrés par un rejeu du semis — par signature fictive exacte.
+    if(menageDemoBox(db)) ch=true;
   }catch(e){}
   // Renommage : les comptes « ELAN Admin » existants deviennent « OP Admin »
   for(const u of db.users){ if((u.prenom||'')==='ELAN'&&(u.nom||'')==='Admin'){ u.prenom='OP'; ch=true; } }
