@@ -13,6 +13,104 @@ de ligne du tout.
 
 ---
 
+## ⛔ INCIDENT ELAN — 2e ACTE, 11 septembre 2026 au soir : LE QUOTA FIREBASE
+
+**La cause, lue dans la console de Justin à 17 h 45, pas déduite :**
+
+```
+@firebase/firestore: FirebaseError: [code=resource-exhausted]: Quota exceeded.
+@firebase/firestore: Using maximum backoff delay to prevent overloading the backend.
+```
+
+Le projet `elan-gestion` est sur le **plan Spark (gratuit)** — confirmé par sa propre console
+(« Spark · Sans frais (0 $) », bouton « Mettre à niveau »). Ses quotas journaliers étaient
+épuisés : Firestore refusait TOUTES les écritures et le SDK repartait en attente maximale, en
+boucle. D'où, exactement : l'écriture jamais acquittée, l'alerte « tes modifications ne partent
+pas », l'envoi de 17 h 35 de Justin jamais arrivé chez florent, et **rien qui synchronise pour
+personne**. Justin : « il y'a rien qui synchronise avec tout le monde c'est sûr » — il avait
+raison, et il l'a dit avant qu'on le prouve.
+
+⚠️ **CE QUI A ÉTÉ ÉCARTÉ AVANT D'Y ARRIVER, chacun mesuré, aucun supposé** — c'est la valeur
+de la trace, pas seulement la conclusion :
+
+| piste | verdict | comment |
+|---|---|---|
+| clé Firebase absente du VPS | **FAUX** | `/api/fb/jeton` rend un jeton signé, `claims.t = elan-34oc`, 60 min |
+| espace sur la clé partagée | **FAUX** | `cleEstPublique()` laisse passer — ELAN a sa clé propre |
+| document > 1 Mo Firestore | **FAUX** | 621 Ko mesurés, **59 %** de la limite |
+| nom de champ `jeton`/`token` | **FAUX** | serveur et client disent `jeton` tous les deux |
+| réseau coupé | **FAUX** | `/health` répond, c'est la condition même de l'alerte |
+| comptes sans mot de passe | **FAUX** | les 14 comptes d'ELAN ont une empreinte valide ; le badge « à définir » vient de `mustChangePwd` |
+
+⛔ **CORRECTION À CE FICHIER : la ligne « la clé d'administration Firebase n'est pas sur le
+VPS » de la section du matin N'EST PLUS VRAIE.** Vérifié à 17 h 40 par une signature réelle.
+Soit elle a été restaurée dans la journée, soit le diagnostic du matin était faux. Ne pas
+repartir de cette phrase.
+
+**Ce que Justin doit faire (en cours) :** passer le projet en **forfait Blaze**. Les quotas
+gratuits deviennent un crédit mensuel au lieu d'un mur. Console Firebase → projet `elan-gestion`
+(⚠️ le nom affiché est « TEAM OP OP GESTION OP MESSAGE », vérifier l'ID) → Facturation →
+Blaze → créer un compte de facturation Cloud → **poser une alerte de budget** (qui prévient,
+ne coupe pas). Estimation à leur rythme : 5 à 15 €/mois, dominé par la bande passante.
+À défaut, le quota se réinitialise à **9 h heure française** et se recoupe en journée.
+
+**Publications du soir, toutes mesurées sur leur base réelle :**
+
+- **v657** — un écran vide dit POURQUOI. Quatre techniciens (mathys, romainavg, zampa,
+  antho13) ouvraient « Boxes » sur « Aucune box. » alors que l'entreprise en a dix-huit :
+  aucune ne les nommait, aucune n'était « visible par tous ». Rien n'était cassé, personne ne
+  leur avait attribué de box — mais l'écran leur disait le contraire. Badge « 🔒 aucune box »
+  sur la liste Utilisateurs pour que l'administrateur le voie (`usrSansBox`, qui REJOUE
+  `visibleBoxes` au lieu de réécrire la règle). Côté serveur : la suppression en lot publiée
+  une heure plus tôt déduisait « jamais connecté » de `cnxData`, **plafonné à 500 événements** —
+  un technicien en congés en sortait et le lot l'aurait supprimé ET banni, par paquets de 40.
+  Trouvé par l'agent `gardien` APRÈS publication. Le lot est refusé sur journal saturé.
+- **v658** — le cadre des Boxes dit combien en ont vraiment. « Florent voit les box vides et
+  les autres pleines » : mesuré, l'administrateur voit 18 box dont **13 vides**, un chef
+  d'équipe ne voit QUE la sienne, pleine. Les deux disaient vrai. Le sous-titre porte
+  maintenant « 18 box · 5 avec du stock · 12 753 u ».
+- **v659** — un client installé ne fabrique plus un second espace vide à son nom.
+  `teamopCreateSpace()` était offert à tout administrateur : il tire un identifiant et une clé
+  neufs et affiche un lien, sans rien demander au serveur. Au nom de « ELAN », ça donne un
+  second lien indiscernable du vrai menant à une base vierge — c'est `elan-d4v8`, à côté du
+  vrai `elan-34oc`. Le bouton ne s'affiche plus que sur un appareil rattaché à personne.
+- **v660** — une alerte de synchro qui sait se démentir. Le délai était FIXE (15 s) quelle que
+  soit la taille : 621 Ko demandent plus de 300 kbit/s soutenus, donc une écriture saine
+  dépassait le délai sur un téléphone en 4G. Le délai suit le poids (1 s par 50 Ko, plafond
+  45 s). Et surtout l'alerte a une fin : l'accusé de réception la dément (« ✅ C'est parti »).
+  Elle ne le faisait pas — on apprenait que son travail ne partait pas, jamais qu'il était parti.
+- **v661** — le journal ne récite plus les produits et ne compte plus les ouvertures.
+  Composition mesurée du journal d'ELAN : **443 lignes sur 500 étaient des « Connexion »**
+  (83 Ko), trois « Produits retirés de la box » en pesaient 14 (4 934 caractères chacune),
+  six « Nouveaux produits ajoutés » 11. Il ne restait **57 lignes de métier sur 500**.
+  `logNoms()` garde trois noms et compte le reste ; la connexion s'inscrit une fois par
+  personne et par JOUR ; `photo` rejoint les champs lourds de `syncAlleger` (49 Ko pour une
+  seule photo de compte). Résultat : journal 124 → 18 Ko, document Firestore **606 → 465 Ko**,
+  historique métier 57 → 487 places.
+
+**⚠️ CE QUI RESTE, et qui n'est pas du code :**
+1. **Le forfait Blaze** — sans lui, rien ne synchronise. C'est le point bloquant.
+2. **Les box ne sont pas attribuées chez ELAN.** Quatre techniciens sur zéro box, tous les
+   autres sur UNE seule, et **aucune box en « visible par tous »** (0 sur 18). Ce n'est pas un
+   défaut de l'application : c'est une configuration que florent doit faire (Intervenants sur
+   chaque box, ou « visible par tous » sur les box communes).
+3. **Les 443 lignes de connexion déjà écrites restent** jusqu'à sortir du plafond de 500 : le
+   correctif arrête la cause, il ne range pas derrière lui.
+4. **Cinq fiches « Justin Biret » en double** dans `db.techniciens`, et le compte `florent-2`.
+5. **Le fond du problème reste entier** : chaque sauvegarde renvoie le document ENTIER et douze
+   appareils le relisent. 465 Ko × chaque geste × chaque appareil. Tant que la synchro est un
+   document unique réécrit en bloc, la facture suit le nombre d'appareils et de gestes. C'est
+   le chantier « pièces jointes hors du document » (plus bas), mais en plus large.
+
+**Ce qui a été mesuré chez ELAN et qui rassure, à garder sous la main :**
+stock ELAN **12 753 unités sur 18 box** (5 avec du stock), qui **se recollent au journal des
+mouvements à 3 unités près** sur 12 756 ; 0 ligne de stock orpheline ; 0 fiche produit en
+double. Un fichier de récupération complet (ELAN + les 18 mouvements, 2 bons de remise et la
+validation DR restés sur le repli, sans aucune pierre tombale) a été remis à Justin.
+**Rien n'a jamais été perdu.**
+
+---
+
 ## ⛔ INCIDENT ELAN du 11 septembre 2026 — clos à 14 h 20, mais DEUX PORTES RESTENT OUVERTES
 
 Toute l'équipe d'ELAN sans synchro ni connexion de 2 h 30 à 12 h 50, puis l'app bloquée en
