@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '644';
+const APP_VERSION = '645';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6221,6 +6221,7 @@ const FB_CONFIG={ apiKey:"AIzaSyAbah03sO4f4LyNhvmig0Pn00lz1sHSpT8", authDomain:"
 const FB_TEAM='elan-gestion';
 let _syncEssais=0;
 let _syncOn=false,_fbDoc=null,_fbUnsub=null,_syncTs=0,_syncApplying=false,_syncTimer=null,_syncGotInitial=false,_syncDemarre=false;
+let _allegeDit=0;   // combien de pièces l'allègement a laissées sur cet appareil la dernière fois qu'on l'a dit (voir syncAlleger)
 /* Version minimale exigée par TeamOP (Tour de contrôle). Et une décision sans option : l'application
    ne travaille QU'EN LIGNE (Justin, 9 septembre 2026 : « le mode hors ligne crée trop de problèmes,
    on l'oublie complètement »). La v616 gardait un interrupteur d'urgence dans la Tour ; il est retiré
@@ -6459,6 +6460,7 @@ async function syncInit(){ if(!syncEnabled()){ _syncOn=false; return; } if(_sync
       try{ let remote=JSON.parse(plain);
         const _sigAvantFusion=baseSignature(remote);
         remote=fusionnerBases(db,remote,false);   // priorité au DISTANT pour les égalités et les réglages : il est plus récent, par construction
+        try{ syncRegreffer(db,remote); }catch(e){}   // ce qui est arrivé allégé ne remplace pas nos pièces (voir syncAlleger)
         let diffMsg=''; try{ diffMsg=planSyncDiff(db,remote,d.by||''); }catch(e){}
         /* Le document reçu remplace tout — sauf les COMPTES, qu'on réunit avec les nôtres.
            Sans ça, l'appareil qui vient de créer trois comptes les perdrait à la première
@@ -6642,6 +6644,65 @@ function usersTombesFusion(a,b){
   const m={}; [].concat(usersTombes(a),usersTombes(b)).forEach(x=>{ const id=(x&&x.id)||x; if(id) m[id]=(x&&x.ts)?x:{id:id,ts:(x&&x.ts)||0}; });
   return Object.keys(m).map(k=>m[k]).sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,300);
 }
+/* ══ LE DOCUMENT FIRESTORE A UNE LIMITE DURE : 1 Mo. LA BASE ENTIÈRE TIENT DEDANS — OU PAS. ══
+   Toute la base d'une entreprise part chiffrée dans UN document (`enc`, base64 d'AES-GCM, donc
+   4/3 du texte clair). Les pièces jointes (jusqu'à 1,5 Mo chacune) et les photos d'intervention
+   (JPEG 1200 px) sont stockées en base64 DEDANS. Jusqu'au 11 septembre 2026, rien ne mesurait
+   rien avant d'écrire. Mesuré chez ELAN ce jour-là, sur toute l'équipe à la fois :
+     Firestore LIT la base (« Données de l'équipe mises à jour ») mais REFUSE chaque écriture —
+     400 sur le canal Write, « Write stream exhausted maximum allowed queued writes » — donc
+     aucun accusé en 15 s → « Connexion requise » → rechargement → recommence. En boucle,
+     sur chaque appareil, parce que la base est commune.
+   Deux faces, et il faut les deux :
+   · syncAlleger() : la copie POUSSÉE tient dans le budget. Au-delà, les pièces et photos les
+     plus lourdes en sont retirées, MARQUÉES (`horsNuage`, `photosHorsNuage`), et la base LOCALE
+     n'est pas touchée — ce que l'appareil a pris reste sur l'appareil. On le DIT (bandeau +
+     journal), on ne le cache pas.
+   · syncRegreffer() : un enregistrement reçu allégé ne remplace PAS les pièces qu'on a en local.
+     La fusion prend l'enregistrement le plus récent en entier ; sans cette regreffe, une photo
+     allégée ailleurs effacerait la nôtre à la réception.
+   Aucun nouveau format : un ancien appareil lit une copie allégée comme une base ordinaire, avec
+   moins de pièces. Budget : 720 Kio de texte clair → `enc` ≈ 960 Ko, sous la limite avec marge.
+   Si la base dépasse SANS AUCUNE pièce, on n'écrit pas (l'écriture serait refusée et la boucle
+   repartirait) et on le dit. `tests/test-645.js` éprouve les deux fonctions. */
+/* 680 Kio de texte clair → `enc` (base64 d'AES-GCM, ×4/3) ≈ 906 Ko, plus les petits champs :
+   le document reste sous la limite dure de 1 Mio de Firestore avec ~120 Ko de marge. */
+const NUAGE_BUDGET=680*1024;
+function syncAlleger(base, budget){
+  const B=budget||(typeof NUAGE_BUDGET!=='undefined'?NUAGE_BUDGET:737280);
+  const taille=s=>{ try{ return new TextEncoder().encode(s).length; }catch(e){ return s.length; } };
+  let t=0; try{ t=taille(JSON.stringify(base)); }catch(e){ return {copie:base,retirees:0,taille:0,impossible:false}; }
+  if(t<=B) return {copie:base,retirees:0,taille:t,impossible:false};
+  const its=Array.isArray(base.interventions)?base.interventions:[];
+  const pieces=[];
+  its.forEach((i,ix)=>{ if(!i) return;
+    (Array.isArray(i.docs)?i.docs:[]).forEach((d,k)=>{ const n=(d&&d.data||'').length; if(n) pieces.push({ix,k,type:'doc',n}); });
+    (Array.isArray(i.photos)?i.photos:[]).forEach((p,k)=>{ const n=(typeof p==='string'?p:'').length; if(n) pieces.push({ix,k,type:'photo',n}); }); });
+  pieces.sort((a,b)=>b.n-a.n);   // les plus lourdes d'abord : le moins de pièces retirées pour rentrer
+  const copie=Object.assign({},base); copie.interventions=its.slice();
+  const clones=new Map();
+  const cl=ix=>{ let c=clones.get(ix); if(!c){ const o=its[ix]; c=Object.assign({},o);
+    if(Array.isArray(o.docs)) c.docs=o.docs.map(d=>d&&typeof d==='object'?Object.assign({},d):d);
+    if(Array.isArray(o.photos)) c.photos=o.photos.slice();
+    clones.set(ix,c); copie.interventions[ix]=c; } return c; };
+  let excedent=t-B, n=0;
+  for(const p of pieces){ if(excedent<=0) break; const c=cl(p.ix);
+    if(p.type==='doc'){ const d=c.docs[p.k]; if(!d||!d.data) continue; excedent-=d.data.length; d.data=''; d.horsNuage=true; }
+    else { c.photos[p.k]=null; c.photosHorsNuage=(c.photosHorsNuage||0)+1; excedent-=p.n; }
+    n++; }
+  clones.forEach(c=>{ if(Array.isArray(c.photos)&&c.photos.some(x=>x===null)) c.photos=c.photos.filter(x=>x!==null); });
+  let t2=t; try{ t2=taille(JSON.stringify(copie)); }catch(e){}
+  return {copie,retirees:n,taille:t2,impossible:t2>B};
+}
+function syncRegreffer(local, fusion){ try{
+  const L=new Map(); ((local&&local.interventions)||[]).forEach(i=>{ if(i&&i.id!=null) L.set(String(i.id),i); });
+  let n=0;
+  ((fusion&&fusion.interventions)||[]).forEach(r=>{ if(!r||r.id==null) return; const l=L.get(String(r.id)); if(!l||l===r) return;
+    if(r.photosHorsNuage>0 && Array.isArray(l.photos) && l.photos.length>((r.photos&&r.photos.length)||0)){ r.photos=l.photos.slice(); n++; }
+    if(Array.isArray(r.docs)&&Array.isArray(l.docs)) r.docs.forEach(d=>{ if(!d||!d.horsNuage||d.data) return;
+      const ld=l.docs.find(x=>x&&x.data&&x.nom===d.nom&&x.ts===d.ts); if(ld){ d.data=ld.data; n++; } });
+  });
+  return n; }catch(e){ return 0; } }
 function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) return; clearTimeout(_syncTimer);
   /* Trois portes fermées, dans l'ordre où elles coûtent le moins :
      — version bloquée : le nuage refuserait de toute façon, et un refus par écriture use le quota ;
@@ -6667,7 +6728,9 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
       if(d){
         const plain=await syncReadRemote(d);
         if(plain){ const remote=JSON.parse(plain);
+          const _localAvant=db;
           db=fusionnerBases(db,remote,true);   // priorité au LOCAL : ce qu'on s'apprête à écrire est ce qu'on vient de modifier
+          try{ syncRegreffer(_localAvant,db); }catch(_e){}   // un enregistrement distant allégé ne nous prend pas nos pièces
           const tomb=usersTombesFusion(db,remote);
           const av=(db.users||[]).length;
           /* priorité au LOCAL : ce qu'on s'apprête à écrire est ce qu'on vient de modifier. */
@@ -6703,7 +6766,16 @@ function syncPush(now){ if(!_syncOn||!_fbDoc||_syncApplying||!_syncGotInitial) r
     }catch(e){}
     _retraitVoulu=0;
     try{ ombreRelever(); }catch(e){}   // l'ombre = ce qu'on pousse
-    const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(db));
+    /* La copie poussée tient dans le document Firestore — la base locale, elle, garde tout. */
+    const alle=syncAlleger(db);
+    if(alle.retirees!==_allegeDit){ _allegeDit=alle.retirees;
+      if(alle.retirees){ try{ toast('📦 Base trop lourde pour le nuage : '+alle.retirees+' pièce(s) ou photo(s) restent sur cet appareil, non partagées — allège les pièces jointes des interventions',8000); }catch(_e){}
+        try{ logEvent('Synchro allégée', alle.retirees+' pièce(s)/photo(s) gardées sur cet appareil — base '+Math.round(alle.taille/1024)+' Ko','sync'); }catch(_e){} } }
+    if(alle.impossible){
+      try{ console.error('push : base trop lourde même sans pièces ('+Math.round(alle.taille/1024)+' Ko) — écriture non tentée'); }catch(_e){}
+      try{ toast('⛔ La base est trop lourde pour le nuage même sans pièces jointes — contacte TEAM OP',8000); }catch(_e){}
+      return; }
+    const ts=Date.now(); _syncTs=ts; const e=await syncEncrypt(JSON.stringify(alle.copie));
     /* `verNum` est ce que la règle Firestore compare au minimum exigé. Un refus « permission-denied »
        ici ne veut plus dire « pas authentifié » : il veut dire « cette version n'est plus acceptée ». */
     /* Une écriture que le serveur n'a pas acquittée en 15 s est une écriture en file d'attente
@@ -15803,6 +15875,7 @@ function intDocAdd(e,id){ const f=e.target.files[0]; if(!f) return; e.target.val
     i.docs.push({nom:f.name,type:f.type||'',data:r.result,ts:Date.now()}); intHisto(i,'Document joint : '+f.name); save(); renderIntDetail(id); toast('Document joint'); };
   r.readAsDataURL(f); }
 function intDocOpen(id,ix){ const i=db.interventions.find(x=>x.id===id); const d=i&&i.docs&&i.docs[ix]; if(!d) return;
+  if(!d.data){ toast('Cette pièce est restée sur l\'appareil qui l\'a jointe — trop lourde pour être partagée'); return; }   // allégée par syncAlleger
   try{ const bin=atob(d.data.split(',')[1]); const arr=new Uint8Array(bin.length); for(let k=0;k<bin.length;k++)arr[k]=bin.charCodeAt(k);
     const url=URL.createObjectURL(new Blob([arr],{type:d.type||'application/octet-stream'})); window.open(url,'_blank'); }catch(e){ toast('Ouverture impossible'); } }
 function intDocDel(id,ix){ if(!confirm('Supprimer ce document ?')) return; const i=db.interventions.find(x=>x.id===id); i.docs.splice(ix,1); save(); renderIntDetail(id); }
