@@ -2068,8 +2068,20 @@ app.post('/api/monitor/comptes/supprimer', monPatronStrict, async (req, res) => 
   const demandes = Array.isArray(b.logins) ? b.logins.slice(0, 40).map(x => monStr(x, 40).toLowerCase().trim()).filter(Boolean) : [];
   if (!demandes.length) return res.status(400).json({ error: 'logins requis' });
   const annu = (comptesReg[t] && comptesReg[t].c) || {};
+  const journal = cnxData[t] || [];
+  /* ⛔ « JAMAIS CONNECTÉ » NE SE DÉDUIT PAS D'UN JOURNAL PLEIN. `cnxData[t]` est plafonné à
+     500 événements, et chaque ouverture d'application en pousse un : chez une entreprise de la
+     taille d'ELAN, 500 événements couvrent une à deux semaines. Passé ce seuil, l'absence d'un
+     identifiant ne prouve plus rien — elle dit seulement qu'il est sorti de la fenêtre. Un
+     technicien en congés, en arrêt ou saisonnier deviendrait alors « jamais utilisé », et le
+     lot le supprimerait ET le bannirait de l'annuaire, par paquets de quarante.
+     C'est le ménage trop large du 11 septembre au matin, automatisé. Sur un journal saturé, on
+     REFUSE le lot et on renvoie au cas par cas, où le patron relit le nom avant de valider.
+     (Trouvé par l'agent gardien le 11 septembre 2026, après publication de la route.) */
+  if (journal.length >= 500) return res.status(409).json({
+    error: 'Journal de connexions saturé (500 événements) pour cet espace : « jamais connecté » n\'y est plus une preuve, un compte peut simplement être sorti de la fenêtre. Supprime-les un par un.' });
   const aServi = new Set();
-  for (const x of (cnxData[t] || [])) {
+  for (const x of journal) {
     if (x.ev === 'echec' || x.ev === 'bloque' || x.ev === 'refus') continue;   // la porte a joué : ce n'est pas une connexion
     const l = String(x.login || '').toLowerCase().trim(); if (l) aServi.add(l);
   }
