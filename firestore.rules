@@ -3,22 +3,42 @@ rules_version = '2';
 // ══════════════════════════════════════════════════════════════════════════
 //  TEAM OP — RÈGLES DU PROJET « elan-gestion » : OP GESTION et l'espace client
 //
-//  C'est ce qui tourne dans la console. Où coller : console.firebase.google.com →
-//  projet elan-gestion → Firestore Database → onglet « Règles » → tout remplacer → Publier.
+//  ⚠️ CE FICHIER DÉCRIT CE QUI TOURNE RÉELLEMENT DANS LA CONSOLE. Où coller :
+//  console.firebase.google.com → projet elan-gestion → Firestore Database →
+//  onglet « Règles » → tout remplacer → Publier. L'éditeur remplace la TOTALITÉ
+//  des règles : ce n'est jamais « ajouter un bloc », c'est « tout coller ».
+//  La console garde l'historique des versions publiées, avec retour arrière.
 //
-//  OP MESSAGES n'est plus ici — décision de Justin, 10 septembre 2026 : la messagerie
-//  n'est pas en service, elle aura son propre projet Firebase (ses règles :
-//  firestore-opmessages.rules). Tant que messages.html n'a pas été basculée dessus, la
-//  messagerie est hors d'usage : tout ce qui n'est pas listé ici est fermé, et c'est voulu.
+//  PUBLIÉ LE 11 SEPTEMBRE 2026, 2 h 30 — chaque entreprise est enfin enfermée
+//  chez elle. Vérifié dans la foulée avec un compte anonyme, sur un identifiant
+//  d'espace INEXISTANT pour ne toucher aucune donnée réelle :
+//    · elan_teams        → 403 PERMISSION_DENIED   (la dette est fermée)
+//    · teamop_config     → 200, min: 640           (la porte de version tient)
+//    · elanB_teams       → 200                     (la bêta marche toujours)
+//
+//  OP MESSAGES n'est plus ici — décision de Justin, 10 septembre 2026 : la
+//  messagerie n'est pas en service, elle aura son propre projet Firebase (ses
+//  règles : firestore-opmessages.rules). Tant que messages.html n'a pas été
+//  basculée dessus, la messagerie est hors d'usage : tout ce qui n'est pas
+//  listé ici est fermé, et c'est voulu.
 // ══════════════════════════════════════════════════════════════════════════
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── LES OUTILS ──────────────────────────────────────────────────────
-    function connecte()      { return request.auth != null; }
-    function moi()           { return request.auth.uid; }
-    function cestMoi(uid)    { return connecte() && moi() == uid; }
+    function connecte()   { return request.auth != null; }
+    function moi()        { return request.auth.uid; }
+    function cestMoi(uid) { return connecte() && moi() == uid; }
+
+    // L'appareil appartient-il à CETTE entreprise ? Le jeton d'équipe le dit
+    // (claims.t), délivré par le serveur TeamOP contre la preuve de la clé
+    // d'équipe (POST /api/fb/jeton). `.get('t','')` et non `.t` : une session
+    // sans ce claim — un compte du portail client, voir espace.html — doit être
+    // refusée proprement, pas faire échouer l'évaluation de la règle.
+    function monEquipe(teamId) {
+      return connecte() && request.auth.token.get('t', '') == teamId;
+    }
 
     // ══ ESPACE CLIENT ET SUPPORT ══════════════════════════════════════════
     match /teamop_requests/{uid} {
@@ -41,17 +61,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ══ OP GESTION ════════════════════════════════════════════════════════
-    // ── LA PORTE DE VERSION — 9 septembre 2026 ──
-    // Ce qui a détruit les comptes d'ELAN : un appareil resté en vieille version, qui
-    // réécrit TOUTE la base de l'entreprise avec sa copie périmée, toutes les deux
-    // minutes. On ne peut pas mettre à jour un appareil qu'on ne tient pas ; on peut lui
-    // refuser la porte. Chaque écriture de l'application porte son numéro de version
-    // (`verNum`, un entier). En dessous du minimum fixé depuis la Tour de contrôle
-    // (teamop_config/version → min), le serveur de Google refuse l'écriture : l'appareil
-    // continue de LIRE, ne peut plus rien abîmer, et l'application se met à jour seule.
-    // Une version d'avant ce verrou n'a pas de `verNum` : elle passe tant qu'aucun
-    // minimum n'est exigé (min = 0 ou document absent), plus jamais ensuite.
+    // ══ LA PORTE DE VERSION — 9 septembre 2026 ════════════════════════════
+    // Ce qui a détruit les comptes d'ELAN : un appareil resté en vieille version,
+    // qui réécrit TOUTE la base de l'entreprise avec sa copie périmée, toutes les
+    // deux minutes. On ne peut pas mettre à jour un appareil qu'on ne tient pas ;
+    // on peut lui refuser la porte. Chaque écriture porte son numéro de version
+    // (`verNum`). En dessous du minimum fixé depuis la Tour de contrôle
+    // (teamop_config/version → min), Google refuse l'écriture : l'appareil
+    // continue de LIRE, ne peut plus rien abîmer, et se met à jour seul.
     function versionMin() {
       return exists(/databases/$(database)/documents/teamop_config/version)
         ? get(/databases/$(database)/documents/teamop_config/version).data.get('min', 0)
@@ -62,104 +79,54 @@ service cloud.firestore {
         || (request.resource.data.get('verNum', 0) is int
             && request.resource.data.get('verNum', 0) >= versionMin());
     }
-    // ── ⛔ LA DETTE OUVERTE : « connecté » NE VEUT PAS DIRE « de cette entreprise » ──
-    // connecte() n'exige qu'un compte ANONYME — celui que l'application se crée elle-même
-    // (app.html, signInAnonymously). {teamId} n'est comparé à rien. Donc, aujourd'hui :
-    //   • LECTURE : n'importe quel compte anonyme lit le document de n'importe quelle
-    //     entreprise. Reproduit le 10 septembre 2026 — avec les seules constantes du fichier
-    //     servi publiquement (SYNC_SECRET_DEFAULT, SYNC_SALT), le contenu d'une entreprise
-    //     restée sur la clé par défaut se déchiffre INTÉGRALEMENT : nom, adresses et
-    //     téléphones des clients, montants, mot de passe administrateur.
-    //   • ÉCRITURE : elle ne demande AUCUNE clé. versionOk() ne sépare rien — `verNum` est
-    //     fourni par celui qui écrit. Écraser le document d'une entreprise, y compris une
-    //     entreprise à clé propre, ne demande donc rien d'autre qu'un compte anonyme.
+
+    // ══ OP GESTION — CHAQUE ENTREPRISE CHEZ ELLE ══════════════════════════
+    // ⛔ CE QUE CES DEUX LIGNES DISAIENT AVANT, ET POURQUOI IL A FALLU LE FERMER.
+    // Jusqu'au 11 septembre 2026 : `allow read: if connecte()` et `allow write:
+    // if connecte() && versionOk()`. Or `connecte()` n'exige qu'un compte
+    // ANONYME — celui que l'application se crée elle-même — et `{teamId}` n'était
+    // comparé à rien. Donc, mesuré et reproduit la veille :
+    //   • LECTURE : n'importe quel compte anonyme lisait le document de n'importe
+    //     quelle entreprise. Avec les seules constantes du fichier servi
+    //     publiquement (SYNC_SECRET_DEFAULT, SYNC_SALT), le contenu d'une
+    //     entreprise restée sur la clé par défaut se déchiffrait INTÉGRALEMENT :
+    //     nom, adresses et téléphones des clients, montants, mot de passe admin.
+    //   • ÉCRITURE : elle ne demandait AUCUNE clé. `versionOk()` ne sépare rien —
+    //     `verNum` est fourni par celui qui écrit. Écraser le document d'une
+    //     entreprise, même à clé propre, ne demandait qu'un compte anonyme.
     //
-    // LE REMÈDE EST PRÊT CÔTÉ CODE (v640) mais PAS ENCORE PUBLIÉ ICI, et c'est délibéré.
-    // Le serveur TeamOP délivre désormais, contre la preuve de la clé d'équipe, un jeton
-    // signé qui porte l'entreprise (POST /api/fb/jeton → claims.t), et l'application s'en
-    // sert au lieu de la connexion anonyme. Quand TOUS les appareils l'auront, remplacer le
-    // bloc ci-dessous par :
-    //
-    //     match /elan_teams/{teamId} {
-    //       allow read:  if request.auth != null && request.auth.token.get('t', '') == teamId;
-    //       allow write: if request.auth != null && request.auth.token.get('t', '') == teamId
-    //                       && versionOk();
-    //     }
-    //
-    // ⚠️ NE PAS PERDRE versionOk() EN CHEMIN. Une première rédaction de ce bloc l'avait laissé
-    // tomber — donc rouvrait la porte de version, c'est-à-dire très exactement « ce qui a
-    // détruit les comptes d'ELAN » décrit lignes 45-54 : un appareil resté en vieille version
-    // réécrit toute la base de l'entreprise avec sa copie périmée. Le paradoxe serait complet,
-    // puisque la condition n°1 ci-dessous s'appuie sur ce même verrou pour orchestrer la
-    // migration. Et `token.get('t','')` plutôt que `token.t` : une session sans ce claim (un
-    // compte du portail client, voir espace.html) ferait autrement échouer la règle au lieu de
-    // simplement refuser.
-    //
-    // ⚠️ QUATRE CONDITIONS AVANT DE PUBLIER CETTE LIGNE, chacune payante si on l'oublie :
-    //  1. Tous les appareils doivent présenter le jeton. Publier avant ferme la porte aux
-    //     retardataires — qui perdent alors l'accès aux données de LEUR PROPRE entreprise.
-    //     La Tour de contrôle sait exiger une version : c'est le même geste, dans le même
-    //     ordre. D'abord tout le monde monte, ENSUITE la porte se ferme.
-    //  2. L'espace de REPLI (voir ESPACES_INTOUCHABLES côté serveur) n'a pas de jeton : sa
-    //     clé est écrite en clair dans app.html, une preuve venant de lui ne prouve rien.
-    //     Les entreprises qui y vivent encore doivent d'abord déménager dans leur propre
-    //     espace, avec leur propre clé — sans quoi cette règle les coupe toutes.
-    //  3. LES ENTREPRISES QUI ONT LEUR PROPRE ESPACE MAIS ENCORE LA CLÉ PARTAGÉE. C'est le
-    //     compteur « à migrer (clé partagée) » de la Tour de contrôle, et il doit être à ZÉRO.
-    //     Leur empreinte de clé se calcule depuis le fichier public : sans le refus posé
-    //     côté serveur (cleEstPublique), elles recevraient un vrai jeton — et la porte se
-    //     refermerait sur tout le monde SAUF sur la population la plus exposée. Avec le refus,
-    //     elles n'ont pas de jeton du tout : publier cette règle avant de les avoir déménagées
-    //     les coupe de leurs données. Dans les deux sens, le déménagement passe d'abord.
-    //     ✅ Vérifié à zéro le 11 septembre 2026 : aucune entreprise n'est dans ce cas.
-    //  4. LES ESPACES HORS ANNUAIRE — la condition qu'on oublie, parce qu'elle ne parle pas de
-    //     clés. Un espace absent d'`espaces.json` n'a AUCUN code enregistré : le serveur ne
-    //     connaît pas sa clé, ne peut donc vérifier aucune preuve, et répond 404. Pas de preuve
-    //     possible ⇒ pas de jeton ⇒ coupé par cette règle. C'est structurel, aucun correctif de
-    //     code n'y changera rien : un espace doit être dans l'annuaire pour être authentifié.
-    //     Le compteur « hors annuaire » de la Tour les compte. Il n'a pas besoin d'être à zéro,
-    //     mais CHACUN doit avoir été ouvert et tranché : un essai oublié se supprime, une vraie
-    //     cliente dont l'entrée d'annuaire s'est perdue doit la retrouver AVANT. L'avertissement
-    //     de la Tour le dit déjà — « un espace sans nom n'est pas forcément un espace sans
-    //     client ». Ici, se tromper coupe une entreprise de ses données.
-    //     ⏳ Au 11 septembre 2026 : 3 espaces hors annuaire, à trancher un par un.
-    //
-    // ⚠️ CE QUE CETTE RÈGLE NE DONNE PAS, et qu'on pourrait croire acquis. Un jeton d'équipe
-    // vaut une heure, mais l'ACCÈS qu'il ouvre ne s'arrête pas au bout d'une heure : Firebase
-    // l'échange contre une session renouvelable indéfiniment, rangée sur l'appareil. Après un
-    // seul échange réussi, l'appareil ne repasse plus jamais par le serveur. Donc :
-    //   • fermer une entreprise depuis la Tour ne coupe PAS son Firestore sur les appareils
-    //     déjà pourvus (le refus « espace fermé » ne les rejoint jamais) ;
-    //   • changer la clé d'équipe ne révoque rien ;
-    //   • l'identifiant étant commun à toute l'entreprise, on ne peut pas couper UN appareil :
-    //     révoquer coupe toute l'entreprise d'un coup.
-    // Ce n'est pas une régression — aujourd'hui l'anonyme donne tout, à tout le monde. Mais
-    // c'est un levier qu'on n'a pas, et il faut le savoir avant d'en avoir besoin. Le fermer
-    // demanderait un identifiant par APPAREIL et une durée de vie effective plus courte
-    // (redemander un jeton périodiquement) : à traiter à part, pas au milieu d'autre chose.
+    // Il faut désormais un jeton qui NOMME l'entreprise. ⛔ Ne jamais revenir à
+    // `connecte()` seul ici, et ne jamais perdre `versionOk()` sur l'écriture :
+    // les deux verrous protègent de deux pannes différentes, toutes deux vécues.
     match /elan_teams/{teamId} {
-      allow read:   if connecte();
-      allow write:  if connecte() && versionOk();
+      allow read:  if monEquipe(teamId);
+      allow write: if monEquipe(teamId) && versionOk();
     }
-    // Le minimum exigé : tout le monde le lit (l'application s'y compare avant même
-    // d'écrire), personne ne l'écrit depuis l'application — il est posé par le serveur
-    // TeamOP, avec sa clé d'administration, sur ordre de la Tour de contrôle.
+
+    // Le minimum exigé : tout le monde le lit (l'application s'y compare avant
+    // même d'écrire), personne ne l'écrit depuis l'application — il est posé par
+    // le serveur TeamOP, avec sa clé d'administration, sur ordre de la Tour.
+    // ⚠️ Reste en `connecte()` volontairement : un appareil qui n'a pas encore
+    // son jeton doit pouvoir lire ce document, sinon il ne saurait même pas
+    // qu'il est en retard de version.
     match /teamop_config/{doc} {
       allow read:  if connecte();
       allow write: if false;
     }
 
-    // ── Le canal d'essai (beta.html / dev.html) ──
+    // ══ LE CANAL D'ESSAI (beta.html / dev.html) ═══════════════════════════
     // beta-build.js remplace le préfixe 'elan_ par 'elanB_ pour isoler les
     // données locales de la bêta ; la substitution touche aussi le nom de la
-    // collection Firestore, qui devient 'elanB_teams'. Sans cette règle, la
-    // bêta tombait sur le « tout le reste est fermé » et ne se synchronisait
-    // pas. L'isolement est voulu : elle a ses propres données et ne touche
-    // jamais à celles des entreprises. Même porte de version : la bêta porte
-    // aussi son numéro.
+    // collection Firestore, qui devient 'elanB_teams'.
+    // ⚠️ VOLONTAIREMENT LAISSÉ OUVERT AUX COMPTES ANONYMES, et ce n'est pas un
+    // oubli : la bêta vit sur l'espace « elan-gestion-beta », que le serveur
+    // refuse d'authentifier par construction (ESPACES_INTOUCHABLES — sa clé est
+    // publique, une preuve venant de lui ne prouverait rien). Ses appareils n'ont
+    // donc pas de jeton. Resserrer ici couperait l'outil de développement sans
+    // rien protéger : la bêta ne porte JAMAIS de données d'entreprise.
     match /elanB_teams/{teamId} {
-      allow read:   if connecte();
-      allow write:  if connecte() && versionOk();
+      allow read:  if connecte();
+      allow write: if connecte() && versionOk();
     }
 
     // ══ TOUT LE RESTE EST FERMÉ ═══════════════════════════════════════════
@@ -168,3 +135,34 @@ service cloud.firestore {
     }
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+//  CE QUE CETTE RÈGLE NE DONNE PAS, et qu'on pourrait croire acquis.
+//
+//  Un jeton d'équipe vaut une heure, mais l'ACCÈS qu'il ouvre ne s'arrête pas au
+//  bout d'une heure : Firebase l'échange contre une session renouvelable
+//  indéfiniment, rangée sur l'appareil. Après un seul échange réussi, l'appareil
+//  ne repasse plus jamais par le serveur. Donc :
+//    • fermer une entreprise depuis la Tour ne coupe PAS son Firestore sur les
+//      appareils déjà pourvus (le refus « espace fermé » ne les rejoint jamais) ;
+//    • changer la clé d'équipe ne révoque rien ;
+//    • l'identifiant étant commun à toute l'entreprise, on ne peut pas couper UN
+//      appareil : révoquer les couperait tous d'un coup.
+//  Le fermer demanderait un identifiant par APPAREIL et une durée de vie
+//  effective plus courte (redemander un jeton périodiquement) : à traiter seul,
+//  pas au milieu d'autre chose.
+//
+//  ET CE QU'IL A FALLU VÉRIFIER AVANT DE PUBLIER — pour mémoire, si la règle doit
+//  un jour être republiée ou étendue à une autre collection :
+//   1. Tous les appareils présentent le jeton. Publier avant ferme la porte aux
+//      retardataires, qui perdent l'accès aux données de LEUR PROPRE entreprise.
+//      ✅ v640 exigée depuis la Tour avant publication.
+//   2. L'espace de REPLI n'a pas de jeton (clé publique). ✅ Aucune entreprise
+//      n'y vivait — c'est un espace technique, jamais une entreprise.
+//   3. Les entreprises ayant leur propre espace mais encore la clé partagée
+//      n'ont pas de jeton non plus (refus `cleEstPublique`, 409). ✅ Compteur
+//      « à migrer (clé partagée) » de la Tour vérifié à ZÉRO le 11 septembre.
+//   4. Les espaces HORS ANNUAIRE n'ont aucun code enregistré, donc aucune preuve
+//      vérifiable, donc pas de jeton — c'est structurel. ✅ Les trois recensés
+//      étaient : un espace d'essai (supprimé) et les deux espaces techniques.
+// ══════════════════════════════════════════════════════════════════════════
