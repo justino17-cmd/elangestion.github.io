@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '657';
+const APP_VERSION = '658';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -18117,7 +18117,18 @@ const boxPersonnes=b=>{ const l=boxTechs(b).slice(); (b.userIds||[]).forEach(id=
 let boxListSearch='';
 views.boxes=function(){
   const mine=visibleBoxes(db.boxes), perim=can('voirTout')&&perimetreTechIds();   // « tout voir » mais rattaché à des équipes (v622) : la liste est réduite, l'en-tête doit le dire
-  setHeader('Boxes',`${mine.length} box${can('voirTout')?(perim?' (mon équipe)':''):' (mes box)'}`,`<button class="btn ghost" onclick="go('carteBox')">🗺️ Carte</button> <button class="btn ghost" onclick="openAjoutProduitBoxes()">Ajouter produit</button> ${can('supprimer')?'<button class="btn" onclick="formBox()">＋ Box</button>':''}`);
+  /* ⛔ COMBIEN DE CES BOX ONT VRAIMENT DU STOCK. Sans ce chiffre, deux personnes de la même
+     entreprise décrivent deux réalités et les deux ont raison. Mesuré chez ELAN le 11 septembre
+     2026 : l'administrateur voit les DIX-HUIT box, dont TREIZE n'ont jamais reçu une entrée —
+     il fait défiler, ne lit que des zéros, et conclut « les box sont vides » ; un chef d'équipe
+     ne voit QUE la sienne, pleine, et répond « elles sont pleines ». Personne ne se trompe :
+     seul l'administrateur voit l'entreprise entière, donc lui seul voit les box inutilisées.
+     Le sous-titre le dit maintenant, au lieu de le laisser déduire du défilement. */
+  const avecStock=mine.filter(b=>Object.values(b.stock||{}).some(s=>((s&&typeof s==='object')?((+s.u||0)+(+s.ctn||0)):(+s||0))>0)).length;
+  const unites=mine.reduce((t,b)=>t+Object.values(b.stock||{}).reduce((n,s)=>n+((s&&typeof s==='object')?(+s.u||0):(+s||0)),0),0);
+  const cadre=`${mine.length} box${can('voirTout')?(perim?' (mon équipe)':''):' (mes box)'}`
+    +(mine.length?` · ${avecStock} avec du stock · ${unites.toLocaleString('fr-FR')} u`:'');
+  setHeader('Boxes',cadre,`<button class="btn ghost" onclick="go('carteBox')">🗺️ Carte</button> <button class="btn ghost" onclick="openAjoutProduitBoxes()">Ajouter produit</button> ${can('supprimer')?'<button class="btn" onclick="formBox()">＋ Box</button>':''}`);
   $('content').innerHTML=`<div class="filters" style="margin:0 0 8px"><div class="chip active">📋 Liste</div><div class="chip" onclick="go('carteBox')">🗺️ Carte des box</div></div>
     <input class="search-inp" id="box-search" placeholder="Numéro, nom, ville…" value="${esc(boxListSearch)}" oninput="boxListSearch=this.value;renderBoxesList()"><div id="boxes-list"></div>`;
   renderBoxesList();

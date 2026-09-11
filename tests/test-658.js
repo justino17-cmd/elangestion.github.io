@@ -100,4 +100,24 @@ console.log('Un écran vide dit pourquoi, et « jamais connecté » n’est pas 
   v('le seuil est bien celui du plafond réel du journal', /if \(l\.length > 500\) l\.length = 500;/.test(SRV), true);
 }
 
+// ── 6) ⛔ Le cadre des Boxes dit COMBIEN ont du stock — sinon deux personnes de la même
+//    entreprise décrivent deux réalités et les deux ont raison (ELAN, 11 septembre 2026 :
+//    l'administrateur voit 18 box dont 13 vides, un chef d'équipe ne voit QUE la sienne, pleine).
+{
+  const i = APP.indexOf('const avecStock=mine.filter');
+  v('le cadre compte les box qui ont du stock', i > -1, true);
+  const code = APP.slice(i, APP.indexOf('const cadre=', i)).replace(/\bconst /g, '');
+  let avecStock, unites, mine;
+  const bx = (u, ctn) => ({ stock: { p1: { u: u, ctn: ctn || 0 } } });
+  /* Un carton sans unité EST du stock : compter les seules unités dirait « 0 avec du stock »
+     sur une box pleine de cartons — exactement le mensonge qu'on vient de corriger. */
+  mine = [bx(5), bx(0), bx(0, 3), { stock: {} }]; eval(code);
+  v('une box à zéro n’est pas comptée comme pleine', avecStock, 2);
+  v('les unités se totalisent (les cartons ne s’y ajoutent pas)', unites, 5);
+  mine = []; eval(code);
+  v('aucune box : rien à compter, et le cadre n’affiche pas le détail', [avecStock, unites], [0, 0]);
+  v('le détail n’apparaît que s’il y a des box', /\$\{mine\.length\} box[^`]*`\s*\+\(mine\.length\?/.test(APP), true);
+  v('le nombre est écrit à la française (espace insécable pour les milliers)', /toLocaleString\('fr-FR'\)/.test(APP), true);
+}
+
 console.log('\n' + ok + ' ✓  ' + ko + ' ✗'); process.exit(ko ? 1 : 0);
