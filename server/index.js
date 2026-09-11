@@ -135,6 +135,17 @@ function mailerEnvoi(opts) {
 const PLAFOND_GLOBAL = 120;    // requêtes / minute / IP
 const PLAFOND_STRICT = 20;     // idem, sur les routes sensibles
 const MAX_IP_SUIVIES = 20000;  // borne mémoire (voir plus bas)
+/* ⛔ LE BATTEMENT DE VIE A SON PROPRE COMPTEUR, ET IL NE TOUCHE PAS AU BUDGET DES AUTRES.
+   Chaque appareil fait HEAD /health toutes les 20 s ; l'écran « Connexion requise » d'app.html
+   refait GET /health toutes les 6 s tant qu'il n'a pas de 200 ; et le client compte un 429
+   comme un serveur MORT (r.ok est faux). Tant que /health partageait le plafond global, un
+   bureau entier derrière une seule IP s'auto-verrouillait : quelques 429 au matin → écrans
+   hors ligne → relances toutes les 6 s sur dix appareils → plus de 120/min en permanence →
+   tout le monde bloqué tant qu'ils réessaient. Constaté le 11 septembre 2026 pendant
+   l'incident ELAN (écran « Connexion requise » alors que l'API répondait 200 d'ailleurs).
+   600/min laisse vingt appareils en pleine reprise (20 × 10 relances + 20 × 3 battements = 260)
+   très en dessous, et reste une borne : /health est une réponse JSON sans lecture disque. */
+const PLAFOND_BATTEMENT = 600; // /health seule, par minute et par IP, hors budget global
 
 /* « espaces/(ouvrir|relance) » et non « espaces » tout court : /api/espaces/etat est appelé à
    chaque reprise d'onglet par une entreprise en attente de paiement, et le palier strict est
@@ -164,6 +175,14 @@ app.use((req, res, next) => {
   // et ne jamais atteindre la limite. Avec « trust proxy », Express ne retient
   // que la valeur ajoutée par notre propre proxy.
   const ip = req.ip || '?';
+
+  // Le battement de vie compte à part, et ne consomme pas le budget global (voir PLAFOND_BATTEMENT).
+  if (req.path === '/health') {
+    const bat = (compteurs.get('h:' + ip) || 0) + 1;
+    compteurs.set('h:' + ip, bat);
+    if (bat > PLAFOND_BATTEMENT) return tropDeRequetes(res);
+    return next();
+  }
 
   const global = (compteurs.get('g:' + ip) || 0) + 1;
   compteurs.set('g:' + ip, global);
