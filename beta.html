@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '640-beta';
+const APP_VERSION = '641-beta';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -7371,7 +7371,12 @@ async function promoAppliquer(codeDirect){
   const code=String(codeDirect||($('promo-inp')||{}).value||'').trim().toUpperCase();
   if(!code){ toast('Entre ton code promo'); return; }
   try{
-    const r=await fetch(PUSH_API+'/api/promo/valider',{method:'POST',headers:{'Content-Type':'application/json'},
+    /* La preuve de clé, comme la famille courrier : depuis le 11 septembre 2026 le serveur
+       l'EXIGE pour activer un code sur un espace. Sans elle, n'importe qui offrait
+       l'abonnement de n'importe quelle entreprise en connaissant son teamId, qui n'est pas
+       un secret. Un appareil resté en version antérieure reçoit un 403 et son message — le
+       toast juste en dessous l'affiche, il ne se tait pas. */
+    const r=await fetch(PUSH_API+'/api/promo/valider',{method:'POST',headers:await enteteEquipe({'Content-Type':'application/json'}),
       body:JSON.stringify({code,teamId:(typeof syncTeam==='function'?(syncTeam()||''):'')})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){ toast('⚠ '+(j.error||('Erreur '+r.status))); return; }
@@ -20527,12 +20532,30 @@ function bonMoisBascule(bid,mk){ _bonMoisOuvert[bid]=mk; renderBonsList(); }
 /* ═══════════════ 📧 BOÎTE MAIL INTÉGRÉE ═══════════════
    Écrire à n'importe qui depuis l'app (au nom de l'utilisateur + entreprise), pièce jointe possible,
    et recevoir les réponses dans l'app — sans jamais ouvrir une boîte mail externe. */
-let mailTab='recu'; let _mailboxes=[]; let _mailReplies=null; let mailSearch=''; let mailSel=null; let mailBoxFiltre='';
-async function loadMailboxes(){ try{ const r=await fetch(PUSH_API+'/api/mailboxes?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()}); const d=await r.json(); _mailboxes=d.mailboxes||[]; }catch(e){ _mailboxes=[]; } return _mailboxes; }
+/* ⛔ _mailboxes A TROIS ÉTATS, ET LE TROISIÈME EST CELUI QUI COMPTE : une liste (les boîtes
+   connectées), une liste VIDE (il n'y en a aucune — on propose d'en connecter une), et NULL
+   (on n'a pas pu savoir : réseau coupé, serveur muet, ou refus). Confondre les deux derniers
+   était un vrai défaut, trouvé le 11 septembre 2026 en relisant le refus que le serveur
+   s'apprête à opposer aux appareils sans preuve de clé : sur un échec, _mailboxes passait à
+   [] et l'écran affichait la grande carte « Connecte ta boîte mail » AVEC SON BOUTON, par
+   dessus le « Réception indisponible » rendu juste après. Le client ne voyait pas une panne :
+   il voyait sa boîte disparue et une invitation à retaper son mot de passe d'application
+   Gmail. On ne demande JAMAIS ses identifiants à quelqu'un parce qu'un serveur a répondu 403.
+   `!r.ok` autant que le catch : un 403 en text/plain ne jette qu'au r.json(), un 403 en JSON
+   ne jetterait pas du tout — les deux doivent mener au même endroit. */
+let mailTab='recu'; let _mailboxes=null; let _mailReplies=null; let mailSearch=''; let mailSel=null; let mailBoxFiltre='';
+async function loadMailboxes(){ try{ const r=await fetch(PUSH_API+'/api/mailboxes?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()});
+  if(!r.ok){ _mailboxes=null; return _mailboxes; }
+  const d=await r.json(); _mailboxes=Array.isArray(d.mailboxes)?d.mailboxes:null; }catch(e){ _mailboxes=null; } return _mailboxes; }
 /* _mailChargeEnCours empêche la boucle décrite plus bas, à l'endroit où la Réception se
    recharge. Il vit ici pour être lisible à côté de la fonction qu'il garde. */
 let _mailChargeEnCours=false;
-async function loadMailReplies(){ try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()}); const d=await r.json(); _mailReplies=d.replies||[]; }catch(e){ _mailReplies=null; } return _mailReplies; }
+async function loadMailReplies(){ try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()});
+  /* Le `!r.ok` d'abord : il ne dépend pas du type de la réponse. Le serveur refuse en
+     text/plain exprès pour que r.json() jette, mais on ne fait pas reposer l'affichage d'une
+     panne sur le CONTENU d'un refus — un jour quelqu'un le repassera en JSON. */
+  if(!r.ok){ _mailReplies=null; return _mailReplies; }
+  const d=await r.json(); _mailReplies=Array.isArray(d.replies)?d.replies:null; }catch(e){ _mailReplies=null; } return _mailReplies; }
 function _mailLus(){ try{ return new Set(JSON.parse(localStorage.getItem('elanB_mail_lus')||'[]')); }catch(e){ return new Set(); } }
 function _mailMarquerLu(k){ const st=_mailLus(); if(st.has(k)) return; st.add(k); localStorage.setItem('elanB_mail_lus',JSON.stringify([...st].slice(-600))); }
 const mailKey=r=>String(r.ts||'')+'|'+String(r.from||'');
@@ -20581,9 +20604,15 @@ views.boiteMail=function(){
     </div>`;
   loadMailboxes().then(()=>{
     const sb=$('mail-side-boites');
-    if(sb) sb.innerHTML=_mailboxes.length? _mailboxes.map(b=>`<div onclick="mailBoxFiltre=mailBoxFiltre==='${esc(b.email)}'?'':'${esc(b.email)}';views.boiteMail()" title="Filtrer sur cette boîte" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:600;${mailBoxFiltre===b.email?'background:color-mix(in srgb,var(--acc) 12%,transparent);color:var(--acc)':'color:var(--t2)'}"><span style="width:8px;height:8px;border-radius:50%;background:${mailColor(b.email)};flex-shrink:0"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.email)}</span></div>`).join('')
+    const _mbKo=(_mailboxes===null), _mb=_mailboxes||[];
+    if(sb) sb.innerHTML=_mbKo? '<div style="padding:0 12px;font-size:12px;color:var(--t3)">Liste indisponible</div>' : _mb.length? _mb.map(b=>`<div onclick="mailBoxFiltre=mailBoxFiltre==='${esc(b.email)}'?'':'${esc(b.email)}';views.boiteMail()" title="Filtrer sur cette boîte" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:600;${mailBoxFiltre===b.email?'background:color-mix(in srgb,var(--acc) 12%,transparent);color:var(--acc)':'color:var(--t2)'}"><span style="width:8px;height:8px;border-radius:50%;background:${mailColor(b.email)};flex-shrink:0"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.email)}</span></div>`).join('')
       : '<div style="padding:0 12px;font-size:12px;color:var(--t3)">Aucune boîte connectée</div>';
-    if(!_mailboxes.length){ const el=$('mail-list');
+    /* ⛔ `!_mbKo` EST TOUTE LA CORRECTION DU 11 SEPTEMBRE. Sans lui, un refus du serveur
+       (ou un réseau coupé) affichait ici « Connecte ta boîte mail » avec son bouton, PAR
+       DESSUS le « Réception indisponible » rendu plus bas — on demandait son mot de passe
+       d'application à quelqu'un dont la boîte marche très bien. On ne propose de connecter
+       une boîte que quand on SAIT qu'il n'y en a aucune. */
+    if(!_mbKo && !_mb.length){ const el=$('mail-list');
       if(el&&mailTab==='recu') el.innerHTML=`<div class="card" style="padding:32px 20px;text-align:center;border:none">
         <div style="font-size:50px;margin-bottom:10px">📧</div>
         <div style="font-size:16px;font-weight:800;margin-bottom:8px">Connecte ta boîte mail</div>
@@ -20737,13 +20766,13 @@ function mailOpen(type,idx){
 }
 /* Options d'envoi : les boîtes connectées, sinon la plateforme */
 function mailFromOptions(){ const o=[];
-  _mailboxes.forEach(b=>o.push({kind:'mb',id:b.id,email:b.email}));
+  (_mailboxes||[]).forEach(b=>o.push({kind:'mb',id:b.id,email:b.email}));
   o.push({kind:'plat',id:'',email:''});
   return o; }
 async function mailBoxesManage(){ await loadMailboxes();
   openModal(`<div class="modal-head"><h3>📬 Mes boîtes mail</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    ${_mailboxes.map(b=>`<div class="pl-row"><span style="font-size:18px">📧</span><div class="pl-info"><div class="pl-title">${esc(b.email)}</div><div class="pl-meta">envoi + réception + historique dans l'app</div></div><button class="btn danger sm" onclick="mailDisconnect('${b.id}')">Déconnecter</button></div>`).join('')}
-    ${!_mailboxes.length?'<div style="color:var(--t3);text-align:center;padding:16px">Aucune boîte connectée.</div>':''}
+    ${(_mailboxes||[]).map(b=>`<div class="pl-row"><span style="font-size:18px">📧</span><div class="pl-info"><div class="pl-title">${esc(b.email)}</div><div class="pl-meta">envoi + réception + historique dans l'app</div></div><button class="btn danger sm" onclick="mailDisconnect('${b.id}')">Déconnecter</button></div>`).join('')}
+    ${_mailboxes===null?'<div style="color:var(--t3);text-align:center;padding:16px">Liste indisponible — le serveur n\'a pas répondu.</div>':(!_mailboxes.length?'<div style="color:var(--t3);text-align:center;padding:16px">Aucune boîte connectée.</div>':'')}
     <button class="btn block" style="margin-top:12px" onclick="mailConnect()">＋ Connecter une boîte</button>`);
 }
 function mailConnect(pre){
@@ -20877,7 +20906,7 @@ async function mailSend(){ const to=(($('mc-to')||{}).value||'').trim(), subject
   const val=(($('mc-from')||{}).value)||'';
   const opts={meta:{track:true},brandName:(fullName(currentUser)+' · '+mailBrandName()).slice(0,80)};
   let fromLabel=mailBrandName();
-  if(val.startsWith('mb:')){ const mb=_mailboxes.find(b=>b.id===val.slice(3)); if(mb){ opts.mailboxId=mb.id; fromLabel=mb.email; } }
+  if(val.startsWith('mb:')){ const mb=(_mailboxes||[]).find(b=>b.id===val.slice(3)); if(mb){ opts.mailboxId=mb.id; fromLabel=mb.email; } }
   else{ try{ const feat=await srvFeatures(); if(feat&&feat.boite&&feat.boiteAddr&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(feat.boiteAddr)) opts.replyTo=feat.boiteAddr; else if(currentUser&&currentUser.mailReply) opts.replyTo=currentUser.mailReply; }catch(e){} }
   if(_mailAtt&&_mailAtt.content) opts.atts=[_mailAtt];
   const ok=await srvMail(to,subject||'(sans objet)',text,'✉️ E-mail envoyé à '+to,'',null,opts);
@@ -20896,9 +20925,14 @@ async function renderBonsReponses(el){
     </div>`;
     return;
   }
-  let data={replies:[]};
-  try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()}); data=await r.json(); }catch(e){}
-  const reps=data.replies||[];
+  /* ⛔ NULL, PAS []. `let data={replies:[]}` posé AVANT le try faisait de tout échec un
+     « Aucune réponse fournisseur pour l'instant » — le mode de panne silencieux, en toutes
+     lettres : le client croit qu'aucun fournisseur n'a répondu alors que le serveur a
+     refusé. Même correction, même jour, que les deux chargeurs de l'écran Courrier. */
+  let reps=null;
+  try{ const r=await fetch(PUSH_API+'/api/replies?teamId='+encodeURIComponent(syncTeam()),{headers:await enteteEquipe()});
+    if(r.ok){ const d=await r.json(); reps=Array.isArray(d.replies)?d.replies:null; } }catch(e){}
+  if(reps===null){ el.innerHTML=`<div class="card">${emptyState('📡','Réponses indisponibles — le serveur n\'a pas répondu.','🔄 Réessayer','renderBonsList()')}</div>`; return; }
   if(!reps.length){ el.innerHTML=`<div class="card">${emptyState('📥','Aucune réponse fournisseur pour l\'instant.','','')}</div><p class="detail-desc" style="margin-top:8px">Les réponses aux bons envoyés (adresse ${esc(feat.boiteAddr||'')}) apparaîtront ici automatiquement, avec une notification.</p>`; return; }
   el.innerHTML=reps.map(r=>{ const bon=r.bonNum?db.bons.find(x=>(x.numero||'').toUpperCase()===r.bonNum):null;
     const d=new Date(r.ts||Date.now());

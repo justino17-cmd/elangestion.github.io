@@ -13,6 +13,158 @@ de ligne du tout.
 
 ---
 
+## Serveur, 11 septembre 2026 — quatre portes que l'audit avait trouvées ouvertes
+
+Un push sur `main` qui touche `server/**` redéploie le VPS tout seul. **L'ordre compte ici :
+la v641 (client) part D'ABORD, le serveur ENSUITE** — c'est app.html qui doit savoir montrer
+un refus avant qu'un serveur en oppose un, et c'est app.html qui doit présenter la preuve de
+clé avant que la route des codes promo l'exige. Voir le détail au point 3.
+
+⚠️ **Les deux correctifs ne sont PAS au même niveau de prudence, et il faut le savoir avant de
+fusionner** (relevé par `relecteur`) :
+- **Les routes courrier** sont derrière un interrupteur que ce diff ne pose pas : quel que soit
+  l'ordre Pages/VPS, elles restent ouvertes après la publication, exactement comme avant.
+  Aucune fenêtre de rupture.
+- **`/api/promo/valider`**, lui, exige la preuve **tout de suite**, sans interrupteur. Si le VPS
+  redéploie AVANT que GitHub Pages serve la v641, un appareil resté en v640 qui tente d'entrer
+  un code promo reçoit un 403 et son message (« mets l'application à jour, puis réessaie »).
+  **Visible, jamais silencieux, et réparé par un rechargement** — mais si un ticket client
+  arrive dans les minutes qui suivent la fusion, c'est ça. Dans l'autre sens (Pages d'abord)
+  il n'y a rien du tout : l'ancien serveur ignore simplement l'en-tête qu'il ne connaît pas.
+  Le choix est assumé : le trou est anonyme et activement exploitable, une gêne de quelques
+  minutes sur la saisie d'un code promo pèse moins lourd.
+
+### 1. Les codes promo : le client choisissait son code ET sa date de fin
+
+`POST /api/clients/sync` (le résumé que pousse `espace.html`) relayait un code promo vers
+l'espace de l'application. Il lisait `promoCode` **et `promoFin` dans le corps de la requête**
+et les écrivait tels quels dans `promos-usages.json`, sans jamais ouvrir `config.promos`.
+`espacePaye()` lit ce fichier et rend `paye:true` sans rien revérifier.
+
+Donc : **n'importe quel client du portail s'offrait l'abonnement de son entreprise, à vie**,
+en postant `{ promoCode:'PEU-IMPORTE', promoFin:'9999-12-31' }`. Un code inexistant faisait
+l'affaire, la date était crue sur parole, `maxUtilisations` n'était jamais regardé. La requête
+est signée par Firebase, donc ce n'était pas ouvert à l'anonyme : c'était ouvert **à tous nos
+clients**, ce qui est pire, parce qu'ils ont une raison d'essayer.
+
+Le chemin juste existait déjà à deux autres endroits — le rattrapage d'`espacePaye()` et
+`/api/monitor/espaces/promo`. Ce troisième chemin était le seul à ne rien contrôler. Il fait
+maintenant les trois mêmes contrôles : le code doit exister dans `config.promos`, l'échéance
+se **calcule** depuis `p.mois`, `maxUtilisations` est vérifié — plus la règle « un seul code à
+la fois », déjà en vigueur depuis la Tour.
+
+Mesuré sur banc isolé, la même sonde jouée sur les deux versions (jamais `api.teamop.fr`) :
+**avant → 3 ✓ 7 ✗** (le code inventé entre avec `finLe: 9999-12-31`, deux codes s'empilent, un
+code à `maxUtilisations:1` est distribué trois fois) ; **après → 10 ✓ 0 ✗**.
+
+### 2. `/api/promo/valider` : la MÊME faille, en version anonyme
+
+Trouvée par `gardien` en relisant le correctif ci-dessus, le jour même. Fermer une moitié
+d'un défaut pendant que l'autre reste ouverte ne vaut rien : cette route-ci ne demandait
+**aucune identité**. `teamId` lu dans le corps, jamais vérifié ; `espacePaye()` relit ensuite
+`promoUsages` et rend `paye:true`. Rejoué sur banc :
+
+```
+POST /api/promo/valider  {"code":"TEST3","teamId":"ent-victime"}   → 200
+POST /api/espaces/etat   {"t":"ent-victime"}   → paye:true, « code promo TEST3 »
+```
+
+Trois exploitations, toutes mesurées : **offrir l'abonnement** à n'importe quel espace (le
+teamId n'est pas un secret) ; **épuiser un code** — `u.n++` s'exécutait avant `if (team)`,
+donc un appel sans `teamId` incrémentait `maxUtilisations` et l'écrivait sur disque, deux
+appels suffisant à brûler un code à 2, en déni de service définitif sur une campagne ; et
+**énumérer les codes** par `apercu:1`, qui répond 404/200 sans rien écrire.
+
+L'écriture exige désormais la preuve de la clé d'équipe, le compteur ne bouge que quand un
+espace est vraiment servi, et la route passe sous le quota strict par IP. L'aperçu reste
+public — `espace.html` et `recap-abonnement.html` valident un code **avant** qu'un espace
+existe, il n'y a alors aucune clé à prouver ; il n'écrit rien, donc il ne donne rien.
+
+⚠️ **Une dépendance qui devient porteuse : les deux tables de codes doivent s'accorder.**
+`espace.html` porte sa propre table en clair (`PROMO_CODES`, une seule entrée aujourd'hui :
+`TEAMOP3MOIS`, 3 mois) et écrit l'offre dans le document Firestore du client ; le serveur, lui,
+ne croit plus que `config.promos`. Un code présent côté site mais **absent de `config.promos`**
+donnerait donc un portail qui affiche « offre active » et une application qui reste
+verrouillée — silencieusement. Avant, le serveur gobait la date du site : c'était précisément
+le trou. Vérifié le 11 septembre par l'aperçu (qui n'écrit rien) :
+`POST /api/promo/valider {"code":"TEAMOP3MOIS","apercu":true}` → `200, mois: 3, premium`. Les
+deux tables s'accordent aujourd'hui. **À revérifier à chaque code ajouté sur le site.**
+
+### 3. `/api/replies` et `/api/mailboxes` : le teamId suffisait — porte POSÉE, encore OUVERTE
+
+`/api/replies` rend les **200 derniers courriels reçus** de l'entreprise — expéditeur, objet,
+corps : la correspondance de ses clients. `/api/mailboxes` rend ses adresses et ses serveurs
+IMAP/SMTP. Les deux ne filtrent que sur `req.query.teamId`, jamais vérifié. Or le teamId n'est
+pas un secret : il voyage dans les URL, donc dans les journaux nginx, l'historique du
+navigateur et l'en-tête `Referer` ; il est en clair dans le localStorage de chaque appareil ;
+il ne se révoque pas.
+
+Le point de passage qui exige la preuve est écrit, testé, déployé — **et désarmé**. Un seul
+réglage le ferme : `"mailPreuveExigee": true` dans `/opt/teamop/config.json`, puis
+`systemctl restart teamop-api`. Dix secondes, sans publication.
+
+**Pourquoi il n'est pas encore fermé**, et c'est `gardien` qui l'a montré : le refus en
+`text/plain` était censé faire jeter `r.json()` et afficher « 📥 Réception indisponible ».
+**Mesuré au navigateur sur la bêta, il affichait « Connecte ta boîte mail » AVEC SON BOUTON.**
+`loadMailboxes()` posait `_mailboxes=[]` sur échec, et son `.then` réécrivait la liste par
+dessus le message de panne. Le client ne voyait pas une panne : il voyait sa boîte disparue et
+une invitation à retaper son mot de passe d'application Gmail. **Pire que l'écran vide qu'on
+voulait éviter** — on ne réclame pas ses identifiants à quelqu'un parce qu'un serveur a
+répondu 403. Deuxième point du même défaut : l'onglet Boîte Commandes initialisait
+`let data={replies:[]}` avant son `try`, donc un refus y affichait « Aucune réponse
+fournisseur » — le silence, exactement.
+
+C'est corrigé en v641 : `_mailboxes` a désormais **trois** états (une liste, une liste vide,
+et `null` = on n'a pas pu savoir), les trois points d'appel testent `!r.ok` autant que le
+`catch`, et on ne propose de connecter une boîte que quand on **sait** qu'il n'y en a aucune.
+Sonde navigateur, 403 interceptés au réseau, avant/après :
+
+| | avant | après |
+|---|---|---|
+| dit la panne | non ⛔ | **oui** ✓ |
+| réclame le mot de passe de la boîte | **oui** ⛔ | non ✓ |
+
+Les deux cas sains (aucune boîte / une boîte et un message) sont inchangés — 8 ✓ à la sonde.
+
+**L'ordre qui reste, et c'est celui de la règle Firestore, pour la même raison :**
+
+1. ✅ publier la v641 ;
+2. **exiger la v641 depuis la Tour**, attendre le compteur d'appareils en retard à zéro ;
+3. **regarder qui est hors annuaire** (voir ci-dessous) ;
+4. alors seulement poser `"mailPreuveExigee": true` et redémarrer. Le compteur `mailRefus` de
+   `/health`, agrégé et sans jamais nommer d'espace, dit aussitôt si quelqu'un tombe.
+
+⚠️ **Ce que la mesure de la phase 1 ne dit PAS, et que j'avais d'abord mal lu.** Le compteur
+public affichait, après 6 h 12 : `valide 5, absent 0, invalide 0, inconnu 3`, avec un
+`parRoute` ne portant que `subscribe`. Ça ne veut pas dire « aucun échec sur ces deux
+routes » : ça veut dire **aucun appel du tout**. La mesure n'a jamais exercé le chemin qu'on
+ferme. Et les trois `inconnu` ne sont pas le bruit d'`espace.html` comme je l'avais écrit :
+sans `kh` le verdict est `absent`, pas `inconnu`. Ce sont donc des appareils qui **présentent
+une preuve sur un espace absent de l'annuaire** — la bêta l'est, l'espace de repli aussi.
+**Question pour Justin, avant l'étape 4** : dans la Tour → Connexions clients, qui sont ces
+appareils ? Si c'est la bêta, rien à faire. Si une vraie entreprise vit encore sur l'espace de
+repli, elle est déjà coupée de Firestore depuis la publication de la règle — et ça, c'est
+urgent, indépendamment du courrier.
+
+### 4. L'annuaire ne s'écrit plus jamais à moitié
+
+Treize écritures directes de `espaces.json`, alors que l'assistant atomique `espacesEcrire()`
+(temporaire puis renommage) existait déjà juste à côté, utilisé par quatre appels seulement.
+Ce n'était pas grave hier ; ça l'est devenu aujourd'hui. Si ce fichier est tronqué par un
+disque plein ou un arrêt au mauvais moment, **toutes les entreprises sortent de l'annuaire
+d'un coup** — et depuis ce matin ça ne casse plus seulement la Tour : `cleEquipeVerdict` rend
+« inconnu », `/api/fb/jeton` rend 404, et la règle Firestore publiée refuse l'anonyme. Plus de
+synchro du tout, pour tout le monde. Les treize passent par l'assistant ; les deux appelants
+qui savaient revenir en arrière sur échec le font toujours.
+
+`tests/test-641.js` (58 vérifications) est la **première suite qui vise `server/`** : elle
+lance le vrai serveur, isolé, et lui parle en HTTP — dans les **deux** positions de
+l'interrupteur, pour que la suite ne dise jamais « tout va bien » sur une porte qui ne refuse
+rien. Vérifiée capable d'échouer : rejouée sur le code d'avant, elle tombe sur 26 points.
+
+---
+
+
 ## v640 — donner enfin une identité à Firestore (la moitié sûre)
 
 Justin, après avoir lu la dette : « dis-moi je dois faire quoi pour les règles ». Réponse
@@ -37,23 +189,30 @@ connexion anonyme. La clé de signature était déjà sur le VPS et fonctionnait
 réseau coupé, serveur muet, espace de repli — l'appareil garde ou ouvre une session anonyme et
 continue exactement comme avant. On met tout le monde en place **avant** de fermer la porte.
 
-**Ce qui reste, et dans cet ordre :**
+### ✅ LA PORTE EST REFERMÉE — publiée le 11 septembre 2026 à 2 h 30
 
-1. **Exiger la v640 depuis la Tour**, et attendre que le compteur « appareils sous le
-   minimum » tombe à zéro. C'est le même geste que la porte de version, pour la même raison.
-2. **Déménager les entreprises restées sur la clé partagée** (chantier ci-dessous, ouvert
-   depuis le 8 septembre). L'espace de repli n'a **pas** de jeton — sa clé est écrite en clair
-   dans `app.html`, une preuve venant de lui ne prouve rien. Publier la règle sans avoir
-   déménagé ces entreprises les couperait toutes. **C'est ce qui rend ce chantier bloquant, et
-   plus seulement souhaitable.**
-3. **Alors seulement**, Justin colle dans la console Firebase :
-   ```
-   match /elan_teams/{teamId} {
-     allow read, write: if request.auth != null && request.auth.token.t == teamId;
-   }
-   ```
-   La règle est déjà écrite, en commentaire, dans `firestore.rules`, avec les deux conditions
-   ci-dessus et ce qu'on risque à les ignorer.
+Les trois marches ont été montées dans l'ordre, et c'est l'ordre qui a rendu la chose sûre.
+**La dette la plus grave du produit, ouverte depuis le 8 septembre, est fermée.**
+
+1. ✅ **v640 exigée depuis la Tour**, compteur d'appareils en retard à zéro.
+2. ✅ **Plus une entreprise sur la clé partagée** — compteur « à migrer » de la Tour à zéro ;
+   et plus une entreprise **hors annuaire** : des trois recensées, une était un espace d'essai
+   (supprimé par Justin), les deux autres sont les espaces techniques, qui ne sont pas des
+   entreprises. L'espace de repli n'a pas de jeton — sa clé est écrite en clair dans
+   `app.html` — et personne n'y vivait.
+3. ✅ **Justin a collé la règle** dans la console Firebase. `firestore.rules` ne décrit plus un
+   futur : il décrit **ce qui tourne**, avec en fin de fichier ce que la règle ne donne pas.
+
+Vérifié dans la foulée avec un compte anonyme, sur un identifiant d'espace **inexistant** pour
+ne toucher aucune donnée réelle : `elan_teams` → **403 PERMISSION_DENIED**, `teamop_config` →
+200 (`min: 640`), `elanB_teams` → 200. La lecture est fermée, la porte de version tient, la
+bêta marche toujours.
+
+**Ce qui reste de ce chantier, et c'est un chantier à part entière** (voir « Dettes connues ») :
+un jeton vaut une heure, mais l'accès qu'il ouvre ne s'arrête pas là — Firebase l'échange
+contre une session renouvelable indéfiniment. Fermer une entreprise depuis la Tour ne coupe
+donc pas son Firestore sur les appareils déjà pourvus, et l'identifiant étant commun à toute
+l'entreprise, on ne peut pas couper UN appareil. Il faudrait un identifiant par **appareil**.
 
 Vérifié sur un serveur isolé (jamais la production) : 400 sans preuve, 400 sur une empreinte
 mal formée, 404 sur un espace inconnu, **403 sur l'espace de repli**, 403 sur une clé fausse,
@@ -962,6 +1121,25 @@ skill `performance-budget-monitor` avant d'y toucher.
 ---
 
 ## Dettes connues, chacune à traiter seule
+
+- ⛔ **Un jeton d'équipe ne se révoque pas, et il vaut pour TOUTE l'entreprise à la fois.**
+  Ouverte le 11 septembre 2026, en même temps que la fermeture de la règle Firestore — c'est
+  ce que cette fermeture ne donne pas, et qu'on pourrait croire acquis. Le jeton vaut une
+  heure, mais l'**accès** qu'il ouvre ne s'arrête pas là : Firebase l'échange contre une
+  session renouvelable indéfiniment, rangée sur l'appareil. Après un seul échange réussi,
+  l'appareil ne repasse plus jamais par le serveur. Donc :
+  · fermer une entreprise depuis la Tour ne coupe **pas** son Firestore sur les appareils déjà
+    pourvus — le refus « espace fermé » ne les rejoint jamais ;
+  · changer la clé d'équipe ne révoque rien ;
+  · l'identifiant étant commun à toute l'entreprise, on ne peut pas couper **un** appareil :
+    révoquer les couperait tous d'un coup.
+  Le fermer demande un identifiant par **appareil** et une durée de vie effective plus courte
+  (redemander un jeton périodiquement). C'est écrit en fin de `firestore.rules`. **À traiter
+  seul, pas au milieu d'autre chose** — ça touche la porte d'entrée de toutes les données.
+
+- **Les deux tables de codes promo doivent s'accorder** — voir la section du 11 septembre.
+  `espace.html` porte `PROMO_CODES` en clair, le serveur ne croit que `config.promos`. Un code
+  ajouté d'un seul côté donne un portail qui promet et une application qui reste verrouillée.
 
 - **`FOURNISSEURS_ELAN` (`app.html:4496`) — fausse alerte, levée le 8 septembre 2026.**
   Ce n'était pas la faute de `REPORT_TEMPLATES` : les cinq entrées sont les fournisseurs du

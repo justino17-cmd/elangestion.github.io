@@ -175,26 +175,46 @@ console.log('\nCôté application : le jeton s\'essaie, mais rien ne casse s\'il
     /Pas de connexion à l\\?'espace de l\\?'équipe/.test(APP),true);
 }
 
-console.log('\nLa règle Firestore n\'a PAS changé — et c\'est l\'ordre qui protège');
-{ v('la règle publiée est toujours la permissive',
-    /allow read:\s+if connecte\(\);\s*\n\s*allow write:\s+if connecte\(\) && versionOk\(\);/.test(RULES),true);
-  v('la règle future est écrite noir sur blanc, prête à coller',
+console.log('\nLa règle Firestore est REFERMÉE — publiée le 11 septembre 2026, 2 h 30');
+{ /* Ce bloc a changé de nature ce matin-là : il gardait « la règle future est prête à
+     coller », il garde maintenant « la règle en vigueur dit bien ce qu'elle doit dire ».
+     Vérifié en vrai après publication, avec un compte anonyme et un identifiant d'espace
+     INEXISTANT pour ne toucher aucune donnée : elan_teams → 403 PERMISSION_DENIED,
+     teamop_config → 200 (min: 640), elanB_teams → 200. */
+  v('plus aucune permission accordée à la simple connexion sur elan_teams',
+    /match \/elan_teams\/\{teamId\} \{\s*\n\s*allow read:\s+if connecte\(\);/.test(RULES),false);
+  v('la lecture exige un jeton qui NOMME l\'entreprise',
+    /match \/elan_teams\/\{teamId\} \{\s*\n\s*allow read:\s+if monEquipe\(teamId\);/.test(RULES),true);
+  /* ⛔ Une rédaction intermédiaire avait laissé tomber versionOk() — donc rouvrait la porte
+     de version, très exactement « ce qui a détruit les comptes d'ELAN ». Trouvé par `gardien`
+     avant publication. Le paradoxe aurait été complet : la condition n°1 de la migration
+     s'appuyait sur ce verrou. Les deux protègent de deux pannes différentes, toutes deux
+     vécues — l'une ne remplace jamais l'autre. */
+  v('l\'écriture exige le jeton ET GARDE la porte de version',
+    /allow write:\s+if monEquipe\(teamId\) && versionOk\(\);/.test(RULES),true);
+  v('le jeton se lit avec .get(\'t\',\'\') — une session sans ce claim refuse au lieu d\'échouer',
     /request\.auth\.token\.get\('t', ''\) == teamId/.test(RULES),true);
-  /* ⛔ Une première rédaction de ce bloc avait laissé tomber versionOk() — donc rouvrait la
-     porte de version, très exactement « ce qui a détruit les comptes d'ELAN ». Trouvé par
-     `gardien`. Le paradoxe aurait été complet : la condition n°1 s'appuie sur ce verrou pour
-     orchestrer la migration. */
-  v('elle GARDE versionOk() sur l\'écriture',/== teamId\s*\n\s*\/\/\s*&& versionOk\(\);/.test(RULES),true);
-  v('les TROIS conditions avant de la publier sont écrites',
-    [/Tous les appareils doivent présenter le jeton/.test(RULES),/espace de REPLI/.test(RULES),
-     /ENCORE LA CLÉ PARTAGÉE/.test(RULES)],[true,true,true]);
-  v('et le danger de l\'inverse aussi',/perdent alors l'accès aux données de LEUR PROPRE entreprise/.test(RULES),true);
-  /* Un jeton d'une heure n'est pas un accès d'une heure : Firebase l'échange contre une
-     session renouvelable indéfiniment. Fermer une entreprise depuis la Tour ne coupe donc
-     pas son Firestore sur un appareil déjà pourvu. Ce n'est pas une régression, mais c'est
-     un levier qu'on n'a pas — et qu'on pourrait croire acquis. */
+  /* Un appareil sans jeton doit pouvoir lire le minimum de version, sinon il ne saurait même
+     pas qu'il est en retard — donc ne se mettrait jamais à jour pour obtenir son jeton. */
+  v('teamop_config reste lisible par toute session, et c\'est volontaire',
+    /match \/teamop_config\/\{doc\} \{\s*\n\s*allow read:\s+if connecte\(\);/.test(RULES),true);
+  /* La bêta vit sur un espace que le serveur refuse d'authentifier par construction : ses
+     appareils n'ont pas de jeton. Resserrer là couperait l'outil de développement sans rien
+     protéger — la bêta ne porte jamais de données d'entreprise. */
+  v('elanB_teams reste ouverte, et la raison est écrite',
+    [/match \/elanB_teams\/\{teamId\} \{\s*\n\s*allow read:\s+if connecte\(\);/.test(RULES),
+     /VOLONTAIREMENT LAISSÉ OUVERT/.test(RULES)],[true,true]);
+  v('tout le reste est toujours fermé',
+    /match \/\{document=\*\*\} \{\s*\n\s*allow read, write: if false;/.test(RULES),true);
+  /* Ce qu'on a fermé, et ce qu'on n'a PAS obtenu : les deux doivent rester écrits, sinon la
+     prochaine conversation croira avoir un levier de révocation qu'elle n'a pas. */
+  v('ce que la règle disait avant, et pourquoi il a fallu le fermer, reste écrit',
+    [/se déchiffrait INTÉGRALEMENT/.test(RULES),/ne demandait AUCUNE clé/.test(RULES)],[true,true]);
   v('ce que la règle NE donne pas est écrit aussi',
-    [/ne s'arrête pas au bout d'une heure/.test(RULES),/ne coupe PAS son Firestore/.test(RULES)],[true,true]);
+    [/l'ACCÈS qu'il ouvre ne s'arrête pas/.test(RULES),/ne coupe PAS son Firestore/.test(RULES)],[true,true]);
+  v('et les quatre conditions tenues avant de publier, pour qui republierait un jour',
+    [/Tous les appareils présentent le jeton/.test(RULES),/espace de REPLI/.test(RULES),
+     /encore la clé partagée/.test(RULES),/HORS ANNUAIRE/.test(RULES)],[true,true,true,true]);
 }
 
 console.log('\n'+ok+' ✓  '+ko+' ✗'); process.exit(ko?1:0);
