@@ -13,13 +13,69 @@ de ligne du tout.
 
 ---
 
-## v666 — ÉCRITE, ÉPROUVÉE, **PAS PUBLIÉE** — elle attend une phrase de Justin
+## v667 — ÉCRITE ET ÉPROUVÉE, **PAS PUBLIÉE**. La v666, elle, EST EN LIGNE.
 
-⛔ **Ne pas la publier sans qu'il le demande explicitement pour ce changement-là.** C'est la
-règle durcie du 11 septembre au soir (voir `CLAUDE.md`), et il l'a redite le même soir :
-« fait moi tout mais pas de mise à jour tant que je te l'ai pas dit ». Tout est sur la branche
-`claude/op-gestion-interface-yb6p32` et sur `beta.html`. `app.html` et `sw.js` **restent sur la
-branche** ; `main` n'a rien reçu.
+⛔ **État exact, à ne pas confondre** : la **v666 est publiée** (fusionnée le 11 septembre 2026
+à 20 h 30 UTC, CI verte, fichiers servis vérifiés, `/health` porte `annonce: 666`). La **v667
+attend une phrase de Justin** — elle vit sur la branche `claude/op-gestion-interface-yb6p32` et
+sur `beta.html`.
+
+**Ce qu'elle fait : le second versant de la consigne du 11 septembre.** Justin a dit deux choses
+le même soir, qui ont l'air de se contredire :
+· « dès la connexion, peu importe les choses qu'ils vont faire… ils ne peuvent pas la faire
+  plus tard » ;
+· « pour les versions publiques, toutes les mises à jour se feront la nuit ».
+
+Elles ne se contredisent pas — elles ne parlent pas du même cas, et c'est le partage qui les
+rend tenables toutes les deux :
+
+| cas | ce qui se passe | pourquoi |
+|---|---|---|
+| **Obligatoire** (sous le minimum exigé) | écran bloquant, tout de suite, aucune sortie | l'appareil n'enregistre DÉJÀ plus rien pour l'équipe, et il fait croire à son porteur qu'il travaille |
+| **Simple nouvelle version** | rien à l'écran ; ça s'installe la nuit, page libre | il travaille très bien, rien n'urge — on ne prend pas l'écran d'un technicien en intervention |
+
+⛔ **Ce n'est PAS le « plus tard » qu'on vient de condamner**, et la différence tient en une
+phrase : « plus tard » était un BOUTON — ça dépendait de quelqu'un, et une personne sur deux ne
+le touchait jamais, d'où Benoit resté en v634 pendant des semaines. Ici personne ne décide et
+personne ne peut repousser : c'est l'heure qui décide, et elle arrive tous les jours.
+
+**La fenêtre : 22 h – 5 h, heure de L'APPAREIL.** Pas 6 h : une équipe de terrain commence tôt,
+on ne recharge jamais sous les doigts du premier levé. Et la boucle attend aussi que la page
+soit LIBRE (`majOccupe()`) — personne n'est rechargé en pleine saisie, même à 3 h du matin. Si
+le minimum est relevé pendant l'attente, l'obligatoire prend la main et la nuit s'efface.
+
+⚠️ **LE PIÈGE QUI A FAILLI PASSER, et qui vaut plus que le reste.** `majAppliquer` éteint le
+minuteur de nuit, et il est écrit DEUX CENTS LIGNES AU-DESSUS de l'endroit « logique » où l'on
+aurait déclaré `_majNuit`. Un `let` plus bas les aurait mis en **zone morte temporelle** pour
+lui — et la ligne étant dans un `try/catch`, l'erreur aurait été avalée en silence : le minuteur
+aurait continué de tourner après le départ de la mise à jour. Même genre de zone morte que celle
+qui avait rendu tout le rangement de catégories inopérant le 10 septembre au matin, sans qu'aucun
+test ne la voie. La déclaration est remontée ligne 6288, et `tests/test-667.js` vérifie la
+**POSITION**, pas seulement la présence.
+
+**Un test de la v666 est tombé, et c'était le bon réflexe** : il visait le corps exact de
+`showUpdateBanner`, réécrit ici. Son intention — plus jamais de bannière qu'on referme d'un
+doigt — est intacte, et c'est l'assertion voisine qui la prouve vraiment (personne ne fabrique
+plus `#update-banner`). Cible corrigée **avec sa justification écrite dans le fichier**, garde
+non affaiblie.
+
+**État des contrôles :** 29 suites, **892 vérifications**, 0 échec (`test-667.js` en porte 44).
+Les quatre cas de la boucle sont mesurés au navigateur piloté sur la bêta, en remplaçant
+`majEstNuit`/`majOccupe` pour observer sans recharger : jour+libre → rien ; nuit+occupé → rien ;
+nuit+libre → ça part, une fois ; obligatoire pendant l'attente → la nuit s'efface, minuteur
+éteint.
+
+---
+
+## v666 — **PUBLIÉE** le 11 septembre 2026 à 20 h 30 UTC
+
+✅ **Autorisée explicitement par Justin** (« Fait les 2 », en réponse à la question directe), puis
+publiée selon le rituel complet : CI verte AVANT la fusion, et les fichiers **servis** vérifiés
+— `teamop.fr/app.html` → v666, `teamop.fr/sw.js` → `elan-gestion-v865`,
+`teamop.fr/connexion.html` identique au dépôt au bit près, `api.teamop.fr/health` →
+`annonce: "666"`. Le texte d'annonce était resté sur la **v572**, quatre-vingt-quatorze versions
+en arrière : un clic sur « Annoncer » aurait envoyé à toutes les entreprises les nouveautés de
+la v572. Réécrit. **L'envoi reste un geste de Justin depuis la Tour — rien n'est parti.**
 
 Trois choses dedans, les trois demandées par Justin, les trois mesurées au navigateur :
 

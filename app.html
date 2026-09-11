@@ -4847,7 +4847,7 @@ try{
 try{ document.addEventListener('visibilitychange',function(){ tmT=Date.now(); if(document.visibilityState==='hidden') tmFlush(); }); }catch(_){ }
 try{ setInterval(tmFlush,35000); setTimeout(tmFlush,4000); }catch(_){ }
 })();
-const APP_VERSION = '666';
+const APP_VERSION = '667';
 /* Le numéro seul, pour le nuage : les règles Firestore comparent des entiers, et « 616-beta »
    (généré par beta-build.js) doit compter comme 616. */
 const APP_VERSION_NUM=parseInt(APP_VERSION,10)||0;
@@ -6279,6 +6279,13 @@ let _pushManuel=false;
    on l'oublie complètement »). La v616 gardait un interrupteur d'urgence dans la Tour ; il est retiré
    en v617 — un interrupteur qu'on peut rallumer est un interrupteur qu'on rallumera. */
 let _versionMin=0,_versionBloquee=false,_horsLigne=false,_horsLigneDepuis=0,_horsLignePush=false,_presencePush=0;
+/* ⛔ DÉCLARÉES ICI, ET PAS À CÔTÉ DE majNuitArmer QUI S'EN SERT. `majAppliquer` les éteint, et
+   il est écrit 200 lignes PLUS HAUT : un `let` plus bas les mettrait en zone morte temporelle
+   pour lui. Le piège est muet — la ligne est dans un try/catch, l'erreur serait avalée et le
+   minuteur de nuit continuerait de tourner après le départ de la mise à jour. C'est le même
+   genre de zone morte qui avait rendu tout le rangement de catégories inopérant le 10 septembre
+   au matin, sans qu'aucun test ne le voie. */
+let _majNuit=false,_majNuitTimer=null;
 function syncDeviceId(){ let d=localStorage.getItem('elan_dev'); if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('elan_dev',d);} return d; }
 /* Sécurité — chiffrement de bout en bout des données synchronisées (AES-256-GCM).
    Le cloud ne stocke QUE du texte chiffré : sans la clé d'équipe, les données sont illisibles,
@@ -29816,7 +29823,7 @@ function updateSyncBtn(){ const b=$('sync-btn'); if(!b) return; b.style.color=_s
    un geste, et la mise à jour attendait indéfiniment. C'était la première des deux portes de
    sortie que Justin a demandé de fermer le 11 septembre 2026 au soir. On garde le NOM de la
    fonction — une dizaine d'endroits l'appellent — et on change ce qu'elle fait. */
-function showUpdateBanner(){ majEcranBloquant(_versionMin||''); }
+function showUpdateBanner(){ majPrete(!!_versionBloquee); }
 /* `cause` vaut 'version' (le cas normal : une mise à jour à faire) ou 'refus' (le nuage refuse
    d'enregistrer sans que la version soit en cause, et on a déjà tenté le rechargement). Deux
    textes, deux boutons — proposer « Faire la mise à jour » à quelqu'un qui est déjà à jour,
@@ -29877,6 +29884,7 @@ function majProgres(recu,total){ const b=$('maj-barre'), s=$('maj-etat'); if(!b)
 function majAppliquer(){ try{ const b=$('update-banner'); if(b) b.remove(); }catch(e){}
   try{ const z=$('maj-bloque'); if(z) z.remove(); }catch(e){}
   _majEnRoute=true; try{ clearTimeout(_majAutoTimer); }catch(e){}
+  try{ _majNuit=false; clearTimeout(_majNuitTimer); }catch(e){}
   /* ⛔ CE QUI EST ENREGISTRÉ PART AVANT LE RECHARGEMENT. C'était fait dans majPrete, qui ne
      recharge plus lui-même : sans ce déplacement, la dernière sauvegarde de la journée serait
      restée sur l'appareil au moment où l'on redémarre. */
@@ -30089,9 +30097,45 @@ let _majDeadline=0,_majSnooze=false,_majEnRoute=false;
    ⚠️ `majOccupe()` n'est plus consulté, et c'est le prix assumé de la règle : une saisie en
    cours dans un formulaire non validé est perdue. Ce qui est ENREGISTRÉ, lui, part avant le
    rechargement (voir majAppliquer). On le dit sur l'écran plutôt que de le taire. */
+/* ══ ET LE SECOND VERSANT DE LA MÊME PHRASE : « pour les versions publiques, toutes les mises
+   à jour se feront la nuit » (Justin, 11 septembre 2026) ═════════════════════════════
+   Les deux consignes ne se contredisent pas, elles se complètent, et c'est le partage qui les
+   rend tenables toutes les deux :
+
+   · OBLIGATOIRE (l'appareil est SOUS le minimum exigé) → écran bloquant, tout de suite, aucune
+     sortie. C'est le cas où attendre coûte : cet appareil n'enregistre déjà plus rien pour
+     l'équipe, et tant qu'il traîne il fait croire à son porteur qu'il travaille.
+   · SIMPLE NOUVELLE VERSION (rien ne bloque, l'appareil travaille normalement) → on ne prend
+     PAS l'écran en pleine journée. Ça s'installe la nuit, tout seul, quand la page est libre.
+
+   ⛔ Ce n'est PAS le « plus tard » qu'on vient de condamner, et la différence tient en une
+   phrase : « plus tard » était un bouton — ça dépendait de quelqu'un, et une personne sur deux
+   ne le touchait jamais, d'où Benoit resté en v634 pendant des semaines. Ici personne ne décide
+   et personne ne peut repousser : c'est l'heure qui décide, et elle arrive tous les jours. */
+const MAJ_NUIT_DEBUT=22, MAJ_NUIT_FIN=5;
+/* L'heure de L'APPAREIL, pas celle du serveur : c'est là que quelqu'un travaille ou non. Une
+   équipe de terrain commence tôt — on s'arrête à 5 h et pas à 6 h, pour ne jamais recharger
+   sous les doigts du premier levé. */
+function majEstNuit(d){ const h=(d||new Date()).getHours(); return h>=MAJ_NUIT_DEBUT||h<MAJ_NUIT_FIN; }
+function majNuitArmer(){
+  if(_majNuit) return; _majNuit=true;
+  const essayer=function(){
+    /* L'obligatoire passe devant sans discuter : si le minimum a été relevé pendant qu'on
+       attendait la nuit, l'écran bloquant a déjà pris la main et on s'efface. */
+    if(_majEnRoute||_versionBloquee){ _majNuit=false; return; }
+    const occ=majOccupe();
+    if(!majEstNuit()||occ){ _majNuitTimer=setTimeout(essayer,60000); return; }
+    /* Ici : il fait nuit, personne ne touche l'écran, rien n'attend d'être poussé.
+       majAppliquer pousse la synchro puis recharge — on ne double pas son travail. */
+    try{ localStorage.setItem('elan_maj_depuis',String(APP_VERSION||'')); }catch(e){}
+    majAppliquer();
+  };
+  _majNuitTimer=setTimeout(essayer,5000);
+}
 function majPrete(oblig){
   if(_majEnRoute) return;
-  majEcranBloquant(_versionMin||'');
+  if(oblig||_versionBloquee){ majEcranBloquant(_versionMin||''); return; }
+  majNuitArmer();
 }
 /* Gardées : une dizaine d'endroits les appellent, et une fonction absente casserait tout un
    écran pour une porte qu'on vient de condamner. Les deux mènent maintenant au même endroit. */
@@ -30099,7 +30143,9 @@ function majMaintenant(){ majAppliquer(); }
 function majTerminerSaisie(){ majEcranBloquant(_versionMin||''); }
 function majArmer(){
   if(_majArmee) return; _majArmee=true; _majDepuis=Date.now();
-  try{ majPrete(false); }catch(e){ try{ majAppliquer(); }catch(_e){} }
+  /* Le filet ne recharge PLUS tout de suite : majPrete qui échoue en pleine journée
+     emportait la page sous les doigts de quelqu'un, pour une mise à jour qui n'urgeait pas. */
+  try{ majPrete(false); }catch(e){ try{ majNuitArmer(); }catch(_e){} }
 }
 /* ══════════ « C'EST FAIT » — la confirmation que Justin demandait ═══════════════════════
    Une mise à jour silencieuse laisse un doute : est-ce qu'elle a eu lieu ? On garde la
