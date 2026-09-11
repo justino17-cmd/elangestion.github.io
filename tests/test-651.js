@@ -48,7 +48,12 @@ console.log('\nLa constante est visible de partout où elle sert (piège de port
 console.log('\nLes comptes de départ déjà empilés sont retirés, sans jamais toucher un vrai compte');
 {
   v('le ménage existe et vise le compte de départ intact',
-    /\(u\.prenom\|\|''\)==='OP'&&\(u\.nom\|\|''\)==='Admin'&&!u\.pwdHash&&!u\.pinHash/.test(APP), true);
+    /\(u\.prenom\|\|''\)==='OP'&&\(u\.nom\|\|''\)==='Admin'&&\(u\.login\|\|''\)==='admin'&&!u\.pwdHash&&!u\.pinHash&&!u\.email/.test(APP), true);
+  /* ⛔ Chez ELAN l'administrateur RÉEL s'appelle `florent` et porte encore le nom interne
+     « OP Admin » — le compte de départ renommé par le lien d'installation. Sans la condition sur
+     l'identifiant, ce ménage l'aurait supprimé, pierre tombale comprise, donc définitivement. */
+  v('⛔ un compte de départ RENOMMÉ est hors d\'atteinte', /&&\(u\.login\|\|''\)==='admin'&&/.test(APP), true);
+  v('⛔ un compte porteur d\'une adresse e-mail est hors d\'atteinte', /&&!u\.email\)/.test(APP), true);
   /* ⛔ Le garde-fou qui compte : un compte qui a servi porte un mot de passe. Sans `!u.pwdHash`,
      ce ménage effacerait l'administrateur d'une entreprise. */
   v('⛔ un compte avec mot de passe est hors d\'atteinte', /&&!u\.pwdHash&&!u\.pinHash/.test(APP), true);
