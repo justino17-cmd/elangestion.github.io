@@ -476,6 +476,43 @@ Corollaire déjà éprouvé : un correctif arrête une cause, **il ne range pas 
 est déjà entré dans la base d'un client y reste jusqu'à un geste — le dire en même temps que le
 correctif, sinon le chantier paraît clos alors qu'il attend quelqu'un.
 
+### ⛔ DURCIE LE 11 SEPTEMBRE 2026 AU SOIR — LA PUBLICATION N'EST PLUS UNE DÉCISION D'AGENT
+
+Après une journée à NEUF versions publiées en production chez un client qui travaillait
+(v657 → v665), Justin a tranché : **« je veux que maintenant qu'on va travailler sur des mises à
+jour de l'application ou du développement, que ça travaille QUE sur la bêta. On publiera pour
+tout le monde que quand JE voudrai publier. Je veux tester avant, pour pas refaire les erreurs,
+que ce soit pas stable. »**
+
+La règle, sans interprétation possible :
+
+1. **Tout va sur `beta.html`. Rien ne va sur `app.html`.** Une fonctionnalité, une refonte, une
+   amélioration, un rangement, une idée : bêta. On ne demande même pas.
+2. **`app.html` ne se publie que sur une PHRASE DE JUSTIN qui le demande explicitement**, pour
+   ce changement-là. Pas « il a dit oui hier », pas « il a validé le principe », pas « c'est
+   évidemment ce qu'il veut ». Il dit publier, on publie. Sinon on attend, même si c'est prêt,
+   même si c'est mieux, même si ça traîne depuis trois jours.
+3. **UNE SEULE exception, et elle est étroite** : ce qui CASSE chez un client en production se
+   corrige tout de suite. « Casse » veut dire : quelqu'un ne peut pas travailler. Pas
+   « c'est moche », pas « ce serait mieux », pas « tant qu'on y est ». Et le correctif se limite
+   au défaut — rien d'autre ne voyage avec lui.
+4. **Le doute tranche vers la bêta.** Si on hésite à classer un changement en (3), c'est qu'il
+   n'en est pas.
+
+⚠️ **Ce qui a motivé la règle, et qu'il faut se rappeler avant de la contourner** : les neuf
+versions du 11 septembre étaient toutes justes, toutes testées, toutes mesurées sur la base réelle
+du client. Ça n'a rien empêché. **Deux d'entre elles reposaient sur une hypothèse jamais vérifiée**
+(la taille du document Firestore), **une a été corrigée une heure après publication** par l'agent
+`gardien` (la suppression en lot déduisait « jamais connecté » d'un journal plafonné), et une
+autre a dû être retirée de la publication après mesure (l'annuaire : les comptes d'ELAN avaient
+tous un mot de passe, le correctif ne réparait rien chez eux). Un agent qui publie vite publie
+aussi ses erreurs vite. Le client, lui, les reçoit toutes.
+
+**Ce que ça change concrètement dans le rituel** : on monte `APP_VERSION` et le cache du service
+worker comme avant, on régénère `beta.html`, on fait passer les suites — et **on s'arrête là**.
+Le report sur `main` de `app.html`/`sw.js` attend sa phrase. La bêta, elle, se publie librement :
+c'est son rôle.
+
 ## La bêta : un outil de développement, jamais un canal public
 
 `beta.html` n'est **pas** une version d'essai pour les clients et ne le sera jamais. C'est
