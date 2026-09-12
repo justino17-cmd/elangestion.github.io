@@ -35,10 +35,19 @@ console.log('Une adresse, un code — plus de lien qui transporte la clé');
 
 /* ══ 1) LA TOUR N'AFFICHE PLUS AUCUN LIEN DE PREMIÈRE CONNEXION ═══════════════════════════ */
 {
-  v('⛔ plus aucun lien affiché dans la Tour', /e\.lien/.test(TOUR), false);
-  v('…ni dans la fiche entreprise', /id="lg-lien"/.test(TOUR), false);
-  v('…ni dans l’accès version publique', /id="pb-lien"/.test(TOUR), false);
-  v('…ni dans le panneau « formule acceptée »', /id="acc-lien"/.test(TOUR), false);
+  /* ⛔ ON COMPTE LES ZONES, ON NE LES NOMME PLUS. La première version de ce contrôle cherchait
+     « e.lien » — et elle est passée au vert alors que DEUX panneaux affichaient encore un lien :
+     « Identifiants changés » et « Renommé », qui le tiraient de `r.d.lien`, un autre nom. Je ne
+     les avais pas vus, et le test ne les voyait pas non plus. Une garde qui énumère ce qu'elle
+     connaît ne protège que de ce qu'on avait déjà en tête.
+     La forme « id="…-lien" » est celle de TOUTES les zones copiables de la Tour : en compter
+     zéro attrape aussi le panneau que personne n'a encore écrit. */
+  v('⛔ AUCUNE zone de la Tour n’affiche un lien', (TOUR.match(/id="[a-z-]*lien"/g) || []).length, 0);
+  v('…et plus personne ne lit e.lien', /e\.lien/.test(TOUR), false);
+  v('…ni r.d.lien', /r\.d\.lien/.test(TOUR), false);
+  /* Contre-épreuve : les zones d'ADRESSE, elles, doivent rester — sinon on aurait « réussi »
+     en vidant les panneaux. */
+  v('…mais les zones d’adresse sont bien là', (TOUR.match(/id="[a-z-]*adr"/g) || []).length >= 3, true);
   v('⛔ plus aucun message type ne dit « clique ce lien »', /clique ce lien|en cliquant ton lien/.test(TOUR), false);
   /* L'adresse, elle, est partout : c'est elle qu'on donne aux équipes. */
   v('l’adresse reste sur la fiche entreprise', /id="lg-adr"/.test(TOUR), true);
