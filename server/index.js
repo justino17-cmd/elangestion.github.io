@@ -1652,6 +1652,31 @@ app.post('/api/monitor/espaces', monPatronStrict, (req, res) => {
   espacesEcrire();
   res.json({ ok: true, slug });
 });
+/* ══ LE LIEN D'UN ESPACE DÉJÀ INSCRIT — 12 septembre 2026 ══════════════════════════════
+   Sans cette route, la Tour n'avait qu'UNE source pour le lien d'une entreprise : le
+   localStorage du navigateur ouvert (`tour_liens`). Sur un autre appareil — le téléphone du
+   patron plutôt que son Mac — l'entrée manquait, et `tourEspaceDe` FABRIQUAIT un espace neuf,
+   identifiant aléatoire et clé aléatoire, qu'elle affichait comme étant celui du client.
+   Constaté le 12 septembre 2026 sur la fiche d'ELAN : l'adresse disait `teamop.fr/e/elan`
+   (→ `elan-34oc`, le vrai) pendant que le lien juste en dessous portait `elan-gq3k`, inventé
+   à la seconde. C'est aussi comme ça que `elan-d4v8` et `elan-tzl2` sont apparus.
+   Le serveur, lui, a toujours su : `espacesReg[slug].code`. Il le rend donc, au patron seul.
+   ⚠️ `lienEspaceCode` passe par `codeMdpHache` : le mot de passe provisoire en clair ne sort
+   pas d'ici, seulement son empreinte — c'est la même garde que le lien envoyé par courriel. */
+app.post('/api/monitor/espaces/lien-existant', monPatronStrict, (req, res) => {
+  const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir
+  if (!slug) return res.status(400).json({ error: 'nom requis' });
+  const e = espaceAJour(slug);
+  /* 404 veut dire « ce nom n'a pas d'espace », et rien d'autre : c'est là-dessus que la Tour
+     s'autorise à en créer un. Un espace sans code n'est pas un espace inconnu — il est cassé,
+     et le dire évite d'en fabriquer un second à côté. */
+  if (!e) return res.status(404).json({ error: 'aucun espace inscrit sous ce nom' });
+  if (!e.code) return res.status(409).json({ motif: 'sans_code',
+    error: 'Cet espace est inscrit mais n\'a pas de code de connexion — à réinscrire, surtout pas à doubler.' });
+  let ident = '';
+  try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); ident = String(o.a || ''); } catch (err) {}
+  res.json({ ok: true, slug: (e.slug || slug), nom: espNomPropre(e), t: espaceT(e), lien: lienEspaceCode(e), ident });
+});
 // le patron attribue la formule d'un espace (Gratuit/Pro/Business/Premium × quantité)
 app.post('/api/monitor/espaces/formule', monPatronStrict, (req, res) => {
   const slug = espSlug(monStr((req.body || {}).nom, 80));   // borné : voir /api/espaces/ouvrir

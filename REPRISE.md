@@ -13,6 +13,80 @@ de ligne du tout.
 
 ---
 
+## ⛔ LA TOUR FABRIQUAIT DES ESPACES FANTÔMES — corrigé le 12 septembre, **PAS PUBLIÉ**
+
+⛔ **À ne pas publier sans une phrase de Justin.** Sur la branche
+`claude/op-gestion-interface-yb6p32`. Touche `server/index.js` (une route neuve) et `tour.html` —
+donc un déploiement VPS **et** GitHub Pages. `app.html`, `sw.js` et `beta.html` ne bougent pas.
+
+**Ce que Justin a vu, 12 septembre 9 h 00, sur son iPhone, fiche ELAN.** Deux lignes du même
+panneau :
+
+| | affiché | ce que ça vaut |
+|---|---|---|
+| SON ADRESSE | `teamop.fr/e/elan` | **juste** — mesuré : résout vers `elan-34oc` |
+| LE LIEN | `…#entreprise=eyJ0IjoiZWxhbi1ncTNrIi…` | **faux** — décodé : `elan-gq3k`, inventé |
+
+Sa phrase : « Le 2ème lien correspond pas à elan ». Il avait raison.
+
+**LA CAUSE, lue dans le code et pas devinée.** `tourEspaceDe` avait UNE seule source pour le
+lien : `localStorage.tour_liens`, du navigateur ouvert. L'adresse, elle, venait du serveur. Sur
+le téléphone du patron plutôt que sur son Mac, l'entrée manquait — et la fonction FABRIQUAIT un
+espace neuf :
+
+```js
+sp = { t: slug+'-'+Math.random().toString(36).slice(2,6), k: <24 lettres au hasard>, … }
+```
+
+« elan » + « -gq3k » : exactement cette forme. **C'est le mécanisme qui a produit `elan-d4v8` et
+`elan-tzl2`**, trouvés hors annuaire la veille — pas un mystère, une fonction.
+
+**CE QUI A SAUVÉ ELAN, et qu'il faut garder.** Le serveur refuse (409) d'enregistrer un nom déjà
+pris par un AUTRE espace. L'annuaire n'a donc pas été écrasé — vérifié en production par
+`/api/espaces/verifie-nom`, les quatre identifiants un par un : seul `elan-34oc` répond `true`.
+Et `/api/espaces/connexion` rend un vrai refus d'identifiants, pas `sans-annuaire` : la connexion
+par adresse est saine chez ELAN.
+
+**MAIS LA TOUR AVALAIT CE REFUS.** Sur le 409 elle affichait : « Attention : nom non enregistré
+côté serveur — **le lien, lui, marche** ». Faux, et c'est précisément ce qui trompait : le lien
+était la seule chose qui ne marchait pas. Envoyé, il met la personne dans une base VIDE, avec une
+clé que personne d'autre ne possède.
+
+**Le correctif, en trois pièces :**
+1. `POST /api/monitor/espaces/lien-existant` (patron seul) rend le VRAI lien d'un espace inscrit.
+   Le serveur a toujours su — `espacesReg[slug].code` — il ne le rendait simplement jamais à
+   l'écran. `codeMdpHache` en retire le mot de passe provisoire en clair, comme pour le courriel.
+2. `tourEspaceDe` demande au serveur **d'abord, toujours**, même quand ce navigateur croit savoir.
+   Conséquence utile : un `tour_liens` déjà pollué ne gagne plus — l'iPhone de Justin se répare
+   tout seul à la publication, sans rien vider à la main.
+3. Le refus s'affiche tel quel et **arrête** la fonction. Les trois appelants ont leur garde.
+
+⚠️ **ON ÉCHOUE FERMÉ ICI, à l'inverse de `connexion.html`, et ce n'est pas une incohérence : la
+règle suit le COÛT.** Sur la page de connexion, laisser passer n'accorde rien (il reste un mot de
+passe à donner) ; ici, passer **CRÉE** un espace. Fabriquer sur une réponse qu'on n'a pas reçue
+est exactement ce qui a produit les fantômes. Serveur injoignable → on ne crée rien, et on le dit.
+
+⚠️ **Un défaut muet trouvé en écrivant le correctif** : `apiPost` ne rendait pas le code HTTP.
+`r.status===404` n'aurait donc JAMAIS été vrai, tout refus serait devenu un doute, et la Tour
+n'aurait plus pu ouvrir un seul espace neuf — sans erreur, sans message. `status` est maintenant
+rendu **en plus** de `ok` et `d` : aucun appelant existant ne change.
+
+**État des contrôles :** 30 suites, **932 vérifications**, 0 échec. `tests/test-668.js` en porte 40,
+dont la moitié contre le **VRAI serveur** lancé isolé (`TEAMOP_CONFIG`/`TEAMOP_DATA`/`PORT` à lui,
+jamais `api.teamop.fr`), comme `test-641.js` : sans jeton → 403 et rien ne fuit ; nom inscrit →
+le lien porte `elan-34oc` ; nom inconnu → 404 ; espace sans code → 409 `sans_code` ; le mot de
+passe en clair ne sort pas ; et le garde-fou du 409 sur `/api/monitor/espaces` est rejoué, avec la
+vérification que l'annuaire d'ELAN survit à la tentative.
+
+⚠️ **En attendant la publication** : le panneau de la Tour affiche toujours le mauvais lien.
+L'adresse `teamop.fr/e/elan`, elle, est bonne et suffit à toute l'équipe. **Ne pas envoyer le
+lien affiché.**
+
+⚠️ **`apercu/tour.html` porte encore l'ancien code** (c'est une copie figée pour la refonte
+visuelle) : ne pas générer de lien depuis l'aperçu.
+
+---
+
 ## v667 — ÉCRITE ET ÉPROUVÉE, **PAS PUBLIÉE**. La v666, elle, EST EN LIGNE.
 
 ⛔ **État exact, à ne pas confondre** : la **v666 est publiée** (fusionnée le 11 septembre 2026
