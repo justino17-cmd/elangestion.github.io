@@ -3223,7 +3223,9 @@ async function tourLienServeur(nom){
   try{
     var r=await apiPost('/api/monitor/espaces/lien-existant',{nom:nom});
     var d=(r&&r.d)||{};
-    if(r&&r.ok&&d.lien) return d;
+    /* `existe` et non `lien` : la route ne rend plus le lien, depuis qu'aucun panneau ne
+       l'affiche. On ne demande au serveur qu'une chose — cet espace existe-t-il ? */
+    if(r&&r.ok&&d.existe) return d;
     if(r&&r.status===404) return null;          // ce nom n'a pas d'espace : on peut en créer un
     /* 409 « sans_code » : l'espace EXISTE mais il est cassé. Surtout pas un second à côté. */
     if(d&&d.motif==='sans_code'){ toast('⛔ '+d.error); return 'incertain'; }
@@ -3259,9 +3261,10 @@ async function tourEspaceDe(email,nom,ident,mdp,neuf,origine){
       return null;
     }
     if(connu){
-      /* Le mot de passe provisoire ne revient pas du serveur (codeMdpHache l'a retiré du code) :
-         on garde celui qu'on a sous la main, sinon celui que la fiche recalcule. */
-      return { lien:connu.lien, nom:(connu.nom||nom||email), slug:connu.slug,
+      /* Plus de `lien` : aucun panneau ne l'affiche, et la route ne le rend plus. Le mot de
+         passe provisoire, lui, ne vient pas non plus du serveur — on garde celui qu'on a sous
+         la main, sinon celui que la fiche recalcule. */
+      return { nom:(connu.nom||nom||email), slug:connu.slug,
                ident:(connu.ident||ident||'admin'), mdp:((sp&&sp.m)||mdp||'') };
     }
   }

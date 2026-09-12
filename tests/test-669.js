@@ -100,6 +100,37 @@ console.log('Une adresse, un code — plus de lien qui transporte la clé');
     /acces/.test(rel), false);
 }
 
+/* ══ 4 bis) LES DEUX CHEMINS DU SITE — 12 septembre, décision de Justin : « fait les 3 » ═══
+   Ils envoyaient encore un lien portant la clé, et ce ne sont pas de petits chemins :
+   · /api/compte/identifiants part vers CHAQUE employé qu'un administrateur crée ;
+   · le relais d'inscription part vers chaque entreprise qui s'abonne sur teamop.fr.
+   Les deux cas ne se règlent pas pareil, et c'est tout l'intérêt de les distinguer : pour un
+   employé, l'entreprise A DÉJÀ des comptes — l'adresse suffit. Pour une entreprise qui vient de
+   s'inscrire, il n'y en a aucun — il faut le code d'accès. */
+{
+  const ident = SRV.slice(SRV.indexOf("app.post('/api/compte/identifiants'"), SRV.indexOf("app.post('/api/compte/identifiants'") + 4200);
+  v('⛔ le courriel à un nouvel employé n’envoie plus de lien', /lienEspaceCode/.test(ident), false);
+  v('il envoie l’adresse de l’entreprise', /const adrEsp = \(esp && esp\.slug\) \? \('https:\/\/teamop\.fr\/e\/' \+ esp\.slug\) : '';/.test(ident), true);
+  /* ⚠️ Et il la donne dès qu'on a un slug, même si l'annuaire boite : envoyer quelqu'un sur
+     connexion.html sans lui dire OÙ aller, c'est l'échouer à coup sûr. */
+  v('…et il ne renvoie plus le lien fourni par l’application', /lienApp \|\| 'https:\/\/teamop\.fr\/connexion\.html'/.test(ident), false);
+
+  /* ⚠️ BORNÉ PAR DU TEXTE, jamais par un nombre de caractères. Une fenêtre de 5 000 signes
+     s'arrêtait AVANT la moitié du bloc : l'assertion passait au rouge sur du code parfaitement
+     juste. C'est la leçon déjà écrite dans test-641, et elle vient de se reproduire. */
+  const rDeb = SRV.indexOf('PLUS DE LIEN DE BIENVENUE');
+  const rFin = SRV.indexOf('bouton2Url:', SRV.indexOf("L\\'adresse de votre entreprise est prête"));
+  const relais = (rDeb >= 0 && rFin > rDeb) ? SRV.slice(rDeb, rFin) : '';
+  /* Si le découpage rate, il le DIT : il ne passe pas au vert en ne regardant rien. */
+  v('le bloc du relais est retrouvé, et entier', relais.length > 3000 && /accesCodeDe/.test(relais), true);
+  v('⛔ le courriel d’inscription automatique n’envoie plus de lien', /lienEspaceCode/.test(relais), false);
+  v('il envoie l’adresse', /const adrAuto = auto\.slug \? \('teamop\.fr\/e\/' \+ auto\.slug\) : '';/.test(relais), true);
+  /* ⛔ Un espace qui vient d'être créé n'a AUCUN compte : sans code d'accès, l'adresse seule
+     ne s'ouvre pas. C'est le cas où oublier le code ferme la porte à un client tout neuf. */
+  v('⛔ …ET le code d’accès, parce que l’espace est neuf', /const accesAuto = enrAuto \? enrAuto\.code : '';/.test(relais), true);
+  v('⛔ et si le code manque, il ne fait pas semblant', /Écrivez-nous pour recevoir votre code d\\'accès/.test(relais), true);
+}
+
 /* ══ 5) CE QUI DOIT SURVIVRE — les liens DÉJÀ entre les mains des gens ════════════════════ */
 {
   v('app.html comprend toujours #entreprise=', /entreprise=\(\[A-Za-z0-9\+\/=_-\]\{8,\}\)/.test(APP), true);
@@ -113,7 +144,11 @@ console.log('Une adresse, un code — plus de lien qui transporte la clé');
    deux codes différents : celui qu'on dicte et celui qu'on envoie. Même raison que fbUidEquipe. */
 {
   v('accesCodeDe n’a qu’une définition', (SRV.match(/function accesCodeDe\(/g) || []).length, 1);
-  v('⛔ et les deux chemins passent par elle', (SRV.match(/accesCodeDe\(/g) || []).length, 3);
+  /* TROIS chemins la réclament désormais : le panneau de la Tour, le courriel d'accueil, et
+     l'inscription automatique depuis le site. Compter plutôt que nommer, pour qu'un QUATRIÈME
+     chemin qui referait son propre code fasse tomber ce test. (4 = la définition + 3 appels.) */
+  v('⛔ et les trois chemins passent par elle', (SRV.match(/accesCodeDe\(/g) || []).length, 4);
+  v('…dont l’inscription automatique du site', /const enrAuto = auto\.t \? accesCodeDe\(auto\.t, 'inscription automatique'\) : null;/.test(SRV), true);
   v('elle rend null si l’écriture échoue', /if \(!accesEcrire\(\)\) \{ if \(avant\) accesReg\[t\] = avant; else delete accesReg\[t\]; return null; \}/.test(SRV), true);
 }
 

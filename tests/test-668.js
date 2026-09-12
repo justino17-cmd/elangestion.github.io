@@ -65,7 +65,12 @@ console.log('Le lien d’une entreprise vient du serveur, jamais du navigateur')
     t.indexOf('tourLienServeur(nom)') < t.indexOf('a-t-elle DÉJÀ un Code espace'), true);
   v('⛔ un serveur injoignable ne fabrique RIEN', /if\(connu==='incertain'\)\{/.test(t), true);
   v('…et il le dit', /on ne fabrique pas d\\'espace à l\\'aveugle/.test(t), true);
-  v('quand le serveur connaît l’espace, c’est SON lien qu’on rend', /return \{ lien:connu\.lien,/.test(t), true);
+  /* ⚠️ CETTE LIGNE A CHANGÉ LE 12 SEPTEMBRE, et son intention n'a pas bougé : c'est le SERVEUR
+     qui dit quel est l'espace de cette entreprise. Ce qu'on en rapporte a maigri — plus de
+     lien, puisque plus aucun panneau ne l'affiche et que la route ne le donne plus. */
+  v('quand le serveur connaît l’espace, c’est SON espace qu’on rend', /return \{ nom:\(connu\.nom\|\|nom\|\|email\), slug:connu\.slug,/.test(t), true);
+  v('⛔ et on ne rapporte plus de lien dans le navigateur', /lien:connu\.lien/.test(t), false);
+  v('l’existence se lit sur « existe », pas sur la présence d’un lien', /if\(r&&r\.ok&&d\.existe\) return d;/.test(TOUR), true);
   /* Le mot de passe provisoire ne revient pas du serveur (codeMdpHache l'a retiré) : on garde
      celui qu'on a, sinon celui que la fiche recalcule. Sans ça le panneau l'affichait vide. */
   v('le mot de passe provisoire ne se perd pas au passage', /mdp:\(\(sp&&sp\.m\)\|\|mdp\|\|''\)/.test(t), true);
@@ -85,10 +90,10 @@ console.log('Le lien d’une entreprise vient du serveur, jamais du navigateur')
     const f = eval('(' + g.replace(/^async function tourLienServeur/, 'async function') + ')');
     return await f('elan');
   };
-  const attendu = { lien: 'https://teamop.fr/app.html#entreprise=XXX', slug: 'elan', nom: 'ELAN', ident: 'florent' };
+  const attendu = { existe: true, slug: 'elan', nom: 'ELAN', t: 'elan-34oc', ident: 'florent' };
   (async () => {
-    v('un espace connu rend son lien',
-      (await jouer(async () => ({ ok: true, status: 200, d: attendu }))).lien, attendu.lien);
+    v('un espace connu se reconnaît',
+      (await jouer(async () => ({ ok: true, status: 200, d: attendu }))).slug, 'elan');
     /* ⛔ LE 404 EST LA SEULE RÉPONSE QUI AUTORISE À CRÉER. C'est là que se joue tout le
        correctif : si le 404 ne se distinguait pas des autres refus, la Tour ne pourrait plus
        ouvrir aucun espace neuf — on aurait échangé une panne contre une autre. */
@@ -99,9 +104,9 @@ console.log('Le lien d’une entreprise vient du serveur, jamais du navigateur')
     v('un 403 ne fait pas créer', await jouer(async () => ({ ok: false, status: 403, d: {} })), 'incertain');
     v('un 500 non plus', await jouer(async () => ({ ok: false, status: 500, d: {} })), 'incertain');
     v('un serveur muet non plus', await jouer(async () => { throw new TypeError('Failed to fetch'); }), 'incertain');
-    /* Réponse 200 sans lien : le serveur dit oui mais ne donne rien. Ne pas la prendre pour un
+    /* Réponse 200 vide : le serveur dit oui mais ne dit rien. Ne pas la prendre pour un
        « nom libre » — sinon un bogue serveur fabriquerait des espaces en série. */
-    v('un « oui » sans lien ne vaut pas un « nom libre »',
+    v('un « oui » vide ne vaut pas un « nom libre »',
       await jouer(async () => ({ ok: true, status: 200, d: {} })), 'incertain');
     suite();
   })();
@@ -189,19 +194,21 @@ function suite() {
       v('⛔ et rien de l’espace ne fuit dans le refus', /elan-34oc|CLE-PROPRE/.test(JSON.stringify(r.j)), false);
 
       r = await P('/api/monitor/espaces/lien-existant', { nom: 'elan' }, TOK);
-      v('un espace inscrit rend son lien', r.statut, 200);
-      const lien = String(r.j.lien || '');
-      const code = lien.split('#entreprise=')[1] || '';
-      let o = {}; try { o = JSON.parse(Buffer.from(code, 'base64').toString('utf8')); } catch (e) {}
-      v('⛔ et c’est le VRAI espace — pas un identifiant fabriqué', o.t, 'elan-34oc');
+      v('un espace inscrit se reconnaît', r.statut, 200);
+      /* ⛔ ON LIT `t` DIRECTEMENT, et c'est une meilleure preuve qu'avant : la route ne rend
+         plus de lien à décoder, elle NOMME l'espace. La forme exacte du défaut était
+         « elan- » + quatre caractères au hasard. */
+      v('⛔ et c’est le VRAI espace — pas un identifiant fabriqué', r.j.t, 'elan-34oc');
+      v('⛔ rien qui ait la forme fabriquée', /^elan-[a-z0-9]{4}$/.test(String(r.j.t)) && r.j.t !== 'elan-34oc', false);
       v('le serveur rend aussi l’identifiant de départ réel', r.j.ident, 'florent');
       v('…et le slug', r.j.slug, 'elan');
-      /* La forme exacte du défaut : « elan- » + quatre caractères au hasard. */
-      v('⛔ le lien ne porte AUCUN identifiant de la forme fabriquée', /^elan-[a-z0-9]{4}$/.test(o.t) && o.t !== 'elan-34oc', false);
-      /* ⛔ Le mot de passe provisoire en clair ne sort pas d'ici : codeMdpHache le remplace
-         par son empreinte, comme pour le lien envoyé par courriel. */
-      v('⛔ le mot de passe provisoire en clair ne sort pas', /Florent!!/.test(lien), false);
-      v('…il est remplacé par son empreinte', !!o.mh && !o.m, true);
+      /* ⛔ LE POINT QUI COMPTE LE PLUS ICI : cette réponse ne contient plus AUCUN secret. Ni la
+         clé d'équipe, ni le mot de passe provisoire, ni un lien qui les porterait. Son seul
+         appelant a besoin de savoir si l'espace existe — pas de recevoir de quoi l'ouvrir. */
+      const rep = JSON.stringify(r.j);
+      v('⛔ plus aucun lien dans la réponse', /entreprise=/.test(rep), false);
+      v('⛔ ni la clé d’équipe', /CLE-PROPRE-ELAN/.test(rep), false);
+      v('⛔ ni le mot de passe provisoire', /Florent!!/.test(rep), false);
 
       r = await P('/api/monitor/espaces/lien-existant', { nom: 'entreprise-qui-nexiste-pas' }, TOK);
       v('⛔ un nom inconnu rend 404 — la SEULE réponse qui autorise à créer', r.statut, 404);
@@ -218,8 +225,7 @@ function suite() {
       v('⛔ un nom déjà pris par un AUTRE espace est refusé', r.statut, 409);
 
       r = await P('/api/monitor/espaces/lien-existant', { nom: 'elan' }, TOK);
-      let o2 = {}; try { o2 = JSON.parse(Buffer.from(String(r.j.lien || '').split('#entreprise=')[1] || '', 'base64').toString('utf8')); } catch (e) {}
-      v('⛔ et l’annuaire d’ELAN est intact après la tentative', o2.t, 'elan-34oc');
+      v('⛔ et l’annuaire d’ELAN est intact après la tentative', r.j.t, 'elan-34oc');
 
       /* Le même espace sous son propre identifiant : accepté, c'est une mise à jour. */
       r = await P('/api/monitor/espaces', { nom: 'ELAN', code: b64({ t: 'elan-34oc', k: 'CLE-PROPRE-ELAN', a: 'florent' }), email: 'e@exemple.fr' }, TOK);
