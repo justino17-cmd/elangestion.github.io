@@ -2283,8 +2283,13 @@ function msgErreur(err){ if(err&&err.status===403){
     if(err.app&&APPS_TOUR[err.app]) return 'Cette action appartient à la Tour '+APPS_TOUR[err.app].nom+' — ton compte n’y a pas accès.';
     return 'Réservé au patron — ton compte n’a pas cet accès.'; }
   return INJOIGNABLE; }
+/* `status` s'ajoute au verdict, il ne le remplace pas : tous les appelants existants lisent
+   `ok` et `d`, et continuent. Il manquait pour distinguer deux refus qui ne veulent PAS dire la
+   même chose — 404 « ce nom n'a pas d'espace » (on peut en créer un) et tout le reste (on ne
+   touche à rien). Sans lui, `tourLienServeur` prenait tout refus pour un doute et la Tour ne
+   pouvait plus ouvrir aucun espace neuf. */
 function apiPost(u,b){ return fetch(API+u,{method:'POST',headers:hAuth(),body:JSON.stringify(b)})
-  .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return {ok:r.ok,d:d||{}}; }); }); }
+  .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return {ok:r.ok,status:r.status,d:d||{}}; }); }); }
 
 var _tt=null;
 /* Le toast apparaissait et disparaissait sec. Il monte du bas — d'où il vit — et
@@ -3209,6 +3214,24 @@ async function tourSha256(x){
   const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(x)));
   return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');
 }
+/* Le serveur connaît-il déjà un espace sous ce nom ? TROIS réponses, jamais deux :
+   · un objet  → oui, et voilà SON lien, celui de ses vraies données ;
+   · null      → non, ce nom est libre — c'est la SEULE réponse qui autorise à créer ;
+   · 'incertain' → on n'a pas pu savoir. On ne crée rien. */
+async function tourLienServeur(nom){
+  if(!nom) return 'incertain';
+  try{
+    var r=await apiPost('/api/monitor/espaces/lien-existant',{nom:nom});
+    var d=(r&&r.d)||{};
+    /* `existe` et non `lien` : la route ne rend plus le lien, depuis qu'aucun panneau ne
+       l'affiche. On ne demande au serveur qu'une chose — cet espace existe-t-il ? */
+    if(r&&r.ok&&d.existe) return d;
+    if(r&&r.status===404) return null;          // ce nom n'a pas d'espace : on peut en créer un
+    /* 409 « sans_code » : l'espace EXISTE mais il est cassé. Surtout pas un second à côté. */
+    if(d&&d.motif==='sans_code'){ toast('⛔ '+d.error); return 'incertain'; }
+    return 'incertain';
+  }catch(e){ return 'incertain'; }
+}
 async function tourEspaceDe(email,nom,ident,mdp,neuf,origine){
   var reg={}; try{ reg=JSON.parse(localStorage.getItem('tour_liens')||'{}'); }catch(e){}
   var sp=reg[email];
@@ -3218,8 +3241,35 @@ async function tourEspaceDe(email,nom,ident,mdp,neuf,origine){
     if(mdp&&sp.m!==mdp){ sp.m=mdp; maj=true; }
     if(email&&sp.e!==email){ sp.e=email; maj=true; }
     if(maj){ reg[email]=sp; localStorage.setItem('tour_liens',JSON.stringify(reg)); } }
+  /* ⛔ LE SERVEUR EST LA SOURCE DE VÉRITÉ DU LIEN, PAS CE NAVIGATEUR. Mesuré le 12 septembre
+     2026 sur la fiche d'ELAN, capture à l'appui : l'adresse affichait `teamop.fr/e/elan` — le
+     vrai espace, `elan-34oc` — pendant que le lien juste en dessous portait `elan-gq3k`,
+     inventé à la seconde. Les deux sortaient pourtant du même objet : l'adresse venait du
+     serveur, le lien de `tour_liens` en localStorage. Sur le téléphone du patron plutôt que sur
+     son Mac, l'entrée manquait — et on FABRIQUAIT un espace neuf, clé aléatoire comprise, qu'on
+     présentait comme celui du client. Envoyé, ce lien met la personne dans une base VIDE : c'est
+     l'histoire de `elan-d4v8` et de `elan-tzl2`.
+     On demande donc d'abord au serveur, TOUJOURS, même quand ce navigateur croit savoir. */
+  if(!neuf){
+    var connu=await tourLienServeur(nom);
+    if(connu==='incertain'){
+      /* ⚠️ ON ÉCHOUE FERMÉ, et c'est l'inverse du choix fait sur la page de connexion — pour la
+         bonne raison : là-bas, laisser passer n'accorde rien (il reste un mot de passe à
+         donner) ; ici, passer CRÉE un espace. Fabriquer sur une réponse qu'on n'a pas reçue,
+         c'est exactement ce qui a produit les espaces fantômes. */
+      toast('Serveur injoignable — on ne fabrique pas d\'espace à l\'aveugle. Réessaie.');
+      return null;
+    }
+    if(connu){
+      /* Plus de `lien` : aucun panneau ne l'affiche, et la route ne le rend plus. Le mot de
+         passe provisoire, lui, ne vient pas non plus du serveur — on garde celui qu'on a sous
+         la main, sinon celui que la fiche recalcule. */
+      return { nom:(connu.nom||nom||email), slug:connu.slug,
+               ident:(connu.ident||ident||'admin'), mdp:((sp&&sp.m)||mdp||'') };
+    }
+  }
   if(!sp&&!neuf){
-    // l'entreprise a peut-être DÉJÀ un espace (créé avant) : son lien doit pointer dessus, pas sur un espace vide
+    // le serveur ne connaît pas ce nom : l'entreprise a peut-être un Code espace en main
     var colle=prompt('Cette entreprise a-t-elle DÉJÀ un Code espace (créé avant) ?\n\n• OUI → colle son Code espace ici (l\'app → Paramètres → Espaces entreprise → « Voir le code »)\n• NON → laisse vide, un espace tout neuf sera créé.');
     if(colle&&colle.trim()){
       var o=null; try{ o=JSON.parse(decodeURIComponent(escape(atob(colle.trim())))); }catch(e){}
@@ -3254,8 +3304,12 @@ async function tourEspaceDe(email,nom,ident,mdp,neuf,origine){
   try{
     var r=await apiPost('/api/monitor/espaces',{nom:(nom||email),code:code,email:email,origine:(origine||'')});
     if(r&&r.ok) slug=r.slug||'';
-    else toast('Attention : nom non enregistré côté serveur ('+((r&&r.d&&r.d.error)||'?')+') — le lien, lui, marche');
-  }catch(e){ toast('Attention : serveur injoignable pour l\'annuaire — le lien, lui, marche'); }
+    /* ⛔ « LE LIEN, LUI, MARCHE » ÉTAIT FAUX, ET C'EST PRÉCISÉMENT CE QUI TROMPAIT. Le serveur
+       refuse (409) quand le nom appartient déjà à un AUTRE espace — c'est ce garde-fou qui a
+       sauvé ELAN le 12 septembre. Mais le message rassurait pendant que le panneau affichait un
+       lien vers un espace inventé. Un refus se montre ; il ne se commente pas à l'envers. */
+    else { toast('⛔ Refus du serveur : '+((r&&r.d&&r.d.error)||'nom non enregistré')+' — le lien affiché ne serait PAS le sien. Ne l\'envoie pas.'); return null; }
+  }catch(e){ toast('⛔ Serveur injoignable pour l\'annuaire — le lien n\'est pas vérifié, ne l\'envoie pas.'); return null; }
   return { lien:lien, nom:(nom||email), slug:slug, ident:sp.a||'admin', mdp:sp.m||'' };
 }
 function tourIdentDefaut(email){
@@ -3330,10 +3384,16 @@ async function tourLienEntreprise(email,nom,neuf,identConnu){
   }
   var mdp=tourMdpDefaut(email);
   var e=await tourEspaceDe(email,nom,ident,mdp,neuf);
+  if(!e) return;   // refus du serveur ou serveur injoignable : tourEspaceDe a déjà dit quoi
   var mdpAff=e.mdp||mdp;
   var debut=neuf?'Bonjour,\n\nPour des questions de sécurité et une mise à jour exceptionnelle, ton espace OP GESTION a été RÉINITIALISÉ : tu repars sur une version toute propre, stable et finie. Tout est à recréer (utilisateurs, clients…), mais sur une base saine — et clique le nouveau lien sur CHAQUE appareil de l\'équipe.\n\n':'Bienvenue sur OP GESTION !\n\n';
   var adr='teamop.fr/e/'+(e.slug||espSlugJs(e.nom));
-  var txt=debut+'TA PREMIÈRE CONNEXION — clique ce lien :\n'+e.lien+'\n\nL\'écran affichera « ✅ Ton lien de connexion est bon » — puis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nL\'app te fait alors choisir TON vrai mot de passe.\n\nENSUITE, ET POUR TOUTE TON ÉQUIPE — l\'adresse de ton entreprise :\n'+adr+'\n\nC\'est elle qu\'on donne aux équipes : chacun y va, tape SON identifiant et SON mot de passe, et arrive dans ton espace. Aucun lien à garder, aucun code à retenir — et ça marche sur n\'importe quel téléphone.\nTu crées les comptes de ton équipe dans Utilisateurs.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+  /* Le code d'accès arrive APRÈS (tourAccesCharger le pose) : on laisse un repère plutôt que
+     d'afficher un message incomplet, ou de faire attendre tout le panneau pour une ligne. */
+  var txt=debut+'UNE SEULE ADRESSE À RETENIR, pour toi et pour toute ton équipe :\n'+adr
+    +'\n\nTA TOUTE PREMIÈRE CONNEXION — une seule fois, pour ouvrir l\'espace :\nSur cette adresse, touche « Première connexion de l\'entreprise ? » et entre ton code d\'accès :\n\n     __CODE__'
+    +'\n\nPuis :\n• Identifiant : '+e.ident+'\n• Mot de passe provisoire : '+mdpAff+'\n\nL\'app te fait alors choisir TON vrai mot de passe.\n\nENSUITE, ET POUR TOUTE TON ÉQUIPE — la même adresse :\n'+adr
+    +'\n\nChacun y va, tape SON identifiant et SON mot de passe, et arrive dans ton espace. Rien à conserver, ça marche sur n\'importe quel téléphone — mets-la en favori.\nTu crées les comptes de ton équipe dans Utilisateurs.\n\nGarde ce code pour toi : il ouvre ton espace. On peut le renouveler quand quelqu\'un part.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
   tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">🔗 Lien de connexion — '+esc(e.nom)+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Tout est prêt. Vérifie, puis envoie-lui l\'e-mail en un clic.</div>'+
     '<div class="sec">SON ADRESSE <span style="color:var(--muted);font-weight:400;text-transform:none">— c\'est CE lien qu\'on donne aux équipes</span></div>'+
@@ -3342,15 +3402,17 @@ async function tourLienEntreprise(email,nom,neuf,identConnu){
        identifiant et son mot de passe — l'espace de l'entreprise s'ouvre, séparé des autres. */
     '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="lg-adr" class="mono" style="flex:1;word-break:break-all;font-size:14px;color:var(--link);font-weight:700">teamop.fr/e/'+esc(e.slug||espSlugJs(e.nom))+'</span><button class="btn-fant" onclick="tourCopie(\'lg-adr\',this)">Copier</button></div>'+
     '<div style="color:var(--muted);font-size:12px;margin:-8px 0 14px">Chacun tape son identifiant et son mot de passe : ni lien ni code à conserver. Fonctionne dès que l\'entreprise a ouvert l\'application une fois avec cette version.</div>'+
-    '<div class="sec">CE QUI RENTRE DANS LE LIEN</div>'+
-    '<div style="margin:6px 0 14px;font-size:15px"><b>'+esc(e.nom)+'</b> <span style="color:var(--muted);font-size:12.5px">— le nom de l\'espace. Le lien ci-dessous connecte sans rien demander : c\'est le chemin de la PREMIÈRE connexion, celle qui n\'a pas encore de compte.</span></div>'+
-    '<div class="sec">LE LIEN</div>'+
-    '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="lg-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'lg-lien\',this)">Copier</button></div>'+
-    /* Le code d'accès : ce qui remplace l'aller-retour par e-mail. Le nom seul n'ouvre rien
-       (le lien porte la clé qui déchiffre les données) ; le nom AVEC ce code rend le lien, et
-       l'application demande ensuite identifiant et mot de passe. Le responsable le dicte à ses
-       équipes, et le renouvelle ici quand quelqu'un part. */
-    '<div class="sec">SON CODE D\'ACCÈS <span style="color:var(--muted);font-weight:400;text-transform:none">— le filet : la toute première connexion, ou un navigateur trop vieux</span></div>'+
+    /* ⛔ LE LIEN DE PREMIÈRE CONNEXION A ÉTÉ SUPPRIMÉ — 12 septembre 2026, décision de Justin :
+       « on va supprimer ces liens-là et garder que le lien qui se donne aux équipes ».
+       Deux raisons, et la seconde vaut plus que la première :
+       · il portait `k`, LA CLÉ QUI DÉCHIFFRE TOUTES LES DONNÉES DE L'ENTREPRISE, dans une URL —
+         un objet fait pour être transféré, photographié, collé dans un groupe ;
+       · il était fabriqué de travers dès qu'on ouvrait la Tour depuis un autre appareil (voir
+         `tourEspaceDe`), et c'est ce qui a produit elan-d4v8, elan-tzl2, elan-gq3k.
+       Une adresse, un code. Éprouvé sur banc : nom + code d'accès → l'espace s'ouvre, clé
+       comprise, sans qu'elle ne voyage en clair. */
+    '<div class="sec">SON CODE D\'ACCÈS <span style="color:var(--muted);font-weight:400;text-transform:none">— pour la TOUTE PREMIÈRE connexion, une seule fois</span></div>'+
+    '<div style="color:var(--muted);font-size:12px;margin:6px 0 0">Sur l\'adresse ci-dessus, « Première connexion de l\'entreprise ? », puis ce code. Ensuite l\'identifiant suffit, pour tout le monde. À renouveler quand quelqu\'un part.</div>'+
     '<div id="lg-acces-zone" style="display:flex;gap:8px;align-items:center;margin:6px 0 14px">'+
       '<span id="lg-acces" class="mono" style="flex:1;font-size:19px;letter-spacing:.24em;font-weight:800">…</span>'+
       '<button class="btn-fant" onclick="tourCopie(\'lg-acces\',this)">Copier</button>'+
@@ -3360,28 +3422,57 @@ async function tourLienEntreprise(email,nom,neuf,identConnu){
     '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(e.ident)+'</b> <span style="color:var(--muted);font-size:12px">(son prénom)</span><br>Mot de passe provisoire : <b>'+esc(mdpAff)+'</b> <span style="color:var(--muted);font-size:12px">(son nom + « !! » — l\'app lui fait choisir son vrai mot de passe à la 1re connexion)</span></div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px"><button class="btn-plein" onclick="tourMailAcces(\''+jsq(e.nom)+'\',this)">📧 Envoyer par e-mail au client</button>'+
     (neuf?'':'<button class="btn-fant" style="color:var(--redText)" onclick="tourRepartirNeuf(\''+jsq(email)+'\',\''+jsq(e.nom)+'\')">🔄 Repartir à neuf</button>')+
-    '<a class="btn-fant" style="text-decoration:none" href="mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent('Votre lien de connexion — TEAM OP')+'&body='+encodeURIComponent(txt)+'">✉️ Ou ouvrir dans Mail</a></div>'+
+    '<a class="btn-fant" id="lg-mailto" style="text-decoration:none;opacity:.45;pointer-events:none" href="#" title="Il faut d\'abord un code d\'accès">✉️ Ou ouvrir dans Mail</a></div>'+
     '<div class="sec">LE MESSAGE (si tu préfères le coller toi-même)</div>'+
     '<textarea id="lg-msg" rows="8" class="inp" style="margin-top:6px;font-size:12.5px"></textarea>'+
     '<div style="margin-top:8px"><button class="btn-fant" onclick="tourCopie(\'lg-msg\',this)">Copier le message</button></div>');
-  setTimeout(function(){ var t=document.getElementById('lg-msg'); if(t) t.value=txt; },50);
+  /* Le message et le lien mailto ne se posent qu'APRÈS le code d'accès : un courriel envoyé
+     avec « __CODE__ » en toutes lettres, et le client n'a aucun moyen d'entrer chez lui. */
+  LG_MSG_MODELE=txt; LG_MAIL=email; LG_ZONE='lg-msg';
   tourAccesCharger(e.slug||e.nom);
+}
+/* Le modèle du message, en attente de son code d'accès. Depuis qu'il n'y a plus de lien de
+   première connexion, ce code EST la porte d'entrée : le message ne se pose donc qu'une fois
+   qu'on l'a. Sans ça, on enverrait au client un courriel portant « __CODE__ » en toutes
+   lettres — et aucun moyen d'entrer chez lui. */
+/* LG_ZONE : DEUX panneaux différents posent ce message (fiche entreprise → #lg-msg, formule
+   acceptée → #acc-msg). Écrire en dur l'un des deux laissait l'autre avec « __CODE__ ». */
+var LG_MSG_MODELE='', LG_MAIL='', LG_ZONE='lg-msg';
+function lgMessagePoser(code){
+  if(!LG_MSG_MODELE) return;
+  var t=document.getElementById(LG_ZONE||'lg-msg'), a=document.getElementById('lg-mailto');
+  var txt=LG_MSG_MODELE.replace('__CODE__',code||'');
+  if(t) t.value=txt;
+  if(!a) return;
+  if(code){ a.href='mailto:'+encodeURIComponent(LG_MAIL)+'?subject='+encodeURIComponent('L\'adresse de votre entreprise — TEAM OP')+'&body='+encodeURIComponent(txt);
+    a.style.opacity=''; a.style.pointerEvents=''; a.title=''; return; }
+  /* Pas de code → pas de courriel. Un bouton grisé qui dit pourquoi vaut mieux qu'un message
+     parti sans la seule chose dont le client a besoin. */
+  a.href='#'; a.style.opacity='.45'; a.style.pointerEvents='none'; a.title='Il faut d\'abord un code d\'accès';
 }
 /* Le code d'accès de l'espace : lu s'il existe, créé au premier appel. */
 function tourAccesCharger(slug,regenerer){
   var el=document.getElementById('lg-acces'); if(el) el.textContent='…';
+  lgMessagePoser('');
   apiPost('/api/monitor/espaces/acces',{slug:slug,regenerer:!!regenerer}).then(function(r){
     var el=document.getElementById('lg-acces'); if(!el) return;
     /* apiPost rend {ok, d} — la charge utile est dans « d ». Lire r.acces donnait donc
        toujours undefined : la modale affichait « code indisponible » quel que soit le
        code renvoyé par le serveur, qui lui répond bien {ok, slug, acces, ts, par, vu}. */
     var d=(r&&r.d)||{};
-    if(r&&r.ok&&d.acces){ el.textContent=d.acces;
+    if(r&&r.ok&&d.acces){ el.textContent=d.acces; el.style.fontSize=''; el.style.letterSpacing='';
       var q=document.getElementById('lg-acces-quand');
-      if(q) q.textContent=d.vu?('dernier usage le '+new Date(d.vu).toLocaleDateString('fr-FR')):'jamais utilisé pour l\'instant'; }
-    else { el.style.fontSize='13px'; el.style.letterSpacing='0';
-      el.textContent=d.error||'code indisponible'; }
-  }).catch(function(){ var el=document.getElementById('lg-acces'); if(el) el.textContent='—'; });
+      if(q) q.textContent=d.vu?('dernier usage le '+new Date(d.vu).toLocaleDateString('fr-FR')):'jamais utilisé pour l\'instant';
+      lgMessagePoser(d.acces); return; }
+    /* ⛔ « code indisponible » NE DIT RIEN, et depuis qu'il n'y a plus de lien c'est la SEULE
+       porte d'entrée : le message doit dire ce qui s'est passé. Vu le 12 septembre 2026 sur la
+       fiche d'ELAN — trois mots, aucune piste, rien pour distinguer un droit refusé d'une panne. */
+    el.style.fontSize='13px'; el.style.letterSpacing='0';
+    el.textContent=d.error||('code indisponible — le serveur a répondu '+((r&&r.status)||'?')+', réessaie');
+    lgMessagePoser('');
+  }).catch(function(){ var el=document.getElementById('lg-acces');
+    if(el){ el.style.fontSize='13px'; el.style.letterSpacing='0'; el.textContent='serveur injoignable — réessaie'; }
+    lgMessagePoser(''); });
 }
 /* Reprendre la main sur les identifiants de départ d'un espace qui n'a pas encore servi.
    Le serveur refuse dès qu'une connexion a été enregistrée, et le dit — on relaie son message
@@ -3399,9 +3490,12 @@ function tourIdentModifier(slug,nom,identActuel){
     if(!(r&&r.ok)){ alert((r&&r.d&&r.d.error)||'Modification impossible.'); return; }
     chargerAccesPublics();
     tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">✏️ Identifiants changés — '+esc(nom||slug)+'</div>'+
-      '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">Le lien a changé aussi : c’est lui qui porte les identifiants de départ. Redonne CELUI-CI.</div>'+
-      '<div class="sec">LE LIEN</div>'+
-      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="id-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(r.d.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'id-lien\',this)">Copier</button></div>'+
+      /* ⛔ Ce panneau montrait le lien « parce que c'est lui qui porte les identifiants de
+         départ ». Il n'y a plus de lien : l'adresse ne change pas quand les identifiants
+         changent, et la première connexion passe par le code d'accès. On ne redonne donc que
+         ce qui a bougé — et c'est plus juste qu'avant, où l'on faisait renvoyer une URL
+         entière pour un changement de prénom. */
+      '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">L’adresse ne change pas. Redonne-lui simplement ses nouveaux identifiants.</div>'+
       '<div class="sec">LES IDENTIFIANTS</div>'+
       '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(ident)+'</b><br>Mot de passe provisoire : <b>'+esc(mdp)+'</b></div>'+
       '<div class="encart"><div class="encart-tx">Valable tant que personne ne s’est connecté. Dès la première connexion, le mot de passe appartient à l’entreprise et ne se change plus d’ici.</div></div>');
@@ -3454,8 +3548,8 @@ function tourAccesRenommer(slug,nom){
       '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">La nouvelle adresse marche tout de suite. L’ancienne ne marche plus : redonne celle-ci à l’entreprise.</div>'+
       '<div class="sec">SA NOUVELLE ADRESSE</div>'+
       '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="rn-adr" class="mono" style="flex:1;word-break:break-all;font-size:14px;color:var(--link);font-weight:700">'+esc(r.d.adresse||'')+'</span><button class="btn-fant" onclick="tourCopie(\'rn-adr\',this)">Copier</button></div>'+
-      '<div class="sec">SON LIEN DE PREMIÈRE CONNEXION</div>'+
-      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="rn-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(r.d.lien||'')+'</span><button class="btn-fant" onclick="tourCopie(\'rn-lien\',this)">Copier</button></div>'+
+      /* ⛔ Plus de lien ici non plus : renommer change l'ADRESSE, c'est la seule chose à
+         redonner. Le code d'accès, lui, ne bouge pas — il est attaché à l'espace, pas au nom. */
       '<div class="encart"><div class="encart-tx">Les appareils déjà connectés ne bougent pas : ils gardent leur espace et leurs données. Seule l’adresse d’entrée a changé.</div></div>');
   }).catch(function(){ toast('Serveur injoignable'); });
 }
@@ -3541,24 +3635,35 @@ async function tourAccepterDemande(email,nom){
   if(ident===null) return; ident=(ident||'admin').toLowerCase().replace(/[^a-z0-9.]/g,'')||'admin';
   var mdp=tourMdpDefaut(email);
   var e=await tourEspaceDe(email,nom,ident,mdp);
+  if(!e) return;
   var mdpAff=e.mdp||mdp;
   apiPost('/api/monitor/espaces/formule',{nom:e.nom,formule:formule,quantite:q}).then(function(r){
     if(!(r&&r.ok)){ toast((r&&r.d&&r.d.error)||'Formule non attribuée'); return; }
     tourPackPrefill(e.nom);
-    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\n1. Connecte-toi en cliquant ton lien (garde-le précieusement) : '+e.lien+'\n   (lien perdu ? sur teamop.fr/connexion.html, écris « '+e.nom+' » : il repart à ton adresse e-mail)\n2. Première connexion : identifiant '+ident+' — mot de passe provisoire '+mdpAff+'. L\'app te fait choisir TON vrai mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs : chacun se connecte pareil (nom de l\'entreprise + son identifiant + son mot de passe).\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
+    /* ⛔ Plus de lien ici non plus (12 septembre 2026) : une adresse, un code d'accès. Le code
+       arrive après, par tourAccesCharger, qui remplace le repère __CODE__. */
+    var adrF='teamop.fr/e/'+(e.slug||espSlugJs(e.nom));
+    var txt='Bienvenue sur OP GESTION !\n\nTa demande est acceptée — ta formule « '+formule+' »'+(q>1?' ×'+q:'')+' est réservée.\n\nUNE SEULE ADRESSE À RETENIR, pour toi et pour toute ton équipe :\n'+adrF+'\n\n1. TA TOUTE PREMIÈRE CONNEXION — une seule fois : sur cette adresse, touche « Première connexion de l\'entreprise ? » et entre ton code d\'accès :\n\n     __CODE__\n\n2. Puis : identifiant '+ident+' — mot de passe provisoire '+mdpAff+'. L\'app te fait choisir TON vrai mot de passe et ton e-mail.\n3. Pour débloquer tous les avantages de ta formule : paye ton abonnement ou active un code promo (l\'app te guide, bouton « Payer mon abonnement »).\n4. Tu crées ensuite les comptes de ton équipe dans Utilisateurs : chacun se connecte pareil — la même adresse, son identifiant, son mot de passe.\n\nGarde ce code pour toi : il ouvre ton espace.\n\nBonne prise en main !\n— TEAM OP · teamop.fr';
     var F2={gratuit:'Gratuit',pro:'Pro',business:'Business',premium:'Business Premium'};
     tourPanneau('<div style="font-size:18px;font-weight:800;margin-bottom:4px">✅ Demande acceptée — '+esc(e.nom)+'</div>'+
       '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">L\'espace est prêt et activé. Il ne te reste qu\'à envoyer le message ci-dessous.</div>'+
       '<div class="sec">FORMULE RÉSERVÉE</div><div style="margin:6px 0 14px;font-size:15px"><b>'+(F2[formule]||formule)+(q>1?' ×'+q:'')+'</b> <span class="past p-orange">💳 en attente de paiement</span></div>'+
-      '<div class="sec">LIEN DE CONNEXION (à garder — c\'est lui qui connecte)</div>'+
-      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="acc-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'acc-lien\',this)">Copier</button></div>'+
-      '<div class="sec">LIEN PERDU ?</div><div style="margin:6px 0 14px;font-size:13.5px;color:var(--muted)">teamop.fr/connexion.html → écrire <b style="color:inherit">'+esc(e.nom)+'</b> : le lien repart à l\'adresse e-mail de l\'entreprise · première connexion : <b>'+esc(ident)+'</b> / <b>'+esc(mdpAff)+'</b> (modifiables à sa première connexion)</div>'+
+      '<div class="sec">SON ADRESSE <span style="color:var(--muted);font-weight:400;text-transform:none">— c\'est elle qu\'on donne aux équipes</span></div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="acc-adr" class="mono" style="flex:1;word-break:break-all;font-size:14px;color:var(--link);font-weight:700">'+esc(adrF)+'</span><button class="btn-fant" onclick="tourCopie(\'acc-adr\',this)">Copier</button></div>'+
+      '<div class="sec">SON CODE D\'ACCÈS <span style="color:var(--muted);font-weight:400;text-transform:none">— pour la TOUTE PREMIÈRE connexion</span></div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 4px">'+
+        '<span id="lg-acces" class="mono" style="flex:1;font-size:19px;letter-spacing:.24em;font-weight:800">…</span>'+
+        '<button class="btn-fant" onclick="tourCopie(\'lg-acces\',this)">Copier</button></div>'+
+      '<div id="lg-acces-quand" style="color:var(--muted);font-size:12px;margin:0 0 10px"></div>'+
+      '<div style="margin:0 0 14px;font-size:13px;color:var(--muted)">Ensuite l\'identifiant suffit, pour tout le monde. Première connexion : <b style="color:inherit">'+esc(ident)+'</b> / <b style="color:inherit">'+esc(mdpAff)+'</b> (modifiables à sa première connexion)</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px"><button class="btn-plein" onclick="tourMailAcces(\''+jsq(e.nom)+'\',this)">📧 Envoyer par e-mail au client</button></div>'+
       '<div class="sec">MESSAGE DE BIENVENUE À ENVOYER</div>'+
       '<textarea id="acc-msg" rows="9" class="inp" style="margin-top:6px;font-size:12.5px;padding:10px"></textarea>'+
       '<div style="margin-top:8px"><button class="btn-plein" onclick="tourCopie(\'acc-msg\',this)">📋 Copier le message</button></div>');
-    var ta=document.getElementById('acc-msg'); if(ta) ta.value=txt;
-    try{ navigator.clipboard.writeText(txt); }catch(e2){}
+    /* Le message attend son code d'accès : le copier maintenant mettrait « __CODE__ » dans le
+       presse-papiers, et c'est ce qui partirait au client. On le pose quand le code arrive. */
+    LG_MSG_MODELE=txt; LG_MAIL=email; LG_ZONE='acc-msg';
+    tourAccesCharger(e.slug||e.nom);
     toast('✅ Espace prêt — formule '+formule+(q>1?' ×'+q:'')+' réservée');
   }).catch(function(){ toast('Serveur injoignable'); });
 }
@@ -6432,6 +6537,7 @@ async function pbCreer(btn){
   try{
     // « tour » : cet espace est un accès que TEAM OP s'ouvre à lui-même, pas un client du site
     var e=await tourEspaceDe(email,nom,ident,mdp,!dejaLa,'tour');
+    if(!e){ if(btn){ btn.disabled=false; btn.textContent='Ouvrir l\'accès'; } return; }
     PB.nom=''; PB.email=''; PB.ident=''; PB.pass='';
     JR.actions.unshift({ts:Date.now(),tx:MYNOM+' a ouvert un accès à la version publique « '+nom+' »'});
     chargerAccesPublics();   // il doit apparaître dans la liste, tout de suite
@@ -6439,11 +6545,22 @@ async function pbCreer(btn){
       '<div style="color:var(--muted);font-size:13px;margin-bottom:16px">C’est un vrai espace d’entreprise sur <b>teamop.fr/app.html</b>. Ouvre le lien sur chaque appareil qui doit y accéder.</div>'+
       '<div class="sec">SON ADRESSE <span style="color:var(--muted);font-weight:400;text-transform:none">— à donner aux équipes</span></div>'+
       '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="pb-adr" class="mono" style="flex:1;word-break:break-all;font-size:14px;color:var(--link);font-weight:700">teamop.fr/e/'+esc(e.slug||espSlugJs(e.nom))+'</span><button class="btn-fant" onclick="tourCopie(\'pb-adr\',this)">Copier</button></div>'+
-      '<div class="sec">LE LIEN DE PREMIÈRE CONNEXION</div>'+
-      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px"><span id="pb-lien" class="mono" style="flex:1;word-break:break-all;font-size:12.5px;color:var(--link)">'+esc(e.lien)+'</span><button class="btn-fant" onclick="tourCopie(\'pb-lien\',this)">Copier</button></div>'+
+      /* ⛔ Plus de lien de première connexion ici non plus — même raison que sur la fiche d'un
+         client : il portait la clé de déchiffrement dans une URL. La première connexion passe
+         par le code d'accès, sur cette même adresse. */
+      '<div class="sec">SON CODE D\'ACCÈS <span style="color:var(--muted);font-weight:400;text-transform:none">— pour la TOUTE PREMIÈRE connexion</span></div>'+
+      '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 4px">'+
+        '<span id="lg-acces" class="mono" style="flex:1;font-size:19px;letter-spacing:.24em;font-weight:800">…</span>'+
+        '<button class="btn-fant" onclick="tourCopie(\'lg-acces\',this)">Copier</button></div>'+
+      '<div id="lg-acces-quand" style="color:var(--muted);font-size:12px;margin:0 0 10px"></div>'+
+      '<div style="color:var(--muted);font-size:12px;margin:0 0 14px">Sur l\'adresse ci-dessus, « Première connexion de l\'entreprise ? », puis ce code. Ensuite l\'identifiant suffit.</div>'+
       '<div class="sec">LES IDENTIFIANTS</div>'+
       '<div style="margin:6px 0 14px;font-size:14.5px;line-height:1.9">Identifiant : <b>'+esc(e.ident)+'</b><br>Mot de passe provisoire : <b>'+esc(e.mdp||mdp)+'</b> <span style="color:var(--muted);font-size:12px">(l’app fait choisir le vrai mot de passe à la 1re connexion)</span></div>'+
-      '<div class="encart"><div class="encart-tx">Ce lien ouvre la <b>version publique</b>, avec ses vraies données. Il n’a rien à voir avec un accès bêta : la bêta n’ouvre que la bêta.</div></div>');
+      '<div class="encart"><div class="encart-tx">Cette adresse ouvre la <b>version publique</b>, avec ses vraies données. Elle n’a rien à voir avec un accès bêta : la bêta n’ouvre que la bêta.</div></div>');
+    /* Ce panneau n'a pas de message type : on oublie celui du panneau précédent, sinon
+       lgMessagePoser irait réécrire une zone qui n'est plus à l'écran. */
+    LG_MSG_MODELE=''; LG_ZONE='';
+    tourAccesCharger(e.slug||e.nom);
     chargerEssais();
   }catch(err){ toast('Création impossible'); }
   if(btn){ btn.disabled=false; btn.textContent='Ouvrir l’accès public'; }
