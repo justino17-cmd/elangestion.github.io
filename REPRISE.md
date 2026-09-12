@@ -13,6 +13,72 @@ de ligne du tout.
 
 ---
 
+## ⛔ PLUS DE LIEN DE PREMIÈRE CONNEXION — 12 septembre 2026, **PAS PUBLIÉ**
+
+⛔ **À ne pas publier sans une phrase de Justin.** Même lot que la section suivante : `tour.html`
+et `server/index.js`, donc VPS **et** Pages. `app.html`, `sw.js`, `beta.html` intouchés.
+
+**Sa décision**, après avoir vu la Tour lui afficher un lien qui ne correspondait pas à ELAN :
+« on va supprimer ces liens-là et garder que le lien qui se donne aux équipes ».
+
+**Ce n'est pas qu'un rangement.** Ce lien portait `k` — LA CLÉ QUI DÉCHIFFRE TOUTES LES DONNÉES
+DE L'ENTREPRISE — dans une URL, c'est-à-dire dans un objet fait pour être transféré, photographié,
+collé dans un groupe. Et c'est lui que la Tour fabriquait de travers depuis un autre appareil.
+
+**Vérifié AVANT de retirer quoi que ce soit**, sonde sur le vrai serveur isolé
+(`scratchpad/sonde-acces.js`) : `nom + code d'accès` → l'espace s'ouvre, `elan-34oc`, clé comprise,
+**sans le mot de passe provisoire en clair**. Mauvais code → 403. Le chemin de remplacement existe
+et marche : retirer une porte n'est juste que si l'autre s'ouvre.
+
+**Ce qui a changé :**
+- Les **trois** panneaux de la Tour (fiche entreprise, accès version publique, formule acceptée)
+  n'affichent plus de lien. Ils montrent l'adresse et le code d'accès.
+- Le code d'accès n'est plus « le filet » : c'est **la** première connexion.
+- Le courriel d'accueil (`mail-acces`) envoie adresse + code, et **refuse de partir** si le code
+  n'a pas pu être enregistré, plutôt que d'envoyer un courriel sans porte d'entrée.
+- ⛔ Le secours public « lien perdu » (`/api/espaces/relance`) ne renvoie **plus la clé**. Cette
+  route est **publique** : quiconque tapait le nom d'une entreprise sur teamop.fr déclenchait
+  l'envoi de sa clé de déchiffrement par courriel. Elle renvoie l'adresse, qui n'est pas un
+  secret ; le code, lui, ne s'obtient que par le patron.
+- `accesCodeDe(t, par, regenerer)` : **une seule définition**, partagée par le panneau et le
+  courriel. Deux copies auraient fini par fabriquer deux codes différents — celui qu'on dicte et
+  celui qu'on envoie. Même raison que `fbUidEquipe`.
+
+**Ce qui NE bouge pas, et c'est délibéré** : les liens **déjà envoyés** sont entre les mains de
+gens qui travaillent. `#entreprise=` dans `app.html`, `lienEspaceConnu`, `/api/espaces/lien` et
+`lienEspaceCode` restent. **On cesse d'en fabriquer, on ne casse pas ceux qui circulent.**
+
+⚠️ **Le piège que ce lot pouvait créer, et qu'il faut connaître** : le code d'accès arrive APRÈS
+l'affichage du panneau (un aller-retour serveur). Poser le message tout de suite, c'était envoyer
+au client un courriel portant « __CODE__ » en toutes lettres — et aucun moyen d'entrer chez lui.
+Le message et le bouton « ouvrir dans Mail » ne se posent donc qu'une fois le code reçu ; sans
+code, le bouton est grisé et dit pourquoi. La copie automatique dans le presse-papiers a été
+retirée pour la même raison.
+
+⚠️ **Et « code indisponible » ne suffisait plus.** Trois mots, aucune piste — c'est ce
+qu'affichait la fiche d'ELAN. Tant que le lien existait ce n'était qu'un filet muet ; c'est
+désormais la seule porte. Le message dit maintenant ce que le serveur a répondu, et distingue un
+refus d'un serveur injoignable.
+
+**⛔ CE QUI RESTE OUVERT, et qu'il faut décider** : deux chemins du SITE envoient encore un lien
+portant la clé — `/api/compte/identifiants` et le relais `/api/clients/sync` (une entreprise qui
+s'inscrit sur teamop.fr). Ils n'ont pas été touchés : ce n'est pas ce que Justin regardait, ils
+ont leurs propres tests, et les mêler à ce lot aurait élargi le risque. **À lui de dire s'il veut
+qu'on les fasse aussi.**
+
+**État des contrôles :** 31 suites, **978 vérifications**, 0 échec. `tests/test-669.js` en porte 46,
+dont la moitié contre le VRAI serveur isolé — et surtout le contrôle qui compte : « LA PREMIÈRE
+CONNEXION MARCHE SANS LIEN », plus le renouvellement (l'ancien code ne vaut plus rien, le nouveau
+si). Un test qui vérifierait seulement la disparition du lien passerait au vert le jour où plus
+aucune entreprise ne peut se connecter.
+
+⚠️ **Incident de manipulation, à ne pas refaire** : `io.open(p,'w')` tronque le fichier AVANT
+d'écrire. Une exception d'encodage en plein `write()` a laissé `tour.html` **à zéro octet** —
+récupéré par `git checkout`, rien de perdu au-delà du travail de la minute. Les éditions passent
+désormais par `scratchpad/ed.py` : fichier temporaire, relecture, puis renommage.
+
+---
+
 ## ⛔ LA TOUR FABRIQUAIT DES ESPACES FANTÔMES — corrigé le 12 septembre, **PAS PUBLIÉ**
 
 ⛔ **À ne pas publier sans une phrase de Justin.** Sur la branche

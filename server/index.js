@@ -2526,33 +2526,40 @@ app.post('/api/monitor/espaces/mail-acces', monPatronStrict, async (req, res) =>
   if (!e.code) return res.status(400).json({ error: 'cet espace n\'a pas de code de connexion — régénère son lien' });
   let a = '', m = '';
   try { const o = JSON.parse(Buffer.from(e.code, 'base64').toString('utf8')); a = String(o.a || ''); m = String(o.m || ''); } catch (err) {}
-  const lien = lienEspaceCode(e);
-  /* L'ADRESSE, et pas seulement le lien. Le lien sert UNE fois — c'est la première connexion,
-     celle qui n'a pas encore de compte. Ensuite, c'est l'adresse qu'on donne à toute l'équipe :
-     chacun y tape son identifiant et son mot de passe, sur n'importe quel téléphone. L'e-mail
-     doit dire les deux, sinon le client garde le lien comme un trésor et rappelle dès qu'il
-     le perd — c'est exactement ce qu'on vient de corriger. */
+  /* ⛔ PLUS DE LIEN DE PREMIÈRE CONNEXION — 12 septembre 2026, décision de Justin : « on va
+     supprimer ces liens-là et garder que le lien qui se donne aux équipes ».
+     Ce n'est pas qu'une simplification. Ce lien portait `k` — LA CLÉ QUI DÉCHIFFRE TOUTES LES
+     DONNÉES DE L'ENTREPRISE — dans une URL, c'est-à-dire dans un objet fait pour être transféré,
+     capturé en photo, collé dans une conversation de groupe. Il était aussi la source d'un
+     défaut mesuré la veille : la Tour le fabriquait de travers depuis un autre appareil.
+     UNE seule adresse, UN seul code. La première connexion se fait par le CODE D'ACCÈS — chemin
+     éprouvé sur banc : nom + code → l'espace s'ouvre, sans que la clé ne voyage en clair. */
   const adresse = 'teamop.fr/e/' + (e.slug || slug);
+  const enrAcces = accesCodeDe(espaceT(e), req.tourUser.nom);
+  if (!enrAcces) return res.status(500).json({ error: 'Le code d\'acc\u00e8s n\'a pas pu être enregistré — rien n\'a été envoyé. Réessaie.' });
+  const acces = enrAcces.code;
   const co = (a && m)
     ? '• Identifiant : ' + a + ' (votre prénom)\n• Mot de passe provisoire : ' + m + ' (votre nom + « !! »)\nÀ votre première connexion, l\'application vous fait choisir votre vrai mot de passe — ensuite ce sont vos identifiants pour toujours.\n'
     : 'Connectez-vous avec vos identifiants habituels.\n';
-  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt.\n\n1) VOTRE PREMIÈRE CONNEXION — ce lien :\n' + lien + '\n\n' + co
-    + '\n2) ENSUITE, ET POUR TOUTE VOTRE ÉQUIPE — l\'adresse de votre entreprise :\n' + adresse
-    + '\n\nC\'est elle qu\'on donne aux équipes : chacun y va, tape SON identifiant et SON mot de passe, et arrive dans votre espace. Aucun lien à conserver, aucun code à retenir, sur n\'importe quel téléphone. Mettez-la en favori.\nVous créez les comptes de votre équipe dans Utilisateurs.\n\n— L\'équipe TEAM OP · teamop.fr';
+  const texte = 'Bonjour,\n\nVotre espace « ' + e.nom + ' » est prêt. UNE SEULE ADRESSE à retenir, pour vous et pour toute votre équipe :\n\n' + adresse
+    + '\n\n1) VOTRE TOUTE PREMIÈRE CONNEXION — une seule fois, pour ouvrir l\'espace :\nSur cette adresse, touchez « Première connexion de l\'entreprise ? » et entrez le code d\'accès de votre entreprise :\n\n     ' + acces
+    + '\n\n' + co
+    + '\n2) ENSUITE, ET POUR TOUTE VOTRE ÉQUIPE — la même adresse :\n' + adresse
+    + '\n\nChacun y va, tape SON identifiant et SON mot de passe, et arrive dans votre espace. Aucun lien à conserver, sur n\'importe quel téléphone. Mettez-la en favori.\nVous créez les comptes de votre équipe dans Utilisateurs.\n\nGardez ce code pour vous : il ouvre votre espace. Nous pouvons le renouveler à tout moment si quelqu\'un quitte l\'entreprise.\n\n— L\'équipe TEAM OP · teamop.fr';
   const coHtml = (a && m)
     ? MAIL_BLOCS.ident(a, m) + '<br>'
     : 'Connectez-vous avec vos <b>identifiants habituels</b>.<br>';
   const html = mailTeamOP({
     chip: 'Accès prêt',
     titre: 'Votre lien de connexion 🔗',
-    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>1) Votre première connexion — ce lien :</b><br><a href="' + lien + '" style="color:#34A97E">' + lien.replace('https://', '') + '</a><br><br>' + coHtml
-      + '<br><b>2) Ensuite, et pour toute votre équipe — l\'adresse de votre entreprise :</b><br><a href="https://' + adresse + '" style="color:#34A97E;font-size:17px;font-weight:700">' + adresse + '</a><br><span style="color:#8fa3c8;font-size:13px">Chacun y va, tape son identifiant et son mot de passe, et arrive dans votre espace — sur n\'importe quel téléphone, sans lien à conserver. Mettez-la en favori.</span><br>',
+    corpsHtml: 'Bonjour,<br>votre espace « <b>' + e.nom + '</b> » est prêt.<br><br><b>Une seule adresse à retenir</b>, pour vous et pour toute votre équipe :<br><a href="https://' + adresse + '" style="color:#34A97E;font-size:19px;font-weight:700">' + adresse + '</a><br><br><b>1) Votre toute première connexion — une seule fois :</b><br>Sur cette adresse, touchez « Première connexion de l\'entreprise ? » et entrez votre code d\'accès :<br><div style="font-family:ui-monospace,monospace;font-size:23px;font-weight:800;letter-spacing:.22em;margin:10px 0">' + acces + '</div>' + coHtml
+      + '<br><b>2) Ensuite, et pour toute votre équipe — la même adresse.</b><br><span style="color:#8fa3c8;font-size:13px">Chacun y va, tape son identifiant et son mot de passe, et arrive dans votre espace — sur n\'importe quel téléphone, rien à conserver. Mettez-la en favori.<br>Gardez ce code pour vous : il ouvre votre espace. Nous pouvons le renouveler si quelqu\'un quitte l\'entreprise.</span><br>',
     frise: [
       { titre: 'Espace prêt', sous: 'par TEAM OP', fait: true },
-      { titre: '1re connexion', sous: 'avec le lien', fait: false },
+      { titre: '1re connexion', sous: 'avec le code', fait: false },
       { titre: 'Votre équipe', sous: 'par ' + adresse, fait: false }
     ],
-    boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+    boutonTxt: 'Ouvrir mon espace', boutonUrl: 'https://' + adresse,
     bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
   });
   try {
@@ -2822,6 +2829,23 @@ function accesNeuf() {
   for (let i = 0; i < ACCES_LONGUEUR; i++) c += ACCES_ALPHABET[buf[i] % ACCES_ALPHABET.length];
   return c;
 }
+/* ══ LE CODE D'ACCÈS D'UN ESPACE — UNE SEULE DÉFINITION ═══════════════════════════
+   Depuis le 12 septembre 2026 il n'y a PLUS de lien de première connexion : ce code est la
+   seule porte d'entrée d'une entreprise qui n'a pas encore de compte. Deux chemins le
+   réclament — le panneau de la Tour et le courriel d'accueil — et deux copies finiraient par
+   en fabriquer deux différents : celui qu'on dicte et celui qu'on envoie. Même raison que
+   `fbUidEquipe`, qui n'a lui aussi qu'une définition.
+   Rend null si l'écriture échoue : l'appelant DOIT le remonter plutôt que dicter un code qui
+   mourra au prochain redémarrage. */
+function accesCodeDe(t, par, regenerer) {
+  if (!t) return null;
+  let enr = accesReg[t];
+  if (enr && enr.code && enr.code.length === ACCES_LONGUEUR && !regenerer) return enr;
+  const avant = enr;
+  enr = accesReg[t] = { code: accesNeuf(), ts: Date.now(), par: par || '', vu: 0 };
+  if (!accesEcrire()) { if (avant) accesReg[t] = avant; else delete accesReg[t]; return null; }
+  return enr;
+}
 const accesNorm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 /* Bornée et purgée, comme « compteurs » : sans cela, une clé par nom inventé s'accumule sans
    fin, et la route étant publique, c'est de la mémoire offerte à qui la demande. */
@@ -2913,18 +2937,13 @@ app.post('/api/monitor/espaces/acces', monPatronStrict, (req, res) => {
   const e = espaceAJour(slug);
   const t = e ? espaceT(e) : '';
   if (!e || !t) return res.status(404).json({ error: 'Espace inconnu — génère d\'abord son « Lien de connexion » (fiche entreprise)' });
-  let enr = accesReg[t];
-  if (!enr || !enr.code || enr.code.length !== ACCES_LONGUEUR || (req.body || {}).regenerer) {
-    const avant = enr;
-    enr = accesReg[t] = { code: accesNeuf(), ts: Date.now(), par: req.tourUser.nom, vu: 0 };
-    /* Si l'écriture échoue, on ne dit surtout pas que c'est fait : le patron dicterait un code
-       qui mourrait au prochain redémarrage, en croyant l'ancien révoqué. */
-    if (!accesEcrire()) {
-      if (avant) accesReg[t] = avant; else delete accesReg[t];
-      return res.status(500).json({ error: 'Le code n\'a pas pu être enregistré — rien n\'a changé. Réessaie.' });
-    }
+  const avait = !!(accesReg[t] && accesReg[t].code);
+  /* Si l'écriture échoue, on ne dit surtout pas que c'est fait : le patron dicterait un code
+     qui mourrait au prochain redémarrage, en croyant l'ancien révoqué. */
+  const enr = accesCodeDe(t, req.tourUser.nom, !!(req.body || {}).regenerer);
+  if (!enr) return res.status(500).json({ error: 'Le code n\'a pas pu être enregistré — rien n\'a changé. Réessaie.' });
+  if (!avait || (req.body || {}).regenerer)
     console.log('Tour :', req.tourUser.nom, ((req.body || {}).regenerer ? 'renouvelle' : 'crée'), 'le code d\'accès de l\'espace', t);
-  }
   res.json({ ok: true, slug, acces: enr.code, ts: enr.ts || 0, par: enr.par || '', vu: enr.vu || 0 });
 });
 /* ══ CHANGER LES IDENTIFIANTS DE DÉPART D'UN ESPACE ═══════════════════════════════════════
@@ -3352,29 +3371,34 @@ app.post('/api/espaces/relance', (req, res) => {
   const e = espaceAJour(slug);
   if (!e || !e.email || !e.code || e.clePerimee || !mailer) return;
   if (!quotaOk(relanceQuota, 'esp:' + slug, 5, 3600000)) return;
-  const lien = lienEspaceCode(e);
+  /* ⛔ PLUS DE LIEN ICI NON PLUS (12 septembre 2026). C'est le secours « j'ai perdu mon lien » :
+     y répondre par un lien, c'était renvoyer la clé de déchiffrement de l'entreprise dans une URL,
+     à chaque demande, à quiconque tape le nom sur teamop.fr — la route est publique. On renvoie
+     désormais l'ADRESSE, qui n'est pas un secret, et rien d'autre : le code d'accès, lui, ne
+     s'obtient que par le patron. Une demande anonyme ne doit rien faire sortir de secret. */
   const nom = espNomPropre(e) || e.nom || '';
+  const adresse = 'teamop.fr/e/' + (e.slug || slug);
   const entTxt = nom ? ' « ' + nom + ' »' : '';
   const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   mailerEnvoi({
-    confidentiel: true, trace: 'relance du lien de connexion · espace ' + slug,
+    confidentiel: true, trace: 'relance de l\'adresse de connexion · espace ' + slug,
     from: config.smtp.from || config.smtp.user, to: e.email,
-    subject: '🔗 Votre lien de connexion — TEAM OP',
-    text: 'Bonjour,\n\nQuelqu\'un vient de demander le lien de connexion de votre entreprise'
-      + entTxt + ' sur teamop.fr.\n\nVotre lien :\n' + lien + '\n\n'
-      + 'Ouvrez-le sur l\'appareil à connecter, puis entrez votre identifiant et votre mot de passe.\n'
-      + 'Ce lien donne accès aux données de l\'entreprise : ne le transmettez qu\'à vos employés.\n\n'
+    subject: '🏢 L\'adresse de votre entreprise — TEAM OP',
+    text: 'Bonjour,\n\nQuelqu\'un vient de demander l\'adresse de connexion de votre entreprise'
+      + entTxt + ' sur teamop.fr.\n\nVotre adresse :\n' + adresse + '\n\n'
+      + 'Chacun y va, tape SON identifiant et SON mot de passe, et arrive dans votre espace — sur n\'importe quel téléphone. Mettez-la en favori, il n\'y a rien d\'autre à conserver.\n\n'
+      + 'Si personne n\'arrive encore à se connecter, c\'est que votre espace n\'a pas encore été ouvert une première fois : écrivez-nous, nous vous donnons votre code d\'accès.\n\n'
       + 'Si vous n\'êtes à l\'origine d\'aucune demande, ignorez ce message — rien n\'a changé.\n\n— TEAM OP · teamop.fr',
     html: mailTeamOP({
       chip: 'Lien de connexion',
       titre: 'Votre lien de connexion 🔗',
-      corpsHtml: 'Bonjour,<br>quelqu\'un vient de demander le lien de connexion de votre entreprise'
-        + x(entTxt) + ' sur teamop.fr.<br><br><b>Votre lien :</b><br>'
-        + '<a href="' + x(lien) + '" style="color:#34A97E;word-break:break-all">' + x(lien.replace('https://', '')) + '</a><br><br>'
-        + '<span style="font-size:13px">Ouvrez-le sur l\'appareil à connecter, puis entrez votre identifiant et votre mot de passe.<br>'
-        + 'Ce lien donne accès aux données de l\'entreprise : <b>ne le transmettez qu\'à vos employés</b>.</span><br><br>'
+      corpsHtml: 'Bonjour,<br>quelqu\'un vient de demander l\'adresse de connexion de votre entreprise'
+        + x(entTxt) + ' sur teamop.fr.<br><br><b>Votre adresse :</b><br>'
+        + '<a href="https://' + x(adresse) + '" style="color:#34A97E;font-size:19px;font-weight:700;word-break:break-all">' + x(adresse) + '</a><br><br>'
+        + '<span style="font-size:13px">Chacun y va, tape <b>son</b> identifiant et <b>son</b> mot de passe, et arrive dans votre espace — sur n\'importe quel téléphone. Mettez-la en favori, il n\'y a rien d\'autre à conserver.<br>'
+        + 'Si personne n\'arrive encore à se connecter, c\'est que votre espace n\'a pas encore été ouvert une première fois : écrivez-nous, nous vous donnons votre code d\'accès.</span><br><br>'
         + '<span style="color:#8fa3c8;font-size:13px">Si vous n\'êtes à l\'origine d\'aucune demande, ignorez ce message — rien n\'a changé.</span>',
-      boutonTxt: 'Ouvrir mon application', boutonUrl: lien,
+      boutonTxt: 'Ouvrir mon espace', boutonUrl: 'https://' + adresse,
       bouton2Txt: 'Mon espace client', bouton2Url: 'https://teamop.fr/espace.html'
     })
   }).catch((err) => console.error('relance lien', slug, ':', String(err && err.message || err).slice(0, 120)));
