@@ -13,10 +13,10 @@ de ligne du tout.
 
 ---
 
-## ⛔ PLUS DE LIEN DE PREMIÈRE CONNEXION — 12 septembre 2026, **PAS PUBLIÉ**
+## ✅ PLUS DE LIEN DE PREMIÈRE CONNEXION — **PUBLIÉ** le 12 septembre 2026, 19 h 32 UTC
 
-⛔ **À ne pas publier sans une phrase de Justin.** Même lot que la section suivante : `tour.html`
-et `server/index.js`, donc VPS **et** Pages. `app.html`, `sw.js`, `beta.html` intouchés.
+✅ Parti avec la v667 (« fait les 3 »). Vérifié sur les fichiers **servis** : `teamop.fr/tour.html`
+identique au dépôt au bit près, **zéro** zone de lien, et `api.teamop.fr/health` → `annonce: 667`.
 
 **Sa décision**, après avoir vu la Tour lui afficher un lien qui ne correspondait pas à ELAN :
 « on va supprimer ces liens-là et garder que le lien qui se donne aux équipes ».
@@ -79,11 +79,9 @@ désormais par `scratchpad/ed.py` : fichier temporaire, relecture, puis renommag
 
 ---
 
-## ⛔ LA TOUR FABRIQUAIT DES ESPACES FANTÔMES — corrigé le 12 septembre, **PAS PUBLIÉ**
+## ✅ LA TOUR FABRIQUAIT DES ESPACES FANTÔMES — **PUBLIÉ** le 12 septembre 2026
 
-⛔ **À ne pas publier sans une phrase de Justin.** Sur la branche
-`claude/op-gestion-interface-yb6p32`. Touche `server/index.js` (une route neuve) et `tour.html` —
-donc un déploiement VPS **et** GitHub Pages. `app.html`, `sw.js` et `beta.html` ne bougent pas.
+✅ Parti avec la v667. `tourLienServeur` est en ligne (3 occurrences dans la Tour servie).
 
 **Ce que Justin a vu, 12 septembre 9 h 00, sur son iPhone, fiche ELAN.** Deux lignes du même
 panneau :
@@ -153,7 +151,7 @@ visuelle) : ne pas générer de lien depuis l'aperçu.
 
 ---
 
-## v667 — ÉCRITE ET ÉPROUVÉE, **PAS PUBLIÉE**. La v666, elle, EST EN LIGNE.
+## ✅ v667 — **PUBLIÉE** le 12 septembre 2026 : `teamop.fr/app.html` → v667, `sw.js` → v866
 
 ⛔ **État exact, à ne pas confondre** : la **v666 est publiée** (fusionnée le 11 septembre 2026
 à 20 h 30 UTC, CI verte, fichiers servis vérifiés, `/health` porte `annonce: 666`). La **v667
