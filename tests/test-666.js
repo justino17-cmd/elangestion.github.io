@@ -74,13 +74,23 @@ console.log('La mise à jour ne se remet plus à plus tard, et le journal dit la
 
 // ══ 2) LES DEUX PORTES DE SORTIE MÈNENT MAINTENANT À L'ÉCRAN ═════════════════════════════
 {
+  /* ⚠️ CETTE LIGNE A CHANGÉ EN v667, ET SON INTENTION N'A PAS BOUGÉ D'UN POUCE. Elle visait le
+     corps exact de showUpdateBanner, donc elle est tombée le jour où ce corps a été réécrit
+     pour envoyer les mises à jour NON obligatoires sur la nuit (`majPrete(!!_versionBloquee)`).
+     Ce qu'elle garde vraiment — plus jamais de bannière qu'on referme d'un doigt — est intact,
+     et c'est la ligne du dessous qui le prouve pour de bon : personne ne fabrique plus
+     #update-banner. On corrige donc la cible, pas la garde. Le partage obligatoire / nuit est
+     tenu par tests/test-667.js. */
   v('⛔ la bannière refermable ne se construit plus',
-    /function showUpdateBanner\(\)\{ majEcranBloquant\(_versionMin\|\|''\); \}/.test(APP), true);
+    /function showUpdateBanner\(\)\{ majPrete\(!!_versionBloquee\); \}/.test(APP), true);
   v('…et plus personne ne fabrique #update-banner',
     /createElement\('div'\); d\.id='update-banner'/.test(APP), false);
   const p = corps(APP, 'function majPrete(');
   v('l’écran d’attente ne propose plus de finir sa saisie', /majTerminerSaisie\(\)/.test(p), false);
-  v('majPrete mène droit à l’écran bloquant', /majEcranBloquant\(_versionMin\|\|''\);/.test(p), true);
+  /* Le chemin OBLIGATOIRE mène toujours droit à l'écran bloquant — c'est le cas où attendre
+     coûte. Le cas non obligatoire, lui, part sur la nuit : voir test-667. */
+  v('majPrete mène droit à l’écran bloquant quand c’est obligatoire',
+    /if\(oblig\|\|_versionBloquee\)\{ majEcranBloquant\(_versionMin\|\|''\); return; \}/.test(p), true);
   v('⛔ majOccupe n’est plus consulté', /majOccupe/.test(p), false);
   /* Les deux fonctions restent — une dizaine d'endroits les appellent, et une fonction absente
      casse tout un écran pour une porte qu'on vient de condamner. */

@@ -13,13 +13,209 @@ de ligne du tout.
 
 ---
 
-## v666 — ÉCRITE, ÉPROUVÉE, **PAS PUBLIÉE** — elle attend une phrase de Justin
+## ⛔ PLUS DE LIEN DE PREMIÈRE CONNEXION — 12 septembre 2026, **PAS PUBLIÉ**
 
-⛔ **Ne pas la publier sans qu'il le demande explicitement pour ce changement-là.** C'est la
-règle durcie du 11 septembre au soir (voir `CLAUDE.md`), et il l'a redite le même soir :
-« fait moi tout mais pas de mise à jour tant que je te l'ai pas dit ». Tout est sur la branche
-`claude/op-gestion-interface-yb6p32` et sur `beta.html`. `app.html` et `sw.js` **restent sur la
-branche** ; `main` n'a rien reçu.
+⛔ **À ne pas publier sans une phrase de Justin.** Même lot que la section suivante : `tour.html`
+et `server/index.js`, donc VPS **et** Pages. `app.html`, `sw.js`, `beta.html` intouchés.
+
+**Sa décision**, après avoir vu la Tour lui afficher un lien qui ne correspondait pas à ELAN :
+« on va supprimer ces liens-là et garder que le lien qui se donne aux équipes ».
+
+**Ce n'est pas qu'un rangement.** Ce lien portait `k` — LA CLÉ QUI DÉCHIFFRE TOUTES LES DONNÉES
+DE L'ENTREPRISE — dans une URL, c'est-à-dire dans un objet fait pour être transféré, photographié,
+collé dans un groupe. Et c'est lui que la Tour fabriquait de travers depuis un autre appareil.
+
+**Vérifié AVANT de retirer quoi que ce soit**, sonde sur le vrai serveur isolé
+(`scratchpad/sonde-acces.js`) : `nom + code d'accès` → l'espace s'ouvre, `elan-34oc`, clé comprise,
+**sans le mot de passe provisoire en clair**. Mauvais code → 403. Le chemin de remplacement existe
+et marche : retirer une porte n'est juste que si l'autre s'ouvre.
+
+**Ce qui a changé :**
+- Les **trois** panneaux de la Tour (fiche entreprise, accès version publique, formule acceptée)
+  n'affichent plus de lien. Ils montrent l'adresse et le code d'accès.
+- Le code d'accès n'est plus « le filet » : c'est **la** première connexion.
+- Le courriel d'accueil (`mail-acces`) envoie adresse + code, et **refuse de partir** si le code
+  n'a pas pu être enregistré, plutôt que d'envoyer un courriel sans porte d'entrée.
+- ⛔ Le secours public « lien perdu » (`/api/espaces/relance`) ne renvoie **plus la clé**. Cette
+  route est **publique** : quiconque tapait le nom d'une entreprise sur teamop.fr déclenchait
+  l'envoi de sa clé de déchiffrement par courriel. Elle renvoie l'adresse, qui n'est pas un
+  secret ; le code, lui, ne s'obtient que par le patron.
+- `accesCodeDe(t, par, regenerer)` : **une seule définition**, partagée par le panneau et le
+  courriel. Deux copies auraient fini par fabriquer deux codes différents — celui qu'on dicte et
+  celui qu'on envoie. Même raison que `fbUidEquipe`.
+
+**Ce qui NE bouge pas, et c'est délibéré** : les liens **déjà envoyés** sont entre les mains de
+gens qui travaillent. `#entreprise=` dans `app.html`, `lienEspaceConnu`, `/api/espaces/lien` et
+`lienEspaceCode` restent. **On cesse d'en fabriquer, on ne casse pas ceux qui circulent.**
+
+⚠️ **Le piège que ce lot pouvait créer, et qu'il faut connaître** : le code d'accès arrive APRÈS
+l'affichage du panneau (un aller-retour serveur). Poser le message tout de suite, c'était envoyer
+au client un courriel portant « __CODE__ » en toutes lettres — et aucun moyen d'entrer chez lui.
+Le message et le bouton « ouvrir dans Mail » ne se posent donc qu'une fois le code reçu ; sans
+code, le bouton est grisé et dit pourquoi. La copie automatique dans le presse-papiers a été
+retirée pour la même raison.
+
+⚠️ **Et « code indisponible » ne suffisait plus.** Trois mots, aucune piste — c'est ce
+qu'affichait la fiche d'ELAN. Tant que le lien existait ce n'était qu'un filet muet ; c'est
+désormais la seule porte. Le message dit maintenant ce que le serveur a répondu, et distingue un
+refus d'un serveur injoignable.
+
+**⛔ CE QUI RESTE OUVERT, et qu'il faut décider** : deux chemins du SITE envoient encore un lien
+portant la clé — `/api/compte/identifiants` et le relais `/api/clients/sync` (une entreprise qui
+s'inscrit sur teamop.fr). Ils n'ont pas été touchés : ce n'est pas ce que Justin regardait, ils
+ont leurs propres tests, et les mêler à ce lot aurait élargi le risque. **À lui de dire s'il veut
+qu'on les fasse aussi.**
+
+**État des contrôles :** 31 suites, **978 vérifications**, 0 échec. `tests/test-669.js` en porte 46,
+dont la moitié contre le VRAI serveur isolé — et surtout le contrôle qui compte : « LA PREMIÈRE
+CONNEXION MARCHE SANS LIEN », plus le renouvellement (l'ancien code ne vaut plus rien, le nouveau
+si). Un test qui vérifierait seulement la disparition du lien passerait au vert le jour où plus
+aucune entreprise ne peut se connecter.
+
+⚠️ **Incident de manipulation, à ne pas refaire** : `io.open(p,'w')` tronque le fichier AVANT
+d'écrire. Une exception d'encodage en plein `write()` a laissé `tour.html` **à zéro octet** —
+récupéré par `git checkout`, rien de perdu au-delà du travail de la minute. Les éditions passent
+désormais par `scratchpad/ed.py` : fichier temporaire, relecture, puis renommage.
+
+---
+
+## ⛔ LA TOUR FABRIQUAIT DES ESPACES FANTÔMES — corrigé le 12 septembre, **PAS PUBLIÉ**
+
+⛔ **À ne pas publier sans une phrase de Justin.** Sur la branche
+`claude/op-gestion-interface-yb6p32`. Touche `server/index.js` (une route neuve) et `tour.html` —
+donc un déploiement VPS **et** GitHub Pages. `app.html`, `sw.js` et `beta.html` ne bougent pas.
+
+**Ce que Justin a vu, 12 septembre 9 h 00, sur son iPhone, fiche ELAN.** Deux lignes du même
+panneau :
+
+| | affiché | ce que ça vaut |
+|---|---|---|
+| SON ADRESSE | `teamop.fr/e/elan` | **juste** — mesuré : résout vers `elan-34oc` |
+| LE LIEN | `…#entreprise=eyJ0IjoiZWxhbi1ncTNrIi…` | **faux** — décodé : `elan-gq3k`, inventé |
+
+Sa phrase : « Le 2ème lien correspond pas à elan ». Il avait raison.
+
+**LA CAUSE, lue dans le code et pas devinée.** `tourEspaceDe` avait UNE seule source pour le
+lien : `localStorage.tour_liens`, du navigateur ouvert. L'adresse, elle, venait du serveur. Sur
+le téléphone du patron plutôt que sur son Mac, l'entrée manquait — et la fonction FABRIQUAIT un
+espace neuf :
+
+```js
+sp = { t: slug+'-'+Math.random().toString(36).slice(2,6), k: <24 lettres au hasard>, … }
+```
+
+« elan » + « -gq3k » : exactement cette forme. **C'est le mécanisme qui a produit `elan-d4v8` et
+`elan-tzl2`**, trouvés hors annuaire la veille — pas un mystère, une fonction.
+
+**CE QUI A SAUVÉ ELAN, et qu'il faut garder.** Le serveur refuse (409) d'enregistrer un nom déjà
+pris par un AUTRE espace. L'annuaire n'a donc pas été écrasé — vérifié en production par
+`/api/espaces/verifie-nom`, les quatre identifiants un par un : seul `elan-34oc` répond `true`.
+Et `/api/espaces/connexion` rend un vrai refus d'identifiants, pas `sans-annuaire` : la connexion
+par adresse est saine chez ELAN.
+
+**MAIS LA TOUR AVALAIT CE REFUS.** Sur le 409 elle affichait : « Attention : nom non enregistré
+côté serveur — **le lien, lui, marche** ». Faux, et c'est précisément ce qui trompait : le lien
+était la seule chose qui ne marchait pas. Envoyé, il met la personne dans une base VIDE, avec une
+clé que personne d'autre ne possède.
+
+**Le correctif, en trois pièces :**
+1. `POST /api/monitor/espaces/lien-existant` (patron seul) rend le VRAI lien d'un espace inscrit.
+   Le serveur a toujours su — `espacesReg[slug].code` — il ne le rendait simplement jamais à
+   l'écran. `codeMdpHache` en retire le mot de passe provisoire en clair, comme pour le courriel.
+2. `tourEspaceDe` demande au serveur **d'abord, toujours**, même quand ce navigateur croit savoir.
+   Conséquence utile : un `tour_liens` déjà pollué ne gagne plus — l'iPhone de Justin se répare
+   tout seul à la publication, sans rien vider à la main.
+3. Le refus s'affiche tel quel et **arrête** la fonction. Les trois appelants ont leur garde.
+
+⚠️ **ON ÉCHOUE FERMÉ ICI, à l'inverse de `connexion.html`, et ce n'est pas une incohérence : la
+règle suit le COÛT.** Sur la page de connexion, laisser passer n'accorde rien (il reste un mot de
+passe à donner) ; ici, passer **CRÉE** un espace. Fabriquer sur une réponse qu'on n'a pas reçue
+est exactement ce qui a produit les fantômes. Serveur injoignable → on ne crée rien, et on le dit.
+
+⚠️ **Un défaut muet trouvé en écrivant le correctif** : `apiPost` ne rendait pas le code HTTP.
+`r.status===404` n'aurait donc JAMAIS été vrai, tout refus serait devenu un doute, et la Tour
+n'aurait plus pu ouvrir un seul espace neuf — sans erreur, sans message. `status` est maintenant
+rendu **en plus** de `ok` et `d` : aucun appelant existant ne change.
+
+**État des contrôles :** 30 suites, **932 vérifications**, 0 échec. `tests/test-668.js` en porte 40,
+dont la moitié contre le **VRAI serveur** lancé isolé (`TEAMOP_CONFIG`/`TEAMOP_DATA`/`PORT` à lui,
+jamais `api.teamop.fr`), comme `test-641.js` : sans jeton → 403 et rien ne fuit ; nom inscrit →
+le lien porte `elan-34oc` ; nom inconnu → 404 ; espace sans code → 409 `sans_code` ; le mot de
+passe en clair ne sort pas ; et le garde-fou du 409 sur `/api/monitor/espaces` est rejoué, avec la
+vérification que l'annuaire d'ELAN survit à la tentative.
+
+⚠️ **En attendant la publication** : le panneau de la Tour affiche toujours le mauvais lien.
+L'adresse `teamop.fr/e/elan`, elle, est bonne et suffit à toute l'équipe. **Ne pas envoyer le
+lien affiché.**
+
+⚠️ **`apercu/tour.html` porte encore l'ancien code** (c'est une copie figée pour la refonte
+visuelle) : ne pas générer de lien depuis l'aperçu.
+
+---
+
+## v667 — ÉCRITE ET ÉPROUVÉE, **PAS PUBLIÉE**. La v666, elle, EST EN LIGNE.
+
+⛔ **État exact, à ne pas confondre** : la **v666 est publiée** (fusionnée le 11 septembre 2026
+à 20 h 30 UTC, CI verte, fichiers servis vérifiés, `/health` porte `annonce: 666`). La **v667
+attend une phrase de Justin** — elle vit sur la branche `claude/op-gestion-interface-yb6p32` et
+sur `beta.html`.
+
+**Ce qu'elle fait : le second versant de la consigne du 11 septembre.** Justin a dit deux choses
+le même soir, qui ont l'air de se contredire :
+· « dès la connexion, peu importe les choses qu'ils vont faire… ils ne peuvent pas la faire
+  plus tard » ;
+· « pour les versions publiques, toutes les mises à jour se feront la nuit ».
+
+Elles ne se contredisent pas — elles ne parlent pas du même cas, et c'est le partage qui les
+rend tenables toutes les deux :
+
+| cas | ce qui se passe | pourquoi |
+|---|---|---|
+| **Obligatoire** (sous le minimum exigé) | écran bloquant, tout de suite, aucune sortie | l'appareil n'enregistre DÉJÀ plus rien pour l'équipe, et il fait croire à son porteur qu'il travaille |
+| **Simple nouvelle version** | rien à l'écran ; ça s'installe la nuit, page libre | il travaille très bien, rien n'urge — on ne prend pas l'écran d'un technicien en intervention |
+
+⛔ **Ce n'est PAS le « plus tard » qu'on vient de condamner**, et la différence tient en une
+phrase : « plus tard » était un BOUTON — ça dépendait de quelqu'un, et une personne sur deux ne
+le touchait jamais, d'où Benoit resté en v634 pendant des semaines. Ici personne ne décide et
+personne ne peut repousser : c'est l'heure qui décide, et elle arrive tous les jours.
+
+**La fenêtre : 22 h – 5 h, heure de L'APPAREIL.** Pas 6 h : une équipe de terrain commence tôt,
+on ne recharge jamais sous les doigts du premier levé. Et la boucle attend aussi que la page
+soit LIBRE (`majOccupe()`) — personne n'est rechargé en pleine saisie, même à 3 h du matin. Si
+le minimum est relevé pendant l'attente, l'obligatoire prend la main et la nuit s'efface.
+
+⚠️ **LE PIÈGE QUI A FAILLI PASSER, et qui vaut plus que le reste.** `majAppliquer` éteint le
+minuteur de nuit, et il est écrit DEUX CENTS LIGNES AU-DESSUS de l'endroit « logique » où l'on
+aurait déclaré `_majNuit`. Un `let` plus bas les aurait mis en **zone morte temporelle** pour
+lui — et la ligne étant dans un `try/catch`, l'erreur aurait été avalée en silence : le minuteur
+aurait continué de tourner après le départ de la mise à jour. Même genre de zone morte que celle
+qui avait rendu tout le rangement de catégories inopérant le 10 septembre au matin, sans qu'aucun
+test ne la voie. La déclaration est remontée ligne 6288, et `tests/test-667.js` vérifie la
+**POSITION**, pas seulement la présence.
+
+**Un test de la v666 est tombé, et c'était le bon réflexe** : il visait le corps exact de
+`showUpdateBanner`, réécrit ici. Son intention — plus jamais de bannière qu'on referme d'un
+doigt — est intacte, et c'est l'assertion voisine qui la prouve vraiment (personne ne fabrique
+plus `#update-banner`). Cible corrigée **avec sa justification écrite dans le fichier**, garde
+non affaiblie.
+
+**État des contrôles :** 29 suites, **892 vérifications**, 0 échec (`test-667.js` en porte 44).
+Les quatre cas de la boucle sont mesurés au navigateur piloté sur la bêta, en remplaçant
+`majEstNuit`/`majOccupe` pour observer sans recharger : jour+libre → rien ; nuit+occupé → rien ;
+nuit+libre → ça part, une fois ; obligatoire pendant l'attente → la nuit s'efface, minuteur
+éteint.
+
+---
+
+## v666 — **PUBLIÉE** le 11 septembre 2026 à 20 h 30 UTC
+
+✅ **Autorisée explicitement par Justin** (« Fait les 2 », en réponse à la question directe), puis
+publiée selon le rituel complet : CI verte AVANT la fusion, et les fichiers **servis** vérifiés
+— `teamop.fr/app.html` → v666, `teamop.fr/sw.js` → `elan-gestion-v865`,
+`teamop.fr/connexion.html` identique au dépôt au bit près, `api.teamop.fr/health` →
+`annonce: "666"`. Le texte d'annonce était resté sur la **v572**, quatre-vingt-quatorze versions
+en arrière : un clic sur « Annoncer » aurait envoyé à toutes les entreprises les nouveautés de
+la v572. Réécrit. **L'envoi reste un geste de Justin depuis la Tour — rien n'est parti.**
 
 Trois choses dedans, les trois demandées par Justin, les trois mesurées au navigateur :
 
